@@ -3,31 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:GeoNex"
              xmlns:components="clr-namespace:GeoNex.Components"
-             xmlns:skia="clr-namespace:SkiaSharp.Views.Maui.Controls;assembly=SkiaSharp.Views.Maui.Controls"
              xmlns:blazor="clr-namespace:Microsoft.AspNetCore.Components.WebView.Maui;assembly=Microsoft.AspNetCore.Components.WebView.Maui"
              x:Class="GeoNex.MainPage"
              Shell.NavBarIsVisible="False"
              BackgroundColor="#161921">
 
-    <Grid>
-        <skia:SKCanvasView
-            x:Name="mapCanvas"
-            PaintSurface="OnPaintSurface"
-            EnableTouchEvents="False"
-            HorizontalOptions="Fill"
-            VerticalOptions="Fill"
-            BackgroundColor="#161921" />
-
-        <blazor:BlazorWebView
-            x:Name="blazorWebView"
-            HostPage="wwwroot/index.html"
-            BackgroundColor="Transparent"
-            HorizontalOptions="Fill"
-            VerticalOptions="Fill">
-            <blazor:BlazorWebView.RootComponents>
-                <blazor:RootComponent Selector="#app" ComponentType="{x:Type components:Routes}" />
-            </blazor:BlazorWebView.RootComponents>
-        </blazor:BlazorWebView>
-    </Grid>
-
+    <blazor:BlazorWebView HostPage="wwwroot/index.html" HorizontalOptions="Fill" VerticalOptions="Fill">
+        <blazor:BlazorWebView.RootComponents>
+            <blazor:RootComponent Selector="#app" ComponentType="{x:Type components:Routes}" />
+        </blazor:BlazorWebView.RootComponents>
+    </blazor:BlazorWebView>
 </ContentPage>

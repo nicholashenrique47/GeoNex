@@ -4,16 +4,20 @@
 @inject GeoNex.Services.ProjetoService ProjetoService
 @inject GeoNex.Services.RasterService RasterService
 @inject GeoNex.Services.MapRenderingService MapService
+@using SkiaSharp
+@using SkiaSharp.Views.Blazor
 @using ProjNet.CoordinateSystems
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
 <div class="map-background"
-     style="width: 100vw; height: 100vh; background-color: transparent; overflow: hidden; cursor: @(isDragging ? "grabbing" : "grab");"
+     style="width: 100vw; height: 100vh; background-color: transparent; overflow: hidden; cursor: @(isDragging ? "grabbing" : "grab"); position: relative;"
      @onwheel="AoRodarRato"
      @onmousedown="AoPressionarRato"
      @onmousemove="AoMoverRato"
      @onmouseup="AoSoltarRato">
+
+    <SKCanvasView @ref="skiaView" OnPaintSurface="OnPaintSurface" IgnorePixelScaling="true" style="width: 100%; height: 100%; position: absolute; z-index: 10;" />
 </div>
 //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
@@ -1591,26 +1595,63 @@
     // O CORAÇÃO DO MOTOR — RENDERIZAÇÃO DIRETA NA GPU
     // ==========================================
     
+    private SKCanvasView skiaView;
+    private SKPaint _pincelRadar;
+
     protected override void OnInitialized()
     {
         objRef = DotNetObjectReference.Create(this);
         CamadasAtivas.Add(new Camada { Nome = "OpenStreetMap", Tipo = "Raster", Visivel = true });
 
-        // Pincéis criados UMA VEZ, reutilizados em todos os frames
-        _pincelBorda = new SKPaint
-        {
-            Style = SKPaintStyle.Stroke,
-            Color = SKColors.Cyan.WithAlpha(200),
-            StrokeWidth = 0, // 0 = sempre 1px físico, independente do zoom
-            IsAntialias = true
-        };
+        _pincelBorda = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan.WithAlpha(200), StrokeWidth = 0, IsAntialias = true };
+        _pincelFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(25), IsAntialias = true };
+        _pincelRadar = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Fill, IsAntialias = true };
 
-        _pincelFill = new SKPaint
+        MapService.OnMapInvalidated += () => InvokeAsync(() => skiaView?.Invalidate());
+    }
+
+    private void OnPaintSurface(SKPaintSurfaceEventArgs e)
+    {
+        var canvas = e.Surface.Canvas;
+        var info = e.Info;
+
+        canvas.Clear(SKColors.Transparent);
+
+        // BOLA DE TESTE
+        canvas.DrawCircle(info.Width / 2f, info.Height / 2f, 150, _pincelRadar);
+
+        canvas.Save();
+
+        if (MapService.PathsCompilados.Count > 0)
         {
-            Style = SKPaintStyle.Fill,
-            Color = SKColors.Cyan.WithAlpha(25),
-            IsAntialias = true
-        };
+            SKRect limitesTotais = new SKRect();
+            bool primeiro = true;
+            foreach (var path in MapService.PathsCompilados)
+            {
+                if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
+                else { limitesTotais.Union(path.Bounds); }
+            }
+
+            if (!limitesTotais.IsEmpty)
+            {
+                float escalaX = info.Width / limitesTotais.Width;
+                float escalaY = info.Height / limitesTotais.Height;
+                float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+
+                canvas.Translate(info.Width / 2f + MapService.CameraPanX, info.Height / 2f + MapService.CameraPanY);
+                canvas.Scale(escalaAutoFit * MapService.CameraZoom);
+                canvas.Translate(-limitesTotais.MidX, -limitesTotais.MidY);
+
+                _pincelBorda.StrokeWidth = 1f / (escalaAutoFit * MapService.CameraZoom);
+
+                foreach (var path in MapService.PathsCompilados)
+                {
+                    canvas.DrawPath(path, _pincelFill);
+                    canvas.DrawPath(path, _pincelBorda);
+                }
+            }
+        }
+        canvas.Restore();
     }
 
     // Variáveis de Controle da Tabela
