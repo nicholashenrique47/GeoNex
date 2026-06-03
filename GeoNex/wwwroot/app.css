@@ -1,0 +1,6 @@
+html, body, #app, #app > *:first-child {
+    background: transparent !important;
+    background-color: transparent !important;
+    margin: 0;
+    padding: 0;
+}

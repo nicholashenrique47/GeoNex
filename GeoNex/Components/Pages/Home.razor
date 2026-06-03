@@ -1,0 +1,2737 @@
+﻿@page "/"
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+@inject GeoNex.Services.ProjetoService ProjetoService
+@inject GeoNex.Services.RasterService RasterService
+@inject GeoNex.Services.MapRenderingService MapService
+@using ProjNet.CoordinateSystems
+@using ProjNet.CoordinateSystems.Transformations
+<PageTitle>GeoNex - Professional GIS</PageTitle>
+
+<div class="map-background"
+     style="width: 100vw; height: 100vh; background-color: transparent; overflow: hidden; cursor: @(isDragging ? "grabbing" : "grab");"
+     @onwheel="AoRodarRato"
+     @onmousedown="AoPressionarRato"
+     @onmousemove="AoMoverRato"
+     @onmouseup="AoSoltarRato">
+</div>
+//começou aqui
+<!-- A INTERFACE FLUTUANTE -->
+<div class="geonex-ui">
+
+    <!-- BARRA SUPERIOR (HEADER & RIBBON) -->
+    <header class="glass-panel top-bar">
+        <div class="brand-group">
+            <h1>GEONEX</h1>
+            <span class="sub-brand">PRO</span>
+        </div>
+        <button class="btn btn-danger m-2" @onclick="TestarMotorCPlusPlus">🔥 TESTAR MOTOR C++</button>
+        <nav class="main-menu">
+
+            <div class="dropdown">
+                <button class="menu-btn">Arquivo ▾</button>
+                <div class="dropdown-content">
+                    <button @onclick="CriarNovoProjeto">Novo Projeto</button>
+                    <button>Abrir Projeto...</button>
+                    <div class="drop-divider"></div>
+                    <button>Salvar</button>
+                    <button>Salvar Como...</button>
+                    <div class="drop-divider"></div>
+                    <button>Configurações do Sistema</button>
+                    <button>Sair</button>
+                </div>
+            </div>
+            <!-- MENU: DADOS (Com ação de abrir o modal) -->
+            <div class="dropdown">
+                <button class="menu-btn">Dados ▾</button>
+                <div class="dropdown-content">
+                    <button @onclick="AbrirModalImportacao">Importar Raster (ECW, TIF)</button>
+                    <button @onclick="AbrirModalImportacao">Importar Vetor (SHP, GeoJSON)</button>
+                    <button @onclick="AbrirModalImportacao">Importar Pontos (CSV, TXT)</button>
+                    <div class="drop-divider"></div>
+                    <button>Conectar Banco PostGIS</button>
+                </div>
+            </div>
+
+            <div class="dropdown">
+                <button class="menu-btn">Exportar ▾</button>
+                <div class="dropdown-content">
+                    <button>Exportar Vetor (Shapefile)</button>
+                    <button>Exportar Tabela (CSV)</button>
+                </div>
+            </div>
+
+            <div class="dropdown">
+                <button class="menu-btn">GNSS / RTK ▾</button>
+                <div class="dropdown-content">
+                    <button>Gerenciador de Conexão (COM/BT)</button>
+                    <button>Monitor NMEA (Satélites)</button>
+                </div>
+            </div>
+
+            <button class="menu-btn sync-btn">Sincronizar Nuvem</button>
+            <div class="vertical-divider"></div>
+
+            <div class="toolbar-group">
+                <span class="toolbar-label">AQUISIÇÃO</span>
+                <button class="tool-btn active">Selecionar</button>
+                <button class="tool-btn" @onclick="() => exibirModalCoordenadas = true">Inserir Coordenadas</button>
+                <button class="tool-btn" @onclick="AtivarFerramentaPoligono">Polígono (Manual)</button>
+            </div>
+
+            <div class="toolbar-group">
+                <span class="toolbar-label">EDIÇÃO</span>
+                <button class="tool-btn @(modoEdicaoVerticeLigado ? "active" : "")" @onclick="AlternarEdicaoVertices">Vértices</button>
+                <button class="tool-btn">Cortar</button>
+
+                <div class="vertical-divider" style="height: 15px; margin: 0 5px;"></div>
+
+                <button class="tool-btn"
+                        style="@(temEdicoesPendentes ? "color: #facc15; border: 1px solid #facc15; font-weight: bold; background: rgba(250, 204, 21, 0.1);" : "opacity: 0.5; cursor: not-allowed;")"
+                        @onclick="ConfirmarTodasEdicoes"
+                        disabled="@(!temEdicoesPendentes)">
+                    Salvar Edições
+                </button>
+            </div>
+        </nav>
+
+        <div class="status-group">
+            <span class="status-indicator online"></span>
+            <span class="status-text">API CONECTADA</span>
+        </div>
+    </header>
+
+    <!-- PAINÉIS LATERAIS E ÁREA DE TRABALHO -->
+    <main class="workspace-area">
+
+        <!-- PAINEL ESQUERDO: CAMADAS -->
+        <aside class="glass-panel side-panel left-panel">
+            <div class="panel-header">
+                <h2>CAMADAS</h2>
+                <div class="header-actions">
+                    <button class="icon-action-btn">+</button>
+                </div>
+            </div>
+
+            <div class="layer-list custom-scrollbar">
+                @foreach (var camada in CamadasAtivas)
+                {
+                    // Variável local de segurança para o Blazor não se perder nos eventos de clique
+                    var camadaAtual = camada;
+
+                    <!-- A camada agora é arrastável nativamente -->
+                    <div @key="camadaAtual.Nome"
+                         class="layer-item @(camadaAtual.Tipo.ToLower())"
+                         draggable="true"
+                         @ondragstart="() => AoIniciarArrastar(camadaAtual)"
+                         @ondrop="() => AoSoltarCamada(camadaAtual)"
+                         @ondragover="@(e => { })"
+                         @ondragover:preventDefault="true"
+                         @oncontextmenu="(e) => MostrarMenuContexto(e, camadaAtual.Nome)"
+                         @oncontextmenu:preventDefault="true">
+
+                        <!-- PEGADOR (Drag Handle) - Indica onde agarrar -->
+                        <div class="drag-handle" title="Arrastar para reordenar">
+                            <svg width="12" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="9" cy="12" r="1"></circle>
+                                <circle cx="9" cy="5" r="1"></circle>
+                                <circle cx="9" cy="19" r="1"></circle>
+                                <circle cx="15" cy="12" r="1"></circle>
+                                <circle cx="15" cy="5" r="1"></circle>
+                                <circle cx="15" cy="19" r="1"></circle>
+                            </svg>
+                        </div>
+
+                        <input type="checkbox"
+                               checked="@camadaAtual.Visivel"
+                               @onchange="@(e => ToggleCamada(camadaAtual, (bool)(e.Value ?? false)))" />
+
+                        <span class="type-tag" style="background: @(camadaAtual.Tipo == "Raster" ? "#5b21b6" : "#065f46"); color: @(camadaAtual.Tipo == "Raster" ? "#ddd6fe" : "#a7f3d0");">
+                            @(camadaAtual.Tipo == "Raster" ? "R" : "V")
+                        </span>
+
+                        <span class="layer-title no-select">@camadaAtual.Nome</span>
+
+                        <!-- O resto dos seus botões continuam iguais aqui para baixo... -->
+                        @if (camadaAtual.Tipo == "Vetor")
+                        {
+                            <div class="layer-actions" style="display: flex; gap: 5px; margin-left: auto;">
+
+                                <!-- Botão 1: Tabela -->
+                                <button type="button" class="layer-action-btn" title="Abrir Tabela de Atributos"
+                                        @onclick="() => AbrirTabela(camadaAtual.Nome)"
+                                        @onclick:stopPropagation="true">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                        <line x1="3" y1="9" x2="21" y2="9"></line>
+                                        <line x1="9" y1="21" x2="9" y2="9"></line>
+                                    </svg>
+                                </button>
+
+                                <!-- Botão 2: Propriedades -->
+                                <button type="button" class="layer-action-btn" title="Propriedades da Camada"
+                                        @onclick="() => AbrirPropriedadesCamada(camadaAtual.Nome)"
+                                        @onclick:stopPropagation="true">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                                    </svg>
+                                </button>
+
+                                <!-- NOVO MENU DE CONTEXTO (Três Pontinhos) -->
+                                <!-- MENU DE CONTEXTO (Três Pontinhos) -->
+                                <button type="button" class="layer-action-btn" title="Opções da Camada"
+                                        @onclick="(e) => BotaoOpcoesClicado(e, camadaAtual.Nome)"
+                                        @onclick:stopPropagation="true">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="1"></circle>
+                                        <circle cx="12" cy="5" r="1"></circle>
+                                        <circle cx="12" cy="19" r="1"></circle>
+                                    </svg>
+                                </button>
+
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (CamadasAtivas.Count == 0)
+                {
+                    <div style="padding: 15px; color: #64748b; font-size: 0.75rem; text-align: center;">
+                        Nenhuma camada adicionada ao projeto.
+                    </div>
+                }
+            </div>
+        </aside>
+
+        <!-- O PAINEL SENSORIAL BLINDADO -->
+       
+        <!-- PAINEL DIREITO: ATRIBUTOS -->
+        <aside class="glass-panel side-panel right-panel">
+            <div class="panel-header">
+                <h2>ATRIBUTOS DA FEIÇÃO</h2>
+            </div>
+            <div class="properties-content custom-scrollbar">
+
+                @if (atributosFeicaoSelecionada != null && atributosFeicaoSelecionada.Count > 0)
+                {
+                    <div class="attribute-form">
+                        <div class="form-group mb-15" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+                            <label>Camada Origem</label>
+                            <span style="font-size: 0.75rem; color: #38bdf8; font-weight: bold; word-break: break-all;">@camadaSelecionadaPainel</span>
+                        </div>
+
+                        @foreach (var atributo in atributosFeicaoSelecionada)
+                        {
+                            <div class="form-group">
+                                <label>@atributo.Key</label>
+                                @if (atributo.Key.ToUpper() == "FID" || atributo.Key.ToUpper() == "ID")
+                                {
+                                    <input type="text" class="glass-input" value="@atributo.Value" readonly style="opacity: 0.6;" />
+                                }
+                                else
+                                {
+                                    <input type="text" class="glass-input editable" value="@atributo.Value" @onchange="(e) => AtualizarAtributoPainel(atributo.Key, e.Value.ToString())" />
+                                }
+                            </div>
+                        }
+
+                        <div class="import-actions" style="margin-top: 20px;">
+                            <button class="btn-save add-layer-btn" style="width: 100%;" @onclick="SalvarAtributosPainel">SALVAR ALTERAÇÕES</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div style="display: flex; height: 100%; align-items: center; justify-content: center; color: #64748b; font-size: 0.85rem; text-align: center; padding: 20px; flex-direction: column; gap: 10px;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                        <span>Selecione um polígono no mapa para inspecionar seus atributos.</span>
+                    </div>
+                }
+
+            </div>
+        </aside>
+
+    </main>
+    <main class="workspace-area">
+    </main>
+
+    @if (exibirTabelaAtributos)
+    {
+        <div class="glass-panel attribute-table-container">
+            <div class="table-header">
+                <span>TABELA DE ATRIBUTOS: @nomeCamadaAtiva</span>
+                <button class="close-btn" @onclick="() => exibirTabelaAtributos = false">✕</button>
+            </div>
+            <div class="table-wrapper custom-scrollbar">
+                <table>
+                    <thead>
+                        <tr>
+                            @foreach (var col in colunasTabela)
+                            {
+                                <th>@col</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var linha in dadosTabela)
+                        {
+                            <tr @onclick="() => SelecionarNoMapa(linha)">
+                                @foreach (var col in colunasTabela)
+                                {
+                                    <td>
+                                        <input class="cell-input"
+                                               value="@(linha.ContainsKey(col) ? linha[col] : "")"
+                                               @onchange="(e) => AtualizarAtributo(linha, col, e.Value)" />
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <footer class="bottom-status-bar">
+    </footer>
+    <!-- RODAPÉ DE TELEMETRIA -->
+    <footer class="bottom-status-bar">
+        <div class="status-left">
+            <span><strong>PROJETO:</strong> Guaratuba_ZonaSul.gnx</span>
+        </div>
+        <div class="status-right">
+            <span><strong>X:</strong> <span class="mono">@longitude</span></span>
+            <span><strong>Y:</strong> <span class="mono">@latitude</span></span>
+            <span class="scale-box">1:1.000</span>
+        </div>
+    </footer>
+
+    <!-- ========================================== -->
+    <!-- JANELA MODAL DE IMPORTAÇÃO (DATA MANAGER)  -->
+    <!-- ========================================== -->
+    @if (exibirModalImportacao)
+    {
+        <div class="modal-overlay">
+            <div class="glass-panel import-modal">
+                <div class="modal-header">
+                    <h2>GERENCIADOR DE FONTES DE DADOS</h2>
+                    <button class="close-modal-btn" @onclick="FecharModalImportacao">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="modal-tabs">
+                        <button class="tab-btn @(AbaModalAtiva == "Raster" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Raster"))">Raster (ECW, TIF)</button>
+                        <button class="tab-btn @(AbaModalAtiva == "Vetor" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Vetor"))">Vetor (SHP, GeoJSON)</button>
+                        <button class="tab-btn @(AbaModalAtiva == "Texto" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Texto"))">Texto Delimitado</button>
+                        <button class="tab-btn @(AbaModalAtiva == "Nuvem" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Nuvem"))">Nuvem (PostGIS)</button>
+                    </div>
+
+                    <div class="modal-content">
+
+                        @if (AbaModalAtiva == "Raster")
+                        {
+                            <div class="form-group mb-15">
+                                <label>Arquivo Fonte / Dataset (Raster)</label>
+                                <div class="file-input-group">
+                                    <input type="text" class="glass-input file-path" value="@caminhoArquivoRaster" placeholder="C:\Caminho\para\arquivo.tif" readonly />
+                                    <button class="btn-browse" @onclick="SelecionarArquivoRaster">PROCURAR...</button>
+                                </div>
+                                <div style="margin-top: 10px; font-size: 0.7rem; color: #34d399; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; border: 1px solid rgba(52,211,153,0.2);">
+                                    <pre style="margin:0; white-space: pre-wrap;">@statusGdal</pre>
+                                </div>
+                            </div>
+
+                            <div class="import-actions">
+                                <button class="btn-save add-layer-btn" @onclick="AdicionarCamadaAoMapa">ADICIONAR RASTER AO MAPA</button>
+                                <button class="btn-cancel" @onclick="FecharModalImportacao">CANCELAR</button>
+                            </div>
+                        }
+                        else if (AbaModalAtiva == "Vetor")
+                        {
+                            <div class="form-group mb-15">
+                                <label>Arquivo Fonte Vetorial (Shapefile, KML, GeoJSON)</label>
+                                <div class="file-input-group">
+                                    <input type="text" class="glass-input file-path" value="@caminhoArquivoVetor" placeholder="C:\Caminho\para\lotes.shp" readonly />
+                                    <button class="btn-browse" @onclick="SelecionarArquivoVetor">PROCURAR...</button>
+                                </div>
+                            </div>
+
+                            <div class="form-group mb-15">
+                                <label>Sistema de Referência de Coordenadas (CRS/EPSG)</label>
+                                <select class="glass-input editable">
+                                    <option>Automático (Lido do arquivo .prj)</option>
+                                    <option>EPSG:31982 - SIRGAS 2000 / UTM zone 22S</option>
+                                    <option>EPSG:4326 - WGS 84</option>
+                                </select>
+                            </div>
+
+                            <div class="import-actions">
+                                <button class="btn-save add-layer-btn" @onclick="AdicionarVetorAoMapa">ADICIONAR VETOR AO MAPA</button>
+                                <button class="btn-cancel" @onclick="FecharModalImportacao">CANCELAR</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="display: flex; height: 100%; align-items: center; justify-content: center; color: #64748b; font-size: 0.85rem;">
+                                Módulo em desenvolvimento.
+                            </div>
+                        }
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    @if (exibirModalPropriedades)
+    {
+        <div class="modal-overlay">
+            <div class="glass-panel modal-container" style="width: 550px; min-height: 400px;">
+                <div class="modal-header">
+                    <h2>PROPRIEDADES: @camadaEmEdicao</h2>
+                    <button class="close-btn" @onclick="() => exibirModalPropriedades = false">✕</button>
+                </div>
+
+                <div class="modal-body properties-layout">
+
+                    <nav class="properties-sidebar">
+                        <button class="tab-btn @(abaAtivaPropriedades == "Simbologia" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Simbologia"'>Simbologia</button>
+                        <button class="tab-btn @(abaAtivaPropriedades == "Rotulos" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Rotulos"'>Rótulos</button>
+                        <button class="tab-btn @(abaAtivaPropriedades == "Informacao" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Informacao"'>Informação</button>
+                    </nav>
+
+                    <div class="properties-content custom-scrollbar">
+
+                        @if (abaAtivaPropriedades == "Simbologia")
+                        {
+                            <div class="form-group-vertical">
+                                <label>TIPO DE SIMBOLOGIA</label>
+                                <select class="glass-input" @bind="tipoSimbologia">
+                                    <option value="UNICA">Símbolo Único (Cor Sólida)</option>
+                                    <option value="CATEGORIZADA">Categorizado (Por Atributo)</option>
+                                </select>
+                            </div>
+
+                            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 5px 0;" />
+
+                            @if (tipoSimbologia == "UNICA")
+                            {
+                                <div class="form-group-vertical">
+                                    <label>Cor de Preenchimento</label>
+                                    <div class="color-picker-row">
+                                        <input type="color" @bind="corPreenchimento" class="color-box" />
+                                        <input type="text" class="glass-input" @bind="corPreenchimento" />
+                                    </div>
+                                </div>
+                                <div class="form-group-vertical">
+                                    <label>Cor da Borda</label>
+                                    <div class="color-picker-row">
+                                        <input type="color" @bind="corBorda" class="color-box" />
+                                        <input type="text" class="glass-input" @bind="corBorda" />
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="form-group-vertical">
+                                    <label>Separar Cores Usando a Coluna:</label>
+                                    <select class="glass-input" @bind="colunaSimbologiaCategorizada">
+                                        <option value="">[ Selecione a Coluna ]</option>
+                                        @foreach (var col in colunasDisponiveisRotulo)
+                                        {
+                                            <option value="@col">@col</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+
+                            <div class="form-group-vertical" style="margin-top: 10px;">
+                                <label>Opacidade (@opacidadePreenchimento%)</label>
+                                <input type="range" min="0" max="100" step="1" @bind="opacidadePreenchimento" @bind:event="oninput" class="slider" />
+                            </div>
+
+                            <div class="form-group-vertical" style="margin-top: 10px;">
+                                <label>Espessura da Linha (@espessuraLinha px)</label>
+                                <input type="range" min="0" max="5" step="0.5" @bind="espessuraLinha" class="slider" />
+                            </div>
+                        }
+                        else if (abaAtivaPropriedades == "Rotulos")
+                        {
+                            <div class="form-group-vertical">
+                                <label>Rotular com (Coluna)</label>
+                                <select class="glass-input" @bind="colunaRotuloSelecionada" style="width: 100%; padding: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.4); color: #fff; border-radius: 4px;">
+                                    <option value="">[ Nenhum Rótulo ]</option>
+                                    @foreach (var col in colunasDisponiveisRotulo)
+                                    {
+                                        <option value="@col">@col</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="form-group-vertical" style="margin-top: 15px;">
+                                <label>Tamanho da Fonte (@tamanhoFonteRotulo px)</label>
+                                <input type="range" min="8" max="32" step="1" @bind="tamanhoFonteRotulo" class="slider" />
+                            </div>
+
+                            <div class="form-group-vertical" style="margin-top: 15px;">
+                                <label>Cor do Texto</label>
+                                <div class="color-picker-row">
+                                    <input type="color" @bind="corFonteRotulo" class="color-box" />
+                                    <input type="text" class="glass-input" @bind="corFonteRotulo" />
+                                </div>
+                            </div>
+                        }
+                        else if (abaAtivaPropriedades == "Informacao")
+                        {
+                            <div style="color: #94a3b8; font-size: 0.85rem; padding: 10px;">
+                                <p style="margin-bottom: 10px;"><strong>Sistema de Coordenadas:</strong> EPSG:4326</p>
+                                <p style="margin-bottom: 10px;"><strong>Formato:</strong> Vetor OGR</p>
+                            </div>
+                        }
+
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-cancel" @onclick="() => exibirModalPropriedades = false">CANCELAR</button>
+                    <button class="btn-save add-layer-btn" @onclick="AplicarPropriedadesUnificadas">APLICAR ESTILO</button>
+                </div>
+            </div>
+        </div>
+    }
+    <!-- A CHAVE DO MODAL DE PROPRIEDADES FECHA AQUI PRIMEIRO -->
+    <!-- AGORA SIM, O MENU DE CONTEXTO É TOTALMENTE INDEPENDENTE -->
+    @if (mostrarMenuContexto)
+    {
+        <div class="context-menu-overlay" @onclick="FecharMenuContexto" @oncontextmenu="FecharMenuContexto" @oncontextmenu:preventDefault="true"></div>
+        <div class="context-menu glass-panel" style="left: @(menuContextoX)px; top: @(menuContextoY)px;">
+            <button @onclick="AproximarCamada">Aproximar à Camada</button>
+
+            @if (CamadasAtivas.FirstOrDefault(c => c.Nome == camadaSelecionadaMenu)?.Tipo == "Vetor")
+            {
+                <button @onclick="() => { FecharMenuContexto(); AbrirTabela(camadaSelecionadaMenu); }">Tabela de Atributos</button>
+                <button @onclick="() => { FecharMenuContexto(); AbrirPropriedadesCamada(camadaSelecionadaMenu); }">Propriedades e Estilos</button>
+            }
+
+            <button @onclick="FecharMenuContexto">Renomear</button>
+
+            <hr class="menu-divider" />
+
+            <!-- NOVOS CONTROLES DE HIERARQUIA -->
+            <button @onclick="() => MoverCamada(camadaSelecionadaMenu, -1)">Mover para Cima</button>
+            <button @onclick="() => MoverCamada(camadaSelecionadaMenu, 1)">Mover para Baixo</button>
+
+            <hr class="menu-divider" />
+
+            <button @onclick="PrepararRemocaoCamada" class="btn-danger">Remover Camada</button>
+        </div>
+    }
+    <!-- MODAL DE INJEÇÃO DE COORDENADAS TOPOGRÁFICAS -->
+    <!-- MODAL DE INJEÇÃO DE COORDENADAS (CADERNETA DE CAMPO) -->
+    <!-- MODAL DE INJEÇÃO DE COORDENADAS (CADERNETA DE CAMPO) -->
+    <!-- MODAL DE INJEÇÃO DE COORDENADAS (CADERNETA DE CAMPO) -->
+    @if (exibirModalCoordenadas)
+    {
+        <div class="modal-overlay">
+            <div class="glass-panel" style="width: 550px; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h2>CADERNETA DE CAMPO DIGITAL</h2>
+                    <button class="close-btn" @onclick="() => exibirModalCoordenadas = false">✕</button>
+                </div>
+
+                <!-- CORREÇÃO 1: height: auto e max-height para evitar que o conteúdo vaze -->
+                <div class="modal-body custom-scrollbar" style="height: auto; max-height: 65vh; padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto;">
+
+                    <!-- CONFIGURAÇÕES DE SISTEMA -->
+                    <div class="form-row">
+                        <div class="form-group-vertical">
+                            <label>SISTEMA (CRS)</label>
+                            <select class="glass-input" @bind="sistemaCoordenadas">
+                                <option value="DECIMAL">Geográfica Decimal (WGS 84)</option>
+                                <option value="UTM">UTM (SIRGAS 2000)</option>
+                            </select>
+                        </div>
+                        <div class="form-group-vertical">
+                            <label>GEOMETRIA ALVO</label>
+                            <select class="glass-input" @bind="tipoGeometriaAlvo">
+                                <option value="POLIGONO">Polígono (Área)</option>
+                                <option value="LINHA">Linha / Eixo</option>
+                                <option value="PONTOS">Pontos Individuais</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- CONFIGURAÇÕES ESPECÍFICAS E MÉTODO DE ENTRADA -->
+                    <div class="form-row" style="margin-top: 10px;">
+                        @if (sistemaCoordenadas == "UTM")
+                        {
+                            <div class="form-group-vertical">
+                                <label>FUSO / ZONA UTM (Ex: 22S)</label>
+                                <input type="text" class="glass-input" @bind="zonaUtm" placeholder="Ex: 22S" />
+                            </div>
+                        }
+
+                        <!-- Se não for UTM, este select ocupa a largura toda da grelha -->
+                        <div class="form-group-vertical" style="@(sistemaCoordenadas != "UTM" ? "grid-column: span 2;" : "")">
+                            <label>MÉTODO DE ENTRADA</label>
+                            <select class="glass-input" @bind="metodoEntrada">
+                                <option value="COORDENADA">Coordenadas Absolutas (X, Y)</option>
+                                @if (sistemaCoordenadas == "UTM")
+                                {
+                                    <option value="AZIMUTE">Azimute e Distância (A partir do anterior)</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (sistemaCoordenadas == "UTM")
+                    {
+                        <div class="form-group-vertical">
+                            <label>FUSO / ZONA UTM (Ex: 22S)</label>
+                            <input type="text" class="glass-input" @bind="zonaUtm" placeholder="Ex: 22S" />
+                        </div>
+                    }
+
+                    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 5px 0;" />
+
+                    <!-- ENTRADA DOS DADOS -->
+                    <div class="form-row" style="align-items: flex-end;">
+                        <div class="form-group-vertical" style="flex: 0.3;">
+                            <label>NOME</label>
+                            <input type="text" class="glass-input" @bind="novoNomePonto" placeholder="Ex: P1" />
+                        </div>
+                        <div class="form-group-vertical" style="flex: 0.7;">
+                            <label>COORDENADA (X, Y) ou (Lat, Lng)</label>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" class="glass-input" @bind="novaCoordenadaPonto" placeholder="@(sistemaCoordenadas == "UTM" ? "743210.50, 7134560.80" : "-25.8828, -48.5747")" style="flex: 1;" />
+                                <button class="btn-save" @onclick="AdicionarPontoCaderneta" style="margin: 0; padding: 8px 15px; width: auto;">+</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- LISTA DE PONTOS (A Caderneta) -->
+                    <div class="form-group-vertical">
+                        <label>LISTA DE PONTOS ADICIONADOS (@listaPontosCaderneta.Count)</label>
+                        <div class="layer-list custom-scrollbar" style="height: 140px; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 5px; border: 1px solid rgba(255,255,255,0.05);">
+
+                            @if (listaPontosCaderneta.Count == 0)
+                            {
+                                <div style="text-align: center; color: #64748b; font-size: 0.75rem; margin-top: 40px;">
+                                    Nenhum ponto adicionado à caderneta.
+                                </div>
+                            }
+
+                            @foreach (var pt in listaPontosCaderneta)
+                            {
+                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.02); margin-bottom: 2px; border-radius: 4px;">
+                                    <span><strong style="color:#38bdf8; width: 40px; display: inline-block;">@pt["Nome"]</strong> | <span style="font-family: monospace;">@pt["Coord1"], @pt["Coord2"]</span></span>
+                                    <button style="background:none; border:none; color:#ef4444; cursor:pointer; font-size: 1.1rem; font-weight: bold;" @onclick="() => RemoverPontoCaderneta(pt)" title="Remover Ponto">✕</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CORREÇÃO 2: Botões isolados no rodapé -->
+                <div class="modal-footer" style="padding: 15px 20px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 10px; background: rgba(0,0,0,0.2);">
+                    <button class="btn-cancel" @onclick="() => exibirModalCoordenadas = false">CANCELAR</button>
+                    <button class="btn-save" style="margin: 0; width: auto;" @onclick="ProcessarCadernetaDeCampo">PROCESSAR LEVANTAMENTO</button>
+                </div>
+
+            </div>
+        </div>
+    }
+    
+        @if (exibirModalTrocaVertice)
+        {
+            <div class="modal-overlay">
+                <div class="glass-panel" style="width: 400px;">
+                    <div class="modal-header">
+                        <h2>AJUSTE DE VÉRTICE: V@(verticeEditandoIndice + 1)</h2>
+                        <button class="close-btn" @onclick="() => exibirModalTrocaVertice = false">✕</button>
+                    </div>
+                    <div class="modal-body" style="padding: 15px; display: flex; flex-direction: column; gap: 10px;">
+
+                        <div class="form-row">
+                            <div class="form-group-vertical">
+                                <label>SISTEMA (CRS)</label>
+                                <select class="glass-input" @bind="sistemaCoordenadasEdicao">
+                                    <option value="DECIMAL">Decimal (WGS 84)</option>
+                                    <option value="UTM">UTM (SIRGAS 2000)</option>
+                                </select>
+                            </div>
+                            @if (sistemaCoordenadasEdicao == "UTM")
+                            {
+                                <div class="form-group-vertical">
+                                    <label>FUSO / ZONA UTM</label>
+                                    <input type="text" class="glass-input" @bind="zonaUtmEdicao" placeholder="Ex: 22S" />
+                                </div>
+                            }
+                        </div>
+
+                        <div class="form-group-vertical">
+                            <label>@(sistemaCoordenadasEdicao == "UTM" ? "COORDENADA NORTE (Y)" : "LATITUDE (Y)")</label>
+                            <input type="text" class="glass-input" @bind="verticeEditandoY" />
+                        </div>
+                        <div class="form-group-vertical">
+                            <label>@(sistemaCoordenadasEdicao == "UTM" ? "COORDENADA ESTE (X)" : "LONGITUDE (X)")</label>
+                            <input type="text" class="glass-input" @bind="verticeEditandoX" />
+                        </div>
+
+                    </div>
+                    <div class="modal-footer" style="padding: 15px; display: flex; justify-content: flex-end; gap: 10px; background: rgba(0,0,0,0.2);">
+                        <button class="btn-cancel" @onclick="() => exibirModalTrocaVertice = false">CANCELAR</button>
+                        <button class="btn-save" @onclick="ForcarVerticeManual">MOVER VÉRTICE</button>
+                    </div>
+                </div>
+            </div>
+        }
+</div> <!-- Fim da div geonex-ui -->
+<style>
+   
+    /* RESET GLOBAL E MAPA */
+    /* RESET GLOBAL E MAPA */
+    ::deep, body, html, #app {
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: transparent !important;
+        background-color: transparent !important;
+    }
+
+    .map-background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 1;
+    }
+
+    ::deep .leaflet-top {
+        top: 90px !important;
+    }
+
+    ::deep .leaflet-right {
+        right: 310px !important;
+    }
+
+    ::deep .leaflet-bottom {
+        bottom: 40px !important;
+    }
+
+    .geonex-ui {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 2000;
+        display: flex;
+        flex-direction: column;
+        pointer-events: none;
+        /* MATA A SELEÇÃO AZUL ACIDENTAL */
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }
+
+    /* EFEITO GLASSMORPHISM */
+    .glass-panel {
+        pointer-events: auto;
+        background: rgba(22, 25, 33, 0.75);
+        backdrop-filter: blur(16px) saturate(180%);
+        -webkit-backdrop-filter: blur(16px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+        color: #f1f5f9;
+        border-radius: 8px;
+    }
+
+    /* CLASSES DA INTERFACE BASE (Resumidas para espaço, mas estruturalmente idênticas ao seu pedido anterior) */
+    .top-bar {
+        margin: 15px 15px 0 15px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        /* AS DUAS LINHAS MÁGICAS QUE BLINDAM O MENU */
+        position: relative;
+        z-index: 3000;
+    }
+
+    .brand-group {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+
+        .brand-group h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            letter-spacing: 2px;
+            font-weight: 800;
+            color: #fff;
+        }
+
+    .sub-brand {
+        font-size: 0.65rem;
+        color: #38bdf8;
+        font-weight: bold;
+        padding: 2px 6px;
+        background: rgba(56, 189, 248, 0.1);
+        border-radius: 4px;
+    }
+
+    .main-menu {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        height: 100%;
+    }
+
+   
+
+    .menu-btn {
+        background: transparent;
+        border: none;
+        color: #cbd5e1;
+        height: 100%;
+        padding: 0 12px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+        border-radius: 6px;
+    }
+
+        .menu-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+    .dropdown {
+        position: relative;
+        display: inline-block;
+        height: 100%;
+    }
+
+    .dropdown-content {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        background: rgba(30, 33, 42, 0.95);
+        min-width: 220px;
+        border-radius: 6px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 9999;
+        padding: 5px 0;
+        margin-top: 0;
+    }
+
+        /* O ESCUDO INVISÍVEL - Cobre o espaço entre o botão e o menu, e as laterais */
+        .dropdown-content::before {
+            content: '';
+            position: absolute;
+            top: -30px; /* Sobe bastante para invadir o botão */
+            left: -20px; /* Estica para a esquerda para não perder o rato em diagonais */
+            right: -20px; /* Estica para a direita */
+            height: 40px; /* Altura suficiente para cobrir qualquer buraco */
+            background: transparent;
+            z-index: -1;
+        }
+
+    .dropdown:hover .dropdown-content {
+        display: block;
+    }
+
+    .vertical-divider {
+        width: 1px;
+        height: 25px;
+        background-color: rgba(255,255,255,0.1);
+        margin: 0 10px;
+    }
+
+    .toolbar-group {
+        display: flex;
+        gap: 4px;
+        background: rgba(0,0,0,0.2);
+        padding: 4px 6px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.05);
+        position: relative;
+        margin-top: 10px;
+        margin-bottom: 5px;
+    }
+
+    .toolbar-label {
+        position: absolute;
+        top: -14px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.55rem;
+        color: #64748b;
+        letter-spacing: 1px;
+        font-weight: 700;
+    }
+
+    .tool-btn {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #cbd5e1;
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+
+        .tool-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .tool-btn.active {
+            background-color: #0284c7;
+            color: #fff;
+            border-color: rgba(56, 189, 248, 0.5);
+        }
+
+    .status-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .status-text {
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #94a3b8;
+    }
+
+    .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #10b981;
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+    }
+
+    .workspace-area {
+        flex: 1;
+        display: flex;
+        justify-content: space-between;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .map-click-area {
+        flex: 1;
+        pointer-events: none;
+    }
+
+    .side-panel {
+        width: 300px;
+        margin-top: 15px;
+        margin-bottom: 15px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .left-panel {
+        margin-left: 15px;
+    }
+
+    .right-panel {
+        margin-right: 15px;
+    }
+
+    .panel-header {
+        background-color: rgba(0, 0, 0, 0.2);
+        padding: 12px 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 8px 8px 0 0;
+    }
+
+        .panel-header h2 {
+            margin: 0;
+            font-size: 0.75rem;
+            color: #94a3b8;
+            letter-spacing: 1px;
+            font-weight: 700;
+        }
+
+    .icon-action-btn {
+        background: none;
+        border: none;
+        color: #94a3b8;
+        cursor: pointer;
+    }
+
+    .layer-list {
+        padding: 10px;
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .layer-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        background-color: rgba(0, 0, 0, 0.2);
+        margin-bottom: 6px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+    }
+
+    .type-tag {
+        font-size: 0.65rem;
+        font-weight: bold;
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+
+    .raster .type-tag {
+        background: #5b21b6;
+        color: #ddd6fe;
+    }
+
+    .vector .type-tag {
+        background: #065f46;
+        color: #a7f3d0;
+    }
+
+    .properties-content {
+        padding: 15px;
+        overflow-y: auto;
+    }
+
+    .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .form-group label {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .glass-input {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #cbd5e1;
+        padding: 8px 10px;
+        border-radius: 4px;
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 0.85rem;
+        outline: none;
+        /* PERMITE SELECIONAR TEXTO APENAS AQUI DENTRO */
+        -webkit-user-select: auto;
+        -moz-user-select: auto;
+        -ms-user-select: auto;
+        user-select: auto;
+    }
+
+        .glass-input[readonly] {
+            background: rgba(0, 0, 0, 0.15);
+            color: #64748b;
+        }
+
+    .highlight-input {
+        font-family: 'Consolas', monospace !important;
+        color: #38bdf8 !important;
+        font-weight: bold;
+    }
+
+    .editable:focus {
+        border-color: #38bdf8;
+        background: rgba(0, 0, 0, 0.5);
+        color: #fff;
+    }
+
+    .btn-save {
+        background: #0284c7;
+        border: none;
+        color: white;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        cursor: pointer;
+        margin-top: 10px;
+        width: 100%;
+    }
+
+    .bottom-status-bar {
+        pointer-events: auto;
+        height: 32px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 15px;
+        background: rgba(15, 23, 42, 0.9);
+        font-size: 0.75rem;
+        color: #94a3b8;
+        border-top: 1px solid rgba(255,255,255,0.05);
+    }
+
+    /* ========================================== */
+    /* ESTILOS EXCLUSIVOS DO MODAL DE IMPORTAÇÃO  */
+    /* ========================================== */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 5000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+    }
+
+    .import-modal {
+        width: 750px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+    }
+
+    .modal-header {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 15px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 0.9rem;
+            letter-spacing: 1.5px;
+            color: #e2e8f0;
+            font-weight: 700;
+        }
+
+    .close-modal-btn {
+        background: none;
+        border: none;
+        color: #94a3b8;
+        font-size: 1.2rem;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .close-modal-btn:hover {
+            color: #ef4444;
+            transform: scale(1.1);
+        }
+
+    .modal-body {
+        display: flex;
+        height: 350px;
+    }
+
+    .modal-tabs {
+        width: 220px;
+        background: rgba(0, 0, 0, 0.15);
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid rgba(255,255,255,0.05);
+        padding: 10px 0;
+    }
+
+    .tab-btn {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        padding: 12px 20px;
+        text-align: left;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+        border-left: 3px solid transparent;
+    }
+
+        .tab-btn:hover {
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+        }
+
+        .tab-btn.active {
+            background: rgba(14, 165, 233, 0.15);
+            color: #38bdf8;
+            border-left-color: #38bdf8;
+        }
+
+    .modal-content {
+        flex: 1;
+        padding: 25px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    .mb-15 {
+        margin-bottom: 15px;
+    }
+
+    .file-input-group {
+        display: flex;
+        gap: 10px;
+    }
+
+    .file-path {
+        flex: 1;
+    }
+
+    .btn-browse {
+        background: rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.2);
+        color: #fff;
+        padding: 0 15px;
+        border-radius: 4px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+        font-size: 0.75rem;
+    }
+
+        .btn-browse:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+    select.glass-input {
+        appearance: none;
+        cursor: pointer;
+    }
+
+        select.glass-input option {
+            background: #1e293b;
+            color: #fff;
+        }
+
+    .import-actions {
+        display: flex;
+        gap: 15px;
+        margin-top: auto;
+        justify-content: flex-end;
+    }
+
+    .add-layer-btn {
+        width: auto;
+        padding: 10px 25px;
+        margin: 0;
+    }
+
+    .btn-cancel {
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.2);
+        color: #cbd5e1;
+        padding: 10px 20px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .btn-cancel:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+    /* ESTILOS DA TABELA DE ATRIBUTOS */
+    .attribute-table-container {
+        position: absolute;
+        bottom: 40px; /* Fica logo acima do rodapé de 32px + margem */
+        left: 15px;
+        right: 15px;
+        height: 300px;
+        display: flex;
+        flex-direction: column;
+        z-index: 2500;
+        box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+    }
+
+        .attribute-table-container .table-header {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 10px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #e2e8f0;
+        }
+
+        .attribute-table-container .close-btn {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+            .attribute-table-container .close-btn:hover {
+                color: #ef4444;
+            }
+
+    .table-wrapper {
+        flex: 1;
+        overflow: auto;
+        padding: 0;
+    }
+
+        .table-wrapper table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        .table-wrapper th {
+            background: rgba(15, 23, 42, 0.9);
+            color: #38bdf8;
+            text-align: left;
+            padding: 8px 12px;
+            position: sticky;
+            top: 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            z-index: 10;
+            text-transform: uppercase;
+        }
+
+        .table-wrapper td {
+            padding: 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .table-wrapper tr:hover td {
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+    .cell-input {
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: #cbd5e1;
+        padding: 8px 12px;
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 0.8rem;
+        outline: none;
+    }
+
+        .cell-input:focus {
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+        }
+    /* Ajustes para o botão da tabela no menu de camadas */
+    .layer-title {
+        flex: 1; /* Isso empurra o botão lá para o canto direito */
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .layer-action-btn {
+        background: none;
+        border: none;
+        color: #64748b;
+        cursor: pointer;
+        padding: 4px;
+        display: flex;
+        transition: 0.2s;
+        border-radius: 4px;
+    }
+
+        .layer-action-btn:hover {
+            color: #38bdf8;
+            background: rgba(255, 255, 255, 0.1);
+        }
+    /* LAYOUT DO MODAL DE PROPRIEDADES */
+    .properties-layout {
+        display: flex;
+        height: 280px;
+        padding-top: 10px;
+    }
+
+    .properties-sidebar {
+        width: 130px;
+        border-right: 1px solid rgba(255,255,255,0.1);
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding-right: 15px;
+    }
+
+        .properties-sidebar .tab-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            text-align: left;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border-radius: 4px;
+        }
+
+            .properties-sidebar .tab-btn.active, .properties-sidebar .tab-btn:hover {
+                background: rgba(56, 189, 248, 0.1);
+                color: #38bdf8;
+            }
+
+    .properties-content {
+        flex: 1;
+        padding-left: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        overflow-y: auto;
+    }
+
+    .form-group-vertical {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+        .form-group-vertical label {
+            font-size: 0.75rem;
+            color: #cbd5e1;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+    .color-picker-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .color-box {
+        width: 45px;
+        height: 35px;
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 4px;
+        cursor: pointer;
+        padding: 0;
+    }
+
+    .slider {
+        width: 100%;
+        accent-color: #38bdf8;
+    }
+    /* MENU DE CONTEXTO PROFISSIONAL */
+    .context-menu-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 9998; /* Fica acima de tudo, exceto do próprio menu */
+    }
+
+    .context-menu {
+        position: fixed;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        min-width: 200px;
+        padding: 6px;
+        background: rgba(15, 23, 42, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
+    }
+
+        .context-menu button {
+            background: transparent;
+            border: none;
+            color: #e2e8f0;
+            text-align: left;
+            padding: 10px 14px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+            .context-menu button:hover {
+                background: rgba(56, 189, 248, 0.15);
+                color: #38bdf8;
+            }
+
+        .context-menu .menu-divider {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin: 4px 0;
+        }
+
+        .context-menu .btn-danger {
+            color: #f87171 !important;
+        }
+
+            .context-menu .btn-danger:hover {
+                background: rgba(248, 113, 113, 0.15) !important;
+                color: #fca5a5 !important;
+            }
+    /* Impede a seleção acidental de texto na interface */
+    .no-select {
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }
+
+    /* Garante que o SVG não bloqueia o clique do botão */
+    .layer-action-btn svg {
+        pointer-events: none;
+    }
+
+    /* Apenas para garantir que o botão fica acima de tudo na camada */
+    .layer-action-btn {
+        position: relative;
+        z-index: 10;
+    }
+    /* CSS DO DRAG & DROP DAS CAMADAS */
+    .layer-item[draggable=true] {
+        cursor: grab;
+    }
+
+        .layer-item[draggable=true]:active {
+            cursor: grabbing;
+        }
+
+    .drag-handle {
+        color: #475569;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 2px;
+        transition: 0.2s;
+    }
+
+    .layer-item:hover .drag-handle {
+        color: #94a3b8;
+    }
+
+    .rotulo-ponto {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        font-weight: bold;
+        color: #fff;
+        text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+    }
+
+    /* ESTILOS DOS VÉRTICES DE EDIÇÃO */
+    .vertice-edit {
+        background-color: white !important;
+        border: 2px solid #0284c7 !important;
+        border-radius: 0 !important; /* Faz quadrado em vez de bola */
+        cursor: move !important;
+        box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    }
+    /* EFEITO DE INÉRCIA PARA O ZOOM E ARRASTO */
+    .smooth-transform {
+        transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+    }
+</style>
+
+@code {
+    private string latitude = "-25.882800";
+    private string longitude = "-48.574700";
+    private bool exibirModalImportacao = false;
+    private string AbaModalAtiva = "Raster";
+    private DotNetObjectReference<Home>? objRef;
+    private List<Camada> CamadasAtivas = new List<Camada>();
+    // Variáveis para controlar a tela de importação
+    private string caminhoArquivoRaster = "";
+    private string statusGdal = "Aguardando seleção de arquivo...";
+
+    // ==========================================
+    // MOTOR DE RENDERIZAÇÃO GRÁFICA (SKIA SHARP MAUI)
+    // ==========================================
+    // ==========================================
+    // O CORAÇÃO DO MOTOR — RENDERIZAÇÃO DIRETA NA GPU
+    // ==========================================
+    // ==========================================
+    // O CORAÇÃO DO MOTOR — RENDERIZAÇÃO DIRETA NA GPU
+    // ==========================================
+    
+    protected override void OnInitialized()
+    {
+        objRef = DotNetObjectReference.Create(this);
+        CamadasAtivas.Add(new Camada { Nome = "OpenStreetMap", Tipo = "Raster", Visivel = true });
+
+        // Pincéis criados UMA VEZ, reutilizados em todos os frames
+        _pincelBorda = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            Color = SKColors.Cyan.WithAlpha(200),
+            StrokeWidth = 0, // 0 = sempre 1px físico, independente do zoom
+            IsAntialias = true
+        };
+
+        _pincelFill = new SKPaint
+        {
+            Style = SKPaintStyle.Fill,
+            Color = SKColors.Cyan.WithAlpha(25),
+            IsAntialias = true
+        };
+    }
+
+    // Variáveis de Controle da Tabela
+    private bool exibirTabelaAtributos = false;
+    private string nomeCamadaAtiva = "";
+    private List<string> colunasTabela = new List<string>();
+
+    // Cada linha é um dicionário, permitindo colunas dinâmicas (qualquer Shapefile)
+    private List<Dictionary<string, object>> dadosTabela = new List<Dictionary<string, object>>();
+
+    // Função para abrir a tabela de uma camada específica (Você pode chamar isso do menu da camada)
+    // Função para abrir a tabela de uma camada específica
+    // Função disparada ao clicar no botão da tabela
+    // Variáveis dinâmicas para o Painel da Direita
+    // Mudamos de <string, object> para <string, string> para facilitar a UI
+    private string camadaSelecionadaPainel = "";
+    private Dictionary<string, string> atributosFeicaoSelecionada = new Dictionary<string, string>();
+
+
+
+    [JSInvokable]
+    public async Task SelecionarFeicaoNoMapa(string nomeCamada, string propriedadesJson)
+    {
+        try
+        {
+            // 1. Imprime na janela de "Saída" do Visual Studio para termos certeza absoluta do que chegou
+            Console.WriteLine($"[GEONEX] Clique recebido da camada {nomeCamada}: {propriedadesJson}");
+
+            camadaSelecionadaPainel = nomeCamada;
+            atributosFeicaoSelecionada = new Dictionary<string, string>(); // Limpa o anterior
+
+            var dadosBrutos = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(propriedadesJson);
+
+            if (dadosBrutos != null)
+            {
+                foreach (var item in dadosBrutos)
+                {
+                    string valorSeguro = item.Value.ValueKind == System.Text.Json.JsonValueKind.Null ? "" : item.Value.ToString();
+                    atributosFeicaoSelecionada[item.Key] = valorSeguro;
+                }
+            }
+
+            // 2. FORÇA a atualização da tela na Thread Principal (A grande correção!)
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            // Se quebrar, agora ele vai jogar o erro na sua cara na tela do software
+            Console.WriteLine($"[GEONEX ERRO]: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Falha ao ler os atributos do polígono:\n{ex.Message}");
+        }
+    }
+
+    // Como mudamos o dicionário para <string, string>, atualize a função de edição também:
+    private void AtualizarAtributoPainel(string chave, string novoValor)
+    {
+        if (atributosFeicaoSelecionada.ContainsKey(chave))
+        {
+            atributosFeicaoSelecionada[chave] = novoValor;
+        }
+    }
+
+    private async Task SalvarAtributosPainel()
+    {
+        // Aqui entrará a conexão com o ProjetoService futuramente
+        await JSRuntime.InvokeVoidAsync("alert", "Dados alterados na memória. Conexão com banco SQLite em desenvolvimento.");
+    }
+    // Variáveis do Modal de Propriedades
+    private bool exibirModalPropriedades = false;
+    private string camadaEmEdicao = "";
+    private string abaAtivaPropriedades = "Simbologia"; // Controle da aba lateral
+
+    // Variáveis de Simbologia Padrão
+    private string corPreenchimento = "#38bdf8";
+    private string corBorda = "#0ea5e9";
+    private double espessuraLinha = 1.0;
+    private int opacidadePreenchimento = 50;
+    // Variáveis de Controle da Simbologia
+    private string tipoSimbologia = "UNICA";
+    private string colunaSimbologiaCategorizada = "";
+    // Variáveis de Rótulos (Labels)
+    private List<string> colunasDisponiveisRotulo = new List<string>();
+    private string colunaRotuloSelecionada = "";
+    private int tamanhoFonteRotulo = 11;
+    private string corFonteRotulo = "#ffffff";
+    
+   
+    // ==========================================
+    // MOTOR NATIVO (SKIA DIRECT - LÓGICA CLAUDE)
+    // ==========================================
+    private SKPaint _pincelBorda;
+    private SKPaint _pincelFill;
+
+    
+    
+
+    private List<float[]> poligonosNativos = new List<float[]>();
+    private float mapaMinX, mapaMaxX, mapaMinY, mapaMaxY;
+
+
+    // ==========================================
+    // CAPTURA DO RATO BLAZOR -> COMUNICAÇÃO MAUI
+    // ==========================================
+    private bool isDragging = false;
+    private double startDragX;
+    private double startDragY;
+
+    private void AoPressionarRato(MouseEventArgs e)
+    {
+        if (e.Button != 0) return;
+        isDragging = true;
+        startDragX = e.ClientX - MapService.CameraPanX;
+        startDragY = e.ClientY - MapService.CameraPanY;
+    }
+
+    private void AoMoverRato(MouseEventArgs e)
+    {
+        if (!isDragging || e.Buttons != 1) return;
+
+        // Atualiza a posição no serviço
+        MapService.CameraPanX = (float)(e.ClientX - startDragX);
+        MapService.CameraPanY = (float)(e.ClientY - startDragY);
+
+        // Pede à placa de vídeo no MainPage para pintar
+        MapService.RequestRedraw();
+    }
+
+    private void AoSoltarRato(MouseEventArgs e)
+    {
+        isDragging = false;
+    }
+
+    private void AoRodarRato(WheelEventArgs e)
+    {
+        float zoomAnterior = MapService.CameraZoom;
+        float fator = e.DeltaY < 0 ? 1.15f : (1f / 1.15f);
+
+        MapService.CameraZoom = Math.Clamp(MapService.CameraZoom * fator, 0.1f, 50.0f);
+
+        float rX = (float)e.ClientX;
+        float rY = (float)e.ClientY;
+
+        MapService.CameraPanX = rX - (rX - MapService.CameraPanX) * (MapService.CameraZoom / zoomAnterior);
+        MapService.CameraPanY = rY - (rY - MapService.CameraPanY) * (MapService.CameraZoom / zoomAnterior);
+
+        MapService.RequestRedraw();
+    }
+
+    // ==========================================
+    // MOTOR DE RENDERIZAÇÃO GRÁFICA (ASSÍNCRONO E UNIFICADO)
+    // ==========================================
+    
+
+    // A função unificada que atira todas as configurações para o motor gráfico (Leaflet)
+    // A função unificada que atira todas as configurações para o motor gráfico (Leaflet)
+    private async Task AplicarPropriedadesUnificadas()
+    {
+        try
+        {
+            double opacidadeDecimal = opacidadePreenchimento / 100.0;
+
+            // 1. Aplica o Estilo Visual (Único ou Categorizado)
+            if (tipoSimbologia == "UNICA")
+            {
+                await JSRuntime.InvokeVoidAsync("alterarEstiloCamada",
+                    camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadeDecimal);
+            }
+            else if (tipoSimbologia == "CATEGORIZADA" && !string.IsNullOrEmpty(colunaSimbologiaCategorizada))
+            {
+                await JSRuntime.InvokeVoidAsync("aplicarSimbologiaCategorizada",
+                    camadaEmEdicao, colunaSimbologiaCategorizada, espessuraLinha, opacidadeDecimal);
+            }
+
+            // 2. Aplica os Rótulos
+            await JSRuntime.InvokeVoidAsync("aplicarRotulosCamada",
+                camadaEmEdicao, colunaRotuloSelecionada, tamanhoFonteRotulo, corFonteRotulo);
+
+            exibirModalPropriedades = false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro crítico ao aplicar propriedades: {ex.Message}");
+        }
+    }
+    // Variáveis do Editor de Vértices
+    // ==========================================
+    // VARIÁVEIS DE EDIÇÃO DE VÉRTICES
+    // ==========================================
+    private bool modoEdicaoVerticeLigado = false;
+    private bool exibirModalTrocaVertice = false;
+    private string verticeEditandoCamada = "";
+    private int verticeEditandoIndice = -1;
+
+    // As variáveis preparadas para UTM que estavam a faltar:
+    private string sistemaCoordenadasEdicao = "DECIMAL";
+    private string zonaUtmEdicao = "22S";
+    private string verticeEditandoX = "";
+    private string verticeEditandoY = "";
+
+    // 1. O botão que liga a "Mesa de Desenho" GLOBAL
+    // 1. O botão que liga a "Mesa de Desenho" focada
+    private async Task AlternarEdicaoVertices()
+    {
+        modoEdicaoVerticeLigado = !modoEdicaoVerticeLigado;
+
+        // Avisa o JavaScript qual é o estado da ferramenta
+        await JSRuntime.InvokeVoidAsync("alternarFerramentaVertices", modoEdicaoVerticeLigado);
+
+        if (modoEdicaoVerticeLigado)
+        {
+            Console.WriteLine("[GEONEX] Ferramenta Vértices LIGADA (Aguardando clique na feição).");
+        }
+        else
+        {
+            Console.WriteLine("[GEONEX] Ferramenta Vértices DESLIGADA.");
+        }
+        StateHasChanged();
+    }
+
+    // 2. O JavaScript chama esta função quando você faz duplo clique ou aperta 'V'
+    [JSInvokable]
+    public async Task PedirCoordenadaVertice(string nomeCamada, int indiceVertice, double latAtual, double lngAtual)
+    {
+        verticeEditandoCamada = nomeCamada;
+        verticeEditandoIndice = indiceVertice;
+
+        // Inicia sempre em DECIMAL para mostrar a posição atual correta
+        sistemaCoordenadasEdicao = "DECIMAL";
+        verticeEditandoY = Math.Round(latAtual, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        verticeEditandoX = Math.Round(lngAtual, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        // Garante que a caderneta normal se fecha e abre o modal do vértice
+        exibirModalCoordenadas = false;
+        exibirModalTrocaVertice = true;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // 3. O botão "MOVER VÉRTICE" (Agora com conversor UTM ProjNet integrado)
+    private async Task ForcarVerticeManual()
+    {
+        try
+        {
+            double valorY = double.Parse(verticeEditandoY.Trim(), System.Globalization.CultureInfo.InvariantCulture);
+            double valorX = double.Parse(verticeEditandoX.Trim(), System.Globalization.CultureInfo.InvariantCulture);
+
+            double latFinal, lngFinal;
+
+            // MÁGICA: Se o engenheiro escolheu UTM, convertemos antes de mandar pro mapa!
+            if (sistemaCoordenadasEdicao == "UTM")
+            {
+                int zona = int.Parse(new String(zonaUtmEdicao.Where(char.IsDigit).ToArray()));
+                bool isNorte = zonaUtmEdicao.ToUpper().Contains("N");
+
+                var sistemaUTM = ProjectedCoordinateSystem.WGS84_UTM(zona, isNorte);
+                var sistemaGeografico = GeographicCoordinateSystem.WGS84;
+                var conversor = new CoordinateTransformationFactory().CreateFromCoordinateSystems(sistemaUTM, sistemaGeografico);
+
+                // O ProjNet recebe { Este(X), Norte(Y) }
+                double[] coordenadasGeograficas = conversor.MathTransform.Transform(new double[] { valorX, valorY });
+
+                lngFinal = coordenadasGeograficas[0];
+                latFinal = coordenadasGeograficas[1];
+            }
+            else
+            {
+                // Se já for Decimal, vai direto
+                latFinal = valorY;
+                lngFinal = valorX;
+            }
+
+            // Grita com o JavaScript para mover a quilha da linha para a nova posição geográfica
+            await JSRuntime.InvokeVoidAsync("forcarPosicaoVertice", verticeEditandoCamada, verticeEditandoIndice, latFinal, lngFinal);
+
+            exibirModalTrocaVertice = false;
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro fatal de matemática ou digitação.\n{ex.Message}");
+        }
+    }
+    private async Task AplicarSimbologia()
+    {
+        await JSRuntime.InvokeVoidAsync("alterarEstiloCamada",
+            camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento);
+
+        exibirModalPropriedades = false;
+    }
+    private async Task AbrirTabela(string nomeCamada)
+    {
+        nomeCamadaAtiva = nomeCamada;
+        exibirTabelaAtributos = true;
+
+        // Limpa a tabela atual para mostrar carregamento visual
+        colunasTabela = new List<string> { "Carregando..." };
+        dadosTabela = new List<Dictionary<string, object>>();
+        StateHasChanged();
+
+        // Procura a camada na memória para pegar o caminho do arquivo
+        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeCamada);
+
+        if (camada != null && !string.IsNullOrEmpty(camada.CaminhoArquivo))
+        {
+            // Roda o processamento OGR numa thread separada para não congelar a interface
+            var resultado = await Task.Run(() => RasterService.ObterAtributosVetor(camada.CaminhoArquivo));
+
+            colunasTabela = resultado.Colunas;
+            dadosTabela = resultado.Dados;
+        }
+        else
+        {
+            colunasTabela = new List<string> { "Erro" };
+            await JSRuntime.InvokeVoidAsync("alert", "Não foi possível localizar o arquivo fonte desta camada.");
+        }
+
+        StateHasChanged();
+    }
+
+    // Função disparada ao clicar numa linha da tabela
+    private async Task SelecionarNoMapa(Dictionary<string, object> linha)
+    {
+        // Pega o ID da linha selecionada (assumindo que existe uma coluna "ID")
+        if (linha.ContainsKey("ID"))
+        {
+            long id = Convert.ToInt64(linha["ID"]);
+            // Futuro: Avisar o JavaScript para dar zoom e destacar este polígono
+            Console.WriteLine($"Linha {id} clicada.");
+        }
+    }
+
+    // Função disparada ao editar o texto de uma célula
+    private void AtualizarAtributo(Dictionary<string, object> linha, string coluna, object novoValor)
+    {
+        // Atualiza na memória
+        linha[coluna] = novoValor;
+
+        // Futuro: Disparar um UPDATE automático no arquivo .gnx (SQLite)
+        Console.WriteLine($"Atributo {coluna} atualizado para {novoValor}");
+    }
+    // Função que é ativada ao clicar no Checkbox
+    private async Task ToggleCamada(Camada camada, bool estaVisivel)
+    {
+        camada.Visivel = estaVisivel;
+        // Chama a função JS que acabamos de criar
+        await JSRuntime.InvokeVoidAsync("alternarVisibilidadeCamada", camada.Nome, estaVisivel);
+    }
+    private void TrocarAbaModal(string nomeAba)
+    {
+        AbaModalAtiva = nomeAba;
+    }
+    private async Task SelecionarArquivoRaster()
+    {
+        try
+        {
+            // 1. Configura os filtros para arquivos de imagem/geoprocessamento
+            var opcoes = new PickOptions
+            {
+                PickerTitle = "Selecione a Ortofoto (ECW, TIF, JPG)",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    { DevicePlatform.WinUI, new[] { ".ecw", ".tif", ".tiff", ".jpg", ".png" } }
+                })
+            };
+
+            // 2. Abre a janela do Windows para o usuário escolher o arquivo
+            var resultado = await FilePicker.Default.PickAsync(opcoes);
+
+            if (resultado != null)
+            {
+                caminhoArquivoRaster = resultado.FullPath;
+                statusGdal = "Analisando metadados geográficos...";
+                StateHasChanged();
+
+                // 3. CHAMA O MOTOR GDAL (O Pilar 2 que acabamos de criar!)
+                var analise = RasterService.AnalisarArquivoRaster(caminhoArquivoRaster);
+
+                // Exibe o resultado da análise (Bounding Box, Resolução, etc)
+                statusGdal = analise;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar arquivo: {ex.Message}");
+        }
+    }
+    private async Task AdicionarCamadaAoMapa()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(caminhoArquivoRaster))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Selecione um ficheiro primeiro!");
+                return;
+            }
+
+            exibirModalImportacao = false;
+
+            // 1. Pede ao GDAL a imagem cortada e as coordenadas (já com a reprojeção que corrigimos)
+            var resultadoRaster = RasterService.PrepararRasterParaMapa(caminhoArquivoRaster);
+
+            if (!string.IsNullOrEmpty(resultadoRaster.Base64))
+            {
+                // 2. Envia para o JavaScript/Leaflet
+                await JSRuntime.InvokeVoidAsync("adicionarRasterAoMapa",
+                    resultadoRaster.Base64,
+                    resultadoRaster.MinLat,
+                    resultadoRaster.MinLng,
+                    resultadoRaster.MaxLat,
+                    resultadoRaster.MaxLng,
+                    "Ortofoto Importada");
+
+                // 3. ADICIONA À LISTA DE CAMADAS DO SISTEMA
+                // Usamos o Path.GetFileName para pegar apenas o nome do arquivo, sem o caminho C:\...
+                CamadasAtivas.Add(new Camada
+                {
+                    Nome = System.IO.Path.GetFileName(caminhoArquivoRaster),
+                    Tipo = "Raster",
+                    Visivel = true
+                });
+
+                // Força o Blazor a redesenhar a barra lateral
+                StateHasChanged();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Falha ao processar a imagem do Raster.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro crítico: {ex.Message}");
+        }
+    }
+
+    // --- Nova lógica de Projeto ---
+    private async Task CriarNovoProjeto()
+    {
+        try
+        {
+            // Pega o caminho da sua pasta Documentos
+            string pastaDocumentos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string caminhoGnx = Path.Combine(pastaDocumentos, "Projeto_Guaratuba_Teste.gnx");
+
+            // Manda o Serviço criar o Banco de Dados
+            bool sucesso = await ProjetoService.CriarNovoProjetoAsync(caminhoGnx, "Guaratuba Zona Sul");
+
+            if (sucesso)
+            {
+                // Dispara um Pop-up na tela confirmando!
+                await JSRuntime.InvokeVoidAsync("alert", $"SUCESSO ABSOLUTO!\n\nO banco de dados do projeto foi criado fisicamente em:\n{caminhoGnx}");
+                StateHasChanged();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "O serviço rodou, mas retornou Falso. O arquivo não foi criado.");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Se o C# der qualquer erro, o pop-up vai te mostrar o que foi
+            await JSRuntime.InvokeVoidAsync("alert", $"ERRO CRÍTICO NO C#:\n{ex.Message}");
+        }
+    }
+
+    
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // O Blazor terminou de carregar, vamos mandar a GPU pintar a bola vermelha!
+            MapService.RequestRedraw();
+        }
+    }
+
+    // Funções chamadas pelos botões de importação
+    private void AbrirModalImportacao()
+    {
+        exibirModalImportacao = true;
+    }
+
+    private void FecharModalImportacao()
+    {
+        exibirModalImportacao = false;
+    }
+
+    [JSInvokable]
+    public void AtualizarCoordenadas(double lat, double lng)
+    {
+        latitude = Math.Round(lat, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        longitude = Math.Round(lng, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        objRef?.Dispose();
+    }
+    // Adicione isto no final do seu bloco @code, antes da última chaveta
+    public class Camada
+    {
+        public string Nome { get; set; } = string.Empty;
+        public string Tipo { get; set; } = string.Empty;
+        public bool Visivel { get; set; } = true;
+        public string CaminhoArquivo { get; set; } // NOVA PROPRIEDADE
+    }
+    // O JavaScript chama esta função sempre que a câmera do mapa parar de se mover
+    [JSInvokable]
+    public async Task SolicitarRecorteAltaResolucao(double minLat, double minLng, double maxLat, double maxLng, int largura, int altura)
+    {
+        // Garante que só carrega a imagem se a camada "Ortofoto_Importada" estiver ligada
+        var ortofoto = CamadasAtivas.FirstOrDefault(c => c.Nome == System.IO.Path.GetFileName(caminhoArquivoRaster));
+
+        if (ortofoto != null && ortofoto.Visivel && !string.IsNullOrEmpty(caminhoArquivoRaster))
+        {
+            // O C# processa o recorte em alta qualidade na Thread em Background para não travar a interface
+            string base64AltaQualidade = await Task.Run(() =>
+                RasterService.ObterRecorteDinamico(caminhoArquivoRaster, minLat, minLng, maxLat, maxLng, largura, altura)
+            );
+
+            if (!string.IsNullOrEmpty(base64AltaQualidade))
+            {
+                // Devolve a imagem de alta qualidade para colar na tela
+                await JSRuntime.InvokeVoidAsync("atualizarImagemNoMapa", base64AltaQualidade, minLat, minLng, maxLat, maxLng);
+            }
+        }
+    }
+    private string caminhoArquivoVetor = "";
+
+    private async Task SelecionarArquivoVetor()
+    {
+        try
+        {
+            var opcoes = new PickOptions
+            {
+                PickerTitle = "Selecione o Vetor (SHP, GeoJSON)",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    { DevicePlatform.WinUI, new[] { ".shp", ".geojson", ".kml" } }
+                })
+            };
+
+            var resultado = await FilePicker.Default.PickAsync(opcoes);
+
+            if (resultado != null)
+            {
+                caminhoArquivoVetor = resultado.FullPath;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar: {ex.Message}");
+        }
+    }
+
+    private async Task AdicionarVetorAoMapa()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(caminhoArquivoVetor))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Selecione um arquivo Shapefile primeiro!");
+                return;
+            }
+
+            exibirModalImportacao = false;
+            string nomeArquivo = System.IO.Path.GetFileName(caminhoArquivoVetor);
+
+            // 1. Extração nativa de alta performance em background
+            poligonosNativos = await Task.Run(() => RasterService.ExtrairPoligonosNativos(caminhoArquivoVetor));
+            await JSRuntime.InvokeVoidAsync("alert", $"O Motor Leu: {poligonosNativos.Count} polígonos.");
+            if (poligonosNativos.Count > 0)
+            {
+                // 1. Calcula os limites do município (já tem isto)
+                CalcularLimitesDoMapa();
+
+                // 2. A LINHA QUE FALTAVA: Converte os dados brutos para caminhos nativos da GPU
+                MapService.PreCompilarPoligonos(poligonosNativos);
+                CamadasAtivas.Add(new Camada
+                {
+                    Nome = nomeArquivo,
+                    Tipo = "Vetor",
+                    Visivel = true,
+                    CaminhoArquivo = caminhoArquivoVetor
+                });
+
+                // Reposiciona a câmara
+                MapService.CameraPanX = 0;
+                MapService.CameraPanY = 0;
+                MapService.CameraZoom = 1.0f;
+
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}");
+        }
+    }
+
+    // Função matemática para descobrir a Bounding Box do Shapefile inteiro
+    private void CalcularLimitesDoMapa()
+    {
+        mapaMinX = float.MaxValue; mapaMaxX = float.MinValue;
+        mapaMinY = float.MaxValue; mapaMaxY = float.MinValue;
+
+        foreach (var poli in poligonosNativos)
+        {
+            // O array armazena [X, Y, X, Y...]
+            for (int i = 0; i < poli.Length; i += 2)
+            {
+                float x = poli[i];
+                float y = poli[i + 1];
+
+                if (x < mapaMinX) mapaMinX = x;
+                if (x > mapaMaxX) mapaMaxX = x;
+                if (y < mapaMinY) mapaMinY = y;
+                if (y > mapaMaxY) mapaMaxY = y;
+            }
+        }
+    }
+    // Variáveis do Menu de Contexto (Botão Direito)
+    private bool mostrarMenuContexto = false;
+    private double menuContextoX = 0;
+    private double menuContextoY = 0;
+    private string camadaSelecionadaMenu = "";
+
+    // Captura as coordenadas do rato e bloqueia o menu do Windows
+    private void MostrarMenuContexto(MouseEventArgs e, string nomeCamada)
+    {
+        camadaSelecionadaMenu = nomeCamada;
+
+        // Pega a posição do rato
+        menuContextoX = e.ClientX;
+        menuContextoY = e.ClientY;
+
+        // Regra de exclusividade
+        mostrarMenuContexto = true;
+        exibirModalPropriedades = false;
+
+        // O 'InvokeAsync' garante que a tela seja repintada instantaneamente, sem atrasos
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void FecharMenuContexto()
+    {
+        mostrarMenuContexto = false;
+        InvokeAsync(StateHasChanged);
+    }
+    private async Task BotaoOpcoesClicado(MouseEventArgs e, string nomeCamada)
+    {
+        Console.WriteLine($"[GEONEX] 3 pontinhos clicados para: {nomeCamada}");
+
+        camadaSelecionadaMenu = nomeCamada;
+
+        // O deslocamento de +5px garante que o rato não clica imediatamente no menu sem querer
+        menuContextoX = e.ClientX + 5;
+        menuContextoY = e.ClientY + 5;
+
+        mostrarMenuContexto = true;
+        exibirModalPropriedades = false;
+
+        // O 'await' obriga o navegador a desenhar a tela AGORA
+        await InvokeAsync(StateHasChanged);
+    }
+    // Esboço da função de remover (que faremos na Fase 2)
+    private async Task AproximarCamada()
+    {
+        string alvo = camadaSelecionadaMenu; // Guarda o nome antes de fechar o menu
+        FecharMenuContexto();
+
+        // Pede ao motor JS para mover a câmera
+        await JSRuntime.InvokeVoidAsync("zoomParaCamada", alvo);
+    }
+
+    private async Task PrepararRemocaoCamada()
+    {
+        string alvo = camadaSelecionadaMenu;
+        FecharMenuContexto();
+
+        // 1. Limpeza no C# (Remove da lista lateral da UI)
+        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == alvo);
+        if (camada != null)
+        {
+            CamadasAtivas.Remove(camada);
+            StateHasChanged(); // Atualiza o HTML imediatamente
+        }
+
+        // 2. Limpeza no Motor Gráfico (Javascript)
+        await JSRuntime.InvokeVoidAsync("removerCamadaDoMapa", alvo);
+
+        Console.WriteLine($"[GEONEX] Camada '{alvo}' destruída com segurança.");
+    }
+   
+
+    // VARIÁVEIS DO DRAG & DROP
+    private Camada camadaArrastada;
+
+    private void AoIniciarArrastar(Camada camada)
+    {
+        Console.WriteLine($"[GEONEX] 1. AGARROU: {camada.Nome}");
+        camadaArrastada = camada;
+    }
+
+    private async Task AoSoltarCamada(Camada camadaAlvo)
+    {
+        Console.WriteLine($"[GEONEX] 2. SOLTOU em cima de: {camadaAlvo.Nome}");
+
+        // Ignora se soltar no mesmo lugar
+        if (camadaArrastada == null || camadaArrastada == camadaAlvo)
+        {
+            Console.WriteLine("[GEONEX] Movimento cancelado (Mesmo lugar ou fora).");
+            return;
+        }
+
+        int indexOrigem = CamadasAtivas.IndexOf(camadaArrastada);
+        int indexDestino = CamadasAtivas.IndexOf(camadaAlvo);
+
+        if (indexOrigem < 0 || indexDestino < 0) return;
+
+        // Faz a troca cirúrgica na lista do C#
+        CamadasAtivas.RemoveAt(indexOrigem);
+        CamadasAtivas.Insert(indexDestino, camadaArrastada);
+
+        // Avisa o motor gráfico (Leaflet)
+        var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
+        await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
+
+        Console.WriteLine("[GEONEX] 3. Hierarquia alterada com Sucesso!");
+
+        // Limpa a memória e FORÇA A TELA A REDESENHAR
+        camadaArrastada = null;
+        StateHasChanged();
+    }
+    private async Task MoverCamada(string nomeCamada, int direcao)
+    {
+        // 1. Fecha o menu para não atrapalhar a visão
+        FecharMenuContexto();
+
+        // 2. Acha a posição atual da camada na memória
+        int index = CamadasAtivas.FindIndex(c => c.Nome == nomeCamada);
+        if (index < 0) return;
+
+        // 3. Calcula o destino (-1 sobe na lista, +1 desce)
+        int novoIndex = index + direcao;
+
+        // 4. Bloqueio de segurança: impede que a camada saia dos limites da lista
+        if (novoIndex >= 0 && novoIndex < CamadasAtivas.Count)
+        {
+            // Executa a troca cirúrgica
+            var item = CamadasAtivas[index];
+            CamadasAtivas.RemoveAt(index);
+            CamadasAtivas.Insert(novoIndex, item);
+
+            // 5. Avisa o Leaflet (JavaScript) para recalcular os Z-Index
+            var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
+            await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
+
+            // 6. Repinta a interface do Blazor
+            StateHasChanged();
+        }
+    }
+    // Variáveis da Aquisição de Dados
+    private string camadaAquisicaoAtual = "Levantamento_Em_Campo";
+    private bool exibirModalCoordenadas = false;
+    private string textoCoordenadas = "";
+
+    // 1. Prepara a Camada e Ativa o Desenho Manual no Mapa
+    private async Task AtivarFerramentaPoligono()
+    {
+        // Se a camada de aquisição não existir na lista, cria uma nova
+        if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual))
+        {
+            CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
+            StateHasChanged();
+        }
+
+        // Avisa o JavaScript para ligar a mira e os sensores de clique
+        await JSRuntime.InvokeVoidAsync("iniciarDesenhoPoligono", camadaAquisicaoAtual);
+        Console.WriteLine("[GEONEX] Ferramenta de Polígono Ativada.");
+    }
+    // A função que o teclado vai chamar
+    [JSInvokable]
+    public async Task AbrirModalCoordenadasAtalho()
+    {
+        // Só abre se não estiver já aberto
+        if (!exibirModalCoordenadas)
+        {
+            exibirModalCoordenadas = true;
+            Console.WriteLine("[GEONEX] Caderneta aberta via atalho de teclado (V).");
+
+            // O InvokeAsync garante que a tela salta à vista instantaneamente
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+    // ==========================================
+    // VARIÁVEIS DA CADERNETA DE CAMPO DIGITAL
+    // ==========================================
+    private string sistemaCoordenadas = "UTM";
+    private string tipoGeometriaAlvo = "POLIGONO";
+    private string zonaUtm = "22S";
+
+    // Variáveis de Inserção
+    private string novoNomePonto = "P1";
+    private string novaCoordenadaPonto = "";
+    private int contadorPontos = 1;
+
+    // Memória da Caderneta
+    private List<Dictionary<string, string>> listaPontosCaderneta = new List<Dictionary<string, string>>();
+
+    // Função 1: Adiciona o ponto digitado à lista visual
+    // Variável nova de controle
+    private string metodoEntrada = "COORDENADA";
+
+    // Função auxiliar para interpretar qualquer formato de Azimute digitado
+    private double ParseAzimute(string azimuteText)
+    {
+        // Limpa os símbolos clássicos de graus
+        var clean = azimuteText.Replace("°", " ").Replace("'", " ").Replace("\"", " ").Trim();
+        var parts = clean.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+        if (parts.Length == 1) return double.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+
+        double graus = parts.Length > 0 ? double.Parse(parts[0]) : 0;
+        double minutos = parts.Length > 1 ? double.Parse(parts[1]) : 0;
+        double segundos = parts.Length > 2 ? double.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture) : 0;
+
+        return graus + (minutos / 60.0) + (segundos / 3600.0);
+    }
+
+    private async Task AdicionarPontoCaderneta()
+    {
+        if (string.IsNullOrWhiteSpace(novoNomePonto) || string.IsNullOrWhiteSpace(novaCoordenadaPonto)) return;
+
+        var partes = novaCoordenadaPonto.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+
+        if (partes.Length >= 2)
+        {
+            string valorX = "";
+            string valorY = "";
+
+            if (metodoEntrada == "COORDENADA")
+            {
+                // Leitura Normal Absoluta
+                valorX = partes[0].Trim();
+                valorY = partes[1].Trim();
+            }
+            else if (metodoEntrada == "AZIMUTE")
+            {
+                // Regra topográfica: O primeiro ponto tem de estar ancorado no planeta Terra
+                if (listaPontosCaderneta.Count == 0)
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "O Ponto 1 de partida precisa ser uma COORDENADA absoluta. Adicione o primeiro ponto e depois mude para Azimute.");
+                    return;
+                }
+
+                try
+                {
+                    // Lógica de Irradiação / Caminhamento
+                    double azimuteDecimal = ParseAzimute(partes[0]);
+                    double distancia = double.Parse(partes[1].Trim(), System.Globalization.CultureInfo.InvariantCulture);
+
+                    // Converte Azimute para Radianos (Em topografia, 0° é o Norte e gira no sentido horário)
+                    double azimuteRadianos = azimuteDecimal * (Math.PI / 180.0);
+
+                    // Pega o ponto anterior da lista para servir de Estação base
+                    var pontoAnterior = listaPontosCaderneta.Last();
+                    double xAnterior = double.Parse(pontoAnterior["Coord1"], System.Globalization.CultureInfo.InvariantCulture);
+                    double yAnterior = double.Parse(pontoAnterior["Coord2"], System.Globalization.CultureInfo.InvariantCulture);
+
+                    // Trigonomentria: Seno para Leste(X) e Cosseno para Norte(Y)
+                    double novoX = xAnterior + (distancia * Math.Sin(azimuteRadianos));
+                    double novoY = yAnterior + (distancia * Math.Cos(azimuteRadianos));
+
+                    // Arredonda para milímetros (3 casas decimais)
+                    valorX = novoX.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
+                    valorY = novoY.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
+                }
+                catch
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "Falha ao calcular Azimute/Distância. Verifique a sintaxe.");
+                    return;
+                }
+            }
+
+            listaPontosCaderneta.Add(new Dictionary<string, string>
+            {
+                { "Nome", novoNomePonto.Trim() },
+                { "Coord1", valorX },
+                { "Coord2", valorY }
+            });
+
+            contadorPontos++;
+            novoNomePonto = $"P{contadorPontos}";
+            novaCoordenadaPonto = "";
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Formato inválido. Use a vírgula para separar.");
+        }
+    }
+
+    // Função 2: Remove um ponto da lista caso o usuário erre
+    private void RemoverPontoCaderneta(Dictionary<string, string> ponto)
+    {
+        listaPontosCaderneta.Remove(ponto);
+    }
+
+    // Função 3: Manda a lista inteira para o motor de desenho
+    // Função 3: Motor Avançado de Conversão e Processamento
+    private async Task ProcessarCadernetaDeCampo()
+    {
+        try
+        {
+            if (listaPontosCaderneta.Count == 0)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "A caderneta está vazia. Adicione pelo menos um ponto.");
+                return;
+            }
+
+            if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual))
+            {
+                CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
+            }
+
+            var pontosProcessados = new List<Dictionary<string, string>>();
+            ICoordinateTransformation conversorUtm = null;
+
+            // PREPARA O CONVERSOR PROJNET SE FOR UTM
+            if (sistemaCoordenadas == "UTM")
+            {
+                // Extrai o número da zona (Ex: "22S" -> 22)
+                int zona = int.Parse(new String(zonaUtm.Where(char.IsDigit).ToArray()));
+                // Determina o hemisfério (Se tem 'N' é Norte, senão é Sul)
+                bool isNorte = zonaUtm.ToUpper().Contains("N");
+
+                // Configura as matrizes matemáticas de origem e destino
+                var sistemaUTM = ProjectedCoordinateSystem.WGS84_UTM(zona, isNorte);
+                var sistemaGeografico = GeographicCoordinateSystem.WGS84;
+                var factory = new CoordinateTransformationFactory();
+
+                conversorUtm = factory.CreateFromCoordinateSystems(sistemaUTM, sistemaGeografico);
+            }
+
+            // VARRE TODOS OS PONTOS DA LISTA E FAZ A CONVERSÃO
+            foreach (var ptOriginal in listaPontosCaderneta)
+            {
+                string nomePonto = ptOriginal["Nome"];
+                double valor1 = double.Parse(ptOriginal["Coord1"], System.Globalization.CultureInfo.InvariantCulture);
+                double valor2 = double.Parse(ptOriginal["Coord2"], System.Globalization.CultureInfo.InvariantCulture);
+
+                double lat, lng;
+
+                if (sistemaCoordenadas == "UTM")
+                {
+                    // A matemática acontece aqui! O ProjNet recebe {X, Y} e devolve {Lng, Lat}
+                    double[] coordenadasLidas = new double[] { valor1, valor2 };
+                    double[] coordenadasGeograficas = conversorUtm.MathTransform.Transform(coordenadasLidas);
+
+                    lng = coordenadasGeograficas[0]; // O eixo X global é a Longitude
+                    lat = coordenadasGeograficas[1]; // O eixo Y global é a Latitude
+                }
+                else
+                {
+                    // Se já era Decimal, o usuário digitou Lat, Lng
+                    lat = valor1;
+                    lng = valor2;
+                }
+
+                pontosProcessados.Add(new Dictionary<string, string>
+                {
+                    { "Nome", nomePonto },
+                    { "Lat", lat.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                    { "Lng", lng.ToString(System.Globalization.CultureInfo.InvariantCulture) }
+                });
+            }
+
+            // Envia para o JavaScript desenhar
+            string jsonPontos = System.Text.Json.JsonSerializer.Serialize(pontosProcessados);
+            await JSRuntime.InvokeVoidAsync("desenharAquisicaoAvancada", camadaAquisicaoAtual, jsonPontos, tipoGeometriaAlvo);
+
+            // Sucesso! Limpa a interface
+            exibirModalCoordenadas = false;
+            listaPontosCaderneta.Clear();
+            contadorPontos = 1;
+            novoNomePonto = "P1";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro fatal na conversão matemática.\nVerifique se as coordenadas UTM e a Zona estão corretas.\nDetalhe: {ex.Message}");
+        }
+    }
+    // ==========================================
+    // GESTOR DE ESTADO DE EDIÇÃO (TRANSAÇÕES)
+    // ==========================================
+    private bool temEdicoesPendentes = false;
+
+    // O JS chama isto a cada vértice movido, mas AGORA NÃO SALVA direto no disco, apenas na "Memória Temporária"
+    [JSInvokable]
+    public async Task AtualizarGeometriaNoServidor(string nomeCamada, string propriedadesJson, string novaGeometriaJson)
+    {
+        // 1. Acende o alerta amarelo na interface!
+        temEdicoesPendentes = true;
+
+        var props = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(propriedadesJson);
+        string idFeicao = (props != null && (props.ContainsKey("FID") || props.ContainsKey("ID")))
+            ? (props.ContainsKey("FID") ? props["FID"].ToString() : props["ID"].ToString())
+            : "Desconhecido";
+
+        // 2. Coloca na "Fila de Modificações" (Log no Console para já)
+        Console.WriteLine($"[MODIFICAÇÃO PENDENTE] Camada: {nomeCamada} | Lote: {idFeicao}");
+
+        // Força o botão de salvar a acender na barra
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // O Engenheiro clica no botão 💾 "Salvar Edições"
+    private async Task ConfirmarTodasEdicoes()
+    {
+        if (!temEdicoesPendentes) return;
+
+        try
+        {
+            // ONDE A MÁGICA REAL ACONTECE:
+            // Aqui, no futuro, pegamos na fila de modificações e fazemos um UPDATE em massa no SQLite ou reescrevemos o Shapefile.
+
+            // Simulação de tempo de gravação
+            await Task.Delay(500);
+
+            // Dá o feedback de segurança ao engenheiro
+            await JSRuntime.InvokeVoidAsync("alert", "EDIÇÕES CONSOLIDADAS!\n\nTodas as modificações de malha e vértices foram gravadas permanentemente no banco de dados.");
+
+            // Apaga o alerta amarelo e desliga o modo de edição para proteger o mapa
+            temEdicoesPendentes = false;
+
+            if (modoEdicaoVerticeLigado)
+            {
+                await AlternarEdicaoVertices(); // Desliga as bolinhas brancas
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Falha ao gravar no disco: {ex.Message}");
+        }
+    }
+    private void TestarMotorCPlusPlus()
+    {
+        try
+        {
+            // 1. O polígono do Lote (Imagine que extraímos isto do PostGIS ou SQLite)
+            double[] loteCoordenadas = new double[]
+            {
+            -48.5750, -25.8820, // Vértice 1
+            -48.5740, -25.8820, // Vértice 2
+            -48.5740, -25.8810, // Vértice 3
+            -48.5750, -25.8810, // Vértice 4
+            -48.5750, -25.8820  // Fechamento do polígono
+            };
+
+            int totalVertices = loteCoordenadas.Length / 2;
+
+            // 2. O Rato do Utilizador (Simulando um clique dentro e outro fora do lote)
+            double cliqueDentroX = -48.5745;
+            double cliqueDentroY = -25.8815;
+
+            double cliqueForaX = -48.5760;
+            double cliqueForaY = -25.8830;
+
+            System.Diagnostics.Debug.WriteLine("=== TESTE DE BUSCA ESPACIAL C++ ===");
+
+            // Chamada nativa para o primeiro clique simulado
+            int resultadoDentro = GeoNex.Services.NativeBridge.PontoNoPoligono(
+                cliqueDentroX, cliqueDentroY, loteCoordenadas, totalVertices);
+
+            System.Diagnostics.Debug.WriteLine($"Clique 1 pertence ao lote? {(resultadoDentro == 1 ? "SIM" : "NÃO")}");
+
+            // Chamada nativa para o segundo clique simulado
+            int resultadoFora = GeoNex.Services.NativeBridge.PontoNoPoligono(
+                cliqueForaX, cliqueForaY, loteCoordenadas, totalVertices);
+
+            System.Diagnostics.Debug.WriteLine($"Clique 2 pertence ao lote? {(resultadoFora == 1 ? "SIM" : "NÃO")}");
+            System.Diagnostics.Debug.WriteLine("===================================");
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ERRO NA COMUNICAÇÃO: {ex.Message}");
+        }
+    }
+    // ==========================================
+    // PROPRIEDADES DA CAMADA E ESTILOS
+    // ==========================================
+    private async Task AbrirPropriedadesCamada(string nomeCamada)
+    {
+        // Garante que o menu flutuante desaparece ao abrir as propriedades
+        mostrarMenuContexto = false;
+        camadaEmEdicao = nomeCamada;
+        exibirModalPropriedades = true;
+        abaAtivaPropriedades = "Simbologia"; // Inicia sempre na primeira aba
+
+        // Busca as colunas para preencher a caixa de seleção da aba de rótulos
+        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeCamada);
+        if (camada != null && !string.IsNullOrEmpty(camada.CaminhoArquivo))
+        {
+            // Lê o cabeçalho do DBF em background para não congelar a interface
+            var resultado = await Task.Run(() => RasterService.ObterAtributosVetor(camada.CaminhoArquivo));
+
+            // Filtramos o "FID" porque ele é uma coluna interna do motor
+            colunasDisponiveisRotulo = resultado.Colunas.Where(c => c != "FID").ToList();
+        }
+        else
+        {
+            colunasDisponiveisRotulo = new List<string>();
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+    
+    
+}

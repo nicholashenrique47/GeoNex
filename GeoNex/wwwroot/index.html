@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>GeoNex Desktop</title>
+    <base href="/" />
+
+    <link href="GeoNex.styles.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+
+    <meta name="ms-webview-background-color" content="transparent" />
+
+    <style>
+        /* RESET DE TRANSPARÊNCIA ABSOLUTA */
+        html, body, #app {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background: transparent !important;
+            background-color: transparent !important;
+        }
+
+        /* Tela de carregamento nativa com fundo transparente */
+        .loading-screen {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: transparent !important; /* <-- A parede caiu aqui */
+            color: #cccccc;
+            font-family: 'Segoe UI', sans-serif;
+            letter-spacing: 2px;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #007acc;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="loading-screen">
+            <div class="loading-spinner"></div>
+            <h3>INICIALIZANDO GEONEX CORE</h3>
+            <span style="font-size: 0.7rem; color: #858585; margin-top: 10px;">Carregando módulos espaciais...</span>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui" style="display: none; background: #c62828; color: white; position: fixed; bottom: 0; width: 100%; padding: 10px; z-index: 9999;">
+        Falha crítica no sistema. O aplicativo precisa ser reiniciado.
+        <a href="" class="reload" style="color: #fff; text-decoration: underline; margin-left: 15px;">Reiniciar Recurso</a>
+        <a class="dismiss" style="float: right; cursor: pointer; margin-right: 15px;">X</a>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+    <script src="js/mapa.js?v=3"></script>
+
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+</body>
+</html>
