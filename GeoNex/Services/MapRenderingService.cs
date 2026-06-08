@@ -73,5 +73,21 @@ namespace GeoNex.Services
 
             RequestRedraw(); // Requisita o primeiro frame
         }
+        // Variáveis para suportar o Raster (Ortofoto)
+        public SkiaSharp.SKBitmap RasterAtivo { get; set; }
+        public SkiaSharp.SKRect LimitesRaster { get; set; }
+        public bool TemRaster => RasterAtivo != null;
+
+        // Método para limpar a memória RAM quando trocar de imagem
+        public void CarregarRaster(byte[] imageBytes, float minX, float minY, float maxX, float maxY)
+        {
+            if (RasterAtivo != null)
+            {
+                RasterAtivo.Dispose(); // Liberta a RAM da imagem anterior
+            }
+
+            RasterAtivo = SkiaSharp.SKBitmap.Decode(imageBytes);
+            LimitesRaster = new SkiaSharp.SKRect(minX, minY, maxX, maxY);
+        }
     }
 }

@@ -821,7 +821,28 @@ window.atualizarCanvasMapa = function (base64Image) {
 function atualizarFundoSkia(base64) {
     var img = document.getElementById('skia-layer');
     if (img) {
-        // A assinatura foi corrigida para PNG para coincidir com a exportação do C#
+        // Quando chega uma imagem nova, desligamos o arrasto e centramos a imagem
+        img.style.transition = 'none';
+        img.style.transform = 'translate(0px, 0px)';
+        // Carrega o PNG novo e cristalino
         img.src = 'data:image/png;base64,' + base64;
     }
 }
+
+// A MÁGICA DOS 60 FPS: Move a imagem usando a GPU do utilizador
+function arrastarFundoSkia(deltaX, deltaY) {
+    var img = document.getElementById('skia-layer');
+    if (img) {
+        img.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+    }
+}
+window.dimensoesJanela = {
+    obter: function () {
+        return { largura: window.innerWidth, altura: window.innerHeight };
+    },
+    registrarResize: function (dotnetHelper) {
+        window.addEventListener('resize', function () {
+            dotnetHelper.invokeMethodAsync('AtualizarDimensoesTela', window.innerWidth, window.innerHeight);
+        });
+    }
+};
