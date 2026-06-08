@@ -11,13 +11,14 @@
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
 <div class="map-background"
-     style="width: 100vw; height: 100vh; background-color: transparent; overflow: hidden; cursor: @(isDragging ? "grabbing" : "grab"); position: relative;"
+     style="width: 100vw; height: 100vh; background-color: #161921; overflow: hidden; cursor: @(isDragging ? "grabbing" : "grab"); position: relative;"
      @onwheel="AoRodarRato"
      @onmousedown="AoPressionarRato"
      @onmousemove="AoMoverRato"
-     @onmouseup="AoSoltarRato">
+     @onmouseup="AoSoltarRato"
+     @onmouseleave="AoSoltarRato">
 
-    <SKCanvasView @ref="skiaView" OnPaintSurface="OnPaintSurface" IgnorePixelScaling="true" style="width: 100%; height: 100%; position: absolute; z-index: 10;" />
+    <img id="skia-layer" style="width: 100%; height: 100%; position: absolute; z-index: 10; object-fit: fill; pointer-events: none;" />
 </div>
 //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
@@ -1595,8 +1596,9 @@
     // O CORAÇÃO DO MOTOR — RENDERIZAÇÃO DIRETA NA GPU
     // ==========================================
     
-    private SKCanvasView skiaView;
+    
     private SKPaint _pincelRadar;
+    private bool _isRendering = false; // Trava de FPS para evitar gargalos no Pan/Zoom
 
     protected override void OnInitialized()
     {
@@ -1607,51 +1609,87 @@
         _pincelFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(25), IsAntialias = true };
         _pincelRadar = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Fill, IsAntialias = true };
 
-        MapService.OnMapInvalidated += () => InvokeAsync(() => skiaView?.Invalidate());
+        // Liga a invalidação ao nosso novo motor de memória
+        MapService.OnMapInvalidated += () => InvokeAsync(RenderizarFrameOffScreen);
     }
 
-    private void OnPaintSurface(SKPaintSurfaceEventArgs e)
+    private async Task RenderizarFrameOffScreen()
     {
-        var canvas = e.Surface.Canvas;
-        var info = e.Info;
+        // Se a CPU já estiver a renderizar um frame, ignora o evento para manter fluidez
+        if (_isRendering) return;
+        _isRendering = true;
 
-        canvas.Clear(SKColors.Transparent);
-
-        // BOLA DE TESTE
-        canvas.DrawCircle(info.Width / 2f, info.Height / 2f, 150, _pincelRadar);
-
-        canvas.Save();
-
-        if (MapService.PathsCompilados.Count > 0)
+        try
         {
-            SKRect limitesTotais = new SKRect();
-            bool primeiro = true;
-            foreach (var path in MapService.PathsCompilados)
+            // 1. Cria a tela virtual estritamente na memória RAM (Resolução 1080p)
+            int width = 1920;
+            int height = 1080;
+            var info = new SKImageInfo(width, height);
+            using var surface = SKSurface.Create(info);
+            var canvas = surface.Canvas;
+
+            // Limpa o fundo com a cor base da interface
+            canvas.Clear(new SKColor(22, 25, 33));
+
+
+            canvas.Save();
+
+            if (MapService.PathsCompilados.Count > 0)
             {
-                if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
-                else { limitesTotais.Union(path.Bounds); }
-            }
-
-            if (!limitesTotais.IsEmpty)
-            {
-                float escalaX = info.Width / limitesTotais.Width;
-                float escalaY = info.Height / limitesTotais.Height;
-                float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
-
-                canvas.Translate(info.Width / 2f + MapService.CameraPanX, info.Height / 2f + MapService.CameraPanY);
-                canvas.Scale(escalaAutoFit * MapService.CameraZoom);
-                canvas.Translate(-limitesTotais.MidX, -limitesTotais.MidY);
-
-                _pincelBorda.StrokeWidth = 1f / (escalaAutoFit * MapService.CameraZoom);
-
+                SKRect limitesTotais = new SKRect();
+                bool primeiro = true;
                 foreach (var path in MapService.PathsCompilados)
                 {
-                    canvas.DrawPath(path, _pincelFill);
-                    canvas.DrawPath(path, _pincelBorda);
+                    if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
+                    else { limitesTotais.Union(path.Bounds); }
+                }
+
+                if (!limitesTotais.IsEmpty)
+                {
+                    float escalaX = width / limitesTotais.Width;
+                    float escalaY = height / limitesTotais.Height;
+                    float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+
+                    canvas.Translate(width / 2f + MapService.CameraPanX, height / 2f + MapService.CameraPanY);
+                    canvas.Scale(escalaAutoFit * MapService.CameraZoom);
+                    canvas.Translate(-limitesTotais.MidX, -limitesTotais.MidY);
+
+                    // A espessura da linha mantém-se perfeitamente constante ao nível da GPU
+                    _pincelBorda.StrokeWidth = 1f / (escalaAutoFit * MapService.CameraZoom);
+
+                    foreach (var path in MapService.PathsCompilados)
+                    {
+                        canvas.DrawPath(path, _pincelFill);
+                        canvas.DrawPath(path, _pincelBorda);
+                    }
                 }
             }
+            canvas.Restore();
+
+            canvas.Restore();
+
+            // 2. Extrai o frame da memória (Formato PNG sem perdas - ideal para vetores GIS)
+            using var image = surface.Snapshot();
+            using var pixmap = image.PeekPixels();
+            using var ms = new System.IO.MemoryStream();
+            
+            // A API nativa padrão e segura do SkiaSharp
+            pixmap.Encode(ms, SKEncodedImageFormat.Png, 100);
+            
+            string base64 = Convert.ToBase64String(ms.ToArray());
+
+            // 3. Envia o binário diretamente para a interface web através do IPC
+            await JSRuntime.InvokeVoidAsync("atualizarFundoSkia", base64);
         }
-        canvas.Restore();
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro crítico no motor off-screen: {ex.Message}");
+        }
+        finally
+        {
+            _isRendering = false;
+        }
+    
     }
 
     // Variáveis de Controle da Tabela

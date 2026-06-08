@@ -818,3 +818,10 @@ window.atualizarCanvasMapa = function (base64Image) {
     // Garante que o navegador sabe que é um JPEG ultra-rápido
     img.src = 'data:image/jpeg;base64,' + base64Image;
 };
+function atualizarFundoSkia(base64) {
+    var img = document.getElementById('skia-layer');
+    if (img) {
+        // A assinatura foi corrigida para PNG para coincidir com a exportação do C#
+        img.src = 'data:image/png;base64,' + base64;
+    }
+}
