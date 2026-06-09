@@ -1589,6 +1589,14 @@
     private int _larguraTela = 1920;
     private int _alturaTela = 1080;
 
+    private SKPaint _pincelBorda;
+    private SKPaint _pincelFill;
+    private SKPaint _pincelRadar;
+    private bool _isRendering = false;
+
+    // VARIÁVEIS DO ZOOM INFINITO
+    private System.Timers.Timer _debounceTimer;
+    private SKMatrix _matrizAtual = SKMatrix.Identity;
     // Classe auxiliar para receber os dados do JS
     public class DimensoesTela { public int largura { get; set; } public int altura { get; set; } }
 
@@ -1620,8 +1628,7 @@
     }
     
     
-    private SKPaint _pincelRadar;
-    private bool _isRendering = false; // Trava de FPS para evitar gargalos no Pan/Zoom
+    
 
     protected override void OnInitialized()
     {
@@ -1632,8 +1639,12 @@
         _pincelFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(25), IsAntialias = true };
         _pincelRadar = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Fill, IsAntialias = true };
 
-        // Liga a invalidação ao nosso novo motor de memória
         MapService.OnMapInvalidated += () => InvokeAsync(RenderizarFrameOffScreen);
+
+        // O TEMPORIZADOR INTELIGENTE (Espera 500ms após você largar o rato para pedir a foto HD)
+        _debounceTimer = new System.Timers.Timer(500);
+        _debounceTimer.AutoReset = false;
+        _debounceTimer.Elapsed += (s, e) => InvokeAsync(RecarregarOrtofotoAltaResolucao);
     }
 
     private async Task RenderizarFrameOffScreen()
@@ -1658,18 +1669,17 @@
 
             canvas.Save();
 
-            // 1. AUTO-FIT UNIFICADO (Junta os Limites do TIF e dos Vetores)
+            // 1. Descobre a Bounding Box combinando a Imagem e os Vetores
             SKRect limitesTotais = new SKRect();
             bool primeiro = true;
 
-            // Se tiver um TIF carregado, ele dita os limites base
+            // Inclui a Ortofoto no cálculo
             if (MapService.TemRaster)
             {
-                limitesTotais = MapService.LimitesRaster;
+                limitesTotais = MapService.LimitesRasterGlobal;
                 primeiro = false;
             }
 
-            // Junta os limites dos Shapefiles (se existirem)
             foreach (var path in MapService.PathsCompilados)
             {
                 if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
@@ -1682,21 +1692,22 @@
                 float escalaY = height / limitesTotais.Height;
                 float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
 
-                canvas.Translate(width / 2f + MapService.CameraPanX, height / 2f + MapService.CameraPanY);
-                canvas.Scale(escalaAutoFit * MapService.CameraZoom);
-                canvas.Translate(-limitesTotais.MidX, -limitesTotais.MidY);
+                // GERA A MATRIZ DE TRANSFORMAÇÃO E GUARDA-A NA MEMÓRIA
+                _matrizAtual = SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
+                _matrizAtual = _matrizAtual.PostConcat(SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
+                _matrizAtual = _matrizAtual.PostConcat(SKMatrix.CreateTranslation(width / 2f + MapService.CameraPanX, height / 2f + MapService.CameraPanY));
 
-                // --- ORDEM DE DESENHO: 1º RASTER, 2º VETORES ---
+                // INJETA NA GPU
+                canvas.SetMatrix(_matrizAtual);
 
-                // 2A. Desenha a Ortofoto TIF
+                // --- 1º DESENHA A ORTOFOTO (COM A BOUNDING BOX DO RECORTE ATUAL) ---
                 if (MapService.TemRaster)
                 {
-                    // Usa um filtro de alta qualidade para a imagem não ficar pixelizada ao dar zoom
                     using var paintRaster = new SKPaint { FilterQuality = SKFilterQuality.High };
-                    canvas.DrawBitmap(MapService.RasterAtivo, MapService.LimitesRaster, paintRaster);
+                    canvas.DrawBitmap(MapService.RasterAtivo, MapService.LimitesRasterDesenho, paintRaster);
                 }
 
-                // 2B. Desenha as Linhas do Shapefile
+                // --- 2º DESENHA OS VETORES ---
                 _pincelBorda.StrokeWidth = 1f / (escalaAutoFit * MapService.CameraZoom);
 
                 foreach (var path in MapService.PathsCompilados)
@@ -1706,7 +1717,7 @@
                 }
             }
 
-            canvas.Restore();
+            canvas.Restore(); // Fecha o estado matricial
 
             // 2. Extrai o frame da memória (Formato PNG sem perdas - ideal para vetores GIS)
             using var image = surface.Snapshot();
@@ -1817,11 +1828,6 @@
     private string corFonteRotulo = "#ffffff";
     
    
-    // ==========================================
-    // MOTOR NATIVO (SKIA DIRECT - LÓGICA CLAUDE)
-    // ==========================================
-    private SKPaint _pincelBorda;
-    private SKPaint _pincelFill;
 
     
     
@@ -1839,6 +1845,7 @@
     private double startDragY;
     private double _arrastoAtualX = 0;
     private double _arrastoAtualY = 0;
+    private float _zoomAtualCSS = 1.0f; // Memória do esticamento da GPU
 
     private void AoPressionarRato(MouseEventArgs e)
     {
@@ -1877,36 +1884,36 @@
 
         // Pede UMA única imagem ultra-realista e pesada ao SkiaSharp
         InvokeAsync(RenderizarFrameOffScreen);
+        // Gatilho do Zoom Infinito
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
     }
 
     private void AoRodarRato(WheelEventArgs e)
     {
         float zoomAnterior = MapService.CameraZoom;
-
-        // Define se está a aproximar ou afastar
         float fator = e.DeltaY < 0 ? 1.15f : (1f / 1.15f);
+        MapService.CameraZoom = Math.Clamp(zoomAnterior * fator, 0.1f, 50.0f);
 
-        // Calcula e limita o novo zoom
-        float novoZoom = Math.Clamp(zoomAnterior * fator, 0.1f, 50.0f);
-        MapService.CameraZoom = novoZoom;
+        // 1. Calcula a proporção para o Efeito Visual CSS (Estica a imagem)
+        _zoomAtualCSS *= (MapService.CameraZoom / zoomAnterior);
 
-        // Fator de proporção da mudança
-        float proporcao = novoZoom / zoomAnterior;
-
-        // O centro exato da tela atual
+        // 2. Lógica matemática do Pan (Mantém o foco no rato)
+        float proporcao = MapService.CameraZoom / zoomAnterior;
         float centroX = _larguraTela / 2f;
         float centroY = _alturaTela / 2f;
-
-        // Posição do rato relativa ao centro da tela
         float mouseRelativoX = (float)e.ClientX - centroX;
         float mouseRelativoY = (float)e.ClientY - centroY;
 
-        // A FÓRMULA MÁGICA: Fixa o mundo no pixel exato em que o rato está a apontar!
         MapService.CameraPanX = (MapService.CameraPanX * proporcao) + (mouseRelativoX * (1 - proporcao));
         MapService.CameraPanY = (MapService.CameraPanY * proporcao) + (mouseRelativoY * (1 - proporcao));
 
-        // Pede imediatamente à placa para pintar o novo frame
-        InvokeAsync(RenderizarFrameOffScreen);
+        // 3. Move/Estica a imagem na Placa de Vídeo instantaneamente! (Zero travamentos)
+        JSRuntime.InvokeVoidAsync("transformarFundoSkia", _arrastoAtualX, _arrastoAtualY, _zoomAtualCSS);
+
+        // 4. Reinicia o cronómetro do Sniper. O GDAL só vai trabalhar quando o rato parar!
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
     }
 
     // ==========================================
@@ -2153,29 +2160,29 @@
         {
             if (string.IsNullOrEmpty(caminhoArquivoRaster))
             {
-                await JSRuntime.InvokeVoidAsync("alert", "Selecione um ficheiro TIF/ECW primeiro!");
+                await JSRuntime.InvokeVoidAsync("alert", "Selecione um ficheiro primeiro!");
                 return;
             }
 
             exibirModalImportacao = false;
 
-            // 1. O GDAL lê o TIF pesado e recorta/comprime
+            // 1. Pede ao GDAL a imagem
             var resultadoRaster = RasterService.PrepararRasterParaMapa(caminhoArquivoRaster);
 
             if (!string.IsNullOrEmpty(resultadoRaster.Base64))
             {
-                // 2. A MÁGICA: Em vez de enviar para o Javascript, carregamos direto na RAM da placa de vídeo!
+                // 2. A MÁGICA: Converte para Bytes e atira para a Placa de Vídeo!
                 byte[] imageBytes = Convert.FromBase64String(resultadoRaster.Base64);
 
-                MapService.CarregarRaster(
-                                    imageBytes,
-                                    (float)resultadoRaster.MinLng,
-                                    (float)resultadoRaster.MinLat,
-                                    (float)resultadoRaster.MaxLng,
-                                    (float)resultadoRaster.MaxLat
-                                );
+                // NOTA: Como você não está usando a escala do vetor aqui, vamos usar coordenadas geográficas diretas
+                MapService.CarregarRasterInicial(
+                    imageBytes,
+                    (float)resultadoRaster.MinLng,
+                    (float)resultadoRaster.MinLat,
+                    (float)resultadoRaster.MaxLng,
+                    (float)resultadoRaster.MaxLat
+                );
 
-                // 3. Adiciona à lista lateral do utilizador
                 CamadasAtivas.Add(new Camada
                 {
                     Nome = System.IO.Path.GetFileName(caminhoArquivoRaster),
@@ -2183,13 +2190,13 @@
                     Visivel = true
                 });
 
-                // Reposiciona a câmara e manda desenhar a nova imagem!
+                // Reposiciona a câmara
                 MapService.CameraPanX = 0;
                 MapService.CameraPanY = 0;
                 MapService.CameraZoom = 1.0f;
 
                 StateHasChanged();
-                await RenderizarFrameOffScreen(); // Força o frame imediato
+                await RenderizarFrameOffScreen();
             }
             else
             {
@@ -2198,7 +2205,7 @@
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Erro crítico no TIF: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro crítico: {ex.Message}");
         }
     }
 
@@ -2881,6 +2888,57 @@
 
         await InvokeAsync(StateHasChanged);
     }
-    
+    private async Task RecarregarOrtofotoAltaResolucao()
+    {
+        // Só executa se houver uma ortofoto TIF importada e visível
+        if (!MapService.TemRaster || string.IsNullOrEmpty(caminhoArquivoRaster)) return;
+
+        try
+        {
+            // INVERSÃO DA MÁGICA: Pergunta à GPU quais são as coordenadas geográficas visíveis no monitor!
+            if (_matrizAtual.TryInvert(out SKMatrix inverse))
+            {
+                // Mapeia os cantos do monitor (Pixel 0,0 até ao limite HD)
+                SKPoint topLeft = inverse.MapPoint(new SKPoint(0, 0));
+                SKPoint bottomRight = inverse.MapPoint(new SKPoint(_larguraTela > 0 ? _larguraTela : 1920, _alturaTela > 0 ? _alturaTela : 1080));
+
+                // Descodifica o formato do SkiaSharp (O X é a Longitude e o Y é a Latitude INVERTIDA)
+                double minLng = topLeft.X;
+                double maxLat = -topLeft.Y;
+                double maxLng = bottomRight.X;
+                double minLat = -bottomRight.Y;
+
+                // Garante que a orientação está correta
+                double realMinLng = Math.Min(minLng, maxLng);
+                double realMaxLng = Math.Max(minLng, maxLng);
+                double realMinLat = Math.Min(minLat, maxLat);
+                double realMaxLat = Math.Max(minLat, maxLat);
+
+                // Vai ao motor GDAL buscar uma fotografia perfeita apenas desta área, a correr numa Thread Paralela (não congela o ecrã)
+                string base64AltaQualidade = await Task.Run(() =>
+                    RasterService.ObterRecorteDinamico(caminhoArquivoRaster, realMinLat, realMinLng, realMaxLat, realMaxLng, _larguraTela > 0 ? _larguraTela : 1920, _alturaTela > 0 ? _alturaTela : 1080)
+                );
+
+                if (!string.IsNullOrEmpty(base64AltaQualidade))
+                {
+                    byte[] imageBytes = Convert.FromBase64String(base64AltaQualidade);
+
+                    // Altera a textura da placa gráfica silenciosamente
+                    MapService.AtualizarRecorteRaster(imageBytes, (float)realMinLng, (float)realMinLat, (float)realMaxLng, (float)realMaxLat);
+
+                    // Reseta o esticamento falso do CSS agora que temos a imagem Real HD
+                    _zoomAtualCSS = 1.0f;
+                    _arrastoAtualX = 0;
+                    _arrastoAtualY = 0;
+
+                    await InvokeAsync(RenderizarFrameOffScreen);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro no Zoom Infinito do Raster: {ex.Message}");
+        }
+    }
     
 }

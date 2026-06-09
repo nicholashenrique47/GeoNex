@@ -821,11 +821,18 @@ window.atualizarCanvasMapa = function (base64Image) {
 function atualizarFundoSkia(base64) {
     var img = document.getElementById('skia-layer');
     if (img) {
-        // Quando chega uma imagem nova, desligamos o arrasto e centramos a imagem
-        img.style.transition = 'none';
-        img.style.transform = 'translate(0px, 0px)';
-        // Carrega o PNG novo e cristalino
+        img.style.transition = 'none'; // Corta animações para colar a imagem HD instantaneamente
+        img.style.transform = 'translate(0px, 0px) scale(1)'; // Reseta a física
         img.src = 'data:image/png;base64,' + base64;
+    }
+}
+
+// NOVA FUNÇÃO: O Blazor vai chamar isto a 60 FPS durante o Zoom/Pan
+function transformarFundoSkia(deltaX, deltaY, scale) {
+    var img = document.getElementById('skia-layer');
+    if (img) {
+        // A GPU do computador assume o esforço gráfico 100% aqui
+        img.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(${scale})`;
     }
 }
 

@@ -9,10 +9,7 @@ using OSGeo.OGR;
 
 
 // 1. ISOLAMENTO DE PLATAFORMA: Só importa o motor gráfico se for Windows
-#if WINDOWS
-using System.Drawing;
-using System.Drawing.Imaging;
-#endif
+
 
 namespace GeoNex.Services;
 
@@ -105,7 +102,8 @@ public class RasterService
             // 3. Processamento da Imagem (Suporte a RGB e Opacidade = 255)
 
 
-            int larguraRender = Math.Min(largura, 1024);
+            // 3. Processamento da Imagem (Libertando a qualidade 4K para a RAM!)
+            int larguraRender = Math.Min(largura, 4096);
             int alturaRender = (int)((double)altura / largura * larguraRender);
 
             // Garante que a imagem tem pelo menos 3 bandas (RGB). Se for P&B, repete a banda 1.
@@ -211,33 +209,33 @@ public class RasterService
             bandB.ReadRaster(0, 0, larguraTela, alturaTela, bufferB, larguraTela, alturaTela, 0, 0);
 
             // Monta os Pixels e remove o fundo preto (NoData)
-            int[] pixelsARGB = new int[larguraTela * alturaTela];
-            for (int i = 0; i < pixelsARGB.Length; i++)
-            {
-                int r = bufferR[i] & 0xFF;
-                int g = bufferG[i] & 0xFF;
-                int b = bufferB[i] & 0xFF;
-                int a = (r == 0 && g == 0 && b == 0) ? 0 : 255;
+            // --- OTIMIZAÇÃO EXTREMA: Injeção Direta na Memória SkiaSharp ---
 
-                pixelsARGB[i] = (a << 24) | (r << 16) | (g << 8) | b;
+            // 1. Matriz plana de cores (Zero conversões Bit a Bit complexas)
+            var pixels = new SkiaSharp.SKColor[larguraTela * alturaTela];
+
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                byte r = (byte)(bufferR[i] & 0xFF);
+                byte g = (byte)(bufferG[i] & 0xFF);
+                byte b = (byte)(bufferB[i] & 0xFF);
+                byte a = (r == 0 && g == 0 && b == 0) ? (byte)0 : (byte)255;
+
+                pixels[i] = new SkiaSharp.SKColor(r, g, b, a);
             }
 
-#if WINDOWS
-            using (Bitmap bitmap = new Bitmap(larguraTela, alturaTela, PixelFormat.Format32bppArgb))
-            {
-                BitmapData bitmapData = bitmap.LockBits(new Rectangle(0, 0, larguraTela, alturaTela), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-                Marshal.Copy(pixelsARGB, 0, bitmapData.Scan0, pixelsARGB.Length);
-                bitmap.UnlockBits(bitmapData);
+            // 2. Aloca a imagem diretamente no motor C++ 
+            var info = new SkiaSharp.SKImageInfo(larguraTela, alturaTela);
+            using var bitmap = new SkiaSharp.SKBitmap(info);
+            bitmap.Pixels = pixels; // Injeta todos os milhares de pixeis num milissegundo
 
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                    return Convert.ToBase64String(ms.ToArray());
-                }
-            }
-#else
-            return "";
-#endif
+            // 3. Codifica para PNG nativamente (ignora o Windows Forms/Drawing)
+            using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+
+            // DICA PRO: Pode mudar SKEncodedImageFormat.Png para .Webp (qualidade 80) se quiser ainda mais velocidade!
+            using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+
+            return Convert.ToBase64String(data.ToArray());
         }
         catch (Exception ex)
         {
