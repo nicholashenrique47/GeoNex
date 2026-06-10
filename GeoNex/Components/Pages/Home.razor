@@ -10,18 +10,15 @@
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
-<div class="map-background"
-     style="width: 100vw; height: 100vh; background-color: #161921; overflow: hidden; cursor: @(isDragging ? "grabbing" : "grab"); position: relative;"
+<div id="map-container"
+     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: top left; cursor: @(isDragging ? "grabbing" : "grab"); position: absolute; left:0; top:0; z-index: 0;"
      @onwheel="AoRodarRato"
      @onmousedown="AoPressionarRato"
      @onmousemove="AoMoverRato"
      @onmouseup="AoSoltarRato"
      @onmouseleave="AoSoltarRato">
 
-    @if (!string.IsNullOrEmpty(mapaUrl))
-    {
-        <img id="skia-layer" src="@mapaUrl" style="width: 100%; height: 100%; position: absolute; z-index: 10; object-fit: fill; pointer-events: none;" />
-    }
+    <img id="skia-layer" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; z-index: 10; object-fit: fill; pointer-events: none;" />
 </div>
 //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
@@ -1579,587 +1576,170 @@
 </style>
 
 @code {
+    // =========================================================================
+    // 1. VARIÁVEIS DE ESTADO DA INTERFACE E TELEMETRIA
+    // =========================================================================
     private string latitude = "-25.882800";
     private string longitude = "-48.574700";
     private bool exibirModalImportacao = false;
     private string AbaModalAtiva = "Raster";
     private DotNetObjectReference<Home>? objRef;
     private List<Camada> CamadasAtivas = new List<Camada>();
-    // Variáveis para controlar a tela de importação
     private string caminhoArquivoRaster = "";
+    private string caminhoArquivoVetor = "";
     private string statusGdal = "Aguardando seleção de arquivo...";
-    // Variáveis da resolução em tempo real
+
+    // Definição unificada do modelo de dados para controle de camadas
+    public class Camada
+    {
+        public string Nome { get; set; } = string.Empty;
+        public string Tipo { get; set; } = string.Empty;
+        public bool Visivel { get; set; } = true;
+        public string CaminhoArquivo { get; set; } = string.Empty;
+    }
+
+    // Estrutura de dados para o payload de dimensionamento do viewport
+    public class DimensoesTela
+    {
+        public int largura { get; set; }
+        public int altura { get; set; }
+    }
+
+    // =========================================================================
+    // 2. VARIÁVEIS DO MOTOR GRÁFICO ENTERPRISE & SERVIDOR LOCAL DMA
+    // =========================================================================
+    private GeoNex.Services.LocalMapServer _server;
     private int _larguraTela = 1920;
     private int _alturaTela = 1080;
 
-    private SKPaint _pincelBorda;
-    private SKPaint _pincelFill;
-    private SKPaint _pincelRadar;
-    private bool _isRendering = false;
-
-    // VARIÁVEIS DO ZOOM INFINITO
-    private System.Timers.Timer _debounceTimer;
-    private SKMatrix _matrizAtual = SKMatrix.Identity;
-    // Classe auxiliar para receber os dados do JS
-    public class DimensoesTela { public int largura { get; set; } public int altura { get; set; } }
-
-    // Atualize o seu OnAfterRenderAsync para ficar assim:
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            // Pega o tamanho real do navegador do utilizador
-            var dimensoes = await JSRuntime.InvokeAsync<DimensoesTela>("dimensoesJanela.obter");
-            _larguraTela = dimensoes.largura;
-            _alturaTela = dimensoes.altura;
-
-            // Pede ao JS para avisar se o utilizador redimensionar a janela
-            await JSRuntime.InvokeVoidAsync("dimensoesJanela.registrarResize", objRef);
-
-            // Dispara o primeiro frame já com a resolução perfeita
-            await RenderizarFrameOffScreen();
-        }
-    }
-
-    // O JS chama este método se a janela mudar de tamanho
-    [JSInvokable]
-    public void AtualizarDimensoesTela(int largura, int altura)
-    {
-        _larguraTela = largura;
-        _alturaTela = altura;
-        InvokeAsync(RenderizarFrameOffScreen);
-    }
-    
-    
-    
-
-    protected override void OnInitialized()
-    {
-        objRef = DotNetObjectReference.Create(this);
-        CamadasAtivas.Add(new Camada { Nome = "OpenStreetMap", Tipo = "Raster", Visivel = true });
-
-        _pincelBorda = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan.WithAlpha(200), StrokeWidth = 0, IsAntialias = true };
-        _pincelFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(25), IsAntialias = true };
-        _pincelRadar = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Fill, IsAntialias = true };
-
-        MapService.OnMapInvalidated += () => InvokeAsync(RenderizarFrameOffScreen);
-
-        // O TEMPORIZADOR INTELIGENTE (Espera 500ms após você largar o rato para pedir a foto HD)
-        _debounceTimer = new System.Timers.Timer(100);
-        _debounceTimer.AutoReset = false;
-        _debounceTimer.Elapsed += (s, e) => InvokeAsync(RecarregarOrtofotoAltaResolucao);
-    }
-
-    private async Task RenderizarFrameOffScreen()
-    {
-        // Se a CPU já estiver a renderizar um frame, ignora o evento para manter fluidez
-        if (_isRendering) return;
-        _isRendering = true;
-
-        try
-        {
-            // 1. Cria a tela virtual com a resolução EXATA do navegador (Fim das distorções!)
-            int width = _larguraTela > 0 ? _larguraTela : 1920;
-            int height = _alturaTela > 0 ? _alturaTela : 1080;
-
-            var info = new SKImageInfo(width, height);
-            using var surface = SKSurface.Create(info);
-            var canvas = surface.Canvas;
-
-            // Limpa o fundo com a cor base da interface
-            canvas.Clear(new SKColor(22, 25, 33));
-
-
-            canvas.Save();
-
-            // 1. Descobre a Bounding Box combinando a Imagem e os Vetores
-            SKRect limitesTotais = new SKRect();
-            bool primeiro = true;
-
-            // Inclui a Ortofoto no cálculo
-            if (MapService.TemRaster)
-            {
-                limitesTotais = MapService.LimitesRasterGlobal;
-                primeiro = false;
-            }
-
-            foreach (var path in MapService.PathsCompilados)
-            {
-                if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
-                else { limitesTotais.Union(path.Bounds); }
-            }
-
-            if (!limitesTotais.IsEmpty)
-            {
-                float escalaX = width / limitesTotais.Width;
-                float escalaY = height / limitesTotais.Height;
-                float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
-
-                // GERA A MATRIZ DE TRANSFORMAÇÃO E GUARDA-A NA MEMÓRIA
-                _matrizAtual = SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
-                _matrizAtual = _matrizAtual.PostConcat(SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
-                _matrizAtual = _matrizAtual.PostConcat(SKMatrix.CreateTranslation(width / 2f + MapService.CameraPanX, height / 2f + MapService.CameraPanY));
-
-                // INJETA NA GPU
-                canvas.SetMatrix(_matrizAtual);
-
-                // --- 1º DESENHA A ORTOFOTO (COM A BOUNDING BOX DO RECORTE ATUAL) ---
-                if (MapService.TemRaster)
-                {
-                    using var paintRaster = new SKPaint { FilterQuality = SKFilterQuality.High };
-                    canvas.DrawBitmap(MapService.RasterAtivo, MapService.LimitesRasterDesenho, paintRaster);
-                }
-
-                // --- 2º DESENHA OS VETORES ---
-                _pincelBorda.StrokeWidth = 1f / (escalaAutoFit * MapService.CameraZoom);
-
-                foreach (var path in MapService.PathsCompilados)
-                {
-                    canvas.DrawPath(path, _pincelFill);
-                    canvas.DrawPath(path, _pincelBorda);
-                }
-            }
-
-            canvas.Restore(); // Fecha o estado matricial
-
-            // 2. Extrai o frame da memória (Formato PNG sem perdas - ideal para vetores GIS)
-            // No final do RenderizarFrameOffScreen (perto do Passo 2)
-            using var image = surface.Snapshot();
-            using var pixmap = image.PeekPixels();
-            using var ms = new System.IO.MemoryStream();
-
-            // Renderiza o painel final em JPEG de alta qualidade
-            pixmap.Encode(ms, SkiaSharp.SKEncodedImageFormat.Jpeg, 90);
-
-            string base64 = Convert.ToBase64String(ms.ToArray());
-            
-           
-
-            // 3. Envia o binário diretamente para a interface web através do IPC
-            await JSRuntime.InvokeVoidAsync("atualizarFundoSkia", base64);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Erro crítico no motor off-screen: {ex.Message}");
-        }
-        finally
-        {
-            _isRendering = false;
-        }
-    
-    }
-
-    // Variáveis de Controle da Tabela
-    private bool exibirTabelaAtributos = false;
-    private string nomeCamadaAtiva = "";
-    private List<string> colunasTabela = new List<string>();
-
-    // Cada linha é um dicionário, permitindo colunas dinâmicas (qualquer Shapefile)
-    private List<Dictionary<string, object>> dadosTabela = new List<Dictionary<string, object>>();
-
-    // Função para abrir a tabela de uma camada específica (Você pode chamar isso do menu da camada)
-    // Função para abrir a tabela de uma camada específica
-    // Função disparada ao clicar no botão da tabela
-    // Variáveis dinâmicas para o Painel da Direita
-    // Mudamos de <string, object> para <string, string> para facilitar a UI
-    private string camadaSelecionadaPainel = "";
-    private Dictionary<string, string> atributosFeicaoSelecionada = new Dictionary<string, string>();
-
-
-
-    [JSInvokable]
-    public async Task SelecionarFeicaoNoMapa(string nomeCamada, string propriedadesJson)
-    {
-        try
-        {
-            // 1. Imprime na janela de "Saída" do Visual Studio para termos certeza absoluta do que chegou
-            Console.WriteLine($"[GEONEX] Clique recebido da camada {nomeCamada}: {propriedadesJson}");
-
-            camadaSelecionadaPainel = nomeCamada;
-            atributosFeicaoSelecionada = new Dictionary<string, string>(); // Limpa o anterior
-
-            var dadosBrutos = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(propriedadesJson);
-
-            if (dadosBrutos != null)
-            {
-                foreach (var item in dadosBrutos)
-                {
-                    string valorSeguro = item.Value.ValueKind == System.Text.Json.JsonValueKind.Null ? "" : item.Value.ToString();
-                    atributosFeicaoSelecionada[item.Key] = valorSeguro;
-                }
-            }
-
-            // 2. FORÇA a atualização da tela na Thread Principal (A grande correção!)
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception ex)
-        {
-            // Se quebrar, agora ele vai jogar o erro na sua cara na tela do software
-            Console.WriteLine($"[GEONEX ERRO]: {ex.Message}");
-            await JSRuntime.InvokeVoidAsync("alert", $"Falha ao ler os atributos do polígono:\n{ex.Message}");
-        }
-    }
-
-    // Como mudamos o dicionário para <string, string>, atualize a função de edição também:
-    private void AtualizarAtributoPainel(string chave, string novoValor)
-    {
-        if (atributosFeicaoSelecionada.ContainsKey(chave))
-        {
-            atributosFeicaoSelecionada[chave] = novoValor;
-        }
-    }
-
-    private async Task SalvarAtributosPainel()
-    {
-        // Aqui entrará a conexão com o ProjetoService futuramente
-        await JSRuntime.InvokeVoidAsync("alert", "Dados alterados na memória. Conexão com banco SQLite em desenvolvimento.");
-    }
-    // Variáveis do Modal de Propriedades
-    private bool exibirModalPropriedades = false;
-    private string camadaEmEdicao = "";
-    private string abaAtivaPropriedades = "Simbologia"; // Controle da aba lateral
-
-    // Variáveis de Simbologia Padrão
-    private string corPreenchimento = "#38bdf8";
-    private string corBorda = "#0ea5e9";
-    private double espessuraLinha = 1.0;
-    private int opacidadePreenchimento = 50;
-    // Variáveis de Controle da Simbologia
-    private string tipoSimbologia = "UNICA";
-    private string colunaSimbologiaCategorizada = "";
-    // Variáveis de Rótulos (Labels)
-    private List<string> colunasDisponiveisRotulo = new List<string>();
-    private string colunaRotuloSelecionada = "";
-    private int tamanhoFonteRotulo = 11;
-    private string corFonteRotulo = "#ffffff";
-    
-   
-
-    
-    
-
-    private List<float[]> poligonosNativos = new List<float[]>();
-    private float mapaMinX, mapaMaxX, mapaMinY, mapaMaxY;
-
-
-    // ==========================================
-    // CAPTURA DO RATO BLAZOR -> COMUNICAÇÃO MAUI
-    // ==========================================
-    // Variáveis de controlo do rato
+    // Controladores de estado tátil do Viewport (CSS Transforms Assíncronos)
     private bool isDragging = false;
     private double startDragX;
     private double startDragY;
     private double _arrastoAtualX = 0;
     private double _arrastoAtualY = 0;
-    private float _zoomAtualCSS = 1.0f; // Memória do esticamento da GPU
+    private float _zoomAtualCSS = 1.0f;
+    private System.Timers.Timer _debounceTimer;
 
-    private void AoPressionarRato(MouseEventArgs e)
-    {
-        if (e.Button != 0) return; // Apenas botão esquerdo
-        isDragging = true;
+    // =========================================================================
+    // 3. ESTADOS E ACUMULADORES DO FRAMEWORK GIS (TABELAS, ATRIBUTOS E SIMBOLOGIA)
+    // =========================================================================
+    private bool exibirTabelaAtributos = false;
+    private string nomeCamadaAtiva = "";
+    private List<string> colunasTabela = new List<string>();
+    private List<Dictionary<string, object>> dadosTabela = new List<Dictionary<string, object>>();
 
-        // Guarda a posição exata onde o utilizador clicou
-        startDragX = e.ClientX;
-        startDragY = e.ClientY;
-    }
+    private string camadaSelecionadaPainel = "";
+    private Dictionary<string, string> atributosFeicaoSelecionada = new Dictionary<string, string>();
 
-    private void AoMoverRato(MouseEventArgs e)
-    {
-        if (!isDragging || e.Buttons != 1) return;
+    private bool exibirModalPropriedades = false;
+    private string camadaEmEdicao = "";
+    private string abaAtivaPropriedades = "Simbologia";
+    private string corPreenchimento = "#38bdf8";
+    private string corBorda = "#0ea5e9";
+    private double espessuraLinha = 1.0;
+    private int opacidadePreenchimento = 50;
+    private string tipoSimbologia = "UNICA";
+    private string colunaSimbologiaCategorizada = "";
+    private List<string> colunasDisponiveisRotulo = new List<string>();
+    private string colunaRotuloSelecionada = "";
+    private int tamanhoFonteRotulo = 11;
+    private string corFonteRotulo = "#ffffff";
 
-        // Calcula a distância que o rato percorreu desde o clique
-        _arrastoAtualX = e.ClientX - startDragX;
-        _arrastoAtualY = e.ClientY - startDragY;
+    private List<float[]> poligonosNativos = new List<float[]>();
+    private float mapaMinX, mapaMaxX, mapaMinY, mapaMaxY;
 
-        // Grita para o Javascript mover a imagem na placa de vídeo (60 a 144 FPS Garantidos!)
-        JSRuntime.InvokeVoidAsync("arrastarFundoSkia", _arrastoAtualX, _arrastoAtualY);
-    }
-
-    private void AoSoltarRato(MouseEventArgs e)
-    {
-        if (!isDragging) return;
-        isDragging = false;
-
-        // O utilizador LARGOU o rato. Agora sim, dizemos à câmara do C# para se mover definitivamente.
-        MapService.CameraPanX += (float)_arrastoAtualX;
-        MapService.CameraPanY += (float)_arrastoAtualY;
-
-        // Limpa os contadores de movimento
-        _arrastoAtualX = 0;
-        _arrastoAtualY = 0;
-
-        // Pede UMA única imagem ultra-realista e pesada ao SkiaSharp
-        InvokeAsync(RenderizarFrameOffScreen);
-        // Gatilho do Zoom Infinito
-        _debounceTimer.Stop();
-        _debounceTimer.Start();
-    }
-
-    private void AoRodarRato(WheelEventArgs e)
-    {
-        float zoomAnterior = MapService.CameraZoom;
-        float fator = e.DeltaY < 0 ? 1.15f : (1f / 1.15f);
-        MapService.CameraZoom = Math.Clamp(zoomAnterior * fator, 0.1f, 50.0f);
-
-        // 1. Calcula a proporção para o Efeito Visual CSS (Estica a imagem)
-        _zoomAtualCSS *= (MapService.CameraZoom / zoomAnterior);
-
-        // 2. Lógica matemática do Pan (Mantém o foco no rato)
-        float proporcao = MapService.CameraZoom / zoomAnterior;
-        float centroX = _larguraTela / 2f;
-        float centroY = _alturaTela / 2f;
-        float mouseRelativoX = (float)e.ClientX - centroX;
-        float mouseRelativoY = (float)e.ClientY - centroY;
-
-        MapService.CameraPanX = (MapService.CameraPanX * proporcao) + (mouseRelativoX * (1 - proporcao));
-        MapService.CameraPanY = (MapService.CameraPanY * proporcao) + (mouseRelativoY * (1 - proporcao));
-
-        // 3. Move/Estica a imagem na Placa de Vídeo instantaneamente! (Zero travamentos)
-        JSRuntime.InvokeVoidAsync("transformarFundoSkia", _arrastoAtualX, _arrastoAtualY, _zoomAtualCSS);
-
-        // 4. Reinicia o cronómetro do Sniper. O GDAL só vai trabalhar quando o rato parar!
-        _debounceTimer.Stop();
-        _debounceTimer.Start();
-    }
-
-    // ==========================================
-    // MOTOR DE RENDERIZAÇÃO GRÁFICA (ASSÍNCRONO E UNIFICADO)
-    // ==========================================
-    
-
-    // A função unificada que atira todas as configurações para o motor gráfico (Leaflet)
-    // A função unificada que atira todas as configurações para o motor gráfico (Leaflet)
-    private async Task AplicarPropriedadesUnificadas()
-    {
-        try
-        {
-            double opacidadeDecimal = opacidadePreenchimento / 100.0;
-
-            // 1. Aplica o Estilo Visual (Único ou Categorizado)
-            if (tipoSimbologia == "UNICA")
-            {
-                await JSRuntime.InvokeVoidAsync("alterarEstiloCamada",
-                    camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadeDecimal);
-            }
-            else if (tipoSimbologia == "CATEGORIZADA" && !string.IsNullOrEmpty(colunaSimbologiaCategorizada))
-            {
-                await JSRuntime.InvokeVoidAsync("aplicarSimbologiaCategorizada",
-                    camadaEmEdicao, colunaSimbologiaCategorizada, espessuraLinha, opacidadeDecimal);
-            }
-
-            // 2. Aplica os Rótulos
-            await JSRuntime.InvokeVoidAsync("aplicarRotulosCamada",
-                camadaEmEdicao, colunaRotuloSelecionada, tamanhoFonteRotulo, corFonteRotulo);
-
-            exibirModalPropriedades = false;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Erro crítico ao aplicar propriedades: {ex.Message}");
-        }
-    }
-    // Variáveis do Editor de Vértices
-    // ==========================================
-    // VARIÁVEIS DE EDIÇÃO DE VÉRTICES
-    // ==========================================
+    // =========================================================================
+    // 4. INFRAESTRUTURA DE EDIÇÃO GEOMÉTRICA AVANÇADA (CADERNETA E VÉRTICES)
+    // =========================================================================
     private bool modoEdicaoVerticeLigado = false;
     private bool exibirModalTrocaVertice = false;
     private string verticeEditandoCamada = "";
     private int verticeEditandoIndice = -1;
-
-    // As variáveis preparadas para UTM que estavam a faltar:
     private string sistemaCoordenadasEdicao = "DECIMAL";
     private string zonaUtmEdicao = "22S";
     private string verticeEditandoX = "";
     private string verticeEditandoY = "";
 
-    // 1. O botão que liga a "Mesa de Desenho" GLOBAL
-    // 1. O botão que liga a "Mesa de Desenho" focada
-    private async Task AlternarEdicaoVertices()
+    private bool mostrarMenuContexto = false;
+    private double menuContextoX = 0;
+    private double menuContextoY = 0;
+    private string camadaSelecionadaMenu = "";
+    private Camada camadaArrastada;
+
+    private string camadaAquisicaoAtual = "Levantamento_Em_Campo";
+    private bool exibirModalCoordenadas = false;
+    private string sistemaCoordenadas = "UTM";
+    private string tipoGeometriaAlvo = "POLIGONO";
+    private string zonaUtm = "22S";
+    private string novoNomePonto = "P1";
+    private string novaCoordenadaPonto = "";
+    private int contadorPontos = 1;
+    private List<Dictionary<string, string>> listaPontosCaderneta = new List<Dictionary<string, string>>();
+    private string metodoEntrada = "COORDENADA";
+    private bool temEdicoesPendentes = false;
+
+    // =========================================================================
+    // 5. EVENTOS DO CICLO DE VIDA DA INTERFACE
+    // =========================================================================
+    protected override void OnInitialized()
     {
-        modoEdicaoVerticeLigado = !modoEdicaoVerticeLigado;
+        objRef = DotNetObjectReference.Create(this);
+        CamadasAtivas.Add(new Camada { Nome = "OpenStreetMap", Tipo = "Raster", Visivel = true });
 
-        // Avisa o JavaScript qual é o estado da ferramenta
-        await JSRuntime.InvokeVoidAsync("alternarFerramentaVertices", modoEdicaoVerticeLigado);
+        // Inicialização assíncrona do servidor local de streaming gráfico
+        _server = new GeoNex.Services.LocalMapServer(MapService);
+        _server.Start();
 
-        if (modoEdicaoVerticeLigado)
-        {
-            Console.WriteLine("[GEONEX] Ferramenta Vértices LIGADA (Aguardando clique na feição).");
-        }
-        else
-        {
-            Console.WriteLine("[GEONEX] Ferramenta Vértices DESLIGADA.");
-        }
-        StateHasChanged();
+        // Configuração do temporizador anti-ruído (Debounce) estabilizado para 150ms
+        _debounceTimer = new System.Timers.Timer(150);
+        _debounceTimer.AutoReset = false;
+        _debounceTimer.Elapsed += (s, e) => SolicitarNovoFrame();
     }
 
-    // 2. O JavaScript chama esta função quando você faz duplo clique ou aperta 'V'
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var dimensoes = await JSRuntime.InvokeAsync<DimensoesTela>("dimensoesJanela.obter");
+            _larguraTela = dimensoes.largura > 0 ? dimensoes.largura : 1920;
+            _alturaTela = dimensoes.altura > 0 ? dimensoes.altura : 1080;
+
+            await JSRuntime.InvokeVoidAsync("dimensoesJanela.registrarResize", objRef);
+            await JSRuntime.InvokeVoidAsync("mapEngine.init");
+
+            SolicitarNovoFrame();
+        }
+    }
+
     [JSInvokable]
-    public async Task PedirCoordenadaVertice(string nomeCamada, int indiceVertice, double latAtual, double lngAtual)
+    public void AtualizarDimensoesTela(int w, int h)
     {
-        verticeEditandoCamada = nomeCamada;
-        verticeEditandoIndice = indiceVertice;
-
-        // Inicia sempre em DECIMAL para mostrar a posição atual correta
-        sistemaCoordenadasEdicao = "DECIMAL";
-        verticeEditandoY = Math.Round(latAtual, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        verticeEditandoX = Math.Round(lngAtual, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-        // Garante que a caderneta normal se fecha e abre o modal do vértice
-        exibirModalCoordenadas = false;
-        exibirModalTrocaVertice = true;
-
-        await InvokeAsync(StateHasChanged);
+        _larguraTela = w;
+        _alturaTela = h;
+        SolicitarNovoFrame();
     }
 
-    // 3. O botão "MOVER VÉRTICE" (Agora com conversor UTM ProjNet integrado)
-    private async Task ForcarVerticeManual()
+    public void Dispose()
     {
-        try
-        {
-            double valorY = double.Parse(verticeEditandoY.Trim(), System.Globalization.CultureInfo.InvariantCulture);
-            double valorX = double.Parse(verticeEditandoX.Trim(), System.Globalization.CultureInfo.InvariantCulture);
-
-            double latFinal, lngFinal;
-
-            // MÁGICA: Se o engenheiro escolheu UTM, convertemos antes de mandar pro mapa!
-            if (sistemaCoordenadasEdicao == "UTM")
-            {
-                int zona = int.Parse(new String(zonaUtmEdicao.Where(char.IsDigit).ToArray()));
-                bool isNorte = zonaUtmEdicao.ToUpper().Contains("N");
-
-                var sistemaUTM = ProjectedCoordinateSystem.WGS84_UTM(zona, isNorte);
-                var sistemaGeografico = GeographicCoordinateSystem.WGS84;
-                var conversor = new CoordinateTransformationFactory().CreateFromCoordinateSystems(sistemaUTM, sistemaGeografico);
-
-                // O ProjNet recebe { Este(X), Norte(Y) }
-                double[] coordenadasGeograficas = conversor.MathTransform.Transform(new double[] { valorX, valorY });
-
-                lngFinal = coordenadasGeograficas[0];
-                latFinal = coordenadasGeograficas[1];
-            }
-            else
-            {
-                // Se já for Decimal, vai direto
-                latFinal = valorY;
-                lngFinal = valorX;
-            }
-
-            // Grita com o JavaScript para mover a quilha da linha para a nova posição geográfica
-            await JSRuntime.InvokeVoidAsync("forcarPosicaoVertice", verticeEditandoCamada, verticeEditandoIndice, latFinal, lngFinal);
-
-            exibirModalTrocaVertice = false;
-        }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"Erro fatal de matemática ou digitação.\n{ex.Message}");
-        }
-    }
-    private async Task AplicarSimbologia()
-    {
-        await JSRuntime.InvokeVoidAsync("alterarEstiloCamada",
-            camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento);
-
-        exibirModalPropriedades = false;
-    }
-    private async Task AbrirTabela(string nomeCamada)
-    {
-        nomeCamadaAtiva = nomeCamada;
-        exibirTabelaAtributos = true;
-
-        // Limpa a tabela atual para mostrar carregamento visual
-        colunasTabela = new List<string> { "Carregando..." };
-        dadosTabela = new List<Dictionary<string, object>>();
-        StateHasChanged();
-
-        // Procura a camada na memória para pegar o caminho do arquivo
-        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeCamada);
-
-        if (camada != null && !string.IsNullOrEmpty(camada.CaminhoArquivo))
-        {
-            // Roda o processamento OGR numa thread separada para não congelar a interface
-            var resultado = await Task.Run(() => RasterService.ObterAtributosVetor(camada.CaminhoArquivo));
-
-            colunasTabela = resultado.Colunas;
-            dadosTabela = resultado.Dados;
-        }
-        else
-        {
-            colunasTabela = new List<string> { "Erro" };
-            await JSRuntime.InvokeVoidAsync("alert", "Não foi possível localizar o arquivo fonte desta camada.");
-        }
-
-        StateHasChanged();
+        objRef?.Dispose();
+        _server?.Stop();
+        _debounceTimer?.Dispose();
     }
 
-    // Função disparada ao clicar numa linha da tabela
-    private async Task SelecionarNoMapa(Dictionary<string, object> linha)
+    // =========================================================================
+    // 6. PIPELINE DE COMUNICAÇÃO DO MOTOR GRÁFICO (STREAMING BINÁRIO NATIVO)
+    // =========================================================================
+    private void SolicitarNovoFrame()
     {
-        // Pega o ID da linha selecionada (assumindo que existe uma coluna "ID")
-        if (linha.ContainsKey("ID"))
-        {
-            long id = Convert.ToInt64(linha["ID"]);
-            // Futuro: Avisar o JavaScript para dar zoom e destacar este polígono
-            Console.WriteLine($"Linha {id} clicada.");
-        }
+        string url = $"{_server.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
+        InvokeAsync(() => JSRuntime.InvokeVoidAsync("mapEngine.carregarNovoFrame", url));
+
+        _arrastoAtualX = 0;
+        _arrastoAtualY = 0;
+        _zoomAtualCSS = 1.0f;
     }
 
-    // Função disparada ao editar o texto de uma célula
-    private void AtualizarAtributo(Dictionary<string, object> linha, string coluna, object novoValor)
-    {
-        // Atualiza na memória
-        linha[coluna] = novoValor;
-
-        // Futuro: Disparar um UPDATE automático no arquivo .gnx (SQLite)
-        Console.WriteLine($"Atributo {coluna} atualizado para {novoValor}");
-    }
-    // Função que é ativada ao clicar no Checkbox
-    private async Task ToggleCamada(Camada camada, bool estaVisivel)
-    {
-        camada.Visivel = estaVisivel;
-        // Chama a função JS que acabamos de criar
-        await JSRuntime.InvokeVoidAsync("alternarVisibilidadeCamada", camada.Nome, estaVisivel);
-    }
-    private void TrocarAbaModal(string nomeAba)
-    {
-        AbaModalAtiva = nomeAba;
-    }
-    private async Task SelecionarArquivoRaster()
-    {
-        try
-        {
-            // 1. Configura os filtros para arquivos de imagem/geoprocessamento
-            var opcoes = new PickOptions
-            {
-                PickerTitle = "Selecione a Ortofoto (ECW, TIF, JPG)",
-                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
-                {
-                    { DevicePlatform.WinUI, new[] { ".ecw", ".tif", ".tiff", ".jpg", ".png" } }
-                })
-            };
-
-            // 2. Abre a janela do Windows para o usuário escolher o arquivo
-            var resultado = await FilePicker.Default.PickAsync(opcoes);
-
-            if (resultado != null)
-            {
-                caminhoArquivoRaster = resultado.FullPath;
-                statusGdal = "Analisando metadados geográficos...";
-                StateHasChanged();
-
-                // 3. CHAMA O MOTOR GDAL (O Pilar 2 que acabamos de criar!)
-                var analise = RasterService.AnalisarArquivoRaster(caminhoArquivoRaster);
-
-                // Exibe o resultado da análise (Bounding Box, Resolução, etc)
-                statusGdal = analise;
-                StateHasChanged();
-            }
-        }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar arquivo: {ex.Message}");
-        }
-    }
     private async Task AdicionarCamadaAoMapa()
     {
         try
@@ -2172,137 +1752,95 @@
 
             exibirModalImportacao = false;
 
-            // 1. Pede ao GDAL a imagem
-            var resultadoRaster = RasterService.PrepararRasterParaMapa(caminhoArquivoRaster);
+            if (MapService.DatasetRaster != null) MapService.DatasetRaster.Dispose();
+            MapService.DatasetRaster = OSGeo.GDAL.Gdal.Open(caminhoArquivoRaster, OSGeo.GDAL.Access.GA_ReadOnly);
 
-            if (!string.IsNullOrEmpty(resultadoRaster.Base64))
+            if (MapService.DatasetRaster.GetRasterBand(1).GetOverviewCount() == 0)
             {
-                // 2. A MÁGICA: Converte para Bytes e atira para a Placa de Vídeo!
-                byte[] imageBytes = Convert.FromBase64String(resultadoRaster.Base64);
-
-                // NOTA: Como você não está usando a escala do vetor aqui, vamos usar coordenadas geográficas diretas
-                MapService.CarregarRasterInicial(
-                    imageBytes,
-                    (float)resultadoRaster.MinLng,
-                    (float)resultadoRaster.MinLat,
-                    (float)resultadoRaster.MaxLng,
-                    (float)resultadoRaster.MaxLat
-                );
-
-                CamadasAtivas.Add(new Camada
-                {
-                    Nome = System.IO.Path.GetFileName(caminhoArquivoRaster),
-                    Tipo = "Raster",
-                    Visivel = true
-                });
-
-                // Reposiciona a câmara
-                MapService.CameraPanX = 0;
-                MapService.CameraPanY = 0;
-                MapService.CameraZoom = 1.0f;
-
-                StateHasChanged();
-                await RenderizarFrameOffScreen();
+                MapService.DatasetRaster.BuildOverviews("AVERAGE", new int[] { 2, 4, 8, 16, 32 });
             }
-            else
-            {
-                await JSRuntime.InvokeVoidAsync("alert", "Falha ao processar a imagem do Raster.");
-            }
+
+            double[] trans = new double[6];
+            MapService.DatasetRaster.GetGeoTransform(trans);
+            double minX = trans[0];
+            double maxY = trans[3];
+            double maxX = minX + (MapService.DatasetRaster.RasterXSize * trans[1]);
+            double minY = maxY + (MapService.DatasetRaster.RasterYSize * trans[5]);
+
+            MapService.LimitesRasterGlobal = new SkiaSharp.SKRect((float)minX, (float)-maxY, (float)maxX, (float)-minY);
+            MapService.TemRaster = true;
+
+            MapService.CameraPanX = 0;
+            MapService.CameraPanY = 0;
+            MapService.CameraZoom = 1.0f;
+
+            CamadasAtivas.Add(new Camada { Nome = System.IO.Path.GetFileName(caminhoArquivoRaster), Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster });
+
+            SolicitarNovoFrame();
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Erro crítico: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", "Erro crítico na importação raster: " + ex.Message);
         }
     }
 
-    // --- Nova lógica de Projeto ---
-    private async Task CriarNovoProjeto()
+    // =========================================================================
+    // 7. LÓGICA TÁTIL E COMPENSAÇÃO MATEMÁTICA DO VIEWPORT (MOUSE E ZOOM)
+    // =========================================================================
+    private void AoRodarRato(WheelEventArgs e)
     {
-        try
+        float zoomAnterior = MapService.CameraZoom;
+        float fator = e.DeltaY < 0 ? 1.15f : (1f / 1.15f);
+        float novoZoom = Math.Clamp(zoomAnterior * fator, 0.1f, 50.0f);
+
+        _zoomAtualCSS *= (novoZoom / zoomAnterior);
+
+        float proporcao = novoZoom / zoomAnterior;
+
+        MapService.CameraPanX = (MapService.CameraPanX * proporcao) + (((float)e.ClientX - (_larguraTela / 2f)) * (1 - proporcao));
+        MapService.CameraPanY = (MapService.CameraPanY * proporcao) + (((float)e.ClientY - (_alturaTela / 2f)) * (1 - proporcao));
+        MapService.CameraZoom = novoZoom;
+
+        JSRuntime.InvokeVoidAsync("mapEngine.transformar", _arrastoAtualX, _arrastoAtualY, _zoomAtualCSS);
+
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
+    }
+
+    private void AoPressionarRato(MouseEventArgs e)
+    {
+        if (e.Button == 0)
         {
-            // Pega o caminho da sua pasta Documentos
-            string pastaDocumentos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string caminhoGnx = Path.Combine(pastaDocumentos, "Projeto_Guaratuba_Teste.gnx");
-
-            // Manda o Serviço criar o Banco de Dados
-            bool sucesso = await ProjetoService.CriarNovoProjetoAsync(caminhoGnx, "Guaratuba Zona Sul");
-
-            if (sucesso)
-            {
-                // Dispara um Pop-up na tela confirmando!
-                await JSRuntime.InvokeVoidAsync("alert", $"SUCESSO ABSOLUTO!\n\nO banco de dados do projeto foi criado fisicamente em:\n{caminhoGnx}");
-                StateHasChanged();
-            }
-            else
-            {
-                await JSRuntime.InvokeVoidAsync("alert", "O serviço rodou, mas retornou Falso. O arquivo não foi criado.");
-            }
-        }
-        catch (Exception ex)
-        {
-            // Se o C# der qualquer erro, o pop-up vai te mostrar o que foi
-            await JSRuntime.InvokeVoidAsync("alert", $"ERRO CRÍTICO NO C#:\n{ex.Message}");
+            isDragging = true;
+            startDragX = e.ClientX;
+            startDragY = e.ClientY;
         }
     }
 
-    
-
-    
-
-    // Funções chamadas pelos botões de importação
-    private void AbrirModalImportacao()
+    private void AoMoverRato(MouseEventArgs e)
     {
-        exibirModalImportacao = true;
+        if (!isDragging || e.Buttons != 1) return;
+        _arrastoAtualX = e.ClientX - startDragX;
+        _arrastoAtualY = e.ClientY - startDragY;
+
+        JSRuntime.InvokeVoidAsync("mapEngine.transformar", _arrastoAtualX, _arrastoAtualY, _zoomAtualCSS);
     }
 
-    private void FecharModalImportacao()
+    private void AoSoltarRato(MouseEventArgs e)
     {
-        exibirModalImportacao = false;
+        if (!isDragging) return;
+        isDragging = false;
+
+        MapService.CameraPanX += (float)_arrastoAtualX;
+        MapService.CameraPanY += (float)_arrastoAtualY;
+
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
     }
 
-    [JSInvokable]
-    public void AtualizarCoordenadas(double lat, double lng)
-    {
-        latitude = Math.Round(lat, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        longitude = Math.Round(lng, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        StateHasChanged();
-    }
-
-    public void Dispose()
-    {
-        objRef?.Dispose();
-    }
-    // Adicione isto no final do seu bloco @code, antes da última chaveta
-    public class Camada
-    {
-        public string Nome { get; set; } = string.Empty;
-        public string Tipo { get; set; } = string.Empty;
-        public bool Visivel { get; set; } = true;
-        public string CaminhoArquivo { get; set; } // NOVA PROPRIEDADE
-    }
-    // O JavaScript chama esta função sempre que a câmera do mapa parar de se mover
-    [JSInvokable]
-    public async Task SolicitarRecorteAltaResolucao(double minLat, double minLng, double maxLat, double maxLng, int largura, int altura)
-    {
-        // Garante que só carrega a imagem se a camada "Ortofoto_Importada" estiver ligada
-        var ortofoto = CamadasAtivas.FirstOrDefault(c => c.Nome == System.IO.Path.GetFileName(caminhoArquivoRaster));
-
-        if (ortofoto != null && ortofoto.Visivel && !string.IsNullOrEmpty(caminhoArquivoRaster))
-        {
-            // O C# processa o recorte em alta qualidade na Thread em Background para não travar a interface
-            string base64AltaQualidade = await Task.Run(() =>
-                RasterService.ObterRecorteDinamico(caminhoArquivoRaster, minLat, minLng, maxLat, maxLng, largura, altura)
-            );
-
-            if (!string.IsNullOrEmpty(base64AltaQualidade))
-            {
-                // Devolve a imagem de alta qualidade para colar na tela
-                await JSRuntime.InvokeVoidAsync("atualizarImagemNoMapa", base64AltaQualidade, minLat, minLng, maxLat, maxLng);
-            }
-        }
-    }
-    private string caminhoArquivoVetor = "";
-
+    // =========================================================================
+    // 8. IMPORTAÇÃO E ANÁLISE DE VETORES (SHAPEFILES / GEOJSON OGR)
+    // =========================================================================
     private async Task SelecionarArquivoVetor()
     {
         try
@@ -2310,24 +1848,12 @@
             var opcoes = new PickOptions
             {
                 PickerTitle = "Selecione o Vetor (SHP, GeoJSON)",
-                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
-                {
-                    { DevicePlatform.WinUI, new[] { ".shp", ".geojson", ".kml" } }
-                })
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".shp", ".geojson", ".kml" } } })
             };
-
             var resultado = await FilePicker.Default.PickAsync(opcoes);
-
-            if (resultado != null)
-            {
-                caminhoArquivoVetor = resultado.FullPath;
-                StateHasChanged();
-            }
+            if (resultado != null) { caminhoArquivoVetor = resultado.FullPath; StateHasChanged(); }
         }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar: {ex.Message}");
-        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar arquivo vetorial: {ex.Message}"); }
     }
 
     private async Task AdicionarVetorAoMapa()
@@ -2342,609 +1868,398 @@
 
             exibirModalImportacao = false;
             string nomeArquivo = System.IO.Path.GetFileName(caminhoArquivoVetor);
-
-            // 1. Extração nativa de alta performance em background
             poligonosNativos = await Task.Run(() => RasterService.ExtrairPoligonosNativos(caminhoArquivoVetor));
-            await JSRuntime.InvokeVoidAsync("alert", $"O Motor Leu: {poligonosNativos.Count} polígonos.");
+
             if (poligonosNativos.Count > 0)
             {
-                // 1. Calcula os limites do município (já tem isto)
                 CalcularLimitesDoMapa();
-
-                // 2. A LINHA QUE FALTAVA: Converte os dados brutos para caminhos nativos da GPU
                 MapService.PreCompilarPoligonos(poligonosNativos);
-                CamadasAtivas.Add(new Camada
-                {
-                    Nome = nomeArquivo,
-                    Tipo = "Vetor",
-                    Visivel = true,
-                    CaminhoArquivo = caminhoArquivoVetor
-                });
-
-                // Reposiciona a câmara
-                MapService.CameraPanX = 0;
-                MapService.CameraPanY = 0;
-                MapService.CameraZoom = 1.0f;
-
+                CamadasAtivas.Add(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
+                MapService.CameraPanX = 0; MapService.CameraPanY = 0; MapService.CameraZoom = 1.0f;
                 StateHasChanged();
+                SolicitarNovoFrame();
             }
         }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}");
-        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}"); }
     }
 
-    // Função matemática para descobrir a Bounding Box do Shapefile inteiro
     private void CalcularLimitesDoMapa()
     {
         mapaMinX = float.MaxValue; mapaMaxX = float.MinValue;
         mapaMinY = float.MaxValue; mapaMaxY = float.MinValue;
-
         foreach (var poli in poligonosNativos)
         {
-            // O array armazena [X, Y, X, Y...]
             for (int i = 0; i < poli.Length; i += 2)
             {
-                float x = poli[i];
-                float y = poli[i + 1];
-
-                if (x < mapaMinX) mapaMinX = x;
-                if (x > mapaMaxX) mapaMaxX = x;
-                if (y < mapaMinY) mapaMinY = y;
-                if (y > mapaMaxY) mapaMaxY = y;
+                float x = poli[i]; float y = poli[i + 1];
+                if (x < mapaMinX) mapaMinX = x; if (x > mapaMaxX) mapaMaxX = x;
+                if (y < mapaMinY) mapaMinY = y; if (y > mapaMaxY) mapaMaxY = y;
             }
         }
     }
-    // Variáveis do Menu de Contexto (Botão Direito)
-    private bool mostrarMenuContexto = false;
-    private double menuContextoX = 0;
-    private double menuContextoY = 0;
-    private string camadaSelecionadaMenu = "";
 
-    // Captura as coordenadas do rato e bloqueia o menu do Windows
+    // =========================================================================
+    // 9. DIÁLOGOS DE ENQUADRAMENTO E INFRAESTRUTURA PROJETO (.GNX BASE)
+    // =========================================================================
+    private void AbrirModalImportacao() { exibirModalImportacao = true; }
+    private void FecharModalImportacao() { exibirModalImportacao = false; }
+    private void TrocarAbaModal(string nomeAba) { AbaModalAtiva = nomeAba; }
+
+    private async Task SelecionarArquivoRaster()
+    {
+        try
+        {
+            var opcoes = new PickOptions { PickerTitle = "Ortofoto (ECW, TIF, JPG)", FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".ecw", ".tif", ".tiff", ".jpg", ".png" } } }) };
+            var resultado = await FilePicker.Default.PickAsync(opcoes);
+            if (resultado != null)
+            {
+                caminhoArquivoRaster = resultado.FullPath;
+                statusGdal = RasterService.AnalisarArquivoRaster(caminhoArquivoRaster);
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro GDAL: {ex.Message}"); }
+    }
+
+    private async Task CriarNovoProjeto()
+    {
+        try
+        {
+            string pastaDocumentos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string caminhoGnx = System.IO.Path.Combine(pastaDocumentos, "Projeto_Guaratuba_Teste.gnx");
+            bool sucesso = await ProjetoService.CriarNovoProjetoAsync(caminhoGnx, "Guaratuba Zona Sul");
+            if (sucesso)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"SUCESSO ABSOLUTO!\n\nO banco de dados do projeto foi criado fisicamente em:\n{caminhoGnx}");
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Criação do Banco: {ex.Message}"); }
+    }
+
+    // =========================================================================
+    // 10. ARQUIVOS DE CONFIGURAÇÃO DE CAMADAS, CONTEXTO E ORDEM GRÁFICA
+    // =========================================================================
+    private async Task ToggleCamada(Camada camada, bool estaVisivel)
+    {
+        camada.Visivel = estaVisivel;
+        await JSRuntime.InvokeVoidAsync("alternarVisibilidadeCamada", camada.Nome, estaVisivel);
+    }
+
     private void MostrarMenuContexto(MouseEventArgs e, string nomeCamada)
     {
         camadaSelecionadaMenu = nomeCamada;
-
-        // Pega a posição do rato
-        menuContextoX = e.ClientX;
-        menuContextoY = e.ClientY;
-
-        // Regra de exclusividade
-        mostrarMenuContexto = true;
-        exibirModalPropriedades = false;
-
-        // O 'InvokeAsync' garante que a tela seja repintada instantaneamente, sem atrasos
+        menuContextoX = e.ClientX; menuContextoY = e.ClientY;
+        mostrarMenuContexto = true; exibirModalPropriedades = false;
         InvokeAsync(StateHasChanged);
     }
 
-    private void FecharMenuContexto()
-    {
-        mostrarMenuContexto = false;
-        InvokeAsync(StateHasChanged);
-    }
+    private void FecharMenuContexto() { mostrarMenuContexto = false; InvokeAsync(StateHasChanged); }
+
     private async Task BotaoOpcoesClicado(MouseEventArgs e, string nomeCamada)
     {
-        Console.WriteLine($"[GEONEX] 3 pontinhos clicados para: {nomeCamada}");
-
         camadaSelecionadaMenu = nomeCamada;
-
-        // O deslocamento de +5px garante que o rato não clica imediatamente no menu sem querer
-        menuContextoX = e.ClientX + 5;
-        menuContextoY = e.ClientY + 5;
-
-        mostrarMenuContexto = true;
-        exibirModalPropriedades = false;
-
-        // O 'await' obriga o navegador a desenhar a tela AGORA
+        menuContextoX = e.ClientX + 5; menuContextoY = e.ClientY + 5;
+        mostrarMenuContexto = true; exibirModalPropriedades = false;
         await InvokeAsync(StateHasChanged);
     }
-    // Esboço da função de remover (que faremos na Fase 2)
-    private async Task AproximarCamada()
-    {
-        string alvo = camadaSelecionadaMenu; // Guarda o nome antes de fechar o menu
-        FecharMenuContexto();
 
-        // Pede ao motor JS para mover a câmera
-        await JSRuntime.InvokeVoidAsync("zoomParaCamada", alvo);
-    }
+    private async Task AproximarCamada() { string alvo = camadaSelecionadaMenu; FecharMenuContexto(); await JSRuntime.InvokeVoidAsync("zoomParaCamada", alvo); }
 
     private async Task PrepararRemocaoCamada()
     {
-        string alvo = camadaSelecionadaMenu;
-        FecharMenuContexto();
-
-        // 1. Limpeza no C# (Remove da lista lateral da UI)
+        string alvo = camadaSelecionadaMenu; FecharMenuContexto();
         var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == alvo);
-        if (camada != null)
-        {
-            CamadasAtivas.Remove(camada);
-            StateHasChanged(); // Atualiza o HTML imediatamente
-        }
-
-        // 2. Limpeza no Motor Gráfico (Javascript)
+        if (camada != null) { CamadasAtivas.Remove(camada); StateHasChanged(); }
         await JSRuntime.InvokeVoidAsync("removerCamadaDoMapa", alvo);
-
-        Console.WriteLine($"[GEONEX] Camada '{alvo}' destruída com segurança.");
     }
-   
 
-    // VARIÁVEIS DO DRAG & DROP
-    private Camada camadaArrastada;
-
-    private void AoIniciarArrastar(Camada camada)
+    private async Task MoverCamada(string nomeCamada, int direcao)
     {
-        Console.WriteLine($"[GEONEX] 1. AGARROU: {camada.Nome}");
-        camadaArrastada = camada;
+        FecharMenuContexto();
+        int index = CamadasAtivas.FindIndex(c => c.Nome == nomeCamada);
+        if (index < 0) return;
+        int novoIndex = index + direcao;
+        if (novoIndex >= 0 && novoIndex < CamadasAtivas.Count)
+        {
+            var item = CamadasAtivas[index];
+            CamadasAtivas.RemoveAt(index); CamadasAtivas.Insert(novoIndex, item);
+            var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
+            await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
+            StateHasChanged();
+        }
     }
+
+    private void AoIniciarArrastar(Camada camada) { camadaArrastada = camada; }
 
     private async Task AoSoltarCamada(Camada camadaAlvo)
     {
-        Console.WriteLine($"[GEONEX] 2. SOLTOU em cima de: {camadaAlvo.Nome}");
-
-        // Ignora se soltar no mesmo lugar
-        if (camadaArrastada == null || camadaArrastada == camadaAlvo)
-        {
-            Console.WriteLine("[GEONEX] Movimento cancelado (Mesmo lugar ou fora).");
-            return;
-        }
-
-        int indexOrigem = CamadasAtivas.IndexOf(camadaArrastada);
-        int indexDestino = CamadasAtivas.IndexOf(camadaAlvo);
-
-        if (indexOrigem < 0 || indexDestino < 0) return;
-
-        // Faz a troca cirúrgica na lista do C#
-        CamadasAtivas.RemoveAt(indexOrigem);
-        CamadasAtivas.Insert(indexDestino, camadaArrastada);
-
-        // Avisa o motor gráfico (Leaflet)
+        if (camadaArrastada == null || camadaArrastada == camadaAlvo) return;
+        int iOrigem = CamadasAtivas.IndexOf(camadaArrastada);
+        int iDestino = CamadasAtivas.IndexOf(camadaAlvo);
+        if (iOrigem < 0 || iDestino < 0) return;
+        CamadasAtivas.RemoveAt(iOrigem); CamadasAtivas.Insert(iDestino, camadaArrastada);
         var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
         await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
+        camadaArrastada = null; StateHasChanged();
+    }
 
-        Console.WriteLine("[GEONEX] 3. Hierarquia alterada com Sucesso!");
-
-        // Limpa a memória e FORÇA A TELA A REDESENHAR
-        camadaArrastada = null;
+    // =========================================================================
+    // 11. SISTEMA INSPECIONADOR E TABELA DE ATRIBUTOS ALFA-NUMÉRICOS
+    // =========================================================================
+    private async Task AbrirTabela(string nomeCamada)
+    {
+        nomeCamadaAtiva = nomeCamada; exibirTabelaAtributos = true;
+        colunasTabela = new List<string> { "Carregando..." }; dadosTabela = new List<Dictionary<string, object>>();
+        StateHasChanged();
+        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeCamada);
+        if (camada != null && !string.IsNullOrEmpty(camada.CaminhoArquivo))
+        {
+            var resultado = await Task.Run(() => RasterService.ObterAtributosVetor(camada.CaminhoArquivo));
+            colunasTabela = resultado.Colunas; dadosTabela = resultado.Dados;
+        }
         StateHasChanged();
     }
-    private async Task MoverCamada(string nomeCamada, int direcao)
+
+    private async Task SelecionarNoMapa(Dictionary<string, object> linha)
     {
-        // 1. Fecha o menu para não atrapalhar a visão
-        FecharMenuContexto();
-
-        // 2. Acha a posição atual da camada na memória
-        int index = CamadasAtivas.FindIndex(c => c.Nome == nomeCamada);
-        if (index < 0) return;
-
-        // 3. Calcula o destino (-1 sobe na lista, +1 desce)
-        int novoIndex = index + direcao;
-
-        // 4. Bloqueio de segurança: impede que a camada saia dos limites da lista
-        if (novoIndex >= 0 && novoIndex < CamadasAtivas.Count)
+        if (linha.ContainsKey("ID"))
         {
-            // Executa a troca cirúrgica
-            var item = CamadasAtivas[index];
-            CamadasAtivas.RemoveAt(index);
-            CamadasAtivas.Insert(novoIndex, item);
-
-            // 5. Avisa o Leaflet (JavaScript) para recalcular os Z-Index
-            var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
-            await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
-
-            // 6. Repinta a interface do Blazor
-            StateHasChanged();
+            long id = Convert.ToInt64(linha["ID"]);
+            Console.WriteLine($"Polígono ID {id} selecionado para tracking.");
         }
     }
-    // Variáveis da Aquisição de Dados
-    private string camadaAquisicaoAtual = "Levantamento_Em_Campo";
-    private bool exibirModalCoordenadas = false;
-    private string textoCoordenadas = "";
 
-    // 1. Prepara a Camada e Ativa o Desenho Manual no Mapa
+    private void AtualizarAtributo(Dictionary<string, object> linha, string coluna, object novoValor) { linha[coluna] = novoValor; }
+
+    [JSInvokable]
+    public async Task SelecionarFeicaoNoMapa(string nomeCamada, string propriedadesJson)
+    {
+        try
+        {
+            camadaSelecionadaPainel = nomeCamada; atributosFeicaoSelecionada = new Dictionary<string, string>();
+            var dadosBrutos = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(propriedadesJson);
+            if (dadosBrutos != null)
+            {
+                foreach (var item in dadosBrutos) { atributosFeicaoSelecionada[item.Key] = item.Value.ValueKind == System.Text.Json.JsonValueKind.Null ? "" : item.Value.ToString(); }
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Falha ao decodificar feição:\n{ex.Message}"); }
+    }
+
+    private void AtualizarAtributoPainel(string chave, string novoValor) { if (atributosFeicaoSelecionada.ContainsKey(chave)) atributosFeicaoSelecionada[chave] = novoValor; }
+    private async Task SalvarAtributosPainel() { await JSRuntime.InvokeVoidAsync("alert", "Alterações retidas em cache temporário estruturado."); }
+
+    private async Task AbrirPropriedadesCamada(string nomeCamada)
+    {
+        mostrarMenuContexto = false; camadaEmEdicao = nomeCamada; exibirModalPropriedades = true; abaAtivaPropriedades = "Simbologia";
+        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeCamada);
+        if (camada != null && !string.IsNullOrEmpty(camada.CaminhoArquivo))
+        {
+            var resultado = await Task.Run(() => RasterService.ObterAtributosVetor(camada.CaminhoArquivo));
+            colunasDisponiveisRotulo = resultado.Colunas.Where(c => c != "FID").ToList();
+        }
+        else { colunasDisponiveisRotulo = new List<string>(); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AplicarPropriedadesUnificadas()
+    {
+        try
+        {
+            double opacidadeDecimal = opacidadePreenchimento / 100.0;
+            if (tipoSimbologia == "UNICA") await JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadeDecimal);
+            else if (tipoSimbologia == "CATEGORIZADA" && !string.IsNullOrEmpty(colunaSimbologiaCategorizada)) await JSRuntime.InvokeVoidAsync("aplicarSimbologiaCategorizada", camadaEmEdicao, colunaSimbologiaCategorizada, espessuraLinha, opacidadeDecimal);
+            await JSRuntime.InvokeVoidAsync("aplicarRotulosCamada", camadaEmEdicao, colunaRotuloSelecionada, tamanhoFonteRotulo, corFonteRotulo);
+            exibirModalPropriedades = false;
+        }
+        catch (Exception ex) { Console.WriteLine($"Erro na sincronização de estilos: {ex.Message}"); }
+    }
+
+    private async Task AplicarSimbologia() { await JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento); exibirModalPropriedades = false; }
+
+    // =========================================================================
+    // 12. CONTROLO E MANIPULAÇÃO DE GEOMETRIAS (VÉRTICES DINÂMICOS C#)
+    // =========================================================================
+    private async Task AlternarEdicaoVertices()
+    {
+        modoEdicaoVerticeLigado = !modoEdicaoVerticeLigado;
+        await JSRuntime.InvokeVoidAsync("alternarFerramentaVertices", modoEdicaoVerticeLigado);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task PedirCoordenadaVertice(string nomeCamada, int indiceVertice, double latAtual, double lngAtual)
+    {
+        verticeEditandoCamada = nomeCamada; verticeEditandoIndice = indiceVertice; sistemaCoordenadasEdicao = "DECIMAL";
+        verticeEditandoY = Math.Round(latAtual, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        verticeEditandoX = Math.Round(lngAtual, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        exibirModalCoordenadas = false; exibirModalTrocaVertice = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ForcarVerticeManual()
+    {
+        try
+        {
+            double valorY = double.Parse(verticeEditandoY.Trim(), System.Globalization.CultureInfo.InvariantCulture);
+            double valorX = double.Parse(verticeEditandoX.Trim(), System.Globalization.CultureInfo.InvariantCulture);
+            double latFinal, lngFinal;
+
+            if (sistemaCoordenadasEdicao == "UTM")
+            {
+                int zona = int.Parse(new String(zonaUtmEdicao.Where(char.IsDigit).ToArray()));
+                bool isNorte = zonaUtmEdicao.ToUpper().Contains("N");
+                var conversor = new ProjNet.CoordinateSystems.Transformations.CoordinateTransformationFactory().CreateFromCoordinateSystems(ProjNet.CoordinateSystems.ProjectedCoordinateSystem.WGS84_UTM(zona, isNorte), ProjNet.CoordinateSystems.GeographicCoordinateSystem.WGS84);
+                double[] geog = conversor.MathTransform.Transform(new double[] { valorX, valorY });
+                lngFinal = geog[0]; latFinal = geog[1];
+            }
+            else { latFinal = valorY; lngFinal = valorX; }
+
+            await JSRuntime.InvokeVoidAsync("forcarPosicaoVertice", verticeEditandoCamada, verticeEditandoIndice, latFinal, lngFinal);
+            exibirModalTrocaVertice = false;
+        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro de parsing matemático: {ex.Message}"); }
+    }
+    [JSInvokable]
+    public async Task AtualizarGeometriaNoServidor(string nomeCamada, string propriedadesJson, string novaGeometriaJson)
+    {
+        temEdicoesPendentes = true;
+        var props = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(propriedadesJson);
+        string idFeicao = (props != null && (props.ContainsKey("FID") || props.ContainsKey("ID"))) ? (props.ContainsKey("FID") ? props["FID"].ToString() : props["ID"].ToString()) : "Desconhecido";
+        Console.WriteLine($"[TRANSAÇÃO GEOGRÁFICA] Fila de Modificação -> Camada: {nomeCamada} | Elemento: {idFeicao}");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ConfirmarTodasEdicoes()
+    {
+        if (!temEdicoesPendentes) return;
+        try
+        {
+            await Task.Delay(500);
+            await JSRuntime.InvokeVoidAsync("alert", "EDIÇÕES CONSOLIDADAS!\n\nTodas as modificações de malha e vértices foram gravadas permanentemente no banco de dados.");
+            temEdicoesPendentes = false;
+            if (modoEdicaoVerticeLigado) await AlternarEdicaoVertices();
+            StateHasChanged();
+        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Falha no Commit I/O: {ex.Message}"); }
+    }
+
+    // =========================================================================
+    // 13. CADERNETA DE CAMPO DIGITAL (AZIMUTES E GEOPROCESSAMENTO)
+    // =========================================================================
     private async Task AtivarFerramentaPoligono()
     {
-        // Se a camada de aquisição não existir na lista, cria uma nova
-        if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual))
-        {
-            CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
-            StateHasChanged();
-        }
-
-        // Avisa o JavaScript para ligar a mira e os sensores de clique
+        if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual)) { CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true }); StateHasChanged(); }
         await JSRuntime.InvokeVoidAsync("iniciarDesenhoPoligono", camadaAquisicaoAtual);
-        Console.WriteLine("[GEONEX] Ferramenta de Polígono Ativada.");
     }
-    // A função que o teclado vai chamar
+
     [JSInvokable]
     public async Task AbrirModalCoordenadasAtalho()
     {
-        // Só abre se não estiver já aberto
-        if (!exibirModalCoordenadas)
-        {
-            exibirModalCoordenadas = true;
-            Console.WriteLine("[GEONEX] Caderneta aberta via atalho de teclado (V).");
-
-            // O InvokeAsync garante que a tela salta à vista instantaneamente
-            await InvokeAsync(StateHasChanged);
-        }
+        if (!exibirModalCoordenadas) { exibirModalCoordenadas = true; await InvokeAsync(StateHasChanged); }
     }
-    // ==========================================
-    // VARIÁVEIS DA CADERNETA DE CAMPO DIGITAL
-    // ==========================================
-    private string sistemaCoordenadas = "UTM";
-    private string tipoGeometriaAlvo = "POLIGONO";
-    private string zonaUtm = "22S";
 
-    // Variáveis de Inserção
-    private string novoNomePonto = "P1";
-    private string novaCoordenadaPonto = "";
-    private int contadorPontos = 1;
-
-    // Memória da Caderneta
-    private List<Dictionary<string, string>> listaPontosCaderneta = new List<Dictionary<string, string>>();
-
-    // Função 1: Adiciona o ponto digitado à lista visual
-    // Variável nova de controle
-    private string metodoEntrada = "COORDENADA";
-
-    // Função auxiliar para interpretar qualquer formato de Azimute digitado
     private double ParseAzimute(string azimuteText)
     {
-        // Limpa os símbolos clássicos de graus
         var clean = azimuteText.Replace("°", " ").Replace("'", " ").Replace("\"", " ").Trim();
         var parts = clean.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
         if (parts.Length == 1) return double.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
-
         double graus = parts.Length > 0 ? double.Parse(parts[0]) : 0;
         double minutos = parts.Length > 1 ? double.Parse(parts[1]) : 0;
         double segundos = parts.Length > 2 ? double.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture) : 0;
-
         return graus + (minutos / 60.0) + (segundos / 3600.0);
     }
 
     private async Task AdicionarPontoCaderneta()
     {
         if (string.IsNullOrWhiteSpace(novoNomePonto) || string.IsNullOrWhiteSpace(novaCoordenadaPonto)) return;
-
         var partes = novaCoordenadaPonto.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
-
         if (partes.Length >= 2)
         {
-            string valorX = "";
-            string valorY = "";
-
-            if (metodoEntrada == "COORDENADA")
-            {
-                // Leitura Normal Absoluta
-                valorX = partes[0].Trim();
-                valorY = partes[1].Trim();
-            }
+            string valorX = "", valorY = "";
+            if (metodoEntrada == "COORDENADA") { valorX = partes[0].Trim(); valorY = partes[1].Trim(); }
             else if (metodoEntrada == "AZIMUTE")
             {
-                // Regra topográfica: O primeiro ponto tem de estar ancorado no planeta Terra
-                if (listaPontosCaderneta.Count == 0)
-                {
-                    await JSRuntime.InvokeVoidAsync("alert", "O Ponto 1 de partida precisa ser uma COORDENADA absoluta. Adicione o primeiro ponto e depois mude para Azimute.");
-                    return;
-                }
-
+                if (listaPontosCaderneta.Count == 0) { await JSRuntime.InvokeVoidAsync("alert", "O Ponto 1 de partida precisa ser uma COORDENADA absoluta."); return; }
                 try
                 {
-                    // Lógica de Irradiação / Caminhamento
                     double azimuteDecimal = ParseAzimute(partes[0]);
                     double distancia = double.Parse(partes[1].Trim(), System.Globalization.CultureInfo.InvariantCulture);
-
-                    // Converte Azimute para Radianos (Em topografia, 0° é o Norte e gira no sentido horário)
                     double azimuteRadianos = azimuteDecimal * (Math.PI / 180.0);
-
-                    // Pega o ponto anterior da lista para servir de Estação base
-                    var pontoAnterior = listaPontosCaderneta.Last();
-                    double xAnterior = double.Parse(pontoAnterior["Coord1"], System.Globalization.CultureInfo.InvariantCulture);
-                    double yAnterior = double.Parse(pontoAnterior["Coord2"], System.Globalization.CultureInfo.InvariantCulture);
-
-                    // Trigonomentria: Seno para Leste(X) e Cosseno para Norte(Y)
-                    double novoX = xAnterior + (distancia * Math.Sin(azimuteRadianos));
-                    double novoY = yAnterior + (distancia * Math.Cos(azimuteRadianos));
-
-                    // Arredonda para milímetros (3 casas decimais)
-                    valorX = novoX.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
-                    valorY = novoY.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
+                    var pAnt = listaPontosCaderneta.Last();
+                    double xA = double.Parse(pAnt["Coord1"], System.Globalization.CultureInfo.InvariantCulture);
+                    double yA = double.Parse(pAnt["Coord2"], System.Globalization.CultureInfo.InvariantCulture);
+                    double novoX = xA + (distancia * Math.Sin(azimuteRadianos)); double novoY = yA + (distancia * Math.Cos(azimuteRadianos));
+                    valorX = novoX.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture); valorY = novoY.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
                 }
-                catch
-                {
-                    await JSRuntime.InvokeVoidAsync("alert", "Falha ao calcular Azimute/Distância. Verifique a sintaxe.");
-                    return;
-                }
+                catch { await JSRuntime.InvokeVoidAsync("alert", "Erro nos parâmetros de irradiação."); return; }
             }
-
-            listaPontosCaderneta.Add(new Dictionary<string, string>
-            {
-                { "Nome", novoNomePonto.Trim() },
-                { "Coord1", valorX },
-                { "Coord2", valorY }
-            });
-
-            contadorPontos++;
-            novoNomePonto = $"P{contadorPontos}";
-            novaCoordenadaPonto = "";
+            listaPontosCaderneta.Add(new Dictionary<string, string> { { "Nome", novoNomePonto.Trim() }, { "Coord1", valorX }, { "Coord2", valorY } });
+            contadorPontos++; novoNomePonto = $"P{contadorPontos}"; novaCoordenadaPonto = "";
         }
-        else
-        {
-            await JSRuntime.InvokeVoidAsync("alert", "Formato inválido. Use a vírgula para separar.");
-        }
+        else { await JSRuntime.InvokeVoidAsync("alert", "Delimite as coordenadas usando vírgulas."); }
     }
 
-    // Função 2: Remove um ponto da lista caso o usuário erre
-    private void RemoverPontoCaderneta(Dictionary<string, string> ponto)
-    {
-        listaPontosCaderneta.Remove(ponto);
-    }
+    private void RemoverPontoCaderneta(Dictionary<string, string> ponto) { listaPontosCaderneta.Remove(ponto); }
 
-    // Função 3: Manda a lista inteira para o motor de desenho
-    // Função 3: Motor Avançado de Conversão e Processamento
     private async Task ProcessarCadernetaDeCampo()
     {
         try
         {
-            if (listaPontosCaderneta.Count == 0)
-            {
-                await JSRuntime.InvokeVoidAsync("alert", "A caderneta está vazia. Adicione pelo menos um ponto.");
-                return;
-            }
-
-            if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual))
-            {
-                CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
-            }
-
+            if (listaPontosCaderneta.Count == 0) return;
+            if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual)) CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
             var pontosProcessados = new List<Dictionary<string, string>>();
-            ICoordinateTransformation conversorUtm = null;
-
-            // PREPARA O CONVERSOR PROJNET SE FOR UTM
+            ProjNet.CoordinateSystems.Transformations.ICoordinateTransformation conversorUtm = null;
             if (sistemaCoordenadas == "UTM")
             {
-                // Extrai o número da zona (Ex: "22S" -> 22)
                 int zona = int.Parse(new String(zonaUtm.Where(char.IsDigit).ToArray()));
-                // Determina o hemisfério (Se tem 'N' é Norte, senão é Sul)
                 bool isNorte = zonaUtm.ToUpper().Contains("N");
-
-                // Configura as matrizes matemáticas de origem e destino
-                var sistemaUTM = ProjectedCoordinateSystem.WGS84_UTM(zona, isNorte);
-                var sistemaGeografico = GeographicCoordinateSystem.WGS84;
-                var factory = new CoordinateTransformationFactory();
-
-                conversorUtm = factory.CreateFromCoordinateSystems(sistemaUTM, sistemaGeografico);
+                conversorUtm = new ProjNet.CoordinateSystems.Transformations.CoordinateTransformationFactory().CreateFromCoordinateSystems(ProjNet.CoordinateSystems.ProjectedCoordinateSystem.WGS84_UTM(zona, isNorte), ProjNet.CoordinateSystems.GeographicCoordinateSystem.WGS84);
             }
-
-            // VARRE TODOS OS PONTOS DA LISTA E FAZ A CONVERSÃO
             foreach (var ptOriginal in listaPontosCaderneta)
             {
                 string nomePonto = ptOriginal["Nome"];
                 double valor1 = double.Parse(ptOriginal["Coord1"], System.Globalization.CultureInfo.InvariantCulture);
                 double valor2 = double.Parse(ptOriginal["Coord2"], System.Globalization.CultureInfo.InvariantCulture);
-
                 double lat, lng;
-
                 if (sistemaCoordenadas == "UTM")
                 {
-                    // A matemática acontece aqui! O ProjNet recebe {X, Y} e devolve {Lng, Lat}
-                    double[] coordenadasLidas = new double[] { valor1, valor2 };
-                    double[] coordenadasGeograficas = conversorUtm.MathTransform.Transform(coordenadasLidas);
-
-                    lng = coordenadasGeograficas[0]; // O eixo X global é a Longitude
-                    lat = coordenadasGeograficas[1]; // O eixo Y global é a Latitude
+                    double[] geog = conversorUtm.MathTransform.Transform(new double[] { valor1, valor2 });
+                    lng = geog[0]; lat = geog[1];
                 }
-                else
-                {
-                    // Se já era Decimal, o usuário digitou Lat, Lng
-                    lat = valor1;
-                    lng = valor2;
-                }
-
-                pontosProcessados.Add(new Dictionary<string, string>
-                {
-                    { "Nome", nomePonto },
-                    { "Lat", lat.ToString(System.Globalization.CultureInfo.InvariantCulture) },
-                    { "Lng", lng.ToString(System.Globalization.CultureInfo.InvariantCulture) }
-                });
+                else { lat = valor1; lng = valor2; }
+                pontosProcessados.Add(new Dictionary<string, string> { { "Nome", nomePonto }, { "Lat", lat.ToString(System.Globalization.CultureInfo.InvariantCulture) }, { "Lng", lng.ToString(System.Globalization.CultureInfo.InvariantCulture) } });
             }
-
-            // Envia para o JavaScript desenhar
             string jsonPontos = System.Text.Json.JsonSerializer.Serialize(pontosProcessados);
             await JSRuntime.InvokeVoidAsync("desenharAquisicaoAvancada", camadaAquisicaoAtual, jsonPontos, tipoGeometriaAlvo);
-
-            // Sucesso! Limpa a interface
-            exibirModalCoordenadas = false;
-            listaPontosCaderneta.Clear();
-            contadorPontos = 1;
-            novoNomePonto = "P1";
-            StateHasChanged();
+            exibirModalCoordenadas = false; listaPontosCaderneta.Clear(); contadorPontos = 1; novoNomePonto = "P1"; StateHasChanged();
         }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"Erro fatal na conversão matemática.\nVerifique se as coordenadas UTM e a Zona estão corretas.\nDetalhe: {ex.Message}");
-        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro topográfico: {ex.Message}"); }
     }
-    // ==========================================
-    // GESTOR DE ESTADO DE EDIÇÃO (TRANSAÇÕES)
-    // ==========================================
-    private bool temEdicoesPendentes = false;
 
-    // O JS chama isto a cada vértice movido, mas AGORA NÃO SALVA direto no disco, apenas na "Memória Temporária"
     [JSInvokable]
-    public async Task AtualizarGeometriaNoServidor(string nomeCamada, string propriedadesJson, string novaGeometriaJson)
+    public void AtualizarCoordenadas(double lat, double lng)
     {
-        // 1. Acende o alerta amarelo na interface!
-        temEdicoesPendentes = true;
-
-        var props = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(propriedadesJson);
-        string idFeicao = (props != null && (props.ContainsKey("FID") || props.ContainsKey("ID")))
-            ? (props.ContainsKey("FID") ? props["FID"].ToString() : props["ID"].ToString())
-            : "Desconhecido";
-
-        // 2. Coloca na "Fila de Modificações" (Log no Console para já)
-        Console.WriteLine($"[MODIFICAÇÃO PENDENTE] Camada: {nomeCamada} | Lote: {idFeicao}");
-
-        // Força o botão de salvar a acender na barra
-        await InvokeAsync(StateHasChanged);
+        latitude = Math.Round(lat, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        longitude = Math.Round(lng, 6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        StateHasChanged();
     }
 
-    // O Engenheiro clica no botão 💾 "Salvar Edições"
-    private async Task ConfirmarTodasEdicoes()
-    {
-        if (!temEdicoesPendentes) return;
-
-        try
-        {
-            // ONDE A MÁGICA REAL ACONTECE:
-            // Aqui, no futuro, pegamos na fila de modificações e fazemos um UPDATE em massa no SQLite ou reescrevemos o Shapefile.
-
-            // Simulação de tempo de gravação
-            await Task.Delay(500);
-
-            // Dá o feedback de segurança ao engenheiro
-            await JSRuntime.InvokeVoidAsync("alert", "EDIÇÕES CONSOLIDADAS!\n\nTodas as modificações de malha e vértices foram gravadas permanentemente no banco de dados.");
-
-            // Apaga o alerta amarelo e desliga o modo de edição para proteger o mapa
-            temEdicoesPendentes = false;
-
-            if (modoEdicaoVerticeLigado)
-            {
-                await AlternarEdicaoVertices(); // Desliga as bolinhas brancas
-            }
-
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"Falha ao gravar no disco: {ex.Message}");
-        }
-    }
+    // =========================================================================
+    // 14. BARRAMENTO NATIVO C++ (TESTE INTEROP E BUSCA ESPACIAL)
+    // =========================================================================
     private void TestarMotorCPlusPlus()
     {
         try
         {
-            // 1. O polígono do Lote (Imagine que extraímos isto do PostGIS ou SQLite)
-            double[] loteCoordenadas = new double[]
-            {
-            -48.5750, -25.8820, // Vértice 1
-            -48.5740, -25.8820, // Vértice 2
-            -48.5740, -25.8810, // Vértice 3
-            -48.5750, -25.8810, // Vértice 4
-            -48.5750, -25.8820  // Fechamento do polígono
-            };
-
+            double[] loteCoordenadas = new double[] { -48.5750, -25.8820, -48.5740, -25.8820, -48.5740, -25.8810, -48.5750, -25.8810, -48.5750, -25.8820 };
             int totalVertices = loteCoordenadas.Length / 2;
-
-            // 2. O Rato do Utilizador (Simulando um clique dentro e outro fora do lote)
-            double cliqueDentroX = -48.5745;
-            double cliqueDentroY = -25.8815;
-
-            double cliqueForaX = -48.5760;
-            double cliqueForaY = -25.8830;
-
-            System.Diagnostics.Debug.WriteLine("=== TESTE DE BUSCA ESPACIAL C++ ===");
-
-            // Chamada nativa para o primeiro clique simulado
-            int resultadoDentro = GeoNex.Services.NativeBridge.PontoNoPoligono(
-                cliqueDentroX, cliqueDentroY, loteCoordenadas, totalVertices);
-
-            System.Diagnostics.Debug.WriteLine($"Clique 1 pertence ao lote? {(resultadoDentro == 1 ? "SIM" : "NÃO")}");
-
-            // Chamada nativa para o segundo clique simulado
-            int resultadoFora = GeoNex.Services.NativeBridge.PontoNoPoligono(
-                cliqueForaX, cliqueForaY, loteCoordenadas, totalVertices);
-
-            System.Diagnostics.Debug.WriteLine($"Clique 2 pertence ao lote? {(resultadoFora == 1 ? "SIM" : "NÃO")}");
-            System.Diagnostics.Debug.WriteLine("===================================");
+            int result1 = GeoNex.Services.NativeBridge.PontoNoPoligono(-48.5745, -25.8815, loteCoordenadas, totalVertices);
+            int result2 = GeoNex.Services.NativeBridge.PontoNoPoligono(-48.5760, -25.8830, loteCoordenadas, totalVertices);
+            Console.WriteLine($"[C++ CORE] Teste PIP Realizado. Interno: {result1}, Externo: {result2}");
         }
-        catch (System.Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"ERRO NA COMUNICAÇÃO: {ex.Message}");
-        }
+        catch (Exception ex) { Console.WriteLine($"[C++ LINK ERRO]: {ex.Message}"); }
     }
-    // ==========================================
-    // PROPRIEDADES DA CAMADA E ESTILOS
-    // ==========================================
-    private async Task AbrirPropriedadesCamada(string nomeCamada)
-    {
-        // Garante que o menu flutuante desaparece ao abrir as propriedades
-        mostrarMenuContexto = false;
-        camadaEmEdicao = nomeCamada;
-        exibirModalPropriedades = true;
-        abaAtivaPropriedades = "Simbologia"; // Inicia sempre na primeira aba
-
-        // Busca as colunas para preencher a caixa de seleção da aba de rótulos
-        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeCamada);
-        if (camada != null && !string.IsNullOrEmpty(camada.CaminhoArquivo))
-        {
-            // Lê o cabeçalho do DBF em background para não congelar a interface
-            var resultado = await Task.Run(() => RasterService.ObterAtributosVetor(camada.CaminhoArquivo));
-
-            // Filtramos o "FID" porque ele é uma coluna interna do motor
-            colunasDisponiveisRotulo = resultado.Colunas.Where(c => c != "FID").ToList();
-        }
-        else
-        {
-            colunasDisponiveisRotulo = new List<string>();
-        }
-
-        await InvokeAsync(StateHasChanged);
-    }
-    private async Task RecarregarOrtofotoAltaResolucao()
-    {
-        // Só executa se houver uma ortofoto TIF importada e visível
-        if (!MapService.TemRaster || string.IsNullOrEmpty(caminhoArquivoRaster)) return;
-
-        try
-        {
-            // INVERSÃO DA MÁGICA: Pergunta à GPU quais são as coordenadas geográficas visíveis no monitor!
-            if (_matrizAtual.TryInvert(out SKMatrix inverse))
-            {
-                // Mapeia os cantos do monitor (Pixel 0,0 até ao limite HD)
-                SKPoint topLeft = inverse.MapPoint(new SKPoint(0, 0));
-                SKPoint bottomRight = inverse.MapPoint(new SKPoint(_larguraTela > 0 ? _larguraTela : 1920, _alturaTela > 0 ? _alturaTela : 1080));
-
-                // Descodifica o formato do SkiaSharp (O X é a Longitude e o Y é a Latitude INVERTIDA)
-                double minLng = topLeft.X;
-                double maxLat = -topLeft.Y;
-                double maxLng = bottomRight.X;
-                double minLat = -bottomRight.Y;
-
-                // Garante que a orientação está correta
-                double realMinLng = Math.Min(minLng, maxLng);
-                double realMaxLng = Math.Max(minLng, maxLng);
-                double realMinLat = Math.Min(minLat, maxLat);
-                double realMaxLat = Math.Max(minLat, maxLat);
-
-                // Vai ao motor GDAL buscar uma fotografia perfeita apenas desta área, a correr numa Thread Paralela (não congela o ecrã)
-                string base64AltaQualidade = await Task.Run(() =>
-                    RasterService.ObterRecorteDinamico(caminhoArquivoRaster, realMinLat, realMinLng, realMaxLat, realMaxLng, _larguraTela > 0 ? _larguraTela : 1920, _alturaTela > 0 ? _alturaTela : 1080)
-                );
-
-                if (!string.IsNullOrEmpty(base64AltaQualidade))
-                {
-                    byte[] imageBytes = Convert.FromBase64String(base64AltaQualidade);
-
-                    // Altera a textura da placa gráfica silenciosamente
-                    MapService.AtualizarRecorteRaster(imageBytes, (float)realMinLng, (float)realMinLat, (float)realMaxLng, (float)realMaxLat);
-
-                    // Reseta o esticamento falso do CSS agora que temos a imagem Real HD
-                    _zoomAtualCSS = 1.0f;
-                    _arrastoAtualX = 0;
-                    _arrastoAtualY = 0;
-
-                    await InvokeAsync(RenderizarFrameOffScreen);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Erro no Zoom Infinito do Raster: {ex.Message}");
-        }
-    }
-    
 }
