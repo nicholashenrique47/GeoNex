@@ -18,7 +18,10 @@
      @onmouseup="AoSoltarRato"
      @onmouseleave="AoSoltarRato">
 
-    <img id="skia-layer" style="width: 100%; height: 100%; position: absolute; z-index: 10; object-fit: fill; pointer-events: none;" />
+    @if (!string.IsNullOrEmpty(mapaUrl))
+    {
+        <img id="skia-layer" src="@mapaUrl" style="width: 100%; height: 100%; position: absolute; z-index: 10; object-fit: fill; pointer-events: none;" />
+    }
 </div>
 //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
@@ -1642,7 +1645,7 @@
         MapService.OnMapInvalidated += () => InvokeAsync(RenderizarFrameOffScreen);
 
         // O TEMPORIZADOR INTELIGENTE (Espera 500ms após você largar o rato para pedir a foto HD)
-        _debounceTimer = new System.Timers.Timer(500);
+        _debounceTimer = new System.Timers.Timer(100);
         _debounceTimer.AutoReset = false;
         _debounceTimer.Elapsed += (s, e) => InvokeAsync(RecarregarOrtofotoAltaResolucao);
     }
@@ -1720,14 +1723,17 @@
             canvas.Restore(); // Fecha o estado matricial
 
             // 2. Extrai o frame da memória (Formato PNG sem perdas - ideal para vetores GIS)
+            // No final do RenderizarFrameOffScreen (perto do Passo 2)
             using var image = surface.Snapshot();
             using var pixmap = image.PeekPixels();
             using var ms = new System.IO.MemoryStream();
-            
-            // A API nativa padrão e segura do SkiaSharp
-            pixmap.Encode(ms, SKEncodedImageFormat.Png, 100);
-            
+
+            // Renderiza o painel final em JPEG de alta qualidade
+            pixmap.Encode(ms, SkiaSharp.SKEncodedImageFormat.Jpeg, 90);
+
             string base64 = Convert.ToBase64String(ms.ToArray());
+            
+           
 
             // 3. Envia o binário diretamente para a interface web através do IPC
             await JSRuntime.InvokeVoidAsync("atualizarFundoSkia", base64);

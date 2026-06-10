@@ -818,31 +818,7 @@ window.atualizarCanvasMapa = function (base64Image) {
     // Garante que o navegador sabe que é um JPEG ultra-rápido
     img.src = 'data:image/jpeg;base64,' + base64Image;
 };
-function atualizarFundoSkia(base64) {
-    var img = document.getElementById('skia-layer');
-    if (img) {
-        img.style.transition = 'none'; // Corta animações para colar a imagem HD instantaneamente
-        img.style.transform = 'translate(0px, 0px) scale(1)'; // Reseta a física
-        img.src = 'data:image/png;base64,' + base64;
-    }
-}
 
-// NOVA FUNÇÃO: O Blazor vai chamar isto a 60 FPS durante o Zoom/Pan
-function transformarFundoSkia(deltaX, deltaY, scale) {
-    var img = document.getElementById('skia-layer');
-    if (img) {
-        // A GPU do computador assume o esforço gráfico 100% aqui
-        img.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(${scale})`;
-    }
-}
-
-// A MÁGICA DOS 60 FPS: Move a imagem usando a GPU do utilizador
-function arrastarFundoSkia(deltaX, deltaY) {
-    var img = document.getElementById('skia-layer');
-    if (img) {
-        img.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
-    }
-}
 window.dimensoesJanela = {
     obter: function () {
         return { largura: window.innerWidth, altura: window.innerHeight };
@@ -851,5 +827,32 @@ window.dimensoesJanela = {
         window.addEventListener('resize', function () {
             dotnetHelper.invokeMethodAsync('AtualizarDimensoesTela', window.innerWidth, window.innerHeight);
         });
+    }
+};
+// === MOTOR DE RENDERIZAÇÃO SKIASHARP (DOUBLE BUFFERING) ===
+window.mapEngine = {
+    container: null,
+    imgAtiva: null,
+
+    init: function () {
+        // Certifique-se de que o ID bate com a div principal do seu mapa no Home.razor
+        this.container = document.getElementById('map-container');
+        this.imgAtiva = document.getElementById('skia-layer');
+    },
+
+    transformar: function (x, y, scale) {
+        if (this.container) {
+            this.container.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        }
+    },
+
+    carregarNovoFrame: function (url) {
+        if (!this.imgAtiva) return;
+        var imgClone = new Image();
+        imgClone.onload = () => {
+            this.imgAtiva.src = url;
+            this.container.style.transform = `translate(0px, 0px) scale(1)`;
+        };
+        imgClone.src = url;
     }
 };
