@@ -1677,11 +1677,12 @@
         objRef = DotNetObjectReference.Create(this);
         CamadasAtivas.Add(new Camada { Nome = "OpenStreetMap", Tipo = "Raster", Visivel = true });
 
-        // === INFRAESTRUTURA DE MEMÓRIA ENTERPRISE (Zero-Disk I/O) ===
-        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_CACHEMAX", "4096");
-        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR"); // Impede leitura desnecessária de pastas
-        OSGeo.GDAL.Gdal.SetConfigOption("VSI_CACHE", "TRUE");                         // Ativa sistema de ficheiros virtual
-        OSGeo.GDAL.Gdal.SetConfigOption("VSI_CACHE_SIZE", "1000000000");              // Aloca 1GB puro para buffer virtual
+        // === TURBO DE HARDWARE SEGURO (Universal) ===
+        // 1. Impede o GDAL de vasculhar a pasta do Windows
+        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR");
+
+        // 2. Aloca 2048 Megabytes (2GB) de RAM puros. O GDAL lê valores pequenos (<100.000) nativamente como MB.
+        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_CACHEMAX", "2048");
 
         _server = new GeoNex.Services.LocalMapServer(MapService);
         _server.Start();

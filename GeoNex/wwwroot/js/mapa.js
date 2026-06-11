@@ -831,6 +831,7 @@ window.dimensoesJanela = {
 };
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (144Hz LERP GPU + INÉRCIA CINÉTICA) ===
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (144Hz LERP GPU + INÉRCIA + RUBBER-BANDING) ===
+// === MOTOR DE FÍSICA E RENDERIZAÇÃO (Tempo-Delta VRAM GPU + INÉRCIA + RUBBER-BANDING) ===
 window.mapEngine = {
     container: null,
     imgAtiva: null,
@@ -846,7 +847,10 @@ window.mapEngine = {
     startX: 0, startY: 0, startPanX: 0, startPanY: 0,
 
     velocityX: 0, velocityY: 0,
-    lastX: 0, lastY: 0, lastTime: 0,
+    lastX: 0, lastY: 0, lastEventTime: 0,
+
+    // Controlador de FPS dinâmico
+    lastFrameTime: 0,
 
     rafId: null, renderTimeout: null,
     initialized: false,
@@ -867,17 +871,24 @@ window.mapEngine = {
             window.addEventListener('pointercancel', (e) => this.onPointerUp(e));
 
             this.initialized = true;
-            this.animate();
+            this.rafId = requestAnimationFrame((ts) => this.animate(ts));
         }
     },
 
     onDoubleClick: function (e) {
         e.preventDefault();
-        const proporcao = 2.0;
-        const novoScale = this.targetScale * proporcao;
-        if (novoScale > 5000) return;
+        let proporcao = 2.0;
+        let novoScale = this.targetScale * proporcao;
 
+        // --- O PONTO DE EQUILÍBRIO (4x) ---
+        novoScale = Math.min(Math.max(novoScale, 0.05), 4.0);
+
+        proporcao = novoScale / this.targetScale;
         this.targetScale = novoScale;
+
+    // ... (resto do código igual)
+
+    // ... (resto do código igual) ...
 
         const rect = this.container.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) - (rect.width / 2);
@@ -893,10 +904,17 @@ window.mapEngine = {
         e.preventDefault();
 
         let proporcao = e.ctrlKey ? 1 - (e.deltaY * 0.015) : (e.deltaY < 0 ? 1.15 : (1 / 1.15));
-        const novoScale = this.targetScale * proporcao;
-        if (novoScale < 0.001 || novoScale > 5000) return;
+        let novoScale = this.targetScale * proporcao;
 
+        // --- O PONTO DE EQUILÍBRIO (4x) ---
+        novoScale = Math.min(Math.max(novoScale, 0.05), 4.0);
+
+        proporcao = novoScale / this.targetScale;
         this.targetScale = novoScale;
+
+    // ... (resto do código igual)
+
+    // ... (resto do código igual) ...
 
         const rect = this.container.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) - (rect.width / 2);
@@ -919,7 +937,7 @@ window.mapEngine = {
 
         this.lastX = e.clientX;
         this.lastY = e.clientY;
-        this.lastTime = performance.now();
+        this.lastEventTime = performance.now();
         this.velocityX = 0;
         this.velocityY = 0;
 
@@ -930,7 +948,7 @@ window.mapEngine = {
         if (!this.isDragging) return;
 
         const now = performance.now();
-        const deltaTime = now - this.lastTime;
+        const deltaTime = now - this.lastEventTime;
 
         this.targetX = this.startPanX + (e.clientX - this.startX);
         this.targetY = this.startPanY + (e.clientY - this.startY);
@@ -942,7 +960,7 @@ window.mapEngine = {
 
         this.lastX = e.clientX;
         this.lastY = e.clientY;
-        this.lastTime = now;
+        this.lastEventTime = now;
 
         this.scheduleRender();
     },
@@ -952,7 +970,7 @@ window.mapEngine = {
         this.isDragging = false;
         this.container.style.cursor = 'grab';
 
-        const multiplicadorFriccao = 200;
+        const multiplicadorFriccao = 250;
 
         if (Math.abs(this.velocityX) > 0.3 || Math.abs(this.velocityY) > 0.3) {
             this.targetX += this.velocityX * multiplicadorFriccao;
@@ -961,28 +979,43 @@ window.mapEngine = {
         }
     },
 
-    animate: function () {
-        // --- 1. FRONTEIRAS MAGNÉTICAS (RUBBER-BANDING) ---
-        // Calcula limites dinâmicos de 1.2x a largura e altura da janela
+    // O NOVO MOTOR GRÁFICO (Com Tempo-Delta e Epsilon)
+    animate: function (timestamp) {
+        if (!this.lastFrameTime) this.lastFrameTime = timestamp;
+        let deltaTime = timestamp - this.lastFrameTime;
+        this.lastFrameTime = timestamp;
+
+        // Limita o gap máximo caso o utilizador minimize a aba do navegador
+        if (deltaTime > 50) deltaTime = 16;
+
+        // FÓRMULA CINEMÁTICA: 0.012 define o "deslize". Menor = mais longo e suave.
+        // A matemática Exponencial garante inércia fluida independente dos Hz do ecrã.
+        const lerpFactor = 1 - Math.exp(-0.012 * deltaTime);
+
         const limiteX = (window.innerWidth || 1920) * 1.2;
         const limiteY = (window.innerHeight || 1080) * 1.2;
+        if (this.targetX > limiteX) this.targetX -= (this.targetX - limiteX) * lerpFactor * 1.5;
+        if (this.targetX < -limiteX) this.targetX -= (this.targetX + limiteX) * lerpFactor * 1.5;
+        if (this.targetY > limiteY) this.targetY -= (this.targetY - limiteY) * lerpFactor * 1.5;
+        if (this.targetY < -limiteY) this.targetY -= (this.targetY + limiteY) * lerpFactor * 1.5;
 
-        // Tensão elástica: Se o delta ultrapassar o ecrã, a resistência aumenta e puxa de volta
-        if (this.targetX > limiteX) this.targetX -= (this.targetX - limiteX) * 0.15;
-        if (this.targetX < -limiteX) this.targetX -= (this.targetX + limiteX) * 0.15;
-        if (this.targetY > limiteY) this.targetY -= (this.targetY - limiteY) * 0.15;
-        if (this.targetY < -limiteY) this.targetY -= (this.targetY + limiteY) * 0.15;
+        this.currentX += (this.targetX - this.currentX) * lerpFactor;
+        this.currentY += (this.targetY - this.currentY) * lerpFactor;
+        this.currentScale += (this.targetScale - this.currentScale) * lerpFactor;
 
-        // --- 2. INTERPOLAÇÃO (LERP) ---
-        this.currentX += (this.targetX - this.currentX) * 0.25;
-        this.currentY += (this.targetY - this.currentY) * 0.25;
-        this.currentScale += (this.targetScale - this.currentScale) * 0.25;
+        // === CORTE EPSILON (Estabilidade Extrema) ===
+        // Elimina a vibração sub-pixel da CPU e trava o elemento na grelha absoluta
+        if (Math.abs(this.targetX - this.currentX) < 0.05) this.currentX = this.targetX;
+        if (Math.abs(this.targetY - this.currentY) < 0.05) this.currentY = this.targetY;
+        if (Math.abs(this.targetScale - this.currentScale) < 0.001) this.currentScale = this.targetScale;
 
         if (this.container) {
-            this.container.style.transform = `translate(${this.currentX}px, ${this.currentY}px) scale(${this.currentScale})`;
+            // === ACELERAÇÃO DE HARDWARE (translate3d) ===
+            // Move a renderização do processador (CPU) para a placa de vídeo (GPU/VRAM)
+            this.container.style.transform = `translate3d(${this.currentX}px, ${this.currentY}px, 0) scale(${this.currentScale})`;
         }
 
-        this.rafId = requestAnimationFrame(() => this.animate());
+        this.rafId = requestAnimationFrame((ts) => this.animate(ts));
     },
 
     scheduleRender: function () {
@@ -1013,17 +1046,14 @@ window.mapEngine = {
         if (!this.imgAtiva) return;
         var imgClone = new Image();
         imgClone.onload = () => {
-            // 1. Aplicação da Imagem
             this.imgAtiva.src = url;
 
-            // 2. Foco Fotográfico (Crossfade de 150ms sem interrupção de frames)
             this.imgAtiva.style.opacity = 0;
             requestAnimationFrame(() => {
                 this.imgAtiva.style.transition = 'opacity 0.15s ease-out';
                 this.imgAtiva.style.opacity = 1;
             });
 
-            // 3. Compensação Matemática Assíncrona
             this.targetScale = this.targetScale / this.pendingScale;
             this.currentScale = this.currentScale / this.pendingScale;
 
@@ -1033,7 +1063,8 @@ window.mapEngine = {
             this.currentX = this.currentX - (this.pendingX * this.currentScale);
             this.currentY = this.currentY - (this.pendingY * this.currentScale);
 
-            this.container.style.transform = `translate(${this.currentX}px, ${this.currentY}px) scale(${this.currentScale})`;
+            // translate3d mantido na compensação vetorial
+            this.container.style.transform = `translate3d(${this.currentX}px, ${this.currentY}px, 0) scale(${this.currentScale})`;
 
             this.isFetching = false;
 

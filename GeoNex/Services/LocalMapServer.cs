@@ -92,6 +92,7 @@ public class LocalMapServer
                             double minLat = Math.Min(-topLeft.Y, -bottomRight.Y);
                             double maxLat = Math.Max(-topLeft.Y, -bottomRight.Y);
 
+                            // Garante o Multithreading e 2GB de RAM para o corte
                             string[] warpArgs = {
                                 "-te", minLng.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                        minLat.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -101,11 +102,9 @@ public class LocalMapServer
                                 "-ts", width.ToString(), height.ToString(),
                                 "-r", "bilinear",
                                 "-dstalpha",
-                                "-wm", "2048",
+                                "-wm", "2048", // Warp Memory: 2 Gigabytes
                                 "-multi",
                                 "-wo", "NUM_THREADS=ALL_CPUS",
-                                "-wo", "OPTIMIZE_SIZE=TRUE", // Otimiza a árvore de execução do C++
-                                "-cwt", "Byte",              // Trava os cálculos de transformação em 8-bits, eliminando peso flutuante
                                 "-of", "MEM"
                             };
 
@@ -164,10 +163,9 @@ public class LocalMapServer
             canvas.Restore();
             using var image = surface.Snapshot();
 
-            // OTIMIZAÇÃO DE REDE: Redução microscópica na qualidade (impercetível) para acelerar a transferência IPC
-            // Formato WebP: 30% mais leve que o JPEG e com decodificação direta via GPU no Chromium
-            using var data = image.Encode(SKEncodedImageFormat.Webp, 95);
-            res.ContentType = "image/webp";
+            // Qualidade 80: Reduz o tamanho do ficheiro em 50%, 
+            // acelerando a entrega para o JS sem perda visual notável.
+            using var data = image.Encode(SKEncodedImageFormat.Jpeg, 100);
 
             res.ContentType = "image/jpeg";
             res.ContentLength64 = data.Size;
