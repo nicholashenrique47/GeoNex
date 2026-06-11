@@ -20,6 +20,7 @@ window.iniciarMapa = function (dotnetHelper) {
         zoomControl: false,
         preferCanvas: true
     }).setView([-25.8828, -48.5747], 15);
+    window.ativarSensorRaycast();
     // SENSOR DE PERFORMANCE: Se afastar muito a câmara (Zoom < 16), esconde os textos
     // (Dentro da função iniciarMapa, substitua o bloco do mapa-distante por isto:)
 
@@ -894,11 +895,14 @@ window.mapEngine = {
 
         // --- LIMITADOR DE ZOOM ABSOLUTO ---
         let zoomProjetado = this.absoluteZoom * proporcao;
-        const limiteMaximo = 180.0; // O seu limite exato (Ajuste para 60, 100, etc)
 
-        if (zoomProjetado > limiteMaximo) {
-            proporcao = limiteMaximo / this.absoluteZoom;
-        }
+        // QUANTO MAIOR O NÚMERO, MAIS FUNDO VOCÊ MERGULHA NA ORTOFOTO
+        const limiteMaximo = 800.0;
+        const limiteMinimo = 0.05;
+
+        if (zoomProjetado > limiteMaximo) proporcao = limiteMaximo / this.absoluteZoom;
+        if (zoomProjetado < limiteMinimo) proporcao = limiteMinimo / this.absoluteZoom;
+
         this.absoluteZoom *= proporcao;
         // ----------------------------------
 
@@ -921,10 +925,12 @@ window.mapEngine = {
         let proporcao = e.ctrlKey ? 1 - (e.deltaY * 0.015) : (e.deltaY < 0 ? 1.15 : (1 / 1.15));
 
         // --- LIMITADOR DE ZOOM ABSOLUTO ---
+        // --- LIMITADOR DE ZOOM ABSOLUTO ---
         let zoomProjetado = this.absoluteZoom * proporcao;
 
-        const limiteMaximo = 180.0; // O Teto de Vidro Inferior (Nível da Rua)
-        const limiteMinimo = 0.05; // O Teto de Vidro Superior (Visão Global)
+        // QUANTO MAIOR O NÚMERO, MAIS FUNDO VOCÊ MERGULHA NA ORTOFOTO
+        const limiteMaximo = 800.0;
+        const limiteMinimo = 0.05;
 
         if (zoomProjetado > limiteMaximo) proporcao = limiteMaximo / this.absoluteZoom;
         if (zoomProjetado < limiteMinimo) proporcao = limiteMinimo / this.absoluteZoom;
@@ -1085,3 +1091,146 @@ window.mapEngine = {
         imgClone.src = url;
     }
 };
+// =======================================================
+// MÓDULO DE ENGENHARIA E INTERAÇÃO ESPACIAL
+// =======================================================
+
+// --- 1. O LASER DE INSPEÇÃO (RAYCASTING SERVER-SIDE) ---
+window.camadaDestaqueRaycast = null;
+
+window.ativarSensorRaycast = function () {
+    let mapa = obterMapaLeaflet();
+    if (!mapa) return;
+
+    mapa.on('click', function (e) {
+        // O disparo é anulado se o engenheiro estiver a medir ou a desenhar vetores
+        if (window.modoDesenhoAtivo || window.ferramentaMedicaoAtiva) return;
+
+        if (window.dotnetReferencia) {
+            window.dotnetReferencia.invokeMethodAsync('ProcessarCliqueRaycast', e.latlng.lat, e.latlng.lng)
+                .catch(err => console.warn("Falha no túnel de Raycast:", err));
+        }
+    });
+};
+
+window.destacarGeometria = function (geoJsonString) {
+    let mapa = obterMapaLeaflet();
+    if (!mapa) return;
+
+    // Limpa a máscara do lote anterior
+    if (window.camadaDestaqueRaycast) {
+        mapa.removeLayer(window.camadaDestaqueRaycast);
+    }
+
+    if (!geoJsonString || geoJsonString.trim() === "") return;
+
+    let dados = JSON.parse(geoJsonString);
+
+    // Renderiza instantaneamente apenas a geometria clicada com máscara topográfica amarela
+    window.camadaDestaqueRaycast = L.geoJSON(dados, {
+        style: {
+            color: "#facc15",
+            weight: 3,
+            fillColor: "#facc15",
+            fillOpacity: 0.35,
+            className: 'neon-vector'
+        }
+    }).addTo(mapa);
+};
+
+// --- 2. RÉGUA TOPOGRÁFICA DINÂMICA (Medição em Tempo Real) ---
+window.ferramentaMedicaoAtiva = false;
+window.grupoMedicao = null;
+window.medicaoPontos = [];
+window.medicaoLinhas = null;
+window.medicaoRascunho = null;
+window.medicaoTooltip = null;
+
+window.alternarFerramentaMedicao = function (estado) {
+    let mapa = obterMapaLeaflet();
+    if (!mapa) return;
+
+    window.ferramentaMedicaoAtiva = estado;
+
+    if (estado) {
+        mapa.getContainer().style.cursor = 'crosshair';
+        window.grupoMedicao = L.layerGroup().addTo(mapa);
+        window.medicaoPontos = [];
+
+        mapa.on('click', adicionarPontoMedicao);
+        mapa.on('mousemove', moverRascunhoMedicao);
+        mapa.on('contextmenu', finalizarMedicao); // Clique direito trava a linha
+    } else {
+        mapa.getContainer().style.cursor = '';
+        mapa.off('click', adicionarPontoMedicao);
+        mapa.off('mousemove', moverRascunhoMedicao);
+        mapa.off('contextmenu', finalizarMedicao);
+
+        if (window.grupoMedicao) mapa.removeLayer(window.grupoMedicao);
+        if (window.medicaoTooltip) {
+            mapa.removeLayer(window.medicaoTooltip);
+            window.medicaoTooltip = null;
+        }
+    }
+};
+
+function adicionarPontoMedicao(e) {
+    let mapa = obterMapaLeaflet();
+    window.medicaoPontos.push(e.latlng);
+
+    // Vértice de ancoragem
+    L.circleMarker(e.latlng, {
+        radius: 4, color: '#0ea5e9', fillColor: '#161921', fillOpacity: 1, weight: 2
+    }).addTo(window.grupoMedicao);
+
+    // Solidifica o segmento anterior
+    if (window.medicaoPontos.length > 1) {
+        if (window.medicaoLinhas) mapa.removeLayer(window.medicaoLinhas);
+        window.medicaoLinhas = L.polyline(window.medicaoPontos, { color: '#0ea5e9', weight: 3 }).addTo(window.grupoMedicao);
+    }
+}
+
+function moverRascunhoMedicao(e) {
+    if (window.medicaoPontos.length === 0) return;
+    let mapa = obterMapaLeaflet();
+    let ultimoPonto = window.medicaoPontos[window.medicaoPontos.length - 1];
+
+    // Desenha a linha de projeção tracejada até ao rato
+    if (window.medicaoRascunho) mapa.removeLayer(window.medicaoRascunho);
+    window.medicaoRascunho = L.polyline([ultimoPonto, e.latlng], {
+        color: '#0ea5e9', weight: 2, dashArray: '5, 5'
+    }).addTo(window.grupoMedicao);
+
+    // Executa o cálculo trigonométrico da distância total
+    let distanciaMetros = 0;
+    for (let i = 0; i < window.medicaoPontos.length - 1; i++) {
+        distanciaMetros += window.medicaoPontos[i].distanceTo(window.medicaoPontos[i + 1]);
+    }
+    distanciaMetros += ultimoPonto.distanceTo(e.latlng);
+
+    let texto = distanciaMetros > 1000 ? (distanciaMetros / 1000).toFixed(2) + ' km' : distanciaMetros.toFixed(2) + ' m';
+    let uiVidro = `<div class="glass-tooltip">${texto}</div>`;
+
+    if (window.medicaoTooltip) {
+        window.medicaoTooltip.setLatLng(e.latlng).setContent(uiVidro);
+    } else {
+        window.medicaoTooltip = L.tooltip({
+            permanent: true, direction: 'right', offset: [15, 0], className: 'ferramenta-tooltip-invisivel'
+        })
+            .setLatLng(e.latlng)
+            .setContent(uiVidro)
+            .addTo(mapa);
+    }
+}
+
+function finalizarMedicao(e) {
+    e.originalEvent.preventDefault(); // Impede o menu do sistema operativo de abrir
+    let mapa = obterMapaLeaflet();
+    if (window.medicaoRascunho) mapa.removeLayer(window.medicaoRascunho);
+
+    window.medicaoPontos = [];
+    if (window.medicaoTooltip) {
+        mapa.removeLayer(window.medicaoTooltip);
+        window.medicaoTooltip = null;
+    }
+}

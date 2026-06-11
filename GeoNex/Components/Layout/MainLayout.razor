@@ -1,3 +1,20 @@
 ﻿@inherits LayoutComponentBase
 
-@Body
+<div class="geonex-workspace">
+    
+    <aside class="sidebar-glass">
+        <div class="sidebar-header">
+            <h2 class="logo-text">GEONEX</h2>
+            <span class="version-tag">CORE 1.0</span>
+        </div>
+        
+        <div class="sidebar-content">
+            <NavMenu />
+        </div>
+    </aside>
+
+    <main class="map-layer">
+        @Body
+    </main>
+
+</div>
