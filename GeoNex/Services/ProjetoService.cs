@@ -2,6 +2,9 @@
 using GeoNex.Models;
 using Microsoft.Data.Sqlite;
 using OSGeo.OGR;
+using NetTopologySuite.Features;
+using NetTopologySuite.IO;
+using NetTopologySuite.Geometries;
 
 namespace GeoNex.Services;
 
@@ -82,7 +85,7 @@ public class ProjetoService
 
             // 2. Loop de Inserção (Sincronia entre o motor GIS e o SQL)
             layerOrigem.ResetReading();
-            Feature feat;
+            OSGeo.OGR.Feature feat;
             while ((feat = layerOrigem.GetNextFeature()) != null)
             {
                 var cmdInsert = connection.CreateCommand();
@@ -96,6 +99,70 @@ public class ProjetoService
         {
             Console.WriteLine($"Erro na materialização: {ex.Message}");
             return false;
+        }
+    }
+    /// <summary>
+    /// Lê o Shapefile e carrega-o para a Memória RAM, alimentando a GPU (Visão) e a Árvore (Cérebro).
+    /// </summary>
+    public void CarregarShapefileParaMotorMapas(string caminhoShp, string nomeCamada, MapRenderingService mapService)
+    {
+        try
+        {
+            var factory = new GeometryFactory();
+            // Utiliza o leitor nativo do NetTopologySuite para máxima compatibilidade com a Árvore
+            using var reader = new ShapefileDataReader(caminhoShp, factory);
+
+            var feicoesParaArvore = new FeatureCollection();
+            var poligonosParaDesenho = new List<float[]>();
+
+            while (reader.Read())
+            {
+                // 1. Extrair os Dados Cadastrais (Proprietário, Área, Inscrição) do DBF
+                var atributos = new AttributesTable();
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    var nomeCampo = reader.GetName(i);
+                    var valorCampo = reader.GetValue(i);
+                    atributos.Add(nomeCampo, valorCampo);
+                }
+
+                // 2. Criar a Entidade Espacial
+                var feature = new NetTopologySuite.Features.Feature(reader.Geometry, atributos);
+                feicoesParaArvore.Add(feature);
+
+                // 3. Converter coordenadas para a Placa Gráfica (SkiaSharp)
+                if (reader.Geometry != null)
+                {
+                    var coords = reader.Geometry.Coordinates;
+                    var floats = new float[coords.Length * 2];
+                    for (int i = 0; i < coords.Length; i++)
+                    {
+                        floats[i * 2] = (float)coords[i].X;
+                        floats[i * 2 + 1] = (float)coords[i].Y; // Invertido posteriormente no PreCompilar
+                    }
+                    poligonosParaDesenho.Add(floats);
+                }
+            }
+
+            // --- A INJEÇÃO DUPLA DE ALTA PERFORMANCE ---
+
+            // A) Alimenta o Cérebro Analítico (Cria a grelha invisível de pesquisa em 0.1ms)
+            mapService.ConstruirIndiceEspacial(nomeCamada, feicoesParaArvore);
+
+            // B) Alimenta o Motor Gráfico (Funde as linhas para desenhar no mapa)
+            mapService.PreCompilarPoligonos(nomeCamada, poligonosParaDesenho);
+
+            // Regista a camada no topo da pilha para saber quem recebe o clique primeiro
+            if (!mapService.OrdemCamadas.Contains(nomeCamada))
+            {
+                mapService.OrdemCamadas.Add(nomeCamada);
+            }
+
+            Console.WriteLine($"[GEONEX] Camada {nomeCamada} carregada com sucesso. Feições ativas: {feicoesParaArvore.Count}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[GEONEX] Erro crítico ao carregar Shapefile: {ex.Message}");
         }
     }
 }

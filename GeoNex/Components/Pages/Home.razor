@@ -2275,29 +2275,36 @@
         SolicitarNovoFrame();
     }
     [JSInvokable]
-    public async Task ProcessarCliqueRaycast(double lat, double lng)
+    public async Task ProcessarCliqueRaycast(double mapaX, double mapaY)
     {
-        // 1. Dispara o Laser no motor C#
-        var feicaoAtingida = MapService.DispararRaycast(lat, lng);
+        // 1. O Motor Gráfico (Skia) inverteu o eixo Y para desenhar (y = -y).
+        // Desfazemos a inversão para consultar a Base de Dados.
+        double xOriginal = mapaX;
+        double yOriginal = -mapaY;
+
+        // 2. Dispara contra a árvore (Lembrando que na nossa função antiga, o 1º parâmetro era o Y e o 2º era o X)
+        var feicaoAtingida = MapService.DispararRaycast(yOriginal, xOriginal);
 
         if (feicaoAtingida != null)
         {
-            // 2. Converte APENAS esse lote em específico para GeoJSON
-            var writer = new GeoJsonWriter();
-            string geoJsonLote = writer.Write(feicaoAtingida);
+            Console.WriteLine("[GEO-SENSOR] Alvo Abatido com Sucesso!");
 
-            // 3. Envia para o JavaScript criar o Neón instantâneo
-            await JSRuntime.InvokeVoidAsync("destacarGeometria", geoJsonLote);
+            // 3. Extrair os dados cadastrais diretamente do DBF (Tabela de Atributos)
+            string dadosDoLote = "DADOS DA PROPRIEDADE INTERSETADA:\n\n";
+            if (feicaoAtingida.Attributes != null)
+            {
+                foreach (var nomeDaColuna in feicaoAtingida.Attributes.GetNames())
+                {
+                    dadosDoLote += $"{nomeDaColuna}: {feicaoAtingida.Attributes[nomeDaColuna]}\n";
+                }
+            }
 
-            // AQUI ESTÁ A MAGIA DOS DADOS:
-            // Todo o banco de dados do lote (Inscrição, Proprietário, Área) está dentro de feicaoAtingida.Attributes.
-            // Poderemos ler isto para preencher o painel de vidro lateral!
-            Console.WriteLine("Lote intersetado com sucesso!");
+            // Exibe provisoriamente os dados na tela para confirmar que a leitura do Shapefile funcionou a 100%
+            await JSRuntime.InvokeVoidAsync("alert", dadosDoLote);
         }
         else
         {
-            // O utilizador clicou no vazio (rua ou fora do município). Apaga a máscara amarela.
-            await JSRuntime.InvokeVoidAsync("destacarGeometria", "");
+            Console.WriteLine("[GEO-SENSOR] Clique fora da área vetorizada.");
         }
     }
     }

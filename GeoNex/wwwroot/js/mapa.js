@@ -951,23 +951,7 @@ window.mapEngine = {
         this.scheduleRender();
     },
 
-    onPointerDown: function (e) {
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        this.isDragging = true;
-
-        this.startX = e.clientX;
-        this.startY = e.clientY;
-        this.startPanX = this.targetX;
-        this.startPanY = this.targetY;
-
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
-        this.lastEventTime = performance.now();
-        this.velocityX = 0;
-        this.velocityY = 0;
-
-        this.container.style.cursor = 'grabbing';
-    },
+   
 
     onPointerMove: function (e) {
         if (!this.isDragging) return;
@@ -990,18 +974,73 @@ window.mapEngine = {
         this.scheduleRender();
     },
 
+    onPointerDown: function (e) {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        this.isDragging = true;
+
+        this.startX = e.clientX;
+        this.startY = e.clientY;
+        this.startPanX = this.targetX;
+        this.startPanY = this.targetY;
+
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+        this.lastEventTime = performance.now();
+
+        // --- NOVO: O Relógio de Precisão para detetar um clique ---
+        this.clickStartTime = performance.now();
+
+        this.velocityX = 0;
+        this.velocityY = 0;
+
+        this.container.style.cursor = 'grabbing';
+    },
+
     onPointerUp: function (e) {
         if (!this.isDragging) return;
         this.isDragging = false;
         this.container.style.cursor = 'grab';
 
-        const multiplicadorFriccao = 250;
+        const tempoDecorrido = performance.now() - this.clickStartTime;
+        const distMovida = Math.abs(e.clientX - this.startX) + Math.abs(e.clientY - this.startY);
 
-        if (Math.abs(this.velocityX) > 0.3 || Math.abs(this.velocityY) > 0.3) {
-            this.targetX += this.velocityX * multiplicadorFriccao;
-            this.targetY += this.velocityY * multiplicadorFriccao;
-            this.scheduleRender();
+        // --- DETETOR TOPOGRÁFICO DE CLIQUE ---
+        // Se o engenheiro não arrastou o rato (distância < 10) e foi um toque rápido (tempo < 300ms)
+        if (tempoDecorrido < 300 && distMovida < 10) {
+            this.dispararRaycast(e.clientX, e.clientY);
+        } else {
+            // Caso contrário, executa a fricção de deslize normal da câmara
+            const multiplicadorFriccao = 250;
+            if (Math.abs(this.velocityX) > 0.3 || Math.abs(this.velocityY) > 0.3) {
+                this.targetX += this.velocityX * multiplicadorFriccao;
+                this.targetY += this.velocityY * multiplicadorFriccao;
+                this.scheduleRender();
+            }
         }
+    },
+
+    // --- O NOVO LASER VETORIAL ---
+    dispararRaycast: function (clientX, clientY) {
+        if (!this.dotNetHelper) return;
+
+        const rect = this.container.getBoundingClientRect();
+
+        // Posição do clique em relação ao topo/esquerda do ecrã
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
+
+        // Centro absoluto da câmara
+        const centroX = rect.width / 2;
+        const centroY = rect.height / 2;
+
+        // A MATEMÁTICA DE REVERSÃO:
+        // Pega no clique da tela, remove o movimento de "pan" e remove a percentagem do Zoom
+        // O resultado é a Coordenada Bruta exata da Feição no sistema C#
+        const mapaX = (mouseX - centroX - this.currentX) / this.currentScale;
+        const mapaY = (mouseY - centroY - this.currentY) / this.currentScale;
+
+        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', mapaX, mapaY)
+            .catch(err => console.warn("Erro no Túnel de Comunicação JS-C#:", err));
     },
 
     animate: function (timestamp) {

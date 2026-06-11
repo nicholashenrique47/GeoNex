@@ -2,9 +2,8 @@
 using OSGeo.GDAL;
 using System;
 using System.Collections.Generic;
-using NetTopologySuite.Geometries;
-using NetTopologySuite.Index.Strtree;
 using NetTopologySuite.Features;
+using NetTopologySuite.Index.Strtree;
 
 namespace GeoNex.Services
 {
@@ -17,73 +16,13 @@ namespace GeoNex.Services
         public SKPaint PincelFill { get; private set; }
         public SKPaint PincelBorda { get; private set; }
 
-        // === OTIMIZAÇÃO: UM ÚNICO OBJETO POR CAMADA ===
         public Dictionary<string, SKPath> VetoresPorCamada { get; private set; } = new();
         public List<string> OrdemCamadas { get; set; } = new();
         public string NomeRasterAtivo { get; set; } = "";
-        // === O MOTOR ANALÍTICO (RAM C#) ===
-        // STRtree: O índice espacial que pesquisa 100.000 polígonos em 1 milissegundo
-        public Dictionary<string, STRtree<Feature>> ArvoresEspaciais { get; private set; } = new();
 
-        public Dataset DatasetRaster { get; set; }
-        public bool TemRaster { get; set; } = false;
-        public SkiaSharp.SKRect LimitesRasterGlobal { get; set; }
+        // O MOTOR ANALÍTICO ESPACIAL (RAM C#) - Agora utilizando IFeature rigorosamente
+        public Dictionary<string, STRtree<IFeature>> ArvoresEspaciais { get; private set; } = new();
 
-        public event Action? OnMapInvalidated;
-
-        public MapRenderingService()
-        {
-            PincelBorda = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan.WithAlpha(200), StrokeWidth = 0, IsAntialias = true };
-            PincelFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(25), IsAntialias = true };
-        }
-
-        // ======================================================
-        // MOTOR DE RAYCASTING (POINT-IN-POLYGON)
-        // ======================================================
-
-        // Este método será chamado quando carregar o ficheiro .shp para a memória
-        public void ConstruirIndiceEspacial(string nomeCamada, FeatureCollection feicoes)
-        {
-            var arvore = new STRtree<Feature>();
-            foreach (var f in feicoes)
-            {
-                if (f.Geometry != null)
-                {
-                    // Insere o polígono na "caixa" correta da árvore
-                    arvore.Insert(f.Geometry.EnvelopeInternal, f);
-                }
-            }
-            // Trava a árvore para leitura ultra-rápida
-            arvore.Build();
-            ArvoresEspaciais[nomeCamada] = arvore;
-        }
-
-        public Feature? DispararRaycast(double lat, double lng)
-        {
-            // O Leaflet envia sempre EPSG:4326. No plano cartesiano, Longitude é o X e Latitude é o Y.
-            var pontoClique = new Point(lng, lat);
-
-            // Procura de cima para baixo (a camada que está visualmente no topo é a que recebe o clique)
-            for (int i = OrdemCamadas.Count - 1; i >= 0; i--)
-            {
-                string camada = OrdemCamadas[i];
-                if (ArvoresEspaciais.TryGetValue(camada, out var arvore))
-                {
-                    // 1. FILTRO DE CAIXA (Brutalmente rápido: reduz de 50.000 para ~3 candidatos)
-                    var candidatos = arvore.Query(pontoClique.EnvelopeInternal);
-
-                    // 2. MATEMÁTICA EXATA (Raycasting real nos 3 candidatos)
-                    foreach (var candidato in candidatos)
-                    {
-                        if (candidato.Geometry.Intersects(pontoClique))
-                        {
-                            return candidato; // Alvo Abatido!
-                        }
-                    }
-                }
-            }
-            return null; // O clique atingiu uma área vazia
-        }
         public Dataset DatasetRaster { get; set; }
         public bool TemRaster { get; set; } = false;
         public SkiaSharp.SKRect LimitesRasterGlobal { get; set; }
@@ -105,7 +44,6 @@ namespace GeoNex.Services
                 VetoresPorCamada[nomeCamada].Dispose();
             }
 
-            // O Mega-Path: Funde todos os lotes e ruas numa única entidade matemática
             var superPath = new SKPath { FillType = SKPathFillType.Winding };
 
             foreach (var poli in poligonos)
@@ -124,6 +62,50 @@ namespace GeoNex.Services
 
             VetoresPorCamada[nomeCamada] = superPath;
             RequestRedraw();
+        }
+
+        // ======================================================
+        // MOTOR DE RAYCASTING (POINT-IN-POLYGON)
+        // ======================================================
+
+        public void ConstruirIndiceEspacial(string nomeCamada, FeatureCollection feicoes)
+        {
+            var arvore = new STRtree<IFeature>();
+            foreach (IFeature f in feicoes)
+            {
+                if (f.Geometry != null)
+                {
+                    arvore.Insert(f.Geometry.EnvelopeInternal, f);
+                }
+            }
+            arvore.Build();
+            ArvoresEspaciais[nomeCamada] = arvore;
+        }
+
+        public IFeature? DispararRaycast(double lat, double lng)
+        {
+            // Forçamos o compilador a usar a geometria cartográfica e não o ponto de desenho da UI
+            var pontoClique = new NetTopologySuite.Geometries.Point(lng, lat);
+
+            for (int i = OrdemCamadas.Count - 1; i >= 0; i--)
+            {
+                string camada = OrdemCamadas[i];
+                if (ArvoresEspaciais.TryGetValue(camada, out var arvore))
+                {
+                    // Filtro de Caixa
+                    var candidatos = arvore.Query(pontoClique.EnvelopeInternal);
+
+                    // Matemática Exata
+                    foreach (var candidato in candidatos)
+                    {
+                        if (candidato.Geometry.Intersects(pontoClique))
+                        {
+                            return candidato;
+                        }
+                    }
+                }
+            }
+            return null;
         }
     }
 }
