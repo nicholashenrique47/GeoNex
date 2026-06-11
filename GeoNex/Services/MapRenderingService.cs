@@ -7,17 +7,18 @@ namespace GeoNex.Services
 {
     public class MapRenderingService
     {
-        // Variáveis de Câmara
         public float CameraZoom { get; set; } = 1.0f;
         public float CameraPanX { get; set; } = 0f;
         public float CameraPanY { get; set; } = 0f;
 
-        // Memória da Placa Gráfica (Vetores)
-        public List<SKPath> PathsCompilados { get; private set; } = new();
         public SKPaint PincelFill { get; private set; }
         public SKPaint PincelBorda { get; private set; }
 
-        // === ARQUITETURA NATIVA (Ponteiros C++) ===
+        // === OTIMIZAÇÃO: UM ÚNICO OBJETO POR CAMADA ===
+        public Dictionary<string, SKPath> VetoresPorCamada { get; private set; } = new();
+        public List<string> OrdemCamadas { get; set; } = new();
+        public string NomeRasterAtivo { get; set; } = "";
+
         public Dataset DatasetRaster { get; set; }
         public bool TemRaster { get; set; } = false;
         public SkiaSharp.SKRect LimitesRasterGlobal { get; set; }
@@ -32,28 +33,31 @@ namespace GeoNex.Services
 
         public void RequestRedraw() => OnMapInvalidated?.Invoke();
 
-        public void PreCompilarPoligonos(List<float[]> poligonos)
+        public void PreCompilarPoligonos(string nomeCamada, List<float[]> poligonos)
         {
-            foreach (var p in PathsCompilados) p.Dispose();
-            PathsCompilados.Clear();
+            if (VetoresPorCamada.ContainsKey(nomeCamada))
+            {
+                VetoresPorCamada[nomeCamada].Dispose();
+            }
+
+            // O Mega-Path: Funde todos os lotes e ruas numa única entidade matemática
+            var superPath = new SKPath { FillType = SKPathFillType.Winding };
 
             foreach (var poli in poligonos)
             {
-                var path = new SKPath { FillType = SKPathFillType.EvenOdd };
+                var subPath = new SKPath();
                 for (int i = 0; i < poli.Length; i += 2)
                 {
-                    // A MÁGICA: Guardamos os vetores na sua coordenada geográfica real (ex: 700000, 7150000)
-                    // Invertemos apenas o eixo Y, porque a placa gráfica lê de cima para baixo
                     float x = poli[i];
                     float y = -poli[i + 1];
-
-                    if (i == 0) path.MoveTo(x, y);
-                    else path.LineTo(x, y);
+                    if (i == 0) subPath.MoveTo(x, y);
+                    else subPath.LineTo(x, y);
                 }
-                path.Close();
-                PathsCompilados.Add(path);
+                subPath.Close();
+                superPath.AddPath(subPath);
             }
 
+            VetoresPorCamada[nomeCamada] = superPath;
             RequestRedraw();
         }
     }

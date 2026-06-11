@@ -11,12 +11,7 @@
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
 <div id="map-container"
-     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: top left; cursor: @(isDragging ? "grabbing" : "grab"); position: absolute; left:0; top:0; z-index: 0;"
-     @onwheel="AoRodarRato"
-     @onmousedown="AoPressionarRato"
-     @onmousemove="AoMoverRato"
-     @onmouseup="AoSoltarRato"
-     @onmouseleave="AoSoltarRato">
+     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: grab;">
 
     <img id="skia-layer" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; z-index: 10; object-fit: fill; pointer-events: none;" />
 </div>
@@ -1613,13 +1608,8 @@
     private int _alturaTela = 1080;
 
     // Controladores de estado tátil do Viewport (CSS Transforms Assíncronos)
-    private bool isDragging = false;
-    private double startDragX;
-    private double startDragY;
-    private double _arrastoAtualX = 0;
-    private double _arrastoAtualY = 0;
-    private float _zoomAtualCSS = 1.0f;
-    private System.Timers.Timer _debounceTimer;
+    
+    
 
     // =========================================================================
     // 3. ESTADOS E ACUMULADORES DO FRAMEWORK GIS (TABELAS, ATRIBUTOS E SIMBOLOGIA)
@@ -1687,14 +1677,14 @@
         objRef = DotNetObjectReference.Create(this);
         CamadasAtivas.Add(new Camada { Nome = "OpenStreetMap", Tipo = "Raster", Visivel = true });
 
-        // Inicialização assíncrona do servidor local de streaming gráfico
+        // === INFRAESTRUTURA DE MEMÓRIA ENTERPRISE (Zero-Disk I/O) ===
+        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_CACHEMAX", "4096");
+        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR"); // Impede leitura desnecessária de pastas
+        OSGeo.GDAL.Gdal.SetConfigOption("VSI_CACHE", "TRUE");                         // Ativa sistema de ficheiros virtual
+        OSGeo.GDAL.Gdal.SetConfigOption("VSI_CACHE_SIZE", "1000000000");              // Aloca 1GB puro para buffer virtual
+
         _server = new GeoNex.Services.LocalMapServer(MapService);
         _server.Start();
-
-        // Configuração do temporizador anti-ruído (Debounce) estabilizado para 150ms
-        _debounceTimer = new System.Timers.Timer(150);
-        _debounceTimer.AutoReset = false;
-        _debounceTimer.Elapsed += (s, e) => SolicitarNovoFrame();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -1706,8 +1696,7 @@
             _alturaTela = dimensoes.altura > 0 ? dimensoes.altura : 1080;
 
             await JSRuntime.InvokeVoidAsync("dimensoesJanela.registrarResize", objRef);
-            await JSRuntime.InvokeVoidAsync("mapEngine.init");
-
+            await JSRuntime.InvokeVoidAsync("mapEngine.init", objRef);
             SolicitarNovoFrame();
         }
     }
@@ -1724,7 +1713,7 @@
     {
         objRef?.Dispose();
         _server?.Stop();
-        _debounceTimer?.Dispose();
+        
     }
 
     // =========================================================================
@@ -1735,9 +1724,7 @@
         string url = $"{_server.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
         InvokeAsync(() => JSRuntime.InvokeVoidAsync("mapEngine.carregarNovoFrame", url));
 
-        _arrastoAtualX = 0;
-        _arrastoAtualY = 0;
-        _zoomAtualCSS = 1.0f;
+       
     }
 
     private async Task AdicionarCamadaAoMapa()
@@ -1752,30 +1739,69 @@
 
             exibirModalImportacao = false;
 
-            if (MapService.DatasetRaster != null) MapService.DatasetRaster.Dispose();
-            MapService.DatasetRaster = OSGeo.GDAL.Gdal.Open(caminhoArquivoRaster, OSGeo.GDAL.Access.GA_ReadOnly);
-
-            if (MapService.DatasetRaster.GetRasterBand(1).GetOverviewCount() == 0)
+            // BLINDAGEM 3: Lock no momento da troca de Dataset para evitar choque de Threads
+            lock (MapService)
             {
-                MapService.DatasetRaster.BuildOverviews("AVERAGE", new int[] { 2, 4, 8, 16, 32 });
+                if (MapService.DatasetRaster != null) MapService.DatasetRaster.Dispose();
+                MapService.DatasetRaster = OSGeo.GDAL.Gdal.Open(caminhoArquivoRaster, OSGeo.GDAL.Access.GA_ReadOnly);
+
+                // Prevenção contra ficheiros corrompidos
+                if (MapService.DatasetRaster == null)
+                {
+                    InvokeAsync(() => JSRuntime.InvokeVoidAsync("alert", "O GDAL falhou ao abrir o arquivo. O ficheiro pode estar corrompido."));
+                    return;
+                }
+
+                if (MapService.DatasetRaster.RasterCount > 0 && MapService.DatasetRaster.GetRasterBand(1).GetOverviewCount() == 0)
+                {
+                    MapService.DatasetRaster.BuildOverviews("AVERAGE", new int[] { 2, 4, 8, 16, 32 });
+                }
+
+                double[] trans = new double[6];
+                MapService.DatasetRaster.GetGeoTransform(trans);
+                double minX = trans[0];
+                double maxY = trans[3];
+                double maxX = minX + (MapService.DatasetRaster.RasterXSize * trans[1]);
+                double minY = maxY + (MapService.DatasetRaster.RasterYSize * trans[5]);
+
+                double minLng = minX, minLat = minY, maxLng = maxX, maxLat = maxY;
+
+                string wkt = MapService.DatasetRaster.GetProjection();
+                if (!string.IsNullOrEmpty(wkt))
+                {
+                    using (var projOrigem = new OSGeo.OSR.SpatialReference(wkt))
+                    using (var projDestino = new OSGeo.OSR.SpatialReference(""))
+                    {
+                        projDestino.ImportFromEPSG(4326);
+                        projDestino.SetAxisMappingStrategy(OSGeo.OSR.AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+
+                        using (var transform = new OSGeo.OSR.CoordinateTransformation(projOrigem, projDestino))
+                        {
+                            double[] ptMin = new double[] { minX, minY, 0 };
+                            double[] ptMax = new double[] { maxX, maxY, 0 };
+                            transform.TransformPoint(ptMin);
+                            transform.TransformPoint(ptMax);
+                            minLng = ptMin[0]; minLat = ptMin[1]; maxLng = ptMax[0]; maxLat = ptMax[1];
+                        }
+                    }
+                }
+
+                MapService.LimitesRasterGlobal = new SkiaSharp.SKRect((float)minLng, (float)-maxLat, (float)maxLng, (float)-minLat);
+                MapService.NomeRasterAtivo = System.IO.Path.GetFileName(caminhoArquivoRaster);
+                MapService.TemRaster = true;
             }
-
-            double[] trans = new double[6];
-            MapService.DatasetRaster.GetGeoTransform(trans);
-            double minX = trans[0];
-            double maxY = trans[3];
-            double maxX = minX + (MapService.DatasetRaster.RasterXSize * trans[1]);
-            double minY = maxY + (MapService.DatasetRaster.RasterYSize * trans[5]);
-
-            MapService.LimitesRasterGlobal = new SkiaSharp.SKRect((float)minX, (float)-maxY, (float)maxX, (float)-minY);
-            MapService.TemRaster = true;
 
             MapService.CameraPanX = 0;
             MapService.CameraPanY = 0;
             MapService.CameraZoom = 1.0f;
 
-            CamadasAtivas.Add(new Camada { Nome = System.IO.Path.GetFileName(caminhoArquivoRaster), Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster });
+            var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == MapService.NomeRasterAtivo);
+            if (camadaExistente == null)
+            {
+                CamadasAtivas.Add(new Camada { Nome = MapService.NomeRasterAtivo, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster });
+            }
 
+            SincronizarHierarquia();
             SolicitarNovoFrame();
         }
         catch (Exception ex)
@@ -1787,55 +1813,15 @@
     // =========================================================================
     // 7. LÓGICA TÁTIL E COMPENSAÇÃO MATEMÁTICA DO VIEWPORT (MOUSE E ZOOM)
     // =========================================================================
-    private void AoRodarRato(WheelEventArgs e)
+    [JSInvokable]
+    public void AtualizarCameraJS(double deltaX, double deltaY, double scaleMultiplier)
     {
-        float zoomAnterior = MapService.CameraZoom;
-        float fator = e.DeltaY < 0 ? 1.15f : (1f / 1.15f);
-        float novoZoom = Math.Clamp(zoomAnterior * fator, 0.1f, 50.0f);
+        // O Javascript fez o movimento suave, e agora passa a matemática consolidada para o C# aplicar
+        MapService.CameraPanX = (float)((MapService.CameraPanX * scaleMultiplier) + deltaX);
+        MapService.CameraPanY = (float)((MapService.CameraPanY * scaleMultiplier) + deltaY);
+        MapService.CameraZoom *= (float)scaleMultiplier;
 
-        _zoomAtualCSS *= (novoZoom / zoomAnterior);
-
-        float proporcao = novoZoom / zoomAnterior;
-
-        MapService.CameraPanX = (MapService.CameraPanX * proporcao) + (((float)e.ClientX - (_larguraTela / 2f)) * (1 - proporcao));
-        MapService.CameraPanY = (MapService.CameraPanY * proporcao) + (((float)e.ClientY - (_alturaTela / 2f)) * (1 - proporcao));
-        MapService.CameraZoom = novoZoom;
-
-        JSRuntime.InvokeVoidAsync("mapEngine.transformar", _arrastoAtualX, _arrastoAtualY, _zoomAtualCSS);
-
-        _debounceTimer.Stop();
-        _debounceTimer.Start();
-    }
-
-    private void AoPressionarRato(MouseEventArgs e)
-    {
-        if (e.Button == 0)
-        {
-            isDragging = true;
-            startDragX = e.ClientX;
-            startDragY = e.ClientY;
-        }
-    }
-
-    private void AoMoverRato(MouseEventArgs e)
-    {
-        if (!isDragging || e.Buttons != 1) return;
-        _arrastoAtualX = e.ClientX - startDragX;
-        _arrastoAtualY = e.ClientY - startDragY;
-
-        JSRuntime.InvokeVoidAsync("mapEngine.transformar", _arrastoAtualX, _arrastoAtualY, _zoomAtualCSS);
-    }
-
-    private void AoSoltarRato(MouseEventArgs e)
-    {
-        if (!isDragging) return;
-        isDragging = false;
-
-        MapService.CameraPanX += (float)_arrastoAtualX;
-        MapService.CameraPanY += (float)_arrastoAtualY;
-
-        _debounceTimer.Stop();
-        _debounceTimer.Start();
+        SolicitarNovoFrame();
     }
 
     // =========================================================================
@@ -1873,11 +1859,18 @@
             if (poligonosNativos.Count > 0)
             {
                 CalcularLimitesDoMapa();
-                MapService.PreCompilarPoligonos(poligonosNativos);
-                CamadasAtivas.Add(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
+                MapService.PreCompilarPoligonos(nomeArquivo, poligonosNativos);
+
+                // Impede que o Shapefile quebre o Blazor se for importado novamente
+                var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeArquivo);
+                if (camadaExistente == null)
+                {
+                    CamadasAtivas.Add(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
+                }
+
                 MapService.CameraPanX = 0; MapService.CameraPanY = 0; MapService.CameraZoom = 1.0f;
                 StateHasChanged();
-                SolicitarNovoFrame();
+                SincronizarHierarquia();
             }
         }
         catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}"); }
@@ -1943,6 +1936,7 @@
     private async Task ToggleCamada(Camada camada, bool estaVisivel)
     {
         camada.Visivel = estaVisivel;
+        SincronizarHierarquia();
         await JSRuntime.InvokeVoidAsync("alternarVisibilidadeCamada", camada.Nome, estaVisivel);
     }
 
@@ -1987,6 +1981,7 @@
             var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
             await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
             StateHasChanged();
+            SincronizarHierarquia();
         }
     }
 
@@ -2002,6 +1997,7 @@
         var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
         await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
         camadaArrastada = null; StateHasChanged();
+        SincronizarHierarquia();
     }
 
     // =========================================================================
@@ -2261,5 +2257,14 @@
             Console.WriteLine($"[C++ CORE] Teste PIP Realizado. Interno: {result1}, Externo: {result2}");
         }
         catch (Exception ex) { Console.WriteLine($"[C++ LINK ERRO]: {ex.Message}"); }
+    }
+    private void SincronizarHierarquia()
+    {
+        MapService.OrdemCamadas.Clear();
+        foreach (var camada in CamadasAtivas)
+        {
+            if (camada.Visivel) MapService.OrdemCamadas.Add(camada.Nome);
+        }
+        SolicitarNovoFrame();
     }
 }
