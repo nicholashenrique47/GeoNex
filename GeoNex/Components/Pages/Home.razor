@@ -1795,7 +1795,7 @@
             MapService.CameraPanX = 0;
             MapService.CameraPanY = 0;
             MapService.CameraZoom = 1.0f;
-
+            await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
             var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == MapService.NomeRasterAtivo);
             if (camadaExistente == null)
             {
@@ -1869,7 +1869,7 @@
                     CamadasAtivas.Add(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
                 }
 
-                MapService.CameraPanX = 0; MapService.CameraPanY = 0; MapService.CameraZoom = 1.0f;
+                MapService.CameraPanX = 0; MapService.CameraPanY = 0; MapService.CameraZoom = 1.0f; await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
                 StateHasChanged();
                 SincronizarHierarquia();
             }

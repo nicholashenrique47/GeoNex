@@ -832,6 +832,7 @@ window.dimensoesJanela = {
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (144Hz LERP GPU + INÉRCIA CINÉTICA) ===
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (144Hz LERP GPU + INÉRCIA + RUBBER-BANDING) ===
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (Tempo-Delta VRAM GPU + INÉRCIA + RUBBER-BANDING) ===
+// === MOTOR DE FÍSICA E RENDERIZAÇÃO (Tempo-Delta VRAM GPU + LIMITES ABSOLUTOS) ===
 window.mapEngine = {
     container: null,
     imgAtiva: null,
@@ -848,9 +849,10 @@ window.mapEngine = {
 
     velocityX: 0, velocityY: 0,
     lastX: 0, lastY: 0, lastEventTime: 0,
-
-    // Controlador de FPS dinâmico
     lastFrameTime: 0,
+
+    // ---> A MEMÓRIA DO ZOOM TOTAL (O coração do Teto de Vidro) <---
+    absoluteZoom: 1.0,
 
     rafId: null, renderTimeout: null,
     initialized: false,
@@ -875,20 +877,33 @@ window.mapEngine = {
         }
     },
 
+    // Função de utilidade para o C# chamar ao carregar projetos novos
+    resetarCamera: function () {
+        this.absoluteZoom = 1.0;
+        this.targetX = 0; this.targetY = 0; this.targetScale = 1;
+        this.currentX = 0; this.currentY = 0; this.currentScale = 1;
+        this.pendingX = 0; this.pendingY = 0; this.pendingScale = 1;
+        if (this.container) {
+            this.container.style.transform = `translate3d(0px, 0px, 0) scale(1)`;
+        }
+    },
+
     onDoubleClick: function (e) {
         e.preventDefault();
         let proporcao = 2.0;
+
+        // --- LIMITADOR DE ZOOM ABSOLUTO ---
+        let zoomProjetado = this.absoluteZoom * proporcao;
+        const limiteMaximo = 180.0; // O seu limite exato (Ajuste para 60, 100, etc)
+
+        if (zoomProjetado > limiteMaximo) {
+            proporcao = limiteMaximo / this.absoluteZoom;
+        }
+        this.absoluteZoom *= proporcao;
+        // ----------------------------------
+
         let novoScale = this.targetScale * proporcao;
-
-        // --- O PONTO DE EQUILÍBRIO (4x) ---
-        novoScale = Math.min(Math.max(novoScale, 0.05), 4.0);
-
-        proporcao = novoScale / this.targetScale;
         this.targetScale = novoScale;
-
-    // ... (resto do código igual)
-
-    // ... (resto do código igual) ...
 
         const rect = this.container.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) - (rect.width / 2);
@@ -904,17 +919,21 @@ window.mapEngine = {
         e.preventDefault();
 
         let proporcao = e.ctrlKey ? 1 - (e.deltaY * 0.015) : (e.deltaY < 0 ? 1.15 : (1 / 1.15));
+
+        // --- LIMITADOR DE ZOOM ABSOLUTO ---
+        let zoomProjetado = this.absoluteZoom * proporcao;
+
+        const limiteMaximo = 180.0; // O Teto de Vidro Inferior (Nível da Rua)
+        const limiteMinimo = 0.05; // O Teto de Vidro Superior (Visão Global)
+
+        if (zoomProjetado > limiteMaximo) proporcao = limiteMaximo / this.absoluteZoom;
+        if (zoomProjetado < limiteMinimo) proporcao = limiteMinimo / this.absoluteZoom;
+
+        this.absoluteZoom *= proporcao;
+        // ----------------------------------
+
         let novoScale = this.targetScale * proporcao;
-
-        // --- O PONTO DE EQUILÍBRIO (4x) ---
-        novoScale = Math.min(Math.max(novoScale, 0.05), 4.0);
-
-        proporcao = novoScale / this.targetScale;
         this.targetScale = novoScale;
-
-    // ... (resto do código igual)
-
-    // ... (resto do código igual) ...
 
         const rect = this.container.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) - (rect.width / 2);
@@ -979,17 +998,13 @@ window.mapEngine = {
         }
     },
 
-    // O NOVO MOTOR GRÁFICO (Com Tempo-Delta e Epsilon)
     animate: function (timestamp) {
         if (!this.lastFrameTime) this.lastFrameTime = timestamp;
         let deltaTime = timestamp - this.lastFrameTime;
         this.lastFrameTime = timestamp;
 
-        // Limita o gap máximo caso o utilizador minimize a aba do navegador
         if (deltaTime > 50) deltaTime = 16;
 
-        // FÓRMULA CINEMÁTICA: 0.012 define o "deslize". Menor = mais longo e suave.
-        // A matemática Exponencial garante inércia fluida independente dos Hz do ecrã.
         const lerpFactor = 1 - Math.exp(-0.012 * deltaTime);
 
         const limiteX = (window.innerWidth || 1920) * 1.2;
@@ -1003,15 +1018,11 @@ window.mapEngine = {
         this.currentY += (this.targetY - this.currentY) * lerpFactor;
         this.currentScale += (this.targetScale - this.currentScale) * lerpFactor;
 
-        // === CORTE EPSILON (Estabilidade Extrema) ===
-        // Elimina a vibração sub-pixel da CPU e trava o elemento na grelha absoluta
         if (Math.abs(this.targetX - this.currentX) < 0.05) this.currentX = this.targetX;
         if (Math.abs(this.targetY - this.currentY) < 0.05) this.currentY = this.targetY;
         if (Math.abs(this.targetScale - this.currentScale) < 0.001) this.currentScale = this.targetScale;
 
         if (this.container) {
-            // === ACELERAÇÃO DE HARDWARE (translate3d) ===
-            // Move a renderização do processador (CPU) para a placa de vídeo (GPU/VRAM)
             this.container.style.transform = `translate3d(${this.currentX}px, ${this.currentY}px, 0) scale(${this.currentScale})`;
         }
 
@@ -1063,7 +1074,6 @@ window.mapEngine = {
             this.currentX = this.currentX - (this.pendingX * this.currentScale);
             this.currentY = this.currentY - (this.pendingY * this.currentScale);
 
-            // translate3d mantido na compensação vetorial
             this.container.style.transform = `translate3d(${this.currentX}px, ${this.currentY}px, 0) scale(${this.currentScale})`;
 
             this.isFetching = false;

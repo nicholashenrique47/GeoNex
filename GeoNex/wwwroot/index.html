@@ -74,8 +74,12 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
-    <script src="js/mapa.js?v=5"></script>
-
+    <script>
+        var scriptMapa = document.createElement('script');
+        // Gera um carimbo de tempo em milissegundos para forçar o bypass do cache
+        scriptMapa.src = 'js/mapa.js?t=' + new Date().getTime();
+        document.body.appendChild(scriptMapa);
+    </script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
 </body>
 </html>
