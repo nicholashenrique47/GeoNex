@@ -2277,34 +2277,29 @@
     [JSInvokable]
     public async Task ProcessarCliqueRaycast(double mapaX, double mapaY)
     {
-        // 1. O Motor Gráfico (Skia) inverteu o eixo Y para desenhar (y = -y).
-        // Desfazemos a inversão para consultar a Base de Dados.
         double xOriginal = mapaX;
         double yOriginal = -mapaY;
 
-        // 2. Dispara contra a árvore (Lembrando que na nossa função antiga, o 1º parâmetro era o Y e o 2º era o X)
+        // 1. O Motor NTS executa o Point-in-Polygon (Raycast)
         var feicaoAtingida = MapService.DispararRaycast(yOriginal, xOriginal);
 
+        // 2. O SkiaSharp processa e pinta a feição instantaneamente na tela
+        MapService.DestacarFeicao(feicaoAtingida);
+
+        // 3. Extração dos Dados Cadastrais para o Engenheiro
         if (feicaoAtingida != null)
         {
-            Console.WriteLine("[GEO-SENSOR] Alvo Abatido com Sucesso!");
-
-            // 3. Extrair os dados cadastrais diretamente do DBF (Tabela de Atributos)
-            string dadosDoLote = "DADOS DA PROPRIEDADE INTERSETADA:\n\n";
+            string dadosDoLote = "DADOS DA PROPRIEDADE:\n\n";
             if (feicaoAtingida.Attributes != null)
             {
-                foreach (var nomeDaColuna in feicaoAtingida.Attributes.GetNames())
+                foreach (var nome in feicaoAtingida.Attributes.GetNames())
                 {
-                    dadosDoLote += $"{nomeDaColuna}: {feicaoAtingida.Attributes[nomeDaColuna]}\n";
+                    dadosDoLote += $"{nome}: {feicaoAtingida.Attributes[nome]}\n";
                 }
             }
 
-            // Exibe provisoriamente os dados na tela para confirmar que a leitura do Shapefile funcionou a 100%
+            // Exibe os dados provisoriamente. Futuramente enviaremos isto para o painel de vidro lateral.
             await JSRuntime.InvokeVoidAsync("alert", dadosDoLote);
-        }
-        else
-        {
-            Console.WriteLine("[GEO-SENSOR] Clique fora da área vetorizada.");
         }
     }
     }

@@ -15,7 +15,10 @@ namespace GeoNex.Services
 
         public SKPaint PincelFill { get; private set; }
         public SKPaint PincelBorda { get; private set; }
-
+        // === FERRAMENTAS DE SELEÇÃO VETORIAL ===
+        public SKPath? CaminhoDestaque { get; private set; }
+        public SKPaint PincelDestaqueFill { get; private set; } = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Yellow.WithAlpha(100), IsAntialias = true };
+        public SKPaint PincelDestaqueBorda { get; private set; } = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Yellow, StrokeWidth = 2, IsAntialias = true };
         public Dictionary<string, SKPath> VetoresPorCamada { get; private set; } = new();
         public List<string> OrdemCamadas { get; set; } = new();
         public string NomeRasterAtivo { get; set; } = "";
@@ -106,6 +109,31 @@ namespace GeoNex.Services
                 }
             }
             return null;
+        }
+        public void DestacarFeicao(IFeature? feicao)
+        {
+            CaminhoDestaque?.Dispose();
+            CaminhoDestaque = null;
+
+            if (feicao != null && feicao.Geometry != null)
+            {
+                CaminhoDestaque = new SKPath();
+                var coords = feicao.Geometry.Coordinates;
+
+                for (int i = 0; i < coords.Length; i++)
+                {
+                    // Utiliza a mesma matemática de inversão de eixo do PreCompilarPoligonos
+                    float x = (float)coords[i].X;
+                    float y = -(float)coords[i].Y;
+
+                    if (i == 0) CaminhoDestaque.MoveTo(x, y);
+                    else CaminhoDestaque.LineTo(x, y);
+                }
+                CaminhoDestaque.Close();
+            }
+
+            // Exige que a placa gráfica renderize a nova frame instantaneamente
+            RequestRedraw();
         }
     }
 }
