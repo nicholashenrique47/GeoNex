@@ -108,57 +108,39 @@ public class ProjetoService
     {
         try
         {
-            var factory = new GeometryFactory();
-            // Utiliza o leitor nativo do NetTopologySuite para máxima compatibilidade com a Árvore
-            using var reader = new ShapefileDataReader(caminhoShp, factory);
+            var factory = new NetTopologySuite.Geometries.GeometryFactory();
+            using var reader = new NetTopologySuite.IO.ShapefileDataReader(caminhoShp, factory);
 
-            var feicoesParaArvore = new FeatureCollection();
-            var poligonosParaDesenho = new List<float[]>();
+            var feicoesCompletas = new NetTopologySuite.Features.FeatureCollection();
 
             while (reader.Read())
             {
-                // 1. Extrair os Dados Cadastrais (Proprietário, Área, Inscrição) do DBF
-                var atributos = new AttributesTable();
+                var atributos = new NetTopologySuite.Features.AttributesTable();
                 for (int i = 0; i < reader.FieldCount; i++)
                 {
-                    var nomeCampo = reader.GetName(i);
-                    var valorCampo = reader.GetValue(i);
-                    atributos.Add(nomeCampo, valorCampo);
+                    atributos.Add(reader.GetName(i), reader.GetValue(i));
                 }
 
-                // 2. Criar a Entidade Espacial
-                var feature = new NetTopologySuite.Features.Feature(reader.Geometry, atributos);
-                feicoesParaArvore.Add(feature);
-
-                // 3. Converter coordenadas para a Placa Gráfica (SkiaSharp)
                 if (reader.Geometry != null)
                 {
-                    var coords = reader.Geometry.Coordinates;
-                    var floats = new float[coords.Length * 2];
-                    for (int i = 0; i < coords.Length; i++)
-                    {
-                        floats[i * 2] = (float)coords[i].X;
-                        floats[i * 2 + 1] = (float)coords[i].Y; // Invertido posteriormente no PreCompilar
-                    }
-                    poligonosParaDesenho.Add(floats);
+                    var feature = new NetTopologySuite.Features.Feature(reader.Geometry, atributos);
+                    feicoesCompletas.Add(feature);
                 }
             }
 
-            // --- A INJEÇÃO DUPLA DE ALTA PERFORMANCE ---
+            // A INJEÇÃO DUPLA ESTRUTURADA
+            // 1. Alimenta o cérebro matemático de colisão (Raycast)
+            mapService.ConstruirIndiceEspacial(nomeCamada, feicoesCompletas);
 
-            // A) Alimenta o Cérebro Analítico (Cria a grelha invisível de pesquisa em 0.1ms)
-            mapService.ConstruirIndiceEspacial(nomeCamada, feicoesParaArvore);
+            // 2. Entrega a geometria pura à Placa Gráfica para desenhar com a Âncora de Precisão
+            mapService.PreCompilarPoligonos(nomeCamada, feicoesCompletas);
 
-            // B) Alimenta o Motor Gráfico (Funde as linhas para desenhar no mapa)
-            mapService.PreCompilarPoligonos(nomeCamada, poligonosParaDesenho);
-
-            // Regista a camada no topo da pilha para saber quem recebe o clique primeiro
             if (!mapService.OrdemCamadas.Contains(nomeCamada))
             {
                 mapService.OrdemCamadas.Add(nomeCamada);
             }
 
-            Console.WriteLine($"[GEONEX] Camada {nomeCamada} carregada com sucesso. Feições ativas: {feicoesParaArvore.Count}");
+            Console.WriteLine($"[GEONEX] Camada {nomeCamada} carregada. Feições: {feicoesCompletas.Count}");
         }
         catch (Exception ex)
         {

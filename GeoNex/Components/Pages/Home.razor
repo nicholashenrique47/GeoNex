@@ -11,9 +11,13 @@
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
 <div id="map-container"
-     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: grab;">
+     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: grab;
+    touch-action: none; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">
 
-    <img id="skia-layer" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; z-index: 10; object-fit: fill; pointer-events: none;" />
+    <img id="skia-layer"
+         draggable="false"
+         style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; z-index: 10; object-fit: cover; pointer-events: none;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none;" />
 </div>
 //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
@@ -1861,26 +1865,34 @@
 
             exibirModalImportacao = false;
             string nomeArquivo = System.IO.Path.GetFileName(caminhoArquivoVetor);
-            poligonosNativos = await Task.Run(() => RasterService.ExtrairPoligonosNativos(caminhoArquivoVetor));
 
-            if (poligonosNativos.Count > 0)
+            // === A MÁGICA ACONTECE AQUI ===
+            // Substituímos o extrator antigo pelo nosso Motor Duplo que carrega o SkiaSharp e a Árvore NTS
+            await Task.Run(() =>
             {
-                CalcularLimitesDoMapa();
-                MapService.PreCompilarPoligonos(nomeArquivo, poligonosNativos);
+                ProjetoService.CarregarShapefileParaMotorMapas(caminhoArquivoVetor, nomeArquivo, MapService);
+            });
 
-                // Impede que o Shapefile quebre o Blazor se for importado novamente
-                var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeArquivo);
-                if (camadaExistente == null)
-                {
-                    CamadasAtivas.Add(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
-                }
-
-                MapService.CameraPanX = 0; MapService.CameraPanY = 0; MapService.CameraZoom = 1.0f; await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
-                StateHasChanged();
-                SincronizarHierarquia();
+            // Impede que o Shapefile duplique o painel se for importado novamente
+            var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeArquivo);
+            if (camadaExistente == null)
+            {
+                CamadasAtivas.Add(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
             }
+
+            // Reinicia a câmara para o mapa inicial
+            MapService.CameraPanX = 0;
+            MapService.CameraPanY = 0;
+            MapService.CameraZoom = 1.0f;
+            await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
+
+            StateHasChanged();
+            SincronizarHierarquia();
         }
-        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}");
+        }
     }
 
     private void CalcularLimitesDoMapa()
@@ -2275,31 +2287,69 @@
         SolicitarNovoFrame();
     }
     [JSInvokable]
-    public async Task ProcessarCliqueRaycast(double mapaX, double mapaY)
+    public async Task ProcessarCliqueRaycast(double telaX, double telaY, double panX, double panY, double zoom)
     {
-        double xOriginal = mapaX;
-        double yOriginal = -mapaY;
+        // 1. SINCRONIZAÇÃO IMEDIATA: O C# assume a perspetiva visual exata do operador
+        MapService.CameraPanX = (float)panX;
+        MapService.CameraPanY = (float)panY;
+        MapService.CameraZoom = (float)zoom;
 
-        // 1. O Motor NTS executa o Point-in-Polygon (Raycast)
-        var feicaoAtingida = MapService.DispararRaycast(yOriginal, xOriginal);
+        // 2. Recria os limites do mapa
+        SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
+        bool primeiro = true;
 
-        // 2. O SkiaSharp processa e pinta a feição instantaneamente na tela
-        MapService.DestacarFeicao(feicaoAtingida);
-
-        // 3. Extração dos Dados Cadastrais para o Engenheiro
-        if (feicaoAtingida != null)
+        if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+        foreach (var path in MapService.VetoresPorCamada.Values)
         {
-            string dadosDoLote = "DADOS DA PROPRIEDADE:\n\n";
-            if (feicaoAtingida.Attributes != null)
-            {
-                foreach (var nome in feicaoAtingida.Attributes.GetNames())
-                {
-                    dadosDoLote += $"{nome}: {feicaoAtingida.Attributes[nome]}\n";
-                }
-            }
+            if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
+            else { limitesTotais.Union(path.Bounds); }
+        }
 
-            // Exibe os dados provisoriamente. Futuramente enviaremos isto para o painel de vidro lateral.
-            await JSRuntime.InvokeVoidAsync("alert", dadosDoLote);
+        if (!limitesTotais.IsEmpty)
+        {
+            float escalaX = _larguraTela / limitesTotais.Width;
+            float escalaY = _alturaTela / limitesTotais.Height;
+            float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+
+            // 3. A Matriz agora reflete 100% o que o utilizador está a ver no ecrã
+            var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
+            matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
+            matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
+
+            if (matriz.TryInvert(out var matrizInversa))
+            {
+                var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
+
+                double xOriginal = ptMundo.X + MapService.OffsetMundoX;
+                double yOriginal = (-ptMundo.Y) + MapService.OffsetMundoY;
+
+                var feicaoAtingida = MapService.DispararRaycast(yOriginal, xOriginal, out string camadaAtingida);
+
+                MapService.DestacarFeicao(feicaoAtingida);
+
+                if (feicaoAtingida != null)
+                {
+                    camadaSelecionadaPainel = camadaAtingida;
+                    atributosFeicaoSelecionada = new Dictionary<string, string>();
+
+                    if (feicaoAtingida.Attributes != null)
+                    {
+                        foreach (var nomeCampo in feicaoAtingida.Attributes.GetNames())
+                        {
+                            var valor = feicaoAtingida.Attributes[nomeCampo];
+                            atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
+                        }
+                    }
+                }
+                else
+                {
+                    camadaSelecionadaPainel = string.Empty;
+                    atributosFeicaoSelecionada?.Clear();
+                }
+
+                SolicitarNovoFrame();
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
     }

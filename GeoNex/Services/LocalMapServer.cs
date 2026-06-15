@@ -140,25 +140,37 @@ public class LocalMapServer
                     {
                         canvas.SetMatrix(matriz);
 
-                        // Calcula o zoom real da câmara em relação ao mundo
                         float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-                        _mapService.PincelBorda.StrokeWidth = 1f / zoomReal;
+
+                        // 1. CLONAGEM DO PINCEL BASE (Isolamento de Thread)
+                        using var pincelBordaLOD = _mapService.PincelBorda.Clone();
+                        pincelBordaLOD.StrokeWidth = 1f / zoomReal;
 
                         var superPath = _mapService.VetoresPorCamada[camadaAtual];
 
-                        // Desenha sempre o preenchimento translúcido
                         canvas.DrawPath(superPath, _mapService.PincelFill);
 
-                        // LOD (Level Of Detail): Só desenha as bordas se o utilizador estiver suficientemente próximo.
-                        // Se o zoomReal for muito pequeno (visão de pássaro), omite as bordas para evitar que os lotes
-                        // se aglomerem num borrão negro, mantendo o mapa limpo e profissional.
                         if (zoomReal > 0.0005f)
                         {
-                            canvas.DrawPath(superPath, _mapService.PincelBorda);
+                            canvas.DrawPath(superPath, pincelBordaLOD);
                         }
                     }
+                } // Fim do ciclo for das camadas
+
+                // --- CAMADA DE SELEÇÃO E TOPOGRAFIA (Renderizada sempre no topo absoluto) ---
+                if (_mapService.CaminhoDestaque != null)
+                {
+                    canvas.SetMatrix(matriz);
+                    float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+
+                    // 2. CLONAGEM DO PINCEL DE DESTAQUE (Previne distorção geométrica no Zoom)
+                    using var pincelDestaqueBordaLOD = _mapService.PincelDestaqueBorda.Clone();
+                    pincelDestaqueBordaLOD.StrokeWidth = 3f / zoomReal;
+
+                    canvas.DrawPath(_mapService.CaminhoDestaque, _mapService.PincelDestaqueFill);
+                    canvas.DrawPath(_mapService.CaminhoDestaque, pincelDestaqueBordaLOD);
                 }
-            }
+            } // Fim do if (!limitesTotais.IsEmpty)
 
             canvas.Restore();
             using var image = surface.Snapshot();

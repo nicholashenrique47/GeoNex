@@ -1019,28 +1019,23 @@ window.mapEngine = {
         }
     },
 
-    // --- O NOVO LASER VETORIAL ---
+    // === SENSOR VISUAL (JavaScript) ===
     dispararRaycast: function (clientX, clientY) {
         if (!this.dotNetHelper) return;
 
         const rect = this.container.getBoundingClientRect();
+        const telaX = clientX - rect.left;
+        const telaY = clientY - rect.top;
 
-        // Posição do clique em relação ao topo/esquerda do ecrã
-        const mouseX = clientX - rect.left;
-        const mouseY = clientY - rect.top;
-
-        // Centro absoluto da câmara
-        const centroX = rect.width / 2;
-        const centroY = rect.height / 2;
-
-        // A MATEMÁTICA DE REVERSÃO:
-        // Pega no clique da tela, remove o movimento de "pan" e remove a percentagem do Zoom
-        // O resultado é a Coordenada Bruta exata da Feição no sistema C#
-        const mapaX = (mouseX - centroX - this.currentX) / this.currentScale;
-        const mapaY = (mouseY - centroY - this.currentY) / this.currentScale;
-
-        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', mapaX, mapaY)
-            .catch(err => console.warn("Erro no Túnel de Comunicação JS-C#:", err));
+        // Envia o Píxel Bruto E a câmara visual para o C# decodificar
+        this.dotNetHelper.invokeMethodAsync(
+            'ProcessarCliqueRaycast',
+            telaX,
+            telaY,
+            this.currentX,
+            this.currentY,
+            this.currentScale
+        ).catch(err => console.warn("Erro no Túnel de Comunicação JS-C#:", err));
     },
 
     animate: function (timestamp) {

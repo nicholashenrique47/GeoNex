@@ -40,29 +40,63 @@ namespace GeoNex.Services
 
         public void RequestRedraw() => OnMapInvalidated?.Invoke();
 
-        public void PreCompilarPoligonos(string nomeCamada, List<float[]> poligonos)
+        // === ÂNCORA DE PRECISÃO MATEMÁTICA (Impede a distorção Float em UTM) ===
+        public double OffsetMundoX { get; set; } = 0;
+        public double OffsetMundoY { get; set; } = 0;
+        public bool OffsetMundoDefinido { get; set; } = false;
+
+        public void PreCompilarPoligonos(string nomeCamada, FeatureCollection feicoes)
         {
-            if (VetoresPorCamada.ContainsKey(nomeCamada))
-            {
-                VetoresPorCamada[nomeCamada].Dispose();
-            }
+            if (VetoresPorCamada.ContainsKey(nomeCamada)) VetoresPorCamada[nomeCamada].Dispose();
 
-            var superPath = new SKPath { FillType = SKPathFillType.Winding };
+            // O EvenOdd garante que os pátios interiores fiquem ocos e não pintados
+            var superPath = new SKPath { FillType = SKPathFillType.EvenOdd };
 
-            foreach (var poli in poligonos)
+            foreach (IFeature feicao in feicoes)
             {
-                var subPath = new SKPath();
-                for (int i = 0; i < poli.Length; i += 2)
+                if (feicao.Geometry == null) continue;
+
+                // Ancoramos o Mundo Inteiro na primeira coordenada para zerar os eixos
+                if (!OffsetMundoDefinido)
                 {
-                    float x = poli[i];
-                    float y = -poli[i + 1];
-                    if (i == 0) subPath.MoveTo(x, y);
-                    else subPath.LineTo(x, y);
+                    OffsetMundoX = feicao.Geometry.Coordinates[0].X;
+                    OffsetMundoY = feicao.Geometry.Coordinates[0].Y;
+                    OffsetMundoDefinido = true;
                 }
-                subPath.Close();
-                superPath.AddPath(subPath);
-            }
 
+                for (int i = 0; i < feicao.Geometry.NumGeometries; i++)
+                {
+                    if (feicao.Geometry.GetGeometryN(i) is NetTopologySuite.Geometries.Polygon poly)
+                    {
+                        // 1. Desenha a Parede Externa do Polígono
+                        var extPath = new SKPath();
+                        var extCoords = poly.ExteriorRing.Coordinates;
+                        for (int j = 0; j < extCoords.Length; j++)
+                        {
+                            float x = (float)(extCoords[j].X - OffsetMundoX);
+                            float y = -(float)(extCoords[j].Y - OffsetMundoY);
+                            if (j == 0) extPath.MoveTo(x, y); else extPath.LineTo(x, y);
+                        }
+                        extPath.Close();
+                        superPath.AddPath(extPath);
+
+                        // 2. Desenha os Furos Interiores (Isolados da Parede Externa)
+                        foreach (var hole in poly.InteriorRings)
+                        {
+                            var holePath = new SKPath();
+                            var holeCoords = hole.Coordinates;
+                            for (int j = 0; j < holeCoords.Length; j++)
+                            {
+                                float x = (float)(holeCoords[j].X - OffsetMundoX);
+                                float y = -(float)(holeCoords[j].Y - OffsetMundoY);
+                                if (j == 0) holePath.MoveTo(x, y); else holePath.LineTo(x, y);
+                            }
+                            holePath.Close();
+                            superPath.AddPath(holePath);
+                        }
+                    }
+                }
+            }
             VetoresPorCamada[nomeCamada] = superPath;
             RequestRedraw();
         }
@@ -85,9 +119,11 @@ namespace GeoNex.Services
             ArvoresEspaciais[nomeCamada] = arvore;
         }
 
-        public IFeature? DispararRaycast(double lat, double lng)
+        // === MOTOR MATEMÁTICO (C#) ===
+        public IFeature? DispararRaycast(double lat, double lng, out string camadaAtingida)
         {
-            // Forçamos o compilador a usar a geometria cartográfica e não o ponto de desenho da UI
+            camadaAtingida = string.Empty;
+
             var pontoClique = new NetTopologySuite.Geometries.Point(lng, lat);
 
             for (int i = OrdemCamadas.Count - 1; i >= 0; i--)
@@ -95,14 +131,13 @@ namespace GeoNex.Services
                 string camada = OrdemCamadas[i];
                 if (ArvoresEspaciais.TryGetValue(camada, out var arvore))
                 {
-                    // Filtro de Caixa
                     var candidatos = arvore.Query(pontoClique.EnvelopeInternal);
 
-                    // Matemática Exata
                     foreach (var candidato in candidatos)
                     {
                         if (candidato.Geometry.Intersects(pontoClique))
                         {
+                            camadaAtingida = camada;
                             return candidato;
                         }
                     }
@@ -117,22 +152,38 @@ namespace GeoNex.Services
 
             if (feicao != null && feicao.Geometry != null)
             {
-                CaminhoDestaque = new SKPath();
-                var coords = feicao.Geometry.Coordinates;
-
-                for (int i = 0; i < coords.Length; i++)
+                CaminhoDestaque = new SKPath { FillType = SKPathFillType.EvenOdd };
+                for (int i = 0; i < feicao.Geometry.NumGeometries; i++)
                 {
-                    // Utiliza a mesma matemática de inversão de eixo do PreCompilarPoligonos
-                    float x = (float)coords[i].X;
-                    float y = -(float)coords[i].Y;
+                    if (feicao.Geometry.GetGeometryN(i) is NetTopologySuite.Geometries.Polygon poly)
+                    {
+                        var extPath = new SKPath();
+                        var extCoords = poly.ExteriorRing.Coordinates;
+                        for (int j = 0; j < extCoords.Length; j++)
+                        {
+                            float x = (float)(extCoords[j].X - OffsetMundoX);
+                            float y = -(float)(extCoords[j].Y - OffsetMundoY);
+                            if (j == 0) extPath.MoveTo(x, y); else extPath.LineTo(x, y);
+                        }
+                        extPath.Close();
+                        CaminhoDestaque.AddPath(extPath);
 
-                    if (i == 0) CaminhoDestaque.MoveTo(x, y);
-                    else CaminhoDestaque.LineTo(x, y);
+                        foreach (var hole in poly.InteriorRings)
+                        {
+                            var holePath = new SKPath();
+                            var holeCoords = hole.Coordinates;
+                            for (int j = 0; j < holeCoords.Length; j++)
+                            {
+                                float x = (float)(holeCoords[j].X - OffsetMundoX);
+                                float y = -(float)(holeCoords[j].Y - OffsetMundoY);
+                                if (j == 0) holePath.MoveTo(x, y); else holePath.LineTo(x, y);
+                            }
+                            holePath.Close();
+                            CaminhoDestaque.AddPath(holePath);
+                        }
+                    }
                 }
-                CaminhoDestaque.Close();
             }
-
-            // Exige que a placa gráfica renderize a nova frame instantaneamente
             RequestRedraw();
         }
     }
