@@ -9,40 +9,7 @@
 @using ProjNet.CoordinateSystems
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
-<div style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); z-index: 2000;
-    background: rgba(22, 25, 33, 0.65); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 24px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); display: flex; align-items: center; gap: 24px;
-    color: #E2E8F0; font-family: 'Open Sans', sans-serif; pointer-events: auto;">
 
-    <button @onclick="AlternarModoMedicao"
-            style="background: @(_modoMedicao ? "rgba(239, 68, 68, 0.15)" : "rgba(56, 189, 248, 0.1)");
-        border: 1px solid @(_modoMedicao ? "rgba(239, 68, 68, 0.3)" : "rgba(56, 189, 248, 0.2)");
-        color: @(_modoMedicao ? "#FCA5A5" : "#7DD3FC");
-        padding: 8px 20px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;
-        letter-spacing: 0.5px; cursor: pointer; transition: all 0.2s ease;">
-        @(_modoMedicao ? "ENCERRAR MEDIÇÃO" : "INICIAR MEDIÇÃO")
-    </button>
-
-    @if (_modoMedicao && _distanciaTotalMetros > 0)
-    {
-        <div style="display: flex; gap: 32px; align-items: center;">
-            <div style="display: flex; flex-direction: column;">
-                <span style="font-size: 0.65rem; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; margin-bottom: 2px;">Comprimento Linear</span>
-                <span style="color: #38BDF8; font-family: monospace; font-size: 1.15rem; font-weight: 500;">@_distanciaTotalMetros.ToString("N2") m</span>
-            </div>
-
-            @if (MapService.PontosMedicao.Count >= 3)
-            {
-                <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.1);"></div>
-                <div style="display: flex; flex-direction: column;">
-                    <span style="font-size: 0.65rem; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; margin-bottom: 2px;">Área Poligonal</span>
-                    <span style="color: #FBBF24; font-family: monospace; font-size: 1.15rem; font-weight: 500;">@_areaTotalM2.ToString("N2") m²</span>
-                </div>
-            }
-        </div>
-    }
-</div>
 <div id="map-container"
      style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: grab;
     touch-action: none; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">
@@ -57,84 +24,55 @@
 <div class="geonex-ui">
 
     <!-- BARRA SUPERIOR (HEADER & RIBBON) -->
-    <header class="glass-panel top-bar">
-        <div class="brand-group">
-            <h1>GEONEX</h1>
-            <span class="sub-brand">PRO</span>
+    <header class="geo-header-pro">
+
+        <div class="header-left">
+            <div class="brand-pro">GEONEX<span class="badge-pro">PRO</span></div>
+            <div class="divider-v"></div>
+
+            <div class="dropdown-pro">
+                <button class="btn-menu-pro">Projeto</button>
+                <div class="dropdown-content-pro">
+                    <button class="drop-item" @onclick="CriarNovoProjeto">Novo Projeto</button>
+                    <button class="drop-item" @onclick="SalvarProjeto">Salvar Projeto</button>
+                    <div class="drop-divider"></div>
+                    <button class="drop-item">Configurações</button>
+                </div>
+            </div>
+
+            <div class="dropdown-pro">
+                <button class="btn-menu-pro">Dados</button>
+                <div class="dropdown-content-pro">
+                    <div class="btn-import-wrapper">
+                        <span class="drop-item">Importar Vetor (SHP/GeoJSON)</span>
+                        <InputFile multiple OnChange="AdicionarVetorAoMapa" class="file-input-invisible" />
+                    </div>
+                    <div class="btn-import-wrapper">
+                        <span class="drop-item">Importar Raster (TIF/ECW)</span>
+                        <InputFile OnChange="AdicionarCamadaAoMapa" class="file-input-invisible" />
+                    </div>
+                    <div class="drop-divider"></div>
+                    <button class="drop-item" @onclick="() => exibirModalCoordenadas = true">Caderneta de Campo / GNSS</button>
+                </div>
+            </div>
         </div>
-        <button class="btn btn-danger m-2" @onclick="TestarMotorCPlusPlus">🔥 TESTAR MOTOR C++</button>
-        <nav class="main-menu">
 
-            <div class="dropdown">
-                <button class="menu-btn">Arquivo ▾</button>
-                <div class="dropdown-content">
-                    <button @onclick="CriarNovoProjeto">Novo Projeto</button>
-                    <button>Abrir Projeto...</button>
-                    <div class="drop-divider"></div>
-                    <button>Salvar</button>
-                    <button>Salvar Como...</button>
-                    <div class="drop-divider"></div>
-                    <button>Configurações do Sistema</button>
-                    <button>Sair</button>
-                </div>
+        <div class="header-center">
+            <span class="project-name">Projeto: @(ProjetoAtual?.Nome ?? "Guaratuba_ZonaSul.gnx")</span>
+        </div>
+
+        <div class="header-right">
+            <button class="btn-tool-pro @(modoEdicaoVerticeLigado ? "active" : "")" @onclick="AlternarEdicaoVertices">
+                VÉRTICES
+            </button>
+            <button class="btn-tool-pro save-edits @(temEdicoesPendentes ? "pending" : "")" @onclick="ConfirmarTodasEdicoes" disabled="@(!temEdicoesPendentes)">
+                SALVAR EDIÇÕES
+            </button>
+            <div class="divider-v"></div>
+            <div class="status-pill">
+                <div class="led-online"></div>
+                <span>MOTOR C#</span>
             </div>
-            <!-- MENU: DADOS (Com ação de abrir o modal) -->
-            <div class="dropdown">
-                <button class="menu-btn">Dados ▾</button>
-                <div class="dropdown-content">
-                    <button @onclick="AbrirModalImportacao">Importar Raster (ECW, TIF)</button>
-                    <button @onclick="AbrirModalImportacao">Importar Vetor (SHP, GeoJSON)</button>
-                    <button @onclick="AbrirModalImportacao">Importar Pontos (CSV, TXT)</button>
-                    <div class="drop-divider"></div>
-                    <button>Conectar Banco PostGIS</button>
-                </div>
-            </div>
-
-            <div class="dropdown">
-                <button class="menu-btn">Exportar ▾</button>
-                <div class="dropdown-content">
-                    <button>Exportar Vetor (Shapefile)</button>
-                    <button>Exportar Tabela (CSV)</button>
-                </div>
-            </div>
-
-            <div class="dropdown">
-                <button class="menu-btn">GNSS / RTK ▾</button>
-                <div class="dropdown-content">
-                    <button>Gerenciador de Conexão (COM/BT)</button>
-                    <button>Monitor NMEA (Satélites)</button>
-                </div>
-            </div>
-
-            <button class="menu-btn sync-btn">Sincronizar Nuvem</button>
-            <div class="vertical-divider"></div>
-
-            <div class="toolbar-group">
-                <span class="toolbar-label">AQUISIÇÃO</span>
-                <button class="tool-btn active">Selecionar</button>
-                <button class="tool-btn" @onclick="() => exibirModalCoordenadas = true">Inserir Coordenadas</button>
-                <button class="tool-btn" @onclick="AtivarFerramentaPoligono">Polígono (Manual)</button>
-            </div>
-
-            <div class="toolbar-group">
-                <span class="toolbar-label">EDIÇÃO</span>
-                <button class="tool-btn @(modoEdicaoVerticeLigado ? "active" : "")" @onclick="AlternarEdicaoVertices">Vértices</button>
-                <button class="tool-btn">Cortar</button>
-
-                <div class="vertical-divider" style="height: 15px; margin: 0 5px;"></div>
-
-                <button class="tool-btn"
-                        style="@(temEdicoesPendentes ? "color: #facc15; border: 1px solid #facc15; font-weight: bold; background: rgba(250, 204, 21, 0.1);" : "opacity: 0.5; cursor: not-allowed;")"
-                        @onclick="ConfirmarTodasEdicoes"
-                        disabled="@(!temEdicoesPendentes)">
-                    Salvar Edições
-                </button>
-            </div>
-        </nav>
-
-        <div class="status-group">
-            <span class="status-indicator online"></span>
-            <span class="status-text">API CONECTADA</span>
         </div>
     </header>
 
@@ -735,7 +673,204 @@
         }
 </div> <!-- Fim da div geonex-ui -->
 <style>
-   
+    .geo-header-pro {
+        height: 40px; /* Altura compacta padrão de softwares desktop */
+        background: #11141c; /* Fundo sólido e escuro, sem transparência */
+        border-bottom: 1px solid #1e2430;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        pointer-events: auto;
+        z-index: 3000;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        color: #e2e8f0;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    .header-left, .header-center, .header-right {
+        display: flex;
+        align-items: center;
+        height: 100%;
+    }
+
+    .header-left {
+        padding-left: 12px;
+    }
+
+    .header-right {
+        padding-right: 12px;
+        gap: 8px;
+    }
+
+    .brand-pro {
+        font-size: 1rem;
+        font-weight: 800;
+        letter-spacing: 1px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-right: 12px;
+    }
+
+    .badge-pro {
+        font-size: 0.55rem;
+        background: #0284c7;
+        color: white;
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-weight: 700;
+    }
+
+    .divider-v {
+        width: 1px;
+        height: 20px;
+        background: #2a3142;
+        margin: 0 8px;
+    }
+
+    /* === A CURA DO BUG DO MENU (Z-INDEX & HEIGHT 100%) === */
+    .dropdown-pro {
+        position: relative;
+        height: 100%; /* A DIV pai ocupa os 40px completos do header */
+    }
+
+    .btn-menu-pro {
+        height: 100%; /* O Botão cola no topo e no fundo */
+        background: transparent;
+        border: none;
+        color: #cbd5e1;
+        font-size: 0.8rem;
+        padding: 0 14px;
+        cursor: pointer;
+        transition: background 0.1s;
+    }
+
+    .dropdown-pro:hover .btn-menu-pro {
+        background: #1e2430;
+        color: #fff;
+    }
+
+    .dropdown-content-pro {
+        display: none;
+        position: absolute;
+        top: 100%; /* O menu nasce EXATAMENTE onde o botão acaba. Zero buracos. */
+        left: 0;
+        background: #1e2430;
+        border: 1px solid #2a3142;
+        border-top: none;
+        min-width: 250px;
+        padding: 4px 0;
+        box-shadow: 4px 6px 15px rgba(0,0,0,0.6);
+    }
+
+    .dropdown-pro:hover .dropdown-content-pro {
+        display: block;
+    }
+
+    /* Escudo de proteção para movimentos muito rápidos do rato na diagonal */
+    .dropdown-content-pro::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: -20px;
+        right: -20px;
+        height: 15px;
+        background: transparent;
+    }
+
+    .drop-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        border: none;
+        color: #cbd5e1;
+        padding: 8px 16px;
+        font-size: 0.8rem;
+        cursor: pointer;
+    }
+
+        .drop-item:hover {
+            background: #0284c7;
+            color: #fff;
+        }
+
+    .drop-divider {
+        height: 1px;
+        background: #2a3142;
+        margin: 4px 0;
+    }
+
+    /* O TRUQUE DO INPUT FILE */
+    .btn-import-wrapper {
+        position: relative;
+        width: 100%;
+    }
+
+    .file-input-invisible {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+        z-index: 10;
+    }
+
+    /* FERRAMENTAS DA DIREITA */
+    .project-name {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #94a3b8;
+    }
+
+    .btn-tool-pro {
+        background: #1e2430;
+        border: 1px solid #2a3142;
+        color: #cbd5e1;
+        padding: 4px 12px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.1s;
+    }
+
+        .btn-tool-pro:hover {
+            background: #2a3142;
+            color: #fff;
+        }
+
+        .btn-tool-pro.active {
+            background: #0284c7;
+            color: #fff;
+            border-color: #0ea5e9;
+        }
+
+    .save-edits.pending {
+        background: #ca8a04;
+        color: #fff;
+        border-color: #eab308;
+    }
+
+    .status-pill {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #64748b;
+        letter-spacing: 0.5px;
+    }
+
+    .led-online {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #10b981;
+        box-shadow: 0 0 5px #10b981;
+    }
     /* RESET GLOBAL E MAPA */
     /* RESET GLOBAL E MAPA */
     ::deep, body, html, #app {
