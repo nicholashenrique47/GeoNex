@@ -9,7 +9,40 @@
 @using ProjNet.CoordinateSystems
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
+<div style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); z-index: 2000;
+    background: rgba(22, 25, 33, 0.65); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); display: flex; align-items: center; gap: 24px;
+    color: #E2E8F0; font-family: 'Open Sans', sans-serif; pointer-events: auto;">
 
+    <button @onclick="AlternarModoMedicao"
+            style="background: @(_modoMedicao ? "rgba(239, 68, 68, 0.15)" : "rgba(56, 189, 248, 0.1)");
+        border: 1px solid @(_modoMedicao ? "rgba(239, 68, 68, 0.3)" : "rgba(56, 189, 248, 0.2)");
+        color: @(_modoMedicao ? "#FCA5A5" : "#7DD3FC");
+        padding: 8px 20px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;
+        letter-spacing: 0.5px; cursor: pointer; transition: all 0.2s ease;">
+        @(_modoMedicao ? "ENCERRAR MEDIÇÃO" : "INICIAR MEDIÇÃO")
+    </button>
+
+    @if (_modoMedicao && _distanciaTotalMetros > 0)
+    {
+        <div style="display: flex; gap: 32px; align-items: center;">
+            <div style="display: flex; flex-direction: column;">
+                <span style="font-size: 0.65rem; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; margin-bottom: 2px;">Comprimento Linear</span>
+                <span style="color: #38BDF8; font-family: monospace; font-size: 1.15rem; font-weight: 500;">@_distanciaTotalMetros.ToString("N2") m</span>
+            </div>
+
+            @if (MapService.PontosMedicao.Count >= 3)
+            {
+                <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.1);"></div>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 0.65rem; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; margin-bottom: 2px;">Área Poligonal</span>
+                    <span style="color: #FBBF24; font-family: monospace; font-size: 1.15rem; font-weight: 500;">@_areaTotalM2.ToString("N2") m²</span>
+                </div>
+            }
+        </div>
+    }
+</div>
 <div id="map-container"
      style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: grab;
     touch-action: none; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">
@@ -122,7 +155,14 @@
                 {
                     // Variável local de segurança para o Blazor não se perder nos eventos de clique
                     var camadaAtual = camada;
+                    <div draggable="true"
+                         @ondragstart="() => IniciarArraste(camada)"
+                         @ondrop="() => SoltarCamada(camada)"
+                         @ondragover:preventDefault
+                         style="cursor: grab; margin-bottom: 5px; /* mantenha o seu design aqui */">
 
+                        @camada.Nome
+                    </div>
                     <!-- A camada agora é arrastável nativamente -->
                     <div @key="camadaAtual.Nome"
                          class="layer-item @(camadaAtual.Tipo.ToLower())"
@@ -2335,8 +2375,20 @@
             {
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
 
+                // === INTERCETOR DE MEDIÇÃO TOPOGRÁFICA ===
+                if (_modoMedicao)
+                {
+                    MapService.PontosMedicao.Add(ptMundo);
+                    RecalcularMedicoes();
+                    SolicitarNovoFrame();
+                    await InvokeAsync(StateHasChanged);
+                    return; // Aborta o Raycast! Assim os lotes não ficam amarelos.
+                }
+
                 double xOriginal = ptMundo.X + MapService.OffsetMundoX;
                 double yOriginal = (-ptMundo.Y) + MapService.OffsetMundoY;
+
+                // ... (o resto da função do toleranciaMetros e Raycast continua igual)
 
                 // === CÁLCULO DE TOLERÂNCIA (Snapping) ===
                 // Define 5 píxeis de tela como raio de tolerância.
@@ -2371,6 +2423,71 @@
                 SolicitarNovoFrame();
                 await InvokeAsync(StateHasChanged);
             }
+        }
+    }
+    // === VARIÁVEIS DE DRAG & DROP ===
+    private Camada? _camadaArrastada;
+
+    private void IniciarArraste(Camada camada)
+    {
+        _camadaArrastada = camada;
+    }
+
+    private void SoltarCamada(Camada camadaAlvo)
+    {
+        if (_camadaArrastada == null || _camadaArrastada == camadaAlvo) return;
+
+        int indiceAlvo = CamadasAtivas.IndexOf(camadaAlvo);
+
+        // Move a camada na lista visual do HTML
+        CamadasAtivas.Remove(_camadaArrastada);
+        CamadasAtivas.Insert(indiceAlvo, _camadaArrastada);
+
+        _camadaArrastada = null;
+
+        // MAGIA: Sincroniza o novo Z-Index com a Placa Gráfica e redesenha o mapa!
+        SincronizarHierarquia();
+        StateHasChanged();
+    }
+    // === LÓGICA DE MEDIÇÃO ===
+    private bool _modoMedicao = false;
+    private double _distanciaTotalMetros = 0;
+    private double _areaTotalM2 = 0;
+
+    private void AlternarModoMedicao()
+    {
+        _modoMedicao = !_modoMedicao;
+        if (!_modoMedicao)
+        {
+            MapService.PontosMedicao.Clear();
+            _distanciaTotalMetros = 0;
+            _areaTotalM2 = 0;
+            SolicitarNovoFrame();
+        }
+    }
+
+    private void RecalcularMedicoes()
+    {
+        _distanciaTotalMetros = 0; _areaTotalM2 = 0;
+        var pts = MapService.PontosMedicao;
+        if (pts.Count < 2) return;
+
+        // Pitágoras para distância percorrida
+        for (int i = 1; i < pts.Count; i++)
+        {
+            double dx = pts[i].X - pts[i - 1].X; double dy = pts[i].Y - pts[i - 1].Y;
+            _distanciaTotalMetros += Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        // Algoritmo de Shoelace para área exata de polígonos irregulares
+        if (pts.Count >= 3)
+        {
+            double area = 0; int j = pts.Count - 1;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                area += (pts[j].X + pts[i].X) * (pts[j].Y - pts[i].Y); j = i;
+            }
+            _areaTotalM2 = Math.Abs(area / 2.0);
         }
     }
     }
