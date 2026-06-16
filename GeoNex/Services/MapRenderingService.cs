@@ -37,7 +37,6 @@ namespace GeoNex.Services
         public bool TemRaster { get; set; } = false;
         public SkiaSharp.SKRect LimitesRasterGlobal { get; set; }
         // === FERRAMENTAS DE MEDIÇÃO ===
-        public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
         public event Action? OnMapInvalidated;
 
         public MapRenderingService()

@@ -2995,30 +2995,7 @@
         }
     }
 
-    private void RecalcularMedicoes()
-    {
-        _distanciaTotalMetros = 0; _areaTotalM2 = 0;
-        var pts = MapService.PontosMedicao;
-        if (pts.Count < 2) return;
-
-        // Pitágoras para distância percorrida
-        for (int i = 1; i < pts.Count; i++)
-        {
-            double dx = pts[i].X - pts[i - 1].X; double dy = pts[i].Y - pts[i - 1].Y;
-            _distanciaTotalMetros += Math.Sqrt(dx * dx + dy * dy);
-        }
-
-        // Algoritmo de Shoelace para área exata de polígonos irregulares
-        if (pts.Count >= 3)
-        {
-            double area = 0; int j = pts.Count - 1;
-            for (int i = 0; i < pts.Count; i++)
-            {
-                area += (pts[j].X + pts[i].X) * (pts[j].Y - pts[i].Y); j = i;
-            }
-            _areaTotalM2 = Math.Abs(area / 2.0);
-        }
-    }
+    
     // =========================================================================
     // MOTOR DE CÁLCULO TOPOGRÁFICO
     // =========================================================================
