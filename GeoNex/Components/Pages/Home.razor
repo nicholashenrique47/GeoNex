@@ -9,7 +9,31 @@
 @using ProjNet.CoordinateSystems
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
+@if (_ferramentaAtiva == ModoFerramenta.Medicao)
+{
+    <div class="measure-panel">
+        <div class="measure-header">
+            <span>MEDIÇÃO TOPOGRÁFICA</span>
+            <button class="btn-clear-measure" @onclick="LimparMedicao">LIMPAR RASTRO</button>
+        </div>
 
+        <div class="measure-body">
+            <div class="measure-data">
+                <span class="data-label">Comprimento Linear</span>
+                <span class="data-value">@_medicaoComprimentoMetros.ToString("N2") m</span>
+            </div>
+
+            @if (MapService.PontosMedicao.Count >= 3)
+            {
+                <div class="measure-divider"></div>
+                <div class="measure-data">
+                    <span class="data-label">Área Plana Fechada</span>
+                    <span class="data-value area-color">@_medicaoAreaM2.ToString("N2") m²</span>
+                </div>
+            }
+        </div>
+    </div>
+}
 <div id="map-container"
      style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: grab;
     touch-action: none; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">
@@ -24,56 +48,123 @@
 <div class="geonex-ui">
 
     <!-- BARRA SUPERIOR (HEADER & RIBBON) -->
-    <header class="geo-header-pro">
+    <header class="glass-panel top-bar" style="display: flex; align-items: center; justify-content: flex-start; padding: 0 20px; gap: 15px;">
 
-        <div class="header-left">
-            <div class="brand-pro">GEONEX<span class="badge-pro">PRO</span></div>
-            <div class="divider-v"></div>
+        <div class="brand-group" style="margin-right: 15px;">
+            <h1>GEONEX</h1>
+            <span class="sub-brand">PRO</span>
+        </div>
 
-            <div class="dropdown-pro">
-                <button class="btn-menu-pro">Projeto</button>
-                <div class="dropdown-content-pro">
-                    <button class="drop-item" @onclick="CriarNovoProjeto">Novo Projeto</button>
-                    <button class="drop-item" @onclick="SalvarProjeto">Salvar Projeto</button>
+        <nav class="main-menu" style="display: flex; height: 100%; align-items: stretch; margin-right: auto;">
+
+            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
+                <button class="menu-btn">Arquivo ▾</button>
+                <div class="dropdown-content">
+                    <button @onclick="CriarNovoProjeto">Novo Projeto</button>
+                    <button>Abrir Projeto...</button>
                     <div class="drop-divider"></div>
-                    <button class="drop-item">Configurações</button>
+                    <button>Salvar</button>
+                    <button>Salvar Como...</button>
+                    <div class="drop-divider"></div>
+                    <button>Sincronizar Nuvem</button> <div class="drop-divider"></div>
+                    <button>Configurações do Sistema</button>
+                    <button>Sair</button>
                 </div>
             </div>
 
-            <div class="dropdown-pro">
-                <button class="btn-menu-pro">Dados</button>
-                <div class="dropdown-content-pro">
-                    <div class="btn-import-wrapper">
-                        <span class="drop-item">Importar Vetor (SHP/GeoJSON)</span>
-                        <InputFile multiple OnChange="AdicionarVetorAoMapa" class="file-input-invisible" />
-                    </div>
-                    <div class="btn-import-wrapper">
-                        <span class="drop-item">Importar Raster (TIF/ECW)</span>
-                        <InputFile OnChange="AdicionarCamadaAoMapa" class="file-input-invisible" />
+            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
+                <button class="menu-btn">Dados ▾</button>
+                <div class="dropdown-content">
+
+                    <div class="dropdown-submenu">
+                        <button class="submenu-btn">
+                            <span>Importar Fontes Locais</span>
+                            <span style="font-size: 0.7rem; color: #64748b;">▸</span>
+                        </button>
+
+                        <div class="submenu-content">
+                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); }'>
+                                Raster (ECW, TIF)
+                            </button>
+
+                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>
+                                Vetor (SHP, GeoJSON)
+                            </button>
+
+                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Texto"); }'>
+                                Pontos (CSV, TXT)
+                            </button>
+                        </div>
                     </div>
                     <div class="drop-divider"></div>
-                    <button class="drop-item" @onclick="() => exibirModalCoordenadas = true">Caderneta de Campo / GNSS</button>
+                    <button class="drop-item">Conectar Banco PostGIS</button>
                 </div>
             </div>
-        </div>
 
-        <div class="header-center">
-            <span class="project-name">Projeto: @(ProjetoAtual?.Nome ?? "Guaratuba_ZonaSul.gnx")</span>
-        </div>
+            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
+                <button class="menu-btn" style="@(_ferramentaAtiva == ModoFerramenta.Identificacao ? "color: #38bdf8;" : "")">Aquisição ▾</button>
+                <div class="dropdown-content">
+                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Identificacao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)">
+                        Identificar / Selecionar
+                    </button>
+                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.AquisicaoPoligono)">
+                        Desenhar Polígono (Lote)
+                    </button>
+                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Medicao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)">
+                        Régua Topográfica
+                    </button>
+                </div>
+            </div>
 
-        <div class="header-right">
-            <button class="btn-tool-pro @(modoEdicaoVerticeLigado ? "active" : "")" @onclick="AlternarEdicaoVertices">
-                VÉRTICES
-            </button>
-            <button class="btn-tool-pro save-edits @(temEdicoesPendentes ? "pending" : "")" @onclick="ConfirmarTodasEdicoes" disabled="@(!temEdicoesPendentes)">
+            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
+                <button class="menu-btn" style="@(modoEdicaoVerticeLigado ? "color: #38bdf8; font-weight: bold;" : "")">Edição ▾</button>
+                <div class="dropdown-content">
+                    <button style="@(modoEdicaoVerticeLigado ? "color: #38bdf8; font-weight: bold; background: rgba(56, 189, 248, 0.1);" : "")" @onclick="AlternarEdicaoVertices">
+                        @(modoEdicaoVerticeLigado ? "Modo Vértices [ ATIVO ]" : "Ativar Edição de Vértices")
+                    </button>
+                    <button>Cortar Geometria</button>
+                    <button>Mesclar Polígonos</button>
+                </div>
+            </div>
+
+            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
+                <button class="menu-btn">Exportar ▾</button>
+                <div class="dropdown-content">
+                    <button>Exportar Vetor (Shapefile)</button>
+                    <button>Exportar Tabela (CSV)</button>
+                </div>
+            </div>
+
+            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
+                <button class="menu-btn">GNSS / RTK ▾</button>
+                <div class="dropdown-content">
+                    <button>Gerenciador de Conexão (COM/BT)</button>
+                    <button>Monitor NMEA (Satélites)</button>
+                </div>
+            </div>
+        </nav>
+
+        <div style="display: flex; align-items: center; gap: 15px;">
+
+            <button class="tool-btn"
+                    style="@(temEdicoesPendentes ? "color: #facc15; border: 1px solid #facc15; font-weight: bold; background: rgba(250, 204, 21, 0.1);" : "opacity: 0.3; cursor: not-allowed; border: 1px solid rgba(255,255,255,0.1);")"
+                    @onclick="ConfirmarTodasEdicoes"
+                    disabled="@(!temEdicoesPendentes)">
                 SALVAR EDIÇÕES
             </button>
-            <div class="divider-v"></div>
-            <div class="status-pill">
-                <div class="led-online"></div>
-                <span>MOTOR C#</span>
+
+            <div class="vertical-divider" style="height: 20px;"></div>
+
+            <div class="status-group" style="padding: 0 5px;">
+                <span class="status-indicator online"></span>
+                <span class="status-text">API CONECTADA</span>
             </div>
+
+            <button class="btn" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 0.65rem; font-weight: bold; padding: 4px 8px; border-radius: 4px; cursor: pointer;" @onclick="TestarMotorCPlusPlus" title="Diagnóstico de Motor">
+                CORE C++
+            </button>
         </div>
+
     </header>
 
     <!-- PAINÉIS LATERAIS E ÁREA DE TRABALHO -->
@@ -673,204 +764,465 @@
         }
 </div> <!-- Fim da div geonex-ui -->
 <style>
-    .geo-header-pro {
-        height: 40px; /* Altura compacta padrão de softwares desktop */
-        background: #11141c; /* Fundo sólido e escuro, sem transparência */
-        border-bottom: 1px solid #1e2430;
+    /* =========================================================
+       PAINEL DE MEDIÇÃO TOPOGRÁFICA (PADRÃO ARCGIS PRO)
+       ========================================================= */
+    .measure-panel {
+        position: absolute;
+        top: 70px;
+        right: 20px;
+        width: 280px;
+        background: rgba(18, 22, 31, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+        z-index: 2500;
+        font-family: 'Segoe UI', 'Open Sans', sans-serif;
+        pointer-events: auto;
+    }
+
+    .measure-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        pointer-events: auto;
-        z-index: 3000;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-        color: #e2e8f0;
-        font-family: 'Segoe UI', system-ui, sans-serif;
-    }
-
-    .header-left, .header-center, .header-right {
-        display: flex;
-        align-items: center;
-        height: 100%;
-    }
-
-    .header-left {
-        padding-left: 12px;
-    }
-
-    .header-right {
-        padding-right: 12px;
-        gap: 8px;
-    }
-
-    .brand-pro {
-        font-size: 1rem;
-        font-weight: 800;
+        padding: 10px 16px;
+        background: rgba(0, 0, 0, 0.2);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #94a3b8;
         letter-spacing: 1px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-right: 12px;
     }
 
-    .badge-pro {
-        font-size: 0.55rem;
-        background: #0284c7;
-        color: white;
-        padding: 2px 5px;
+    .btn-clear-measure {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #f87171;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 4px 8px;
         border-radius: 3px;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .btn-clear-measure:hover {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+    .measure-body {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .measure-data {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .data-label {
+        font-size: 0.65rem;
+        color: #64748b;
+        text-transform: uppercase;
         font-weight: 700;
     }
 
-    .divider-v {
-        width: 1px;
-        height: 20px;
-        background: #2a3142;
-        margin: 0 8px;
+    .data-value {
+        font-family: monospace;
+        font-size: 1.4rem;
+        font-weight: 500;
+        color: #e2e8f0;
     }
 
-    /* === A CURA DO BUG DO MENU (Z-INDEX & HEIGHT 100%) === */
-    .dropdown-pro {
-        position: relative;
-        height: 100%; /* A DIV pai ocupa os 40px completos do header */
+    .area-color {
+        color: #38bdf8; /* Diferenciação visual da área em ciano */
     }
 
-    .btn-menu-pro {
-        height: 100%; /* O Botão cola no topo e no fundo */
+    .measure-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.05);
+    }
+    /* =======================================================================
+       ARQUITETURA VISUAL DOS MENUS SUSPENSOS E CASCATA (PADRÃO CORPORATIVO)
+       ======================================================================= */
+
+    /* 1. Reset e Estilização dos Botões Internos */
+    .dropdown-content button,
+    .submenu-content button,
+    .dropdown-content .drop-item {
+        display: block;
+        width: 100%;
+        text-align: left;
         background: transparent;
         border: none;
-        color: #cbd5e1;
+        padding: 10px 16px;
+        color: #cbd5e1; /* Cinza claro profissional */
         font-size: 0.8rem;
-        padding: 0 14px;
+        font-weight: 500;
+        font-family: 'Open Sans', 'Segoe UI', sans-serif;
         cursor: pointer;
-        transition: background 0.1s;
+        transition: all 0.15s ease;
     }
 
-    .dropdown-pro:hover .btn-menu-pro {
-        background: #1e2430;
-        color: #fff;
-    }
-
-    .dropdown-content-pro {
+    /* 2. O Painel de Vidro do Menu Principal */
+    .dropdown-content {
         display: none;
         position: absolute;
-        top: 100%; /* O menu nasce EXATAMENTE onde o botão acaba. Zero buracos. */
+        top: 100%; /* Cola exatamente abaixo da barra superior */
         left: 0;
-        background: #1e2430;
-        border: 1px solid #2a3142;
-        border-top: none;
-        min-width: 250px;
-        padding: 4px 0;
-        box-shadow: 4px 6px 15px rgba(0,0,0,0.6);
+        background: rgba(18, 22, 31, 0.95); /* Vidro escuro sólido */
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 4px;
+        min-width: 240px;
+        padding: 6px 0;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+        z-index: 4000;
     }
 
-    .dropdown-pro:hover .dropdown-content-pro {
+    /* Revelar o menu ao passar o rato */
+    .dropdown:hover .dropdown-content {
         display: block;
     }
 
-    /* Escudo de proteção para movimentos muito rápidos do rato na diagonal */
-    .dropdown-content-pro::before {
+    /* 3. Efeito de Seleção (Hover) */
+    .dropdown-content button:hover,
+    .submenu-content button:hover,
+    .dropdown-submenu:hover > .submenu-btn {
+        background: rgba(56, 189, 248, 0.15); /* Fundo ciano translúcido */
+        color: #38bdf8; /* Texto em ciano brilhante */
+    }
+
+    /* 4. Linhas Divisórias */
+    .drop-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.06);
+        margin: 4px 0;
+    }
+
+    /* =======================================================================
+       SUBMENUS EM CASCATA (Ex: "Importar Fontes Locais ▸")
+       ======================================================================= */
+    .dropdown-submenu {
+        position: relative;
+    }
+
+    /* Garante que a seta '▸' fique encostada à direita */
+    .submenu-btn {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center;
+    }
+
+    /* O Painel de Vidro do Nível 2 */
+    .submenu-content {
+        display: none;
+        position: absolute;
+        top: -6px; /* Alinha o topo do submenu com o item pai */
+        left: 100%; /* Nasce exatamente do lado direito */
+        background: rgba(18, 22, 31, 0.98);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 4px;
+        min-width: 220px;
+        padding: 6px 0;
+        box-shadow: 4px 4px 20px rgba(0, 0, 0, 0.8);
+        z-index: 4001;
+    }
+
+    /* Escudo Magnético de Proteção do Rato (Ponte de 15px) */
+    .dropdown-submenu::after {
         content: '';
         position: absolute;
-        top: -10px;
-        left: -20px;
-        right: -20px;
-        height: 15px;
+        top: 0;
+        right: -15px;
+        width: 15px;
+        height: 100%;
         background: transparent;
     }
 
-    .drop-item {
+    /* Revelar o submenu em cascata */
+    .dropdown-submenu:hover .submenu-content {
         display: block;
+    }
+    /* =======================================================================
+       GERENCIADOR DE FONTES DE DADOS (MODAL GLASSMORPHISM CORPORATIVO)
+       ======================================================================= */
+
+    /* 1. O Fundo Escurecido que bloqueia a tela */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(9, 11, 16, 0.75); /* Fundo muito escuro e translúcido */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999; /* Fica por cima de absolutamente tudo */
+        backdrop-filter: blur(3px);
+    }
+
+    /* 2. A Janela do Modal (Vidro) */
+    .import-modal {
+        width: 650px;
+        background: rgba(18, 22, 31, 0.85); /* Tom cinza-azulado profundo */
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        font-family: 'Open Sans', 'Segoe UI', sans-serif;
+    }
+
+    /* 3. Cabeçalho do Modal */
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+        background: rgba(0, 0, 0, 0.2);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #e2e8f0;
+            letter-spacing: 1px;
+        }
+
+    .close-modal-btn {
+        background: transparent;
+        border: none;
+        color: #64748b;
+        font-size: 1.2rem;
+        cursor: pointer;
+        transition: 0.2s;
+        padding: 0 8px;
+    }
+
+        .close-modal-btn:hover {
+            color: #ef4444;
+        }
+
+    /* 4. Sistema de Abas (Tabs) */
+    .modal-body {
+        padding: 0;
+    }
+
+    .modal-tabs {
+        display: flex;
+        background: rgba(0, 0, 0, 0.1);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding: 0 16px;
+    }
+
+    .tab-btn {
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: #64748b;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .tab-btn:hover {
+            color: #cbd5e1;
+        }
+
+        .tab-btn.active {
+            color: #38bdf8;
+            border-bottom: 2px solid #38bdf8;
+        }
+
+    /* 5. Área de Conteúdo e Inputs */
+    .modal-content {
+        padding: 24px;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+        .form-group label {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+    .file-input-group {
+        display: flex;
+        gap: 8px;
+    }
+
+    .glass-input {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #f8fafc;
+        padding: 10px 14px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-family: monospace; /* Fonte técnica para caminhos de arquivo */
+    }
+
+        .glass-input:focus {
+            outline: none;
+            border-color: rgba(56, 189, 248, 0.5);
+        }
+
+    /* 6. Botões de Ação */
+    .btn-browse {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #e2e8f0;
+        padding: 0 16px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .btn-browse:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+    .import-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: 32px;
+        padding-top: 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .btn-cancel {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #94a3b8;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .btn-cancel:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #cbd5e1;
+        }
+
+    .btn-save {
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        color: #38bdf8;
+        font-size: 0.8rem;
+        font-weight: 700;
+        padding: 8px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .btn-save:hover {
+            background: rgba(56, 189, 248, 0.2);
+            border-color: #38bdf8;
+        }
+    /* =========================================================
+           ARQUITETURA DE SUBMENUS EM CASCATA (NESTED DROPDOWNS)
+           ========================================================= */
+    .dropdown-submenu {
+        position: relative;
+    }
+
+    .submenu-btn {
+        display: flex;
+        justify-content: space-between; /* Empurra a seta para a direita */
+        align-items: center;
         width: 100%;
         text-align: left;
         background: transparent;
         border: none;
         color: #cbd5e1;
         padding: 8px 16px;
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         cursor: pointer;
+        transition: background 0.1s;
     }
 
-        .drop-item:hover {
-            background: #0284c7;
-            color: #fff;
+        .submenu-btn:hover {
+            background: rgba(56, 189, 248, 0.1);
+            color: #38bdf8;
         }
 
-    .drop-divider {
-        height: 1px;
-        background: #2a3142;
-        margin: 4px 0;
+    /* O Submenu nasce do lado direito do item pai */
+    .submenu-content {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 100%;
+        background: rgba(30, 33, 42, 0.98); /* Vidro escuro sólido */
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        min-width: 200px;
+        box-shadow: 4px 4px 15px rgba(0, 0, 0, 0.5);
+        z-index: 10000;
     }
 
-    /* O TRUQUE DO INPUT FILE */
+    /* ESCUDO MAGNÉTICO: Uma ponte invisível de 15px para o rato atravessar em segurança */
+    .dropdown-submenu::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: -15px;
+        width: 15px;
+        height: 100%;
+    }
+
+    .dropdown-submenu:hover .submenu-content {
+        display: block;
+    }
+
+    /* Estilo para os botões finais de importação que escondem o InputFile */
     .btn-import-wrapper {
         position: relative;
         width: 100%;
+        display: block;
     }
 
-    .file-input-invisible {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        opacity: 0;
-        cursor: pointer;
-        z-index: 10;
-    }
-
-    /* FERRAMENTAS DA DIREITA */
-    .project-name {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: #94a3b8;
-    }
-
-    .btn-tool-pro {
-        background: #1e2430;
-        border: 1px solid #2a3142;
-        color: #cbd5e1;
-        padding: 4px 12px;
-        border-radius: 3px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: 0.1s;
-    }
-
-        .btn-tool-pro:hover {
-            background: #2a3142;
-            color: #fff;
+        .btn-import-wrapper .file-input-invisible {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+            z-index: 10;
         }
-
-        .btn-tool-pro.active {
-            background: #0284c7;
-            color: #fff;
-            border-color: #0ea5e9;
-        }
-
-    .save-edits.pending {
-        background: #ca8a04;
-        color: #fff;
-        border-color: #eab308;
-    }
-
-    .status-pill {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.65rem;
-        font-weight: 700;
-        color: #64748b;
-        letter-spacing: 0.5px;
-    }
-
-    .led-online {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: #10b981;
-        box-shadow: 0 0 5px #10b981;
-    }
     /* RESET GLOBAL E MAPA */
     /* RESET GLOBAL E MAPA */
     ::deep, body, html, #app {
@@ -1751,6 +2103,21 @@
 
 @code {
     // =========================================================================
+    // MÁQUINA DE ESTADOS DO MAPA (CONTROLO ESTRITO DE INTERAÇÃO)
+    // =========================================================================
+    public enum ModoFerramenta
+    {
+        Navegacao,        // Apenas Pan e Zoom (Cursor: Grab)
+        Identificacao,    // Clicar num lote para ver a Tabela de Atributos (Raycast)
+        Medicao,          // Desenhar a régua topográfica
+        AquisicaoPonto,   // Injetar um novo poste/tampão
+        AquisicaoLinha,   // Desenhar um eixo de rua/tubulação
+        AquisicaoPoligono,// Desenhar um novo lote
+        EdicaoVertice     // Mover os nós de uma geometria existente
+    }
+
+    private ModoFerramenta _ferramentaAtiva = ModoFerramenta.Identificacao; // O Padrão do SIG
+    // =========================================================================
     // 1. VARIÁVEIS DE ESTADO DA INTERFACE E TELEMETRIA
     // =========================================================================
     private string latitude = "-25.882800";
@@ -1847,7 +2214,40 @@
     private List<Dictionary<string, string>> listaPontosCaderneta = new List<Dictionary<string, string>>();
     private string metodoEntrada = "COORDENADA";
     private bool temEdicoesPendentes = false;
+    private void TrocarFerramenta(ModoFerramenta novaFerramenta)
+    {
+        // 1. Limpeza de Saída (O que fazer ao desligar a ferramenta antiga)
+        if (_ferramentaAtiva == ModoFerramenta.Medicao)
+        {
+            MapService.PontosMedicao.Clear();
+            _distanciaTotalMetros = 0;
+            _areaTotalM2 = 0;
+        }
+        else if (_ferramentaAtiva == ModoFerramenta.Identificacao)
+        {
+            MapService.DestacarFeicao(null);
+            camadaSelecionadaPainel = string.Empty;
+            atributosFeicaoSelecionada?.Clear();
+        }
+        else if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
+        {
+            // Lógica para desligar os vértices (se aplicável)
+            modoEdicaoVerticeLigado = false;
+        }
 
+        // 2. Transição de Estado
+        _ferramentaAtiva = novaFerramenta;
+
+        // 3. Configurações de Entrada (Opcional, inicializar a nova ferramenta)
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
+        {
+            modoEdicaoVerticeLigado = true;
+        }
+
+        // 4. Atualiza a Tela
+        SolicitarNovoFrame();
+        StateHasChanged();
+    }
     // =========================================================================
     // 5. EVENTOS DO CICLO DE VIDA DA INTERFACE
     // =========================================================================
@@ -2510,49 +2910,43 @@
             {
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
 
-                // === INTERCETOR DE MEDIÇÃO TOPOGRÁFICA ===
-                if (_modoMedicao)
+                // === INTERCETOR DE FERRAMENTA ===
+                if (_ferramentaAtiva == ModoFerramenta.Medicao)
                 {
                     MapService.PontosMedicao.Add(ptMundo);
                     RecalcularMedicoes();
                     SolicitarNovoFrame();
                     await InvokeAsync(StateHasChanged);
-                    return; // Aborta o Raycast! Assim os lotes não ficam amarelos.
+                    return; // Bloqueia a continuação do código. O clique não seleciona lotes!
                 }
+                // ... (o código original do seu Raycast continua aqui para baixo) ...
+                double xMundo = ptMundo.X + MapService.OffsetMundoX;
+                double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
 
-                double xOriginal = ptMundo.X + MapService.OffsetMundoX;
-                double yOriginal = (-ptMundo.Y) + MapService.OffsetMundoY;
-
-                // ... (o resto da função do toleranciaMetros e Raycast continua igual)
-
-                // === CÁLCULO DE TOLERÂNCIA (Snapping) ===
-                // Define 5 píxeis de tela como raio de tolerância.
-                // Divide pela escala atual para descobrir quantos metros reais isso significa.
-                double toleranciaMetros = 5.0 / (escalaAutoFit * MapService.CameraZoom);
-
-                // Dispara o Raycast enviando o raio dinâmico
-                var feicaoAtingida = MapService.DispararRaycast(yOriginal, xOriginal, toleranciaMetros, out string camadaAtingida);
-
-                MapService.DestacarFeicao(feicaoAtingida);
-
-                if (feicaoAtingida != null)
+                // MÁQUINA DE ESTADOS DO CLIQUE
+                switch (_ferramentaAtiva)
                 {
-                    camadaSelecionadaPainel = camadaAtingida;
-                    atributosFeicaoSelecionada = new Dictionary<string, string>();
+                    case ModoFerramenta.Identificacao:
+                        // O seu código original de Raycast (Snapping de 5 pixels) entra AQUI
+                        double tolerancia = 5.0 / (escalaAutoFit * MapService.CameraZoom);
+                        var feicao = MapService.DispararRaycast(yMundo, xMundo, tolerancia, out string camadaAtingida);
+                        // ... atualizar o painel de atributos
+                        break;
 
-                    if (feicaoAtingida.Attributes != null)
-                    {
-                        foreach (var nomeCampo in feicaoAtingida.Attributes.GetNames())
-                        {
-                            var valor = feicaoAtingida.Attributes[nomeCampo];
-                            atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
-                        }
-                    }
-                }
-                else
-                {
-                    camadaSelecionadaPainel = string.Empty;
-                    atributosFeicaoSelecionada?.Clear();
+                    case ModoFerramenta.Medicao:
+                        // O seu código de régua topográfica entra AQUI
+                        MapService.PontosMedicao.Add(ptMundo);
+                        RecalcularMedicoes();
+                        break;
+
+                    case ModoFerramenta.AquisicaoPoligono:
+                        // Código para registar um novo vértice de lote
+                        // MapService.NovoPoligonoEmDesenho.Add(ptMundo);
+                        break;
+
+                    case ModoFerramenta.Navegacao:
+                        // Ignora o clique estritamente. O mapa apenas arrasta.
+                        break;
                 }
 
                 SolicitarNovoFrame();
@@ -2624,5 +3018,48 @@
             }
             _areaTotalM2 = Math.Abs(area / 2.0);
         }
+    }
+    // =========================================================================
+    // MOTOR DE CÁLCULO TOPOGRÁFICO
+    // =========================================================================
+    private double _medicaoComprimentoMetros = 0;
+    private double _medicaoAreaM2 = 0;
+
+    private void RecalcularMedicoes()
+    {
+        _medicaoComprimentoMetros = 0;
+        _medicaoAreaM2 = 0;
+        var pts = MapService.PontosMedicao;
+
+        if (pts.Count < 2) return;
+
+        // 1. Distância Linear Euclidiana (Teorema de Pitágoras)
+        for (int i = 1; i < pts.Count; i++)
+        {
+            double dx = pts[i].X - pts[i - 1].X;
+            double dy = pts[i].Y - pts[i - 1].Y;
+            _medicaoComprimentoMetros += Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        // 2. Área Poligonal (Algoritmo de Shoelace / Fórmula do Topógrafo)
+        if (pts.Count >= 3)
+        {
+            double area = 0;
+            int j = pts.Count - 1;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                area += (pts[j].X + pts[i].X) * (pts[j].Y - pts[i].Y);
+                j = i;
+            }
+            _medicaoAreaM2 = Math.Abs(area / 2.0);
+        }
+    }
+
+    private void LimparMedicao()
+    {
+        MapService.PontosMedicao.Clear();
+        _medicaoComprimentoMetros = 0;
+        _medicaoAreaM2 = 0;
+        SolicitarNovoFrame();
     }
     }

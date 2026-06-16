@@ -205,26 +205,41 @@ namespace GeoNex.Services
 
                         canvas.DrawPath(_mapService.CaminhoDestaqueLinha, pincelDestaqueBordaLOD);
                     }
-                    // 7. FERRAMENTAS DE MEDIÇÃO TOPOGRÁFICA
+                    // === DESENHO DA FERRAMENTA DE MEDIÇÃO ===
                     if (_mapService.PontosMedicao.Count > 0)
                     {
                         canvas.SetMatrix(matriz);
                         float zoomReal = escalaAutoFit * _mapService.CameraZoom;
 
-                        using var pincelMedicaoLinha = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 3f / zoomReal, IsAntialias = true };
-                        using var pincelMedicaoPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Red, IsAntialias = true };
+                        using var pincelLinha = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 2f / zoomReal, IsAntialias = true };
+                        using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
+                        using var pincelBordaPonto = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 1.5f / zoomReal, IsAntialias = true };
+                        using var pincelArea = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(40), IsAntialias = true };
 
-                        var medicaoPath = new SKPath();
-                        for (int j = 0; j < _mapService.PontosMedicao.Count; j++)
+                        var pathMedicao = new SKPath();
+                        for (int i = 0; i < _mapService.PontosMedicao.Count; i++)
                         {
-                            var pt = _mapService.PontosMedicao[j];
-                            if (j == 0) medicaoPath.MoveTo(pt);
-                            else medicaoPath.LineTo(pt);
-
-                            // Desenha o pino de marcação vermelho
-                            canvas.DrawCircle(pt, 5f / zoomReal, pincelMedicaoPonto);
+                            var pt = _mapService.PontosMedicao[i];
+                            if (i == 0) pathMedicao.MoveTo(pt);
+                            else pathMedicao.LineTo(pt);
                         }
-                        canvas.DrawPath(medicaoPath, pincelMedicaoLinha);
+
+                        // Se tivermos 3+ pontos, calculamos o preenchimento visual da área
+                        if (_mapService.PontosMedicao.Count > 2)
+                        {
+                            var pathArea = new SKPath(pathMedicao);
+                            pathArea.Close();
+                            canvas.DrawPath(pathArea, pincelArea);
+                        }
+
+                        canvas.DrawPath(pathMedicao, pincelLinha);
+
+                        // Desenha os "pinos" de marcação topográfica
+                        foreach (var pt in _mapService.PontosMedicao)
+                        {
+                            canvas.DrawCircle(pt, 4f / zoomReal, pincelPonto);
+                            canvas.DrawCircle(pt, 4f / zoomReal, pincelBordaPonto);
+                        }
                     }
                 } // Fim do if !limitesTotais.IsEmpty
 

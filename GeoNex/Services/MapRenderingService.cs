@@ -27,6 +27,7 @@ namespace GeoNex.Services
         public Dictionary<string, SKPath> LinhasPorCamada { get; private set; } = new();
         public Dictionary<string, SKPath> PontosPorCamada { get; private set; } = new();
         public List<string> OrdemCamadas { get; set; } = new();
+        public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
         public string NomeRasterAtivo { get; set; } = "";
 
         // O MOTOR ANALÍTICO ESPACIAL (RAM C#) - Agora utilizando IFeature rigorosamente
