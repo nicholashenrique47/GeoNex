@@ -59,12 +59,10 @@ public class LocalMapServer
 
             if (_mapService.TemRaster) { limitesTotais = _mapService.LimitesRasterGlobal; primeiro = false; }
 
-            // Lê o Bounding Box de cada Mega-Path em vez de milhares individuais
-            foreach (var path in _mapService.VetoresPorCamada.Values)
-            {
-                if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
-                else { limitesTotais.Union(path.Bounds); }
-            }
+            // Junta os limites absolutos de TODAS as geometrias
+            foreach (var path in _mapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+            foreach (var path in _mapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+            foreach (var path in _mapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
 
             if (!limitesTotais.IsEmpty)
             {
@@ -76,7 +74,10 @@ public class LocalMapServer
                 matriz = matriz.PostConcat(SKMatrix.CreateScale(escalaAutoFit * _mapService.CameraZoom, escalaAutoFit * _mapService.CameraZoom));
                 matriz = matriz.PostConcat(SKMatrix.CreateTranslation(width / 2f + _mapService.CameraPanX, height / 2f + _mapService.CameraPanY));
 
-                for (int i = _mapService.OrdemCamadas.Count - 1; i >= 0; i--)
+                // === MOTOR HIERÁRQUICO DE Z-INDEX ===
+                // O loop for opera de 0 (Fundo Absoluto) até Count-1 (Topo Visual)
+                // Isto garante que se a Ortofoto estiver por cima, ela tapará os vetores.
+                for (int i = 0; i < _mapService.OrdemCamadas.Count; i++)
                 {
                     string camadaAtual = _mapService.OrdemCamadas[i];
 
@@ -84,25 +85,30 @@ public class LocalMapServer
                     {
                         if (_mapService.TemRaster && camadaAtual == _mapService.NomeRasterAtivo && _mapService.DatasetRaster != null && matriz.TryInvert(out SKMatrix inverse))
                         {
+                            // 1. BLINDAGEM DA MATRIZ: A ortofoto GDAL já ocupa o monitor inteiro.
+                            // Resetamos a matriz gráfica para impedir que a redução de escala UTM 
+                            // dos vetores contamine a fotografia.
+                            canvas.ResetMatrix();
+
                             SKPoint topLeft = inverse.MapPoint(new SKPoint(0, 0));
                             SKPoint bottomRight = inverse.MapPoint(new SKPoint(width, height));
 
-                            double minLng = Math.Min(topLeft.X, bottomRight.X);
-                            double maxLng = Math.Max(topLeft.X, bottomRight.X);
-                            double minLat = Math.Min(-topLeft.Y, -bottomRight.Y);
-                            double maxLat = Math.Max(-topLeft.Y, -bottomRight.Y);
+                            // 2. DECIFRADOR DA ÂNCORA (Memória Gráfica -> UTM Real)
+                            double minLng = Math.Min(topLeft.X, bottomRight.X) + _mapService.OffsetMundoX;
+                            double maxLng = Math.Max(topLeft.X, bottomRight.X) + _mapService.OffsetMundoX;
+                            double minLat = Math.Min(-topLeft.Y, -bottomRight.Y) + _mapService.OffsetMundoY;
+                            double maxLat = Math.Max(-topLeft.Y, -bottomRight.Y) + _mapService.OffsetMundoY;
 
-                            // Garante o Multithreading e 2GB de RAM para o corte
                             string[] warpArgs = {
                                 "-te", minLng.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                        minLat.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                        maxLng.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                        maxLat.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                                "-t_srs", "EPSG:4326",
+                                // Sem conversão EPSG:4326 forçada para garantir alinhamento milimétrico
                                 "-ts", width.ToString(), height.ToString(),
                                 "-r", "bilinear",
                                 "-dstalpha",
-                                "-wm", "2048", // Warp Memory: 2 Gigabytes
+                                "-wm", "2048",
                                 "-multi",
                                 "-wo", "NUM_THREADS=ALL_CPUS",
                                 "-of", "MEM"
@@ -127,6 +133,8 @@ public class LocalMapServer
                                     if (ptr != IntPtr.Zero)
                                     {
                                         memDs.ReadRaster(0, 0, width, height, ptr, width, height, DataType.GDT_Byte, numBandas, listaBandas, 4, width * 4, 1);
+
+                                        // Imprime a imagem do GDAL estritamente a 100% da escala da tela
                                         canvas.DrawBitmap(rasterBitmap, 0, 0);
                                     }
                                 }
@@ -134,28 +142,66 @@ public class LocalMapServer
                         }
                     }
 
-                    // A EXECUÇÃO TURBO: Desenha toda a cidade/lotes de Guaratuba com um único comando GPU
-                    // A EXECUÇÃO TURBO: Desenha toda a malha vetorial com um único comando GPU
-                    if (_mapService.VetoresPorCamada.ContainsKey(camadaAtual))
+                    // 1. DESENHA POLÍGONOS (Com Preenchimento)
+                    if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
                     {
                         canvas.SetMatrix(matriz);
-
                         float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-
-                        // 1. CLONAGEM DO PINCEL BASE (Isolamento de Thread)
                         using var pincelBordaLOD = _mapService.PincelBorda.Clone();
                         pincelBordaLOD.StrokeWidth = 1f / zoomReal;
 
-                        var superPath = _mapService.VetoresPorCamada[camadaAtual];
+                        canvas.DrawPath(polyPath, _mapService.PincelFill);
+                        if (zoomReal > 0.0005f) canvas.DrawPath(polyPath, pincelBordaLOD);
+                    }
 
-                        canvas.DrawPath(superPath, _mapService.PincelFill);
+                    // 2. DESENHA LINHAS (Estritamente sem preenchimento)
+                    if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
+                    {
+                        canvas.SetMatrix(matriz);
+                        float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+                        using var pincelBordaLOD = _mapService.PincelBorda.Clone();
+                        pincelBordaLOD.StrokeWidth = 2f / zoomReal; // Linha de rua mais grossa para visibilidade
 
-                        if (zoomReal > 0.0005f)
-                        {
-                            canvas.DrawPath(superPath, pincelBordaLOD);
-                        }
+                        canvas.DrawPath(linePath, pincelBordaLOD);
+                    }
+
+                    // 3. DESENHA PONTOS
+                    if (_mapService.PontosPorCamada.TryGetValue(camadaAtual, out var pointPath))
+                    {
+                        canvas.SetMatrix(matriz);
+                        float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+                        using var pincelBordaLOD = _mapService.PincelBorda.Clone();
+                        pincelBordaLOD.StrokeWidth = 1f / zoomReal;
+                        using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan, IsAntialias = true };
+
+                        canvas.DrawPath(pointPath, pincelPonto);
+                        canvas.DrawPath(pointPath, pincelBordaLOD);
                     }
                 } // Fim do ciclo for das camadas
+
+                // --- CAMADA DE SELEÇÃO E TOPOGRAFIA (Renderizada sempre no topo absoluto) ---
+                if (_mapService.CaminhoDestaquePoligono != null)
+                {
+                    canvas.SetMatrix(matriz);
+                    float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+                    using var pincelDestaqueBordaLOD = _mapService.PincelDestaqueBorda.Clone();
+                    pincelDestaqueBordaLOD.StrokeWidth = 3f / zoomReal;
+
+                    canvas.DrawPath(_mapService.CaminhoDestaquePoligono, _mapService.PincelDestaqueFill);
+                    canvas.DrawPath(_mapService.CaminhoDestaquePoligono, pincelDestaqueBordaLOD);
+                }
+
+                if (_mapService.CaminhoDestaqueLinha != null)
+                {
+                    canvas.SetMatrix(matriz);
+                    float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+                    using var pincelDestaqueBordaLOD = _mapService.PincelDestaqueBorda.Clone();
+                    pincelDestaqueBordaLOD.StrokeWidth = 4f / zoomReal; // Neón de destaque mais largo
+
+                    // A seleção de rua não preenche o centro, apenas brilha a borda!
+                    canvas.DrawPath(_mapService.CaminhoDestaqueLinha, pincelDestaqueBordaLOD);
+                }
+            } // Fim do ciclo for das camadaslo for das camadas
 
                 // --- CAMADA DE SELEÇÃO E TOPOGRAFIA (Renderizada sempre no topo absoluto) ---
                 if (_mapService.CaminhoDestaque != null)

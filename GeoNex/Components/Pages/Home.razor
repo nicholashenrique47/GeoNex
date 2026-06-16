@@ -1685,7 +1685,6 @@
         MapService.CameraPanY = 0f;
 
         objRef = DotNetObjectReference.Create(this);
-        CamadasAtivas.Add(new Camada { Nome = "OpenStreetMap", Tipo = "Raster", Visivel = true });
 
         // === TURBO DE HARDWARE SEGURO (Universal) ===
         // 1. Impede o GDAL de vasculhar a pasta do Windows
@@ -1751,6 +1750,7 @@
             exibirModalImportacao = false;
 
             // BLINDAGEM 3: Lock no momento da troca de Dataset para evitar choque de Threads
+            // BLINDAGEM 3: Lock no momento da troca de Dataset para evitar choque de Threads
             lock (MapService)
             {
                 if (MapService.DatasetRaster != null) MapService.DatasetRaster.Dispose();
@@ -1775,29 +1775,23 @@
                 double maxX = minX + (MapService.DatasetRaster.RasterXSize * trans[1]);
                 double minY = maxY + (MapService.DatasetRaster.RasterYSize * trans[5]);
 
-                double minLng = minX, minLat = minY, maxLng = maxX, maxLat = maxY;
-
-                string wkt = MapService.DatasetRaster.GetProjection();
-                if (!string.IsNullOrEmpty(wkt))
+                // === CORREÇÃO DE ALINHAMENTO UTM/RASTER ===
+                // Se a ortofoto for o primeiro ficheiro a ser carregado, ela define a Âncora do Mundo.
+                if (!MapService.OffsetMundoDefinido)
                 {
-                    using (var projOrigem = new OSGeo.OSR.SpatialReference(wkt))
-                    using (var projDestino = new OSGeo.OSR.SpatialReference(""))
-                    {
-                        projDestino.ImportFromEPSG(4326);
-                        projDestino.SetAxisMappingStrategy(OSGeo.OSR.AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
-
-                        using (var transform = new OSGeo.OSR.CoordinateTransformation(projOrigem, projDestino))
-                        {
-                            double[] ptMin = new double[] { minX, minY, 0 };
-                            double[] ptMax = new double[] { maxX, maxY, 0 };
-                            transform.TransformPoint(ptMin);
-                            transform.TransformPoint(ptMax);
-                            minLng = ptMin[0]; minLat = ptMin[1]; maxLng = ptMax[0]; maxLat = ptMax[1];
-                        }
-                    }
+                    MapService.OffsetMundoX = minX;
+                    MapService.OffsetMundoY = maxY;
+                    MapService.OffsetMundoDefinido = true;
                 }
 
-                MapService.LimitesRasterGlobal = new SkiaSharp.SKRect((float)minLng, (float)-maxLat, (float)maxLng, (float)-minLat);
+                // Grava os limites na memória gráfica anulando os "milhões" do UTM
+                MapService.LimitesRasterGlobal = new SkiaSharp.SKRect(
+                    (float)(minX - MapService.OffsetMundoX),
+                    (float)-(maxY - MapService.OffsetMundoY),
+                    (float)(maxX - MapService.OffsetMundoX),
+                    (float)-(minY - MapService.OffsetMundoY)
+                );
+
                 MapService.NomeRasterAtivo = System.IO.Path.GetFileName(caminhoArquivoRaster);
                 MapService.TemRaster = true;
             }
@@ -1806,10 +1800,12 @@
             MapService.CameraPanY = 0;
             MapService.CameraZoom = 1.0f;
             await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
-            var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == MapService.NomeRasterAtivo);
-            if (camadaExistente == null)
+            // Faça o mesmo onde adiciona a Ortofoto à interface:
+            // Faça o mesmo onde adiciona a Ortofoto à interface:
+            var rasterExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == MapService.NomeRasterAtivo);
+            if (rasterExistente == null)
             {
-                CamadasAtivas.Add(new Camada { Nome = MapService.NomeRasterAtivo, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster });
+                CamadasAtivas.Insert(0, new Camada { Nome = MapService.NomeRasterAtivo, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster });
             }
 
             SincronizarHierarquia();
@@ -1874,10 +1870,12 @@
             });
 
             // Impede que o Shapefile duplique o painel se for importado novamente
+            // Substitua o bloco do camadaExistente por este:
             var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeArquivo);
             if (camadaExistente == null)
             {
-                CamadasAtivas.Add(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
+                // .Insert(0) atira a nova camada para o Topo absoluto do Painel Lateral
+                CamadasAtivas.Insert(0, new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
             }
 
             // Reinicia a câmara para o mapa inicial
@@ -1952,13 +1950,16 @@
     // =========================================================================
     // 10. ARQUIVOS DE CONFIGURAÇÃO DE CAMADAS, CONTEXTO E ORDEM GRÁFICA
     // =========================================================================
-    private async Task ToggleCamada(Camada camada, bool estaVisivel)
+    private void ToggleCamada(Camada camada, bool estaVisivel)
     {
         camada.Visivel = estaVisivel;
-        SincronizarHierarquia();
-        await JSRuntime.InvokeVoidAsync("alternarVisibilidadeCamada", camada.Nome, estaVisivel);
-    }
 
+        // Atualiza a memória da Placa Gráfica e o Cérebro Matemático
+        SincronizarHierarquia();
+
+        // Força a atualização do ícone visual na interface
+        StateHasChanged();
+    }
     private void MostrarMenuContexto(MouseEventArgs e, string nomeCamada)
     {
         camadaSelecionadaMenu = nomeCamada;
@@ -2280,30 +2281,44 @@
     private void SincronizarHierarquia()
     {
         MapService.OrdemCamadas.Clear();
-        foreach (var camada in CamadasAtivas)
+
+        // O Filtro Absoluto: Só injeta na Placa Gráfica se o ícone do olho estiver ligado
+        for (int i = CamadasAtivas.Count - 1; i >= 0; i--)
         {
-            if (camada.Visivel) MapService.OrdemCamadas.Add(camada.Nome);
+            if (CamadasAtivas[i].Visivel)
+            {
+                MapService.OrdemCamadas.Add(CamadasAtivas[i].Nome);
+            }
         }
+
+        // Proteção contra Seleção Fantasma:
+        // Apaga o lote amarelo e limpa o painel se a camada que o contém for ocultada
+        if (!string.IsNullOrEmpty(camadaSelecionadaPainel))
+        {
+            var camadaSel = CamadasAtivas.FirstOrDefault(c => c.Nome == camadaSelecionadaPainel);
+            if (camadaSel != null && !camadaSel.Visivel)
+            {
+                MapService.DestacarFeicao(null);
+                camadaSelecionadaPainel = string.Empty;
+                atributosFeicaoSelecionada?.Clear();
+            }
+        }
+
         SolicitarNovoFrame();
     }
     [JSInvokable]
-    public async Task ProcessarCliqueRaycast(double telaX, double telaY, double panX, double panY, double zoom)
+    public async Task ProcessarCliqueRaycast(double telaX, double telaY)
     {
-        // 1. SINCRONIZAÇÃO IMEDIATA: O C# assume a perspetiva visual exata do operador
-        MapService.CameraPanX = (float)panX;
-        MapService.CameraPanY = (float)panY;
-        MapService.CameraZoom = (float)zoom;
+        // (As linhas que destruíam a memória do Zoom foram eliminadas daqui)
 
-        // 2. Recria os limites do mapa
         SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
         bool primeiro = true;
 
         if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
-        foreach (var path in MapService.VetoresPorCamada.Values)
-        {
-            if (primeiro) { limitesTotais = path.Bounds; primeiro = false; }
-            else { limitesTotais.Union(path.Bounds); }
-        }
+
+        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
 
         if (!limitesTotais.IsEmpty)
         {
@@ -2311,7 +2326,7 @@
             float escalaY = _alturaTela / limitesTotais.Height;
             float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
 
-            // 3. A Matriz agora reflete 100% o que o utilizador está a ver no ecrã
+            // Utiliza a memória intacta do servidor C# para calcular a intersecção
             var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
             matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
             matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
@@ -2323,7 +2338,13 @@
                 double xOriginal = ptMundo.X + MapService.OffsetMundoX;
                 double yOriginal = (-ptMundo.Y) + MapService.OffsetMundoY;
 
-                var feicaoAtingida = MapService.DispararRaycast(yOriginal, xOriginal, out string camadaAtingida);
+                // === CÁLCULO DE TOLERÂNCIA (Snapping) ===
+                // Define 5 píxeis de tela como raio de tolerância.
+                // Divide pela escala atual para descobrir quantos metros reais isso significa.
+                double toleranciaMetros = 5.0 / (escalaAutoFit * MapService.CameraZoom);
+
+                // Dispara o Raycast enviando o raio dinâmico
+                var feicaoAtingida = MapService.DispararRaycast(yOriginal, xOriginal, toleranciaMetros, out string camadaAtingida);
 
                 MapService.DestacarFeicao(feicaoAtingida);
 

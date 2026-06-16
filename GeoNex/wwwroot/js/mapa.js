@@ -1024,18 +1024,19 @@ window.mapEngine = {
         if (!this.dotNetHelper) return;
 
         const rect = this.container.getBoundingClientRect();
-        const telaX = clientX - rect.left;
-        const telaY = clientY - rect.top;
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
 
-        // Envia o Píxel Bruto E a câmara visual para o C# decodificar
-        this.dotNetHelper.invokeMethodAsync(
-            'ProcessarCliqueRaycast',
-            telaX,
-            telaY,
-            this.currentX,
-            this.currentY,
-            this.currentScale
-        ).catch(err => console.warn("Erro no Túnel de Comunicação JS-C#:", err));
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+
+        // Calcula o píxel exato da imagem anulando a animação CSS em andamento
+        const pixelImagemX = (mouseX - cx - this.currentX) / this.currentScale + cx;
+        const pixelImagemY = (mouseY - cy - this.currentY) / this.currentScale + cy;
+
+        // Envia APENAS 2 parâmetros para o C# (X e Y absolutos)
+        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', pixelImagemX, pixelImagemY)
+            .catch(err => console.warn("Erro no Túnel:", err));
     },
 
     animate: function (timestamp) {
@@ -1105,18 +1106,23 @@ window.mapEngine = {
                 this.imgAtiva.style.opacity = 1;
             });
 
-            this.targetScale = this.targetScale / this.pendingScale;
-            this.currentScale = this.currentScale / this.pendingScale;
+            // === A PROTEÇÃO CONTRA O BUG DO ZOOM! ===
+            // Só compensa a câmara se a imagem for fruto de um "arrasto/scroll" do rato.
+            // Se for apenas o lote a ficar amarelo (clique), não mexe na escala!
+            if (this.isFetching) {
+                this.targetScale = this.targetScale / this.pendingScale;
+                this.currentScale = this.currentScale / this.pendingScale;
 
-            this.targetX = this.targetX - (this.pendingX * this.targetScale);
-            this.targetY = this.targetY - (this.pendingY * this.targetScale);
+                this.targetX = this.targetX - (this.pendingX * this.targetScale);
+                this.targetY = this.targetY - (this.pendingY * this.targetScale);
 
-            this.currentX = this.currentX - (this.pendingX * this.currentScale);
-            this.currentY = this.currentY - (this.pendingY * this.currentScale);
+                this.currentX = this.currentX - (this.pendingX * this.currentScale);
+                this.currentY = this.currentY - (this.pendingY * this.currentScale);
+
+                this.isFetching = false;
+            }
 
             this.container.style.transform = `translate3d(${this.currentX}px, ${this.currentY}px, 0) scale(${this.currentScale})`;
-
-            this.isFetching = false;
 
             if (this.hasPendingRequest) {
                 this.scheduleRender();
