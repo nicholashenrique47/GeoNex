@@ -9,21 +9,20 @@
 @using ProjNet.CoordinateSystems
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
-@if (_ferramentaAtiva == ModoFerramenta.Medicao)
-{
-    
-}
+
 <div id="map-container"
      tabindex="0"
      @onkeydown="ProcessarTeclado"
      @onpointerdown="ProcessarPressionarMouse"
      @onpointerup="ProcessarSoltarMouse"
      @onpointermove="ProcessarMovimentoMouse"
-     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: @(_isPanning ? "grabbing" : "crosshair"); touch-action: none; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">
-    <img id="skia-layer"
-         draggable="false"
-         style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; z-index: 10; object-fit: cover; pointer-events: none;
-    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none;" />
+     style="width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden;">
+
+    <img src="@_mapaUrl" style="width: 100%; height: 100%; object-fit: fill; pointer-events: none; position: absolute; left: 0; top: 0;" />
+
+    <canvas id="overlayCanvas"
+            style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;">
+    </canvas>
 </div>
 //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
@@ -2145,6 +2144,8 @@
 </style>
 
 @code {
+    // Variável que alimenta a Camada 1 (Fundo do Mapa)
+    private string _mapaUrl = "";
         // =========================================================================
         // MÁQUINA DE ESTADOS DO MAPA (CONTROLO ESTRITO DE INTERAÇÃO)
         // =========================================================================
@@ -2351,10 +2352,13 @@
     // =========================================================================
     private void SolicitarNovoFrame()
     {
-        string url = $"{_server.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
-        InvokeAsync(() => JSRuntime.InvokeVoidAsync("mapEngine.carregarNovoFrame", url));
+        // O parâmetro 't' com Ticks força o navegador a baixar a imagem nova e ignorar o cache antigo!
+        _mapaUrl = $"http://localhost:A_SUA_PORTA/mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
 
+        // Ou, se você tem acesso à classe do servidor diretamente no Home.razor:
+        // _mapaUrl = $"{ServidorMapas.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
 
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task AdicionarCamadaAoMapa()
@@ -2965,7 +2969,7 @@
                 double xMundo = ptMundo.X + MapService.OffsetMundoX;
                 double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
 
-                // MÁQUINA DE ESTADOS DO CLIQUE (Limpa e Única)
+                // MÁQUINA DE ESTADOS DO CLIQUE COORDENADO
                 switch (_ferramentaAtiva)
                 {
                     case ModoFerramenta.Identificacao:
@@ -2993,25 +2997,28 @@
                             camadaSelecionadaPainel = string.Empty;
                             atributosFeicaoSelecionada?.Clear();
                         }
+
+                        SolicitarNovoFrame(); // Identificação exige re-renderizar do servidor para destacar polígono
                         break;
 
                     case ModoFerramenta.Medicao:
                         var ptFinal = ptMundo;
 
-                        // GARANTIA ABSOLUTA DE ACURÁCIA MATEMÁTICA
-                        // Recalcula o snap no milissegundo exato do clique para ignorar as falhas da mão humana
                         if (_snapMedicaoAtivo)
                         {
                             float toleranciaSnap = (float)(15.0 / (escalaAutoFit * MapService.CameraZoom));
                             var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
                             if (ptMagnetico.HasValue)
                             {
-                                ptFinal = ptMagnetico.Value; // O clique "rouba" a coordenada real do vértice!
+                                ptFinal = ptMagnetico.Value;
                             }
                         }
 
                         MapService.PontosMedicao.Add(ptFinal);
                         RecalcularMedicoes();
+
+                        // Atualização local imediata do desenho no frontend canvas
+                        await AtualizarCanvasOverlayLocal();
                         break;
 
                     case ModoFerramenta.AquisicaoPoligono:
@@ -3021,7 +3028,6 @@
                         break;
                 }
 
-                SolicitarNovoFrame();
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -3130,9 +3136,10 @@
     // =========================================================================
     private DateTime _ultimoMovimentoMouse = DateTime.MinValue;
 
-    private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    private async Task ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        bool precisaRenderizar = false;
+        bool precisaRenderizarServidor = false;
+        bool precisaAtualizarCanvasOverlay = false;
 
         // 1. A MATEMÁTICA DO PAN (Executa sempre para não perder nenhum milímetro do rato)
         if (_isPanning)
@@ -3146,7 +3153,7 @@
             _lastMouseX = e.OffsetX;
             _lastMouseY = e.OffsetY;
 
-            precisaRenderizar = true;
+            precisaRenderizarServidor = true;
         }
 
         // 2. A MATEMÁTICA DA MEDIÇÃO / SNAP (Só executa se não estiver a usar o Pan)
@@ -3193,27 +3200,35 @@
                     {
                         MapService.PontoCursorSnap = null;
                     }
-                    precisaRenderizar = true;
+                    precisaAtualizarCanvasOverlay = true;
                 }
             }
         }
 
-        // 3. O ESCUDO ANTI-ENGARRAFAMENTO HTTP (Garante que a GPU respira)
-        if (precisaRenderizar)
+        // 3. SELEÇÃO INTELIGENTE DE RENDERING PIPELINE (60 FPS REAL)
+        if (precisaRenderizarServidor)
         {
-            // Limitado a ~33 FPS. Impede que a tela receba imagens fora de ordem (Efeito Elástico)
-            if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 30)
+            if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
+            {
+                _ultimoMovimentoMouse = DateTime.Now;
+                SolicitarNovoFrame(); // Pan aciona renderização do fundo estático via servidor
+            }
+        }
+        else if (precisaAtualizarCanvasOverlay)
+        {
+            if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
             {
                 _ultimoMovimentoMouse = DateTime.Now;
 
-                // Atualiza números ao vivo da régua se a linha elástica estiver a mover
-                if (_ferramentaAtiva == ModoFerramenta.Medicao && MapService.PontosMedicao.Count > 0)
+                // Atualiza as propriedades numéricas da UI lateral
+                if (MapService.PontosMedicao.Count > 0)
                 {
                     RecalcularMedicoes();
                     StateHasChanged();
                 }
 
-                SolicitarNovoFrame(); // Dispara o pedido à Placa de Vídeo
+                // Desenho imediato na GPU local via Canvas Overlay (0ms HTTP Cost)
+                await AtualizarCanvasOverlayLocal();
             }
         }
     }
@@ -3266,5 +3281,52 @@
             MapService.IsPanning = false; // AVISA A GPU: "Largou o rato!"
             SolicitarNovoFrame(); // Força a placa a renderizar as bordas da Ortofoto
         }
+    }
+    private SkiaSharp.SKPoint MatrizMundoParaTela(SkiaSharp.SKPoint ptMundo)
+    {
+        SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
+        bool primeiro = true;
+
+        if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+
+        if (limitesTotais.IsEmpty) return ptMundo;
+
+        float escalaX = _larguraTela / limitesTotais.Width;
+        float escalaY = _alturaTela / limitesTotais.Height;
+        float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+
+        // Criação da matriz direta de projeção para a viewport ativa
+        var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
+
+        return matriz.MapPoint(ptMundo);
+    }
+
+    // =========================================================================
+    // PIPELINE DE ATUALIZAÇÃO DO CANVAS OVERLAY VIA INTEROP JAVASCRIPT
+    // =========================================================================
+    private async Task AtualizarCanvasOverlayLocal()
+    {
+        // Converte as coordenadas geográficas estáveis para píxeis inteiros de tela
+        var pontosTela = MapService.PontosMedicao
+            .Select(p => { var pt = MatrizMundoParaTela(p); return new { x = pt.X, y = pt.Y }; })
+            .ToList();
+
+        var mouseMundo = MapService.PontoCursorMundo;
+        var mouseTela = mouseMundo.HasValue
+            ? new { x = MatrizMundoParaTela(mouseMundo.Value).X, y = MatrizMundoParaTela(mouseMundo.Value).Y }
+            : null;
+
+        var snapMundo = MapService.PontoCursorSnap;
+        var snapTela = snapMundo.HasValue
+            ? new { x = MatrizMundoParaTela(snapMundo.Value).X, y = MatrizMundoParaTela(snapMundo.Value).Y }
+            : null;
+
+        // Invocação imediata do contexto gráfico 2D do navegador
+        await JSRuntime.InvokeVoidAsync("GeoNexGraphics.atualizarOverlay", pontosTela, mouseTela, snapTela);
     }
 }
