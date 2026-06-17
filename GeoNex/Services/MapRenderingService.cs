@@ -28,6 +28,48 @@ namespace GeoNex.Services
         public Dictionary<string, SKPath> PontosPorCamada { get; private set; } = new();
         public List<string> OrdemCamadas { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
+        // === INDICADOR VISUAL DO SNAP (ARCGIS HOVER) ===
+        public SkiaSharp.SKPoint? PontoCursorSnap { get; set; }
+        public SkiaSharp.SKPoint? PontoCursorMundo { get; set; }
+        public bool MostrarAreaMedicao { get; set; } = false; // Controla se desenha a área
+
+        // === MOTOR DE SNAP (ATRAÇÃO MAGNÉTICA) ===
+        // 2. MOTOR DE SNAP MAGNÉTICO (Procura vértices em TODAS as camadas)
+        // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO
+        public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo)
+        {
+            SkiaSharp.SKPoint? melhorPonto = null;
+            float menorDistanciaSq = toleranciaMundo * toleranciaMundo;
+
+            void ChecarVertices(Dictionary<string, SKPath> dicionarioPaths)
+            {
+                foreach (var path in dicionarioPaths.Values)
+                {
+                    // OTIMIZAÇÃO: Acede aos pontos apenas uma vez por geometria, 
+                    // evitando sobrecarga de alocação de memória na RAM.
+                    var pontosDaGeometria = path.Points;
+                    int numPontos = pontosDaGeometria.Length;
+
+                    for (int i = 0; i < numPontos; i++)
+                    {
+                        var pt = pontosDaGeometria[i];
+                        float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
+
+                        if (distSq < menorDistanciaSq)
+                        {
+                            menorDistanciaSq = distSq;
+                            melhorPonto = pt;
+                        }
+                    }
+                }
+            }
+
+            ChecarVertices(VetoresPorCamada);
+            ChecarVertices(LinhasPorCamada);
+            ChecarVertices(PontosPorCamada);
+
+            return melhorPonto;
+        }
         public string NomeRasterAtivo { get; set; } = "";
 
         // O MOTOR ANALÍTICO ESPACIAL (RAM C#) - Agora utilizando IFeature rigorosamente
@@ -36,6 +78,12 @@ namespace GeoNex.Services
         public Dataset DatasetRaster { get; set; }
         public bool TemRaster { get; set; } = false;
         public SkiaSharp.SKRect LimitesRasterGlobal { get; set; }
+        // === CACHE DE ALTA PERFORMANCE PARA O RATO ===
+        public SKBitmap? RasterCache { get; set; }
+        public string CacheKey { get; set; } = "";
+        public float CachePanX { get; set; } = 0;
+        public float CachePanY { get; set; } = 0;
+        public bool IsPanning { get; set; } = false; // Avisa a GPU que estamos a arrastar
         // === FERRAMENTAS DE MEDIÇÃO ===
         public event Action? OnMapInvalidated;
 

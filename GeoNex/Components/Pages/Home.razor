@@ -11,33 +11,15 @@
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 @if (_ferramentaAtiva == ModoFerramenta.Medicao)
 {
-    <div class="measure-panel">
-        <div class="measure-header">
-            <span>MEDIÇÃO TOPOGRÁFICA</span>
-            <button class="btn-clear-measure" @onclick="LimparMedicao">LIMPAR RASTRO</button>
-        </div>
-
-        <div class="measure-body">
-            <div class="measure-data">
-                <span class="data-label">Comprimento Linear</span>
-                <span class="data-value">@_medicaoComprimentoMetros.ToString("N2") m</span>
-            </div>
-
-            @if (MapService.PontosMedicao.Count >= 3)
-            {
-                <div class="measure-divider"></div>
-                <div class="measure-data">
-                    <span class="data-label">Área Plana Fechada</span>
-                    <span class="data-value area-color">@_medicaoAreaM2.ToString("N2") m²</span>
-                </div>
-            }
-        </div>
-    </div>
+    
 }
 <div id="map-container"
-     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: grab;
-    touch-action: none; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">
-
+     tabindex="0"
+     @onkeydown="ProcessarTeclado"
+     @onpointerdown="ProcessarPressionarMouse"
+     @onpointerup="ProcessarSoltarMouse"
+     @onpointermove="ProcessarMovimentoMouse"
+     style="width: 100vw; height: 100vh; background-color: #161921; transform-origin: center center; position: absolute; left:0; top:0; z-index: 0; cursor: @(_isPanning ? "grabbing" : "crosshair"); touch-action: none; user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;">
     <img id="skia-layer"
          draggable="false"
          style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; z-index: 10; object-fit: cover; pointer-events: none;
@@ -182,28 +164,18 @@
             <div class="layer-list custom-scrollbar">
                 @foreach (var camada in CamadasAtivas)
                 {
-                    // Variável local de segurança para o Blazor não se perder nos eventos de clique
+                    // Variável local de segurança para o Blazor
                     var camadaAtual = camada;
-                    <div draggable="true"
-                         @ondragstart="() => IniciarArraste(camada)"
-                         @ondrop="() => SoltarCamada(camada)"
-                         @ondragover:preventDefault
-                         style="cursor: grab; margin-bottom: 5px; /* mantenha o seu design aqui */">
 
-                        @camada.Nome
-                    </div>
-                    <!-- A camada agora é arrastável nativamente -->
                     <div @key="camadaAtual.Nome"
                          class="layer-item @(camadaAtual.Tipo.ToLower())"
                          draggable="true"
                          @ondragstart="() => AoIniciarArrastar(camadaAtual)"
                          @ondrop="() => AoSoltarCamada(camadaAtual)"
-                         @ondragover="@(e => { })"
                          @ondragover:preventDefault="true"
                          @oncontextmenu="(e) => MostrarMenuContexto(e, camadaAtual.Nome)"
                          @oncontextmenu:preventDefault="true">
 
-                        <!-- PEGADOR (Drag Handle) - Indica onde agarrar -->
                         <div class="drag-handle" title="Arrastar para reordenar">
                             <svg width="12" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="9" cy="12" r="1"></circle>
@@ -223,14 +195,12 @@
                             @(camadaAtual.Tipo == "Raster" ? "R" : "V")
                         </span>
 
-                        <span class="layer-title no-select">@camadaAtual.Nome</span>
+                        <span class="layer-title no-select" title="@camadaAtual.Nome">@camadaAtual.Nome</span>
 
-                        <!-- O resto dos seus botões continuam iguais aqui para baixo... -->
                         @if (camadaAtual.Tipo == "Vetor")
                         {
                             <div class="layer-actions" style="display: flex; gap: 5px; margin-left: auto;">
 
-                                <!-- Botão 1: Tabela -->
                                 <button type="button" class="layer-action-btn" title="Abrir Tabela de Atributos"
                                         @onclick="() => AbrirTabela(camadaAtual.Nome)"
                                         @onclick:stopPropagation="true">
@@ -241,7 +211,6 @@
                                     </svg>
                                 </button>
 
-                                <!-- Botão 2: Propriedades -->
                                 <button type="button" class="layer-action-btn" title="Propriedades da Camada"
                                         @onclick="() => AbrirPropriedadesCamada(camadaAtual.Nome)"
                                         @onclick:stopPropagation="true">
@@ -251,8 +220,6 @@
                                     </svg>
                                 </button>
 
-                                <!-- NOVO MENU DE CONTEXTO (Três Pontinhos) -->
-                                <!-- MENU DE CONTEXTO (Três Pontinhos) -->
                                 <button type="button" class="layer-action-btn" title="Opções da Camada"
                                         @onclick="(e) => BotaoOpcoesClicado(e, camadaAtual.Nome)"
                                         @onclick:stopPropagation="true">
@@ -282,50 +249,87 @@
         <!-- PAINEL DIREITO: ATRIBUTOS -->
         <aside class="glass-panel side-panel right-panel">
             <div class="panel-header">
-                <h2>ATRIBUTOS DA FEIÇÃO</h2>
+                <h2>@(_ferramentaAtiva == ModoFerramenta.Medicao ? "FERRAMENTAS DE MEDIÇÃO" : "ATRIBUTOS DA FEIÇÃO")</h2>
             </div>
-            <div class="properties-content custom-scrollbar">
 
-                @if (atributosFeicaoSelecionada != null && atributosFeicaoSelecionada.Count > 0)
+            <div class="properties-content custom-scrollbar" style="padding: 15px;">
+
+                @if (_ferramentaAtiva == ModoFerramenta.Medicao)
                 {
-                    <div class="attribute-form">
-                        <div class="form-group mb-15" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
-                            <label>Camada Origem</label>
-                            <span style="font-size: 0.75rem; color: #38bdf8; font-weight: bold; word-break: break-all;">@camadaSelecionadaPainel</span>
+                    <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 20px;">
+                        <span style="font-size: 0.65rem; color: #94a3b8; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 10px;">Opções de Mensura</span>
+
+                        <div style="display: flex; gap: 10px;">
+                            <button class="tool-btn @(_snapMedicaoAtivo ? "active" : "")"
+                                    @onclick="() => _snapMedicaoAtivo = !_snapMedicaoAtivo"
+                                    title="Atrair para Vértices (Snap Magnético)"
+                                    style="font-size: 1.2rem; padding: 6px 12px;">
+                                🧲
+                            </button>
+
+                            <button class="tool-btn @(MapService.MostrarAreaMedicao ? "active" : "")"
+                                    @onclick="@(() => { MapService.MostrarAreaMedicao = !MapService.MostrarAreaMedicao; SolicitarNovoFrame(); StateHasChanged(); })"
+                                    title="Calcular e Desenhar Área Poligonal"
+                                    style="font-size: 1.2rem; padding: 6px 12px;">
+                                📐
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 20px; padding: 10px 5px;">
+                        <div class="form-group-vertical" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                            <label style="color: #64748b;">COMPRIMENTO LINEAR</label>
+                            <span style="font-family: monospace; font-size: 1.6rem; font-weight: 500; color: #e2e8f0;">@_medicaoComprimentoMetros.ToString("N2") <span style="font-size: 1rem; color: #94a3b8;">m</span></span>
                         </div>
 
-                        @foreach (var atributo in atributosFeicaoSelecionada)
+                        @if (MapService.MostrarAreaMedicao && MapService.PontosMedicao.Count >= 3)
                         {
-                            <div class="form-group">
-                                <label>@atributo.Key</label>
-                                @if (atributo.Key.ToUpper() == "FID" || atributo.Key.ToUpper() == "ID")
-                                {
-                                    <input type="text" class="glass-input" value="@atributo.Value" readonly style="opacity: 0.6;" />
-                                }
-                                else
-                                {
-                                    <input type="text" class="glass-input editable" value="@atributo.Value" @onchange="(e) => AtualizarAtributoPainel(atributo.Key, e.Value.ToString())" />
-                                }
+                            <div class="form-group-vertical" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                                <label style="color: #64748b;">ÁREA PLANA FECHADA</label>
+                                <span style="font-family: monospace; font-size: 1.6rem; font-weight: 500; color: #38bdf8;">@_medicaoAreaM2.ToString("N2") <span style="font-size: 1rem; color: #94a3b8;">m²</span></span>
                             </div>
                         }
 
-                        <div class="import-actions" style="margin-top: 20px;">
-                            <button class="btn-save add-layer-btn" style="width: 100%;" @onclick="SalvarAtributosPainel">SALVAR ALTERAÇÕES</button>
-                        </div>
+                        <button class="btn-cancel" style="width: 100%; margin-top: 10px; border-color: rgba(239, 68, 68, 0.3); color: #f87171;" @onclick="LimparMedicao">
+                            LIMPAR RASTRO
+                        </button>
                     </div>
                 }
                 else
                 {
-                    <div style="display: flex; height: 100%; align-items: center; justify-content: center; color: #64748b; font-size: 0.85rem; text-align: center; padding: 20px; flex-direction: column; gap: 10px;">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                        </svg>
-                        <span>Selecione um polígono no mapa para inspecionar seus atributos.</span>
-                    </div>
-                }
+                    @if (atributosFeicaoSelecionada != null && atributosFeicaoSelecionada.Count > 0)
+                    {
+                        <div class="attribute-form">
+                            <div class="form-group mb-15" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+                                <label>Camada Origem</label>
+                                <span style="font-size: 0.75rem; color: #38bdf8; font-weight: bold; word-break: break-all;">@camadaSelecionadaPainel</span>
+                            </div>
 
+                            @foreach (var atributo in atributosFeicaoSelecionada)
+                            {
+                                <div class="form-group">
+                                    <label>@atributo.Key</label>
+                                    @if (atributo.Key.ToUpper() == "FID" || atributo.Key.ToUpper() == "ID")
+                                    {
+                                        <input type="text" class="glass-input" value="@atributo.Value" readonly style="opacity: 0.6;" />
+                                    }
+                                    else
+                                    {
+                                        <input type="text" class="glass-input editable" value="@atributo.Value" @onchange="(e) => AtualizarAtributoPainel(atributo.Key, e.Value.ToString())" />
+                                    }
+                                </div>
+                            }
+                            <button class="btn-save add-layer-btn" style="width: 100%; margin-top: 20px;" @onclick="SalvarAtributosPainel">SALVAR ALTERAÇÕES</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="display: flex; height: 100%; align-items: center; justify-content: center; color: #64748b; font-size: 0.85rem; text-align: center; padding: 20px; flex-direction: column; gap: 10px;">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                            <span>Selecione um polígono no mapa para inspecionar seus atributos.</span>
+                        </div>
+                    }
+                }
             </div>
         </aside>
 
@@ -718,51 +722,53 @@
         </div>
     }
     
-        @if (exibirModalTrocaVertice)
-        {
-            <div class="modal-overlay">
-                <div class="glass-panel" style="width: 400px;">
-                    <div class="modal-header">
-                        <h2>AJUSTE DE VÉRTICE: V@(verticeEditandoIndice + 1)</h2>
-                        <button class="close-btn" @onclick="() => exibirModalTrocaVertice = false">✕</button>
-                    </div>
-                    <div class="modal-body" style="padding: 15px; display: flex; flex-direction: column; gap: 10px;">
+    @if (exibirModalTrocaVertice)
+    {
+        <div class="modal-overlay">
+            <div class="glass-panel" style="width: 400px;">
+                <div class="modal-header">
+                    <h2>AJUSTE DE VÉRTICE: V@(verticeEditandoIndice + 1)</h2>
+                    <button class="close-btn" @onclick="() => exibirModalTrocaVertice = false">✕</button>
+                </div>
+                <div class="modal-body" style="padding: 15px; display: flex; flex-direction: column; gap: 10px;">
 
-                        <div class="form-row">
+                    <div class="form-row">
+                        <div class="form-group-vertical">
+                            <label>SISTEMA (CRS)</label>
+                            <select class="glass-input" @bind="sistemaCoordenadasEdicao">
+                                <option value="DECIMAL">Decimal (WGS 84)</option>
+                                <option value="UTM">UTM (SIRGAS 2000)</option>
+                            </select>
+                        </div>
+                        @if (sistemaCoordenadasEdicao == "UTM")
+                        {
                             <div class="form-group-vertical">
-                                <label>SISTEMA (CRS)</label>
-                                <select class="glass-input" @bind="sistemaCoordenadasEdicao">
-                                    <option value="DECIMAL">Decimal (WGS 84)</option>
-                                    <option value="UTM">UTM (SIRGAS 2000)</option>
-                                </select>
+                                <label>FUSO / ZONA UTM</label>
+                                <input type="text" class="glass-input" @bind="zonaUtmEdicao" placeholder="Ex: 22S" />
                             </div>
-                            @if (sistemaCoordenadasEdicao == "UTM")
-                            {
-                                <div class="form-group-vertical">
-                                    <label>FUSO / ZONA UTM</label>
-                                    <input type="text" class="glass-input" @bind="zonaUtmEdicao" placeholder="Ex: 22S" />
-                                </div>
-                            }
-                        </div>
-
-                        <div class="form-group-vertical">
-                            <label>@(sistemaCoordenadasEdicao == "UTM" ? "COORDENADA NORTE (Y)" : "LATITUDE (Y)")</label>
-                            <input type="text" class="glass-input" @bind="verticeEditandoY" />
-                        </div>
-                        <div class="form-group-vertical">
-                            <label>@(sistemaCoordenadasEdicao == "UTM" ? "COORDENADA ESTE (X)" : "LONGITUDE (X)")</label>
-                            <input type="text" class="glass-input" @bind="verticeEditandoX" />
-                        </div>
-
+                        }
                     </div>
-                    <div class="modal-footer" style="padding: 15px; display: flex; justify-content: flex-end; gap: 10px; background: rgba(0,0,0,0.2);">
-                        <button class="btn-cancel" @onclick="() => exibirModalTrocaVertice = false">CANCELAR</button>
-                        <button class="btn-save" @onclick="ForcarVerticeManual">MOVER VÉRTICE</button>
+
+                    <div class="form-group-vertical">
+                        <label>@(sistemaCoordenadasEdicao == "UTM" ? "COORDENADA NORTE (Y)" : "LATITUDE (Y)")</label>
+                        <input type="text" class="glass-input" @bind="verticeEditandoY" />
                     </div>
+                    <div class="form-group-vertical">
+                        <label>@(sistemaCoordenadasEdicao == "UTM" ? "COORDENADA ESTE (X)" : "LONGITUDE (X)")</label>
+                        <input type="text" class="glass-input" @bind="verticeEditandoX" />
+                    </div>
+
+                </div>
+                <div class="modal-footer" style="padding: 15px; display: flex; justify-content: flex-end; gap: 10px; background: rgba(0,0,0,0.2);">
+                    <button class="btn-cancel" @onclick="() => exibirModalTrocaVertice = false">CANCELAR</button>
+                    <button class="btn-save" @onclick="ForcarVerticeManual">MOVER VÉRTICE</button>
                 </div>
             </div>
-        }
-</div> <!-- Fim da div geonex-ui -->
+        </div>
+    }
+
+</div>} <!-- Fim da div geonex-ui -->
+}
 <style>
     /* =========================================================
        PAINEL DE MEDIÇÃO TOPOGRÁFICA (PADRÃO ARCGIS PRO)
@@ -2099,12 +2105,49 @@
     .smooth-transform {
         transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
     }
+
+    /* =========================================================
+           PAINEL DE MEDIÇÃO TOPOGRÁFICA (CENTRALIZADO)
+           ========================================================= */
+    .measure-panel {
+        position: absolute;
+        top: 75px;
+        left: 50%; /* Joga o painel para o meio do ecrã */
+        transform: translateX(-50%); /* Ajuste matemático para centralizar perfeitamente */
+        width: auto;
+        min-width: 380px;
+        background: rgba(18, 22, 31, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+        z-index: 2500;
+        font-family: 'Segoe UI', 'Open Sans', sans-serif;
+        pointer-events: auto;
+    }
+
+    /* Modifica o layout interno para ficar lado-a-lado (Horizontal) */
+    .measure-body {
+        padding: 12px 20px;
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        gap: 30px;
+    }
+
+    .measure-divider {
+        width: 1px;
+        height: 35px;
+        background: rgba(255, 255, 255, 0.1);
+    }
 </style>
 
 @code {
-    // =========================================================================
-    // MÁQUINA DE ESTADOS DO MAPA (CONTROLO ESTRITO DE INTERAÇÃO)
-    // =========================================================================
+        // =========================================================================
+        // MÁQUINA DE ESTADOS DO MAPA (CONTROLO ESTRITO DE INTERAÇÃO)
+        // =========================================================================
     public enum ModoFerramenta
     {
         Navegacao,        // Apenas Pan e Zoom (Cursor: Grab)
@@ -2117,6 +2160,8 @@
     }
 
     private ModoFerramenta _ferramentaAtiva = ModoFerramenta.Identificacao; // O Padrão do SIG
+    private bool _snapMedicaoAtivo = false; // Snap ativado por padrão
+
     // =========================================================================
     // 1. VARIÁVEIS DE ESTADO DA INTERFACE E TELEMETRIA
     // =========================================================================
@@ -2154,8 +2199,8 @@
     private int _alturaTela = 1080;
 
     // Controladores de estado tátil do Viewport (CSS Transforms Assíncronos)
-    
-    
+
+
 
     // =========================================================================
     // 3. ESTADOS E ACUMULADORES DO FRAMEWORK GIS (TABELAS, ATRIBUTOS E SIMBOLOGIA)
@@ -2298,7 +2343,7 @@
     {
         objRef?.Dispose();
         _server?.Stop();
-        
+
     }
 
     // =========================================================================
@@ -2309,7 +2354,7 @@
         string url = $"{_server.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
         InvokeAsync(() => JSRuntime.InvokeVoidAsync("mapEngine.carregarNovoFrame", url));
 
-       
+
     }
 
     private async Task AdicionarCamadaAoMapa()
@@ -2374,6 +2419,11 @@
             MapService.CameraPanX = 0;
             MapService.CameraPanY = 0;
             MapService.CameraZoom = 1.0f;
+            MapService.RasterCache?.Dispose();
+            MapService.RasterCache = null;
+
+            SolicitarNovoFrame();
+            StateHasChanged();
             await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
             // Faça o mesmo onde adiciona a Ortofoto à interface:
             // Faça o mesmo onde adiciona a Ortofoto à interface:
@@ -2457,6 +2507,11 @@
             MapService.CameraPanX = 0;
             MapService.CameraPanY = 0;
             MapService.CameraZoom = 1.0f;
+            MapService.RasterCache?.Dispose();
+            MapService.RasterCache = null;
+
+            SolicitarNovoFrame();
+            StateHasChanged();
             await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
 
             StateHasChanged();
@@ -2884,8 +2939,6 @@
     [JSInvokable]
     public async Task ProcessarCliqueRaycast(double telaX, double telaY)
     {
-        // (As linhas que destruíam a memória do Zoom foram eliminadas daqui)
-
         SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
         bool primeiro = true;
 
@@ -2901,7 +2954,6 @@
             float escalaY = _alturaTela / limitesTotais.Height;
             float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
 
-            // Utiliza a memória intacta do servidor C# para calcular a intersecção
             var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
             matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
             matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
@@ -2910,42 +2962,62 @@
             {
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
 
-                // === INTERCETOR DE FERRAMENTA ===
-                if (_ferramentaAtiva == ModoFerramenta.Medicao)
-                {
-                    MapService.PontosMedicao.Add(ptMundo);
-                    RecalcularMedicoes();
-                    SolicitarNovoFrame();
-                    await InvokeAsync(StateHasChanged);
-                    return; // Bloqueia a continuação do código. O clique não seleciona lotes!
-                }
-                // ... (o código original do seu Raycast continua aqui para baixo) ...
                 double xMundo = ptMundo.X + MapService.OffsetMundoX;
                 double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
 
-                // MÁQUINA DE ESTADOS DO CLIQUE
+                // MÁQUINA DE ESTADOS DO CLIQUE (Limpa e Única)
                 switch (_ferramentaAtiva)
                 {
                     case ModoFerramenta.Identificacao:
-                        // O seu código original de Raycast (Snapping de 5 pixels) entra AQUI
                         double tolerancia = 5.0 / (escalaAutoFit * MapService.CameraZoom);
                         var feicao = MapService.DispararRaycast(yMundo, xMundo, tolerancia, out string camadaAtingida);
-                        // ... atualizar o painel de atributos
+
+                        MapService.DestacarFeicao(feicao);
+
+                        if (feicao != null)
+                        {
+                            camadaSelecionadaPainel = camadaAtingida;
+                            atributosFeicaoSelecionada = new Dictionary<string, string>();
+
+                            if (feicao.Attributes != null)
+                            {
+                                foreach (var nomeCampo in feicao.Attributes.GetNames())
+                                {
+                                    var valor = feicao.Attributes[nomeCampo];
+                                    atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            camadaSelecionadaPainel = string.Empty;
+                            atributosFeicaoSelecionada?.Clear();
+                        }
                         break;
 
                     case ModoFerramenta.Medicao:
-                        // O seu código de régua topográfica entra AQUI
-                        MapService.PontosMedicao.Add(ptMundo);
+                        var ptFinal = ptMundo;
+
+                        // GARANTIA ABSOLUTA DE ACURÁCIA MATEMÁTICA
+                        // Recalcula o snap no milissegundo exato do clique para ignorar as falhas da mão humana
+                        if (_snapMedicaoAtivo)
+                        {
+                            float toleranciaSnap = (float)(15.0 / (escalaAutoFit * MapService.CameraZoom));
+                            var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
+                            if (ptMagnetico.HasValue)
+                            {
+                                ptFinal = ptMagnetico.Value; // O clique "rouba" a coordenada real do vértice!
+                            }
+                        }
+
+                        MapService.PontosMedicao.Add(ptFinal);
                         RecalcularMedicoes();
                         break;
 
                     case ModoFerramenta.AquisicaoPoligono:
-                        // Código para registar um novo vértice de lote
-                        // MapService.NovoPoligonoEmDesenho.Add(ptMundo);
                         break;
 
                     case ModoFerramenta.Navegacao:
-                        // Ignora o clique estritamente. O mapa apenas arrasta.
                         break;
                 }
 
@@ -2995,7 +3067,7 @@
         }
     }
 
-    
+
     // =========================================================================
     // MOTOR DE CÁLCULO TOPOGRÁFICO
     // =========================================================================
@@ -3006,26 +3078,33 @@
     {
         _medicaoComprimentoMetros = 0;
         _medicaoAreaM2 = 0;
-        var pts = MapService.PontosMedicao;
 
-        if (pts.Count < 2) return;
+        // Cria uma lista temporária unindo os cliques REAIS com a posição flutuante do RATO
+        var ptsMapeados = new List<SkiaSharp.SKPoint>(MapService.PontosMedicao);
 
-        // 1. Distância Linear Euclidiana (Teorema de Pitágoras)
-        for (int i = 1; i < pts.Count; i++)
+        if (_ferramentaAtiva == ModoFerramenta.Medicao && ptsMapeados.Count > 0 && MapService.PontoCursorMundo.HasValue)
         {
-            double dx = pts[i].X - pts[i - 1].X;
-            double dy = pts[i].Y - pts[i - 1].Y;
+            ptsMapeados.Add(MapService.PontoCursorMundo.Value);
+        }
+
+        if (ptsMapeados.Count < 2) return;
+
+        // 1. Distância Linear Euclidiana
+        for (int i = 1; i < ptsMapeados.Count; i++)
+        {
+            double dx = ptsMapeados[i].X - ptsMapeados[i - 1].X;
+            double dy = ptsMapeados[i].Y - ptsMapeados[i - 1].Y;
             _medicaoComprimentoMetros += Math.Sqrt(dx * dx + dy * dy);
         }
 
-        // 2. Área Poligonal (Algoritmo de Shoelace / Fórmula do Topógrafo)
-        if (pts.Count >= 3)
+        // 2. Área Poligonal (Fórmula de Shoelace)
+        if (ptsMapeados.Count >= 3 && MapService.MostrarAreaMedicao)
         {
             double area = 0;
-            int j = pts.Count - 1;
-            for (int i = 0; i < pts.Count; i++)
+            int j = ptsMapeados.Count - 1;
+            for (int i = 0; i < ptsMapeados.Count; i++)
             {
-                area += (pts[j].X + pts[i].X) * (pts[j].Y - pts[i].Y);
+                area += (ptsMapeados[j].X + ptsMapeados[i].X) * (ptsMapeados[j].Y - ptsMapeados[i].Y);
                 j = i;
             }
             _medicaoAreaM2 = Math.Abs(area / 2.0);
@@ -3039,4 +3118,153 @@
         _medicaoAreaM2 = 0;
         SolicitarNovoFrame();
     }
+    // =========================================================================
+    // 15. MOTOR DE MIRA MAGNÉTICA (HOVER SNAP TIPO ARCGIS)
+    // =========================================================================
+    // =========================================================================
+    // 15. MOTOR DE MIRA MAGNÉTICA (HOVER SNAP & RUBBERBAND)
+    // =========================================================================
+    // Variável para guardar o tempo do último frame
+    // =========================================================================
+    // 15. MOTOR DE MIRA MAGNÉTICA (HOVER SNAP & PANNING BLINDADO)
+    // =========================================================================
+    private DateTime _ultimoMovimentoMouse = DateTime.MinValue;
+
+    private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        bool precisaRenderizar = false;
+
+        // 1. A MATEMÁTICA DO PAN (Executa sempre para não perder nenhum milímetro do rato)
+        if (_isPanning)
+        {
+            float dx = (float)(e.OffsetX - _lastMouseX);
+            float dy = (float)(e.OffsetY - _lastMouseY);
+
+            MapService.CameraPanX += dx;
+            MapService.CameraPanY += dy;
+
+            _lastMouseX = e.OffsetX;
+            _lastMouseY = e.OffsetY;
+
+            precisaRenderizar = true;
+        }
+
+        // 2. A MATEMÁTICA DA MEDIÇÃO / SNAP (Só executa se não estiver a usar o Pan)
+        else if (_ferramentaAtiva == ModoFerramenta.Medicao)
+        {
+            SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
+            bool primeiro = true;
+            if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+            foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+            foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+            foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+
+            if (!limitesTotais.IsEmpty)
+            {
+                float escalaX = _larguraTela / limitesTotais.Width;
+                float escalaY = _alturaTela / limitesTotais.Height;
+                float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+
+                var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
+                matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
+                matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
+
+                if (matriz.TryInvert(out var matrizInversa))
+                {
+                    var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)e.OffsetX, (float)e.OffsetY));
+                    MapService.PontoCursorMundo = ptMundo;
+
+                    if (_snapMedicaoAtivo)
+                    {
+                        float toleranciaSnap = (float)(15.0 / (escalaAutoFit * MapService.CameraZoom));
+                        var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
+
+                        if (ptMagnetico.HasValue)
+                        {
+                            MapService.PontoCursorSnap = ptMagnetico.Value;
+                            MapService.PontoCursorMundo = ptMagnetico.Value;
+                        }
+                        else
+                        {
+                            MapService.PontoCursorSnap = null;
+                        }
+                    }
+                    else
+                    {
+                        MapService.PontoCursorSnap = null;
+                    }
+                    precisaRenderizar = true;
+                }
+            }
+        }
+
+        // 3. O ESCUDO ANTI-ENGARRAFAMENTO HTTP (Garante que a GPU respira)
+        if (precisaRenderizar)
+        {
+            // Limitado a ~33 FPS. Impede que a tela receba imagens fora de ordem (Efeito Elástico)
+            if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 30)
+            {
+                _ultimoMovimentoMouse = DateTime.Now;
+
+                // Atualiza números ao vivo da régua se a linha elástica estiver a mover
+                if (_ferramentaAtiva == ModoFerramenta.Medicao && MapService.PontosMedicao.Count > 0)
+                {
+                    RecalcularMedicoes();
+                    StateHasChanged();
+                }
+
+                SolicitarNovoFrame(); // Dispara o pedido à Placa de Vídeo
+            }
+        }
     }
+    // =========================================================================
+    // 16. ATALHOS DE TECLADO (ESC, ENTER)
+    // =========================================================================
+    private void ProcessarTeclado(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            if (_ferramentaAtiva == ModoFerramenta.Medicao)
+            {
+                LimparMedicao(); // Aborta a medição instantaneamente
+            }
+            // Futuramente: Se estiver a desenhar um lote (AquisicaoPoligono), abortar também.
+        }
+    }
+    // =========================================================================
+    // 17. MOTOR DE NAVEGAÇÃO (PAN COM BOTÃO DO MEIO - PADRÃO CAD)
+    // =========================================================================
+    private bool _isPanning = false;
+    private double _lastMouseX = 0;
+    private double _lastMouseY = 0;
+
+    private async Task ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        // e.Button == 1 é o botão do meio (Roda do Rato)
+        if (e.Button == 1)
+        {
+            _isPanning = true;
+            MapService.IsPanning = true; // AVISA A GPU: "O arrasto começou!"
+            _lastMouseX = e.OffsetX;
+            _lastMouseY = e.OffsetY;
+            return;
+        }
+
+        // e.Button == 0 é o clique Esquerdo normal
+        if (e.Button == 0)
+        {
+            await ProcessarCliqueRaycast(e.OffsetX, e.OffsetY);
+        }
+    }
+
+    private void ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        // Quando larga a roda do rato, a câmara pára de ser arrastada
+        if (e.Button == 1)
+        {
+            _isPanning = false;
+            MapService.IsPanning = false; // AVISA A GPU: "Largou o rato!"
+            SolicitarNovoFrame(); // Força a placa a renderizar as bordas da Ortofoto
+        }
+    }
+}
