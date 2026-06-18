@@ -1274,3 +1274,74 @@ function finalizarMedicao(e) {
         window.medicaoTooltip = null;
     }
 }
+window.GeoNexGraphics = {
+    atualizarOverlay: function (pontosMedicao, pontoMouse, pontoSnap) {
+        const canvas = document.getElementById('overlayCanvas');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+
+        // Sincroniza o tamanho do canvas com a resolução real da tela
+        if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }
+
+        // Limpa o frame anterior de forma ultrarrápida
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (pontosMedicao.length === 0 && !pontoSnap) return;
+
+        // 1. DESENHAR LINHAS DA RÉGUA (Se houver pontos clicados)
+        if (pontosMedicao.length > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = '#00ffff'; // Ciano
+            ctx.lineWidth = 2.5;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            ctx.moveTo(pontosMedicao[0].x, pontosMedicao[0].y);
+            for (let i = 1; i < pontosMedicao.length; i++) {
+                ctx.lineTo(pontosMedicao[i].x, pontosMedicao[i].y);
+            }
+
+            // Se houver linha elástica ativa seguindo o rato
+            if (pontoMouse) {
+                ctx.lineTo(pontoMouse.x, pontoMouse.y);
+            }
+            ctx.stroke();
+
+            // Desenhar os pinos brancos nos nós clicados
+            pontosMedicao.forEach(pt => {
+                ctx.beginPath();
+                ctx.fillStyle = '#ffffff';
+                ctx.arc(pt.x, pt.y, 4.5, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            });
+        }
+
+        // 2. DESENHAR MIRA DE SNAP (TIPO ARCGIS HOVER)
+        if (pontoSnap) {
+            const size = 14;
+            ctx.beginPath();
+            ctx.strokeStyle = '#ffff00'; // Amarelo
+            ctx.lineWidth = 2;
+
+            // Caixa de captura
+            ctx.rect(pontoSnap.x - size / 2, pontoSnap.y - size / 2, size, size);
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+            ctx.fillRect(pontoSnap.x - size / 2, pontoSnap.y - size / 2, size, size);
+
+            // Cruz tática
+            ctx.moveTo(pontoSnap.x - size, pontoSnap.y);
+            ctx.lineTo(pontoSnap.x + size, pontoSnap.y);
+            ctx.moveTo(pontoSnap.x, pontoSnap.y - size);
+            ctx.lineTo(pontoSnap.x, pontoSnap.y + size);
+
+            ctx.stroke();
+        }
+    }
+};

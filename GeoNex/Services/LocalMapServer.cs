@@ -275,86 +275,7 @@ namespace GeoNex.Services
 
                     // === DESENHO DO INDICADOR DE SNAP (HOVER MAGNÉTICO TIPO ARCGIS) ===
                     // === DESENHO DA FERRAMENTA DE MEDIÇÃO (COM LINHA ELÁSTICA) ===
-                    if (_mapService.PontosMedicao.Count > 0 || _mapService.PontoCursorMundo.HasValue)
-                    {
-                        canvas.SetMatrix(matriz);
-                        float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-
-                        using var pincelLinha = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 2.5f / zoomReal, IsAntialias = true };
-                        using var pincelLinhaTracejada = new SKPaint
-                        {
-                            Style = SKPaintStyle.Stroke,
-                            Color = SKColors.White.WithAlpha(180),
-                            StrokeWidth = 1.5f / zoomReal,
-                            PathEffect = SKPathEffect.CreateDash(new float[] { 10f / zoomReal, 10f / zoomReal }, 0),
-                            IsAntialias = true
-                        };
-                        using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
-                        using var pincelBordaPonto = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 1.5f / zoomReal, IsAntialias = true };
-                        using var pincelArea = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(40), IsAntialias = true };
-
-                        var pathMedicao = new SKPath();
-                        for (int i = 0; i < _mapService.PontosMedicao.Count; i++)
-                        {
-                            var pt = _mapService.PontosMedicao[i];
-                            if (i == 0) pathMedicao.MoveTo(pt);
-                            else pathMedicao.LineTo(pt);
-                        }
-
-                        // 1. DESENHA A ÁREA FECHADA E LINHA TRACEJADA DE FECHO
-                        if (_mapService.MostrarAreaMedicao && _mapService.PontosMedicao.Count > 2)
-                        {
-                            var pathArea = new SKPath(pathMedicao);
-                            pathArea.Close();
-                            canvas.DrawPath(pathArea, pincelArea);
-                            var pPrimeiro = _mapService.PontosMedicao[0];
-                            var pUltimo = _mapService.PontosMedicao[_mapService.PontosMedicao.Count - 1];
-                            canvas.DrawLine(pUltimo, pPrimeiro, pincelLinhaTracejada);
-                        }
-
-                        // 2. DESENHA A LINHA PRINCIPAL CONSOLIDADA
-                        if (_mapService.PontosMedicao.Count > 0)
-                        {
-                            canvas.DrawPath(pathMedicao, pincelLinha);
-                        }
-
-                        // 3. A LINHA ELÁSTICA (RUBBERBAND) AO VIVO A SEGUIR O RATO!
-                        // 3. A LINHA ELÁSTICA (RUBBERBAND) AO VIVO A SEGUIR O RATO!
-                        if (_mapService.PontosMedicao.Count > 0 && _mapService.PontoCursorMundo.HasValue)
-                        {
-                            var pUltimo = _mapService.PontosMedicao[_mapService.PontosMedicao.Count - 1];
-                            var pMouse = _mapService.PontoCursorMundo.Value;
-                            canvas.DrawLine(pUltimo, pMouse, pincelLinhaTracejada);
-                        }
-
-                        // 4. DESENHA OS PINOS TOPOGRÁFICOS
-                        for (int i = 0; i < _mapService.PontosMedicao.Count; i++)
-                        {
-                            var pt = _mapService.PontosMedicao[i];
-                            canvas.DrawCircle(pt, 4.5f / zoomReal, pincelPonto);
-                            canvas.DrawCircle(pt, 4.5f / zoomReal, pincelBordaPonto);
-                        }
-                    }
-
-                    // === DESENHO DO INDICADOR DE SNAP (HOVER MAGNÉTICO TIPO ARCGIS) ===
-                    if (_mapService.PontoCursorSnap.HasValue)
-                    {
-                        canvas.SetMatrix(matriz);
-                        float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-                        var snapPt = _mapService.PontoCursorSnap.Value;
-
-                        using var pincelSnap = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Yellow, StrokeWidth = 2.0f / zoomReal, IsAntialias = true };
-                        using var pincelSnapFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Yellow.WithAlpha(80), IsAntialias = true };
-
-                        float size = 14f / zoomReal;
-
-                        // Caixa alvo do Snap e Mira
-                        var rect = new SKRect(snapPt.X - size / 2, snapPt.Y - size / 2, snapPt.X + size / 2, snapPt.Y + size / 2);
-                        canvas.DrawRect(rect, pincelSnapFill);
-                        canvas.DrawRect(rect, pincelSnap);
-                        canvas.DrawLine(snapPt.X - size, snapPt.Y, snapPt.X + size, snapPt.Y, pincelSnap);
-                        canvas.DrawLine(snapPt.X, snapPt.Y - size, snapPt.X, snapPt.Y + size, pincelSnap);
-                    }
+                    
                 } // Fim do if !limitesTotais.IsEmpty
 
                 canvas.Restore();
@@ -362,7 +283,7 @@ namespace GeoNex.Services
 
                 // O WebP em modo Lossy (Qualidade 75-80) entrega uma taxa de compressão
                 // superior ao JPEG com metade do tempo de processamento de codificação.
-                using var data = image.Encode(SKEncodedImageFormat.Webp, 80);
+                using var data = image.Encode(SKEncodedImageFormat.Webp, 70);
 
                 res.ContentType = "image/webp";
                 res.ContentLength64 = data.Size;
