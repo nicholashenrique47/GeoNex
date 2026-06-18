@@ -168,6 +168,7 @@ namespace GeoNex.Services
                         }
 
                         // Determinar a caixa envolvente visível no espaço do mundo (Viewport real)
+                        // Determinar a caixa envolvente visível no espaço do mundo (Viewport real)
                         if (matriz.TryInvert(out SKMatrix matrizInversaMundo))
                         {
                             SKPoint cantoSuperiorEsquerdo = matrizInversaMundo.MapPoint(new SKPoint(0, 0));
@@ -181,53 +182,73 @@ namespace GeoNex.Services
                                 Math.Max(cantoSuperiorEsquerdo.Y, cantoInferiorDireito.Y)
                             );
 
+                            float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+
+                            // === PASSO 2: OTIMIZAÇÃO DE MEMÓRIA (GARBAGE COLLECTION) ===
+                            // Instanciamos os pincéis APENAS UMA VEZ aqui fora, e reutilizamo-los lá dentro!
+                            using var pincelBordaLOD = _mapService.PincelBorda.Clone();
+                            using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan, IsAntialias = true };
+                            // ==========================================================
+
                             // 3. DESENHA POLÍGONOS (Com Descarte Espacial Inteligente)
-                            if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
+                            // Determinar a caixa envolvente visível no espaço do mundo (Viewport real)
+                            if (matriz.TryInvert(out SKMatrix matrizInversaMundo))
                             {
-                                // Se a geometria da camada inteira não intersecta a tela, ignora o processamento
-                                if (viewportMundo.Intersects(polyPath.Bounds))
-                                {
-                                    canvas.SetMatrix(matriz);
-                                    float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-                                    using var pincelBordaLOD = _mapService.PincelBorda.Clone();
-                                    pincelBordaLOD.StrokeWidth = 1f / zoomReal;
+                                SKPoint cantoSuperiorEsquerdo = matrizInversaMundo.MapPoint(new SKPoint(0, 0));
+                                SKPoint cantoInferiorDireito = matrizInversaMundo.MapPoint(new SKPoint(width, height));
 
-                                    canvas.DrawPath(polyPath, _mapService.PincelFill);
-                                    if (zoomReal > 0.0005f) canvas.DrawPath(polyPath, pincelBordaLOD);
+                                // Criar o retângulo de corte baseado na visualização atual do operador
+                                SKRect viewportMundo = new SKRect(
+                                    Math.Min(cantoSuperiorEsquerdo.X, cantoInferiorDireito.X),
+                                    Math.Min(cantoSuperiorEsquerdo.Y, cantoInferiorDireito.Y),
+                                    Math.Max(cantoSuperiorEsquerdo.X, cantoInferiorDireito.X),
+                                    Math.Max(cantoSuperiorEsquerdo.Y, cantoInferiorDireito.Y)
+                                );
+
+                                float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+
+                                // === PASSO 2: OTIMIZAÇÃO DE MEMÓRIA (GARBAGE COLLECTION) ===
+                                // Instanciamos os pincéis APENAS UMA VEZ aqui fora, e reutilizamo-los lá dentro!
+                                using var pincelBordaLOD = _mapService.PincelBorda.Clone();
+                                using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan, IsAntialias = true };
+                                // ==========================================================
+
+                                // 3. DESENHA POLÍGONOS (Com Descarte Espacial Inteligente)
+                                if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
+                                {
+                                    if (viewportMundo.IntersectsWith(polyPath.Bounds))
+                                    {
+                                        canvas.SetMatrix(matriz);
+                                        pincelBordaLOD.StrokeWidth = 1f / zoomReal;
+                                        canvas.DrawPath(polyPath, _mapService.PincelFill);
+                                        if (zoomReal > 0.0005f) canvas.DrawPath(polyPath, pincelBordaLOD);
+                                    }
+                                }
+
+                                // 4. DESENHA LINHAS (Com Descarte Espacial Inteligente)
+                                if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
+                                {
+                                    if (viewportMundo.IntersectsWith(linePath.Bounds))
+                                    {
+                                        canvas.SetMatrix(matriz);
+                                        pincelBordaLOD.StrokeWidth = 2f / zoomReal;
+                                        canvas.DrawPath(linePath, pincelBordaLOD);
+                                    }
+                                }
+
+                                // 5. DESENHA PONTOS
+                                if (_mapService.PontosPorCamada.TryGetValue(camadaAtual, out var pointPath))
+                                {
+                                    if (viewportMundo.IntersectsWith(pointPath.Bounds))
+                                    {
+                                        canvas.SetMatrix(matriz);
+                                        pincelBordaLOD.StrokeWidth = 1f / zoomReal;
+                                        canvas.DrawPath(pointPath, pincelPonto);
+                                        canvas.DrawPath(pointPath, pincelBordaLOD);
+                                    }
                                 }
                             }
-
-                            // 4. DESENHA LINHAS (Com Descarte Espacial Inteligente)
-                            if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
-                            {
-                                if (viewportMundo.Intersects(linePath.Bounds))
-                                {
-                                    canvas.SetMatrix(matriz);
-                                    float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-                                    using var pincelBordaLOD = _mapService.PincelBorda.Clone();
-                                    pincelBordaLOD.StrokeWidth = 2f / zoomReal;
-
-                                    canvas.DrawPath(linePath, pincelBordaLOD);
-                                }
-                            }
-
-                            // 5. DESENHA PONTOS
-                            if (_mapService.PontosPorCamada.TryGetValue(camadaAtual, out var pointPath))
-                            {
-                                if (viewportMundo.Intersects(pointPath.Bounds))
-                                {
-                                    canvas.SetMatrix(matriz);
-                                    float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-                                    using var pincelBordaLOD = _mapService.PincelBorda.Clone();
-                                    pincelBordaLOD.StrokeWidth = 1f / zoomReal;
-                                    using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan, IsAntialias = true };
-
-                                    canvas.DrawPath(pointPath, pincelPonto);
-                                    canvas.DrawPath(pointPath, pincelBordaLOD);
-                                }
-                            }
-                        }
-                    } // Fim do loop de camadas
+                        } // Fim do loop de camadas
 
                     // 6. CAMADA DE DESTAQUE TOPOGRÁFICA (SELEÇÃO NO TOPO ABSOLUTO)
                     if (_mapService.CaminhoDestaquePoligono != null)
