@@ -1345,3 +1345,24 @@ window.GeoNexGraphics = {
         }
     }
 };
+// =========================================================================
+// GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
+// =========================================================================
+document.addEventListener('keydown', function (event) {
+    // Ignora se o engenheiro estiver a digitar dentro de um campo de texto
+    const tagsIgnoradas = ['INPUT', 'TEXTAREA', 'SELECT'];
+    if (tagsIgnoradas.includes(event.target.tagName)) return;
+
+    const tecla = event.key.toLowerCase();
+
+    // Se for uma das nossas teclas de atalho (m, i, escape)
+    if (tecla === 'escape' || tecla === 'm' || tecla === 'i') {
+        if (window.mapEngine && window.mapEngine.dotNetHelper) {
+            event.preventDefault(); // Impede comportamentos estranhos do navegador
+
+            // Atira o comando diretamente para a máquina de estados do C#
+            window.mapEngine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', tecla)
+                .catch(err => console.warn("Erro no atalho: ", err));
+        }
+    }
+});

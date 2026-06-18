@@ -26,6 +26,7 @@ namespace GeoNex.Services
         public Dictionary<string, SKPath> VetoresPorCamada { get; private set; } = new();
         public Dictionary<string, SKPath> LinhasPorCamada { get; private set; } = new();
         public Dictionary<string, SKPath> PontosPorCamada { get; private set; } = new();
+
         public List<string> OrdemCamadas { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
         // === INDICADOR VISUAL DO SNAP (ARCGIS HOVER) ===
@@ -74,7 +75,8 @@ namespace GeoNex.Services
 
         // O MOTOR ANALÍTICO ESPACIAL (RAM C#) - Agora utilizando IFeature rigorosamente
         public Dictionary<string, STRtree<IFeature>> ArvoresEspaciais { get; private set; } = new();
-
+        //simbologia
+        public System.Collections.Concurrent.ConcurrentDictionary<string, EstiloCamada> EstilosPorCamada { get; } = new();
         public Dataset DatasetRaster { get; set; }
         public bool TemRaster { get; set; } = false;
         public SkiaSharp.SKRect LimitesRasterGlobal { get; set; }

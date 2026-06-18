@@ -58,17 +58,27 @@ namespace GeoNex.Services
                 res.AppendHeader("Access-Control-Allow-Origin", "*");
                 res.AppendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 
-                int width = int.Parse(req.QueryString["w"] ?? "1920");
-                int height = int.Parse(req.QueryString["h"] ?? "1080");
+                // --- 1. APLICANDO DPI PARA ALTA RESOLUÇÃO ---
+                int cssWidth = int.Parse(req.QueryString["w"] ?? "1920");
+                int cssHeight = int.Parse(req.QueryString["h"] ?? "1080");
+                float dpi = float.Parse(req.QueryString["dpi"] ?? "1.0", System.Globalization.CultureInfo.InvariantCulture);
 
-                var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+                int physicalWidth = (int)(cssWidth * dpi);
+                int physicalHeight = (int)(cssHeight * dpi);
+
+                var info = new SKImageInfo(physicalWidth, physicalHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
                 using var surface = SKSurface.Create(info);
                 var canvas = surface.Canvas;
+
+                canvas.Scale(dpi);
+
+                int width = cssWidth;
+                int height = cssHeight;
 
                 canvas.Clear(new SKColor(22, 25, 33));
                 canvas.Save();
 
-                // 1. LIMITES TOTAIS COM TODAS AS GEOMETRIAS
+                // 2. LIMITES TOTAIS
                 SKRect limitesTotais = new SKRect();
                 bool primeiro = true;
 
@@ -83,40 +93,57 @@ namespace GeoNex.Services
                     float escalaX = width / limitesTotais.Width;
                     float escalaY = height / limitesTotais.Height;
                     float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+                    float zoomReal = escalaAutoFit * _mapService.CameraZoom;
 
                     var matriz = SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
-                    matriz = matriz.PostConcat(SKMatrix.CreateScale(escalaAutoFit * _mapService.CameraZoom, escalaAutoFit * _mapService.CameraZoom));
+                    matriz = matriz.PostConcat(SKMatrix.CreateScale(zoomReal, zoomReal));
                     matriz = matriz.PostConcat(SKMatrix.CreateTranslation(width / 2f + _mapService.CameraPanX, height / 2f + _mapService.CameraPanY));
 
-                    // 2. MOTOR HIERÁRQUICO DE Z-INDEX (Desenha do fundo para o topo)
+                    // CALCULA O VIEWPORT UMA ÚNICA VEZ (Otimização Extrema de RAM e CPU)
+                    SKRect viewportMundo = new SKRect();
+                    if (matriz.TryInvert(out SKMatrix matrizInversaMundo))
+                    {
+                        SKPoint c1 = matrizInversaMundo.MapPoint(new SKPoint(0, 0));
+                        SKPoint c2 = matrizInversaMundo.MapPoint(new SKPoint(width, height));
+
+                        viewportMundo = new SKRect(
+                            Math.Min(c1.X, c2.X),
+                            Math.Min(c1.Y, c2.Y),
+                            Math.Max(c1.X, c2.X),
+                            Math.Max(c1.Y, c2.Y)
+                        );
+                    }
+
+                    // CRIA OS PINCÉIS UMA ÚNICA VEZ ANTES DO LOOP (Garbage Collection Fix)
+                    using var pincelBordaLOD = _mapService.PincelBorda.Clone();
+                    using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan, IsAntialias = true };
+                    // Criamos os pincéis UMA ÚNICA VEZ. O seu estado será mutável no loop.
+                    using var pincelDinamicoFill = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
+                    using var pincelDinamicoBorda = new SKPaint { Style = SKPaintStyle.Stroke, IsAntialias = true, StrokeJoin = SKStrokeJoin.Round };
+                    using var pincelDinamicoPonto = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
+                    // 3. MOTOR HIERÁRQUICO DE Z-INDEX
                     for (int i = 0; i < _mapService.OrdemCamadas.Count; i++)
                     {
                         string camadaAtual = _mapService.OrdemCamadas[i];
 
+                        // RASTER
                         lock (_mapService)
                         {
                             if (_mapService.TemRaster && camadaAtual == _mapService.NomeRasterAtivo && _mapService.DatasetRaster != null && matriz.TryInvert(out SKMatrix inverse))
                             {
-                                canvas.ResetMatrix(); // Blindagem da matriz para Ortofoto
-
-                                // A CHAVE BLINDADA: Agora o cache invalida sozinho se o tamanho do mapa (limitesTotais) ou a escala mudarem!
+                                canvas.ResetMatrix();
                                 string targetCacheKey = $"{width}_{height}_{_mapService.CameraPanX}_{_mapService.CameraPanY}_{_mapService.CameraZoom}_{_mapService.NomeRasterAtivo}_{limitesTotais.MidX}_{limitesTotais.MidY}_{escalaAutoFit}";
 
-                                // ESTÁGIO 1: CÂMARA PARADA NO SÍTIO CERTO -> Usa o Cache perfeitamente alinhado
                                 if (_mapService.RasterCache != null && _mapService.CacheKey == targetCacheKey)
                                 {
                                     canvas.DrawBitmap(_mapService.RasterCache, 0, 0);
                                 }
-                                // ESTÁGIO 2: ARRASTANDO O RATO (PAN) -> Move a foto que já está na memória sem usar CPU!
                                 else if (_mapService.IsPanning && _mapService.RasterCache != null)
                                 {
                                     float offsetX = (float)_mapService.CameraPanX - _mapService.CachePanX;
                                     float offsetY = (float)_mapService.CameraPanY - _mapService.CachePanY;
-
-                                    // Desenha a ortofoto deslizando em perfeita sincronia com os vetores
                                     canvas.DrawBitmap(_mapService.RasterCache, offsetX, offsetY);
                                 }
-                                // ESTÁGIO 3: LARGOU O RATO OU DEU ZOOM -> Reprocessa via GDAL
                                 else
                                 {
                                     SKPoint topLeft = inverse.MapPoint(new SKPoint(0, 0));
@@ -153,7 +180,6 @@ namespace GeoNex.Services
                                         {
                                             memDs.ReadRaster(0, 0, width, height, ptr, width, height, DataType.GDT_Byte, numBandas, listaBandas, 4, width * 4, 1);
 
-                                            // Atualiza a memória VRAM e grava de onde a foto tirada
                                             _mapService.RasterCache?.Dispose();
                                             _mapService.RasterCache = rasterBitmap.Copy();
                                             _mapService.CacheKey = targetCacheKey;
@@ -166,126 +192,187 @@ namespace GeoNex.Services
                                 }
                             }
                         }
-
-                        // Determinar a caixa envolvente visível no espaço do mundo (Viewport real)
-                        // Determinar a caixa envolvente visível no espaço do mundo (Viewport real)
-                        if (matriz.TryInvert(out SKMatrix matrizInversaMundo))
+                        // --- VETORES (Simbologia Dinâmica) ---
+                        if (!viewportMundo.IsEmpty)
                         {
-                            SKPoint cantoSuperiorEsquerdo = matrizInversaMundo.MapPoint(new SKPoint(0, 0));
-                            SKPoint cantoInferiorDireito = matrizInversaMundo.MapPoint(new SKPoint(width, height));
-
-                            // Criar o retângulo de corte baseado na visualização atual do operador
-                            SKRect viewportMundo = new SKRect(
-                                Math.Min(cantoSuperiorEsquerdo.X, cantoInferiorDireito.X),
-                                Math.Min(cantoSuperiorEsquerdo.Y, cantoInferiorDireito.Y),
-                                Math.Max(cantoSuperiorEsquerdo.X, cantoInferiorDireito.X),
-                                Math.Max(cantoSuperiorEsquerdo.Y, cantoInferiorDireito.Y)
-                            );
-
-                            float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-
-                            // === PASSO 2: OTIMIZAÇÃO DE MEMÓRIA (GARBAGE COLLECTION) ===
-                            // Instanciamos os pincéis APENAS UMA VEZ aqui fora, e reutilizamo-los lá dentro!
-                            using var pincelBordaLOD = _mapService.PincelBorda.Clone();
-                            using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan, IsAntialias = true };
-                            // ==========================================================
-
-                            // 3. DESENHA POLÍGONOS (Com Descarte Espacial Inteligente)
-                            // Determinar a caixa envolvente visível no espaço do mundo (Viewport real)
-                            if (matriz.TryInvert(out SKMatrix matrizInversaMundo))
+                            // AQUI NASCEM AS VARIÁVEIS camadaAtual e estiloCamada!
+                            if (!_mapService.EstilosPorCamada.TryGetValue(camadaAtual, out var estiloCamada))
                             {
-                                SKPoint cantoSuperiorEsquerdo = matrizInversaMundo.MapPoint(new SKPoint(0, 0));
-                                SKPoint cantoInferiorDireito = matrizInversaMundo.MapPoint(new SKPoint(width, height));
+                                estiloCamada = new GeoNex.Services.EstiloCamada();
+                            }
 
-                                // Criar o retângulo de corte baseado na visualização atual do operador
-                                SKRect viewportMundo = new SKRect(
-                                    Math.Min(cantoSuperiorEsquerdo.X, cantoInferiorDireito.X),
-                                    Math.Min(cantoSuperiorEsquerdo.Y, cantoInferiorDireito.Y),
-                                    Math.Max(cantoSuperiorEsquerdo.X, cantoInferiorDireito.X),
-                                    Math.Max(cantoSuperiorEsquerdo.Y, cantoInferiorDireito.Y)
-                                );
+                            // AQUI NASCE A VARIÁVEL alphaCalculado!
+                            byte alphaCalculado = (byte)(estiloCamada.Opacidade * 255);
 
-                                float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+                            SKColor corBorda = estiloCamada.CorBorda == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorBorda);
+                            SKColor corFill = estiloCamada.CorPreenchimento == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorPreenchimento);
 
-                                // === PASSO 2: OTIMIZAÇÃO DE MEMÓRIA (GARBAGE COLLECTION) ===
-                                // Instanciamos os pincéis APENAS UMA VEZ aqui fora, e reutilizamo-los lá dentro!
-                                using var pincelBordaLOD = _mapService.PincelBorda.Clone();
-                                using var pincelPonto = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan, IsAntialias = true };
-                                // ==========================================================
+                            pincelDinamicoFill.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill.WithAlpha(alphaCalculado);
+                            pincelDinamicoBorda.Color = corBorda;
+                            pincelDinamicoBorda.StrokeWidth = estiloCamada.EspessuraBorda / zoomReal;
+                            pincelDinamicoPonto.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill;
 
-                                // 3. DESENHA POLÍGONOS (Com Descarte Espacial Inteligente)
-                                if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
+                            // 4. DESENHA POLÍGONOS (Evita desenhar se for transparente)
+                            if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
+                            {
+                                if (viewportMundo.IntersectsWith(polyPath.Bounds))
                                 {
-                                    if (viewportMundo.IntersectsWith(polyPath.Bounds))
-                                    {
-                                        canvas.SetMatrix(matriz);
-                                        pincelBordaLOD.StrokeWidth = 1f / zoomReal;
-                                        canvas.DrawPath(polyPath, _mapService.PincelFill);
-                                        if (zoomReal > 0.0005f) canvas.DrawPath(polyPath, pincelBordaLOD);
-                                    }
-                                }
+                                    canvas.SetMatrix(matriz);
 
-                                // 4. DESENHA LINHAS (Com Descarte Espacial Inteligente)
-                                if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
-                                {
-                                    if (viewportMundo.IntersectsWith(linePath.Bounds))
-                                    {
-                                        canvas.SetMatrix(matriz);
-                                        pincelBordaLOD.StrokeWidth = 2f / zoomReal;
-                                        canvas.DrawPath(linePath, pincelBordaLOD);
-                                    }
-                                }
+                                    // Os disjuntores evitam o bug do "transparent"
+                                    if (!estiloCamada.PreenchimentoTransparente)
+                                        canvas.DrawPath(polyPath, pincelDinamicoFill);
 
-                                // 5. DESENHA PONTOS
-                                if (_mapService.PontosPorCamada.TryGetValue(camadaAtual, out var pointPath))
-                                {
-                                    if (viewportMundo.IntersectsWith(pointPath.Bounds))
-                                    {
-                                        canvas.SetMatrix(matriz);
-                                        pincelBordaLOD.StrokeWidth = 1f / zoomReal;
-                                        canvas.DrawPath(pointPath, pincelPonto);
-                                        canvas.DrawPath(pointPath, pincelBordaLOD);
-                                    }
+                                    if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
+                                        canvas.DrawPath(polyPath, pincelDinamicoBorda);
                                 }
                             }
-                        } // Fim do loop de camadas
 
-                    // 6. CAMADA DE DESTAQUE TOPOGRÁFICA (SELEÇÃO NO TOPO ABSOLUTO)
-                    if (_mapService.CaminhoDestaquePoligono != null)
-                    {
-                        canvas.SetMatrix(matriz);
-                        float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-                        using var pincelDestaqueBordaLOD = _mapService.PincelDestaqueBorda.Clone();
-                        pincelDestaqueBordaLOD.StrokeWidth = 3f / zoomReal;
+                            // 5. DESENHA LINHAS E PONTOS (Mantenha o seu código para Linhas e Pontos aqui)
+                            if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
+                            {
+                                if (viewportMundo.IntersectsWith(linePath.Bounds))
+                                {
+                                    canvas.SetMatrix(matriz);
+                                    if (!estiloCamada.BordaTransparente)
+                                        canvas.DrawPath(linePath, pincelDinamicoBorda);
+                                }
+                            }
 
-                        canvas.DrawPath(_mapService.CaminhoDestaquePoligono, _mapService.PincelDestaqueFill);
-                        canvas.DrawPath(_mapService.CaminhoDestaquePoligono, pincelDestaqueBordaLOD);
+                            if (_mapService.PontosPorCamada.TryGetValue(camadaAtual, out var pointPath))
+                            {
+                                if (viewportMundo.IntersectsWith(pointPath.Bounds))
+                                {
+                                    canvas.SetMatrix(matriz);
+                                    if (!estiloCamada.PreenchimentoTransparente)
+                                        canvas.DrawPath(pointPath, pincelDinamicoPonto);
+                                    if (!estiloCamada.BordaTransparente)
+                                        canvas.DrawPath(pointPath, pincelDinamicoBorda);
+                                }
+                            }
+                        }
+
+                        if (!viewportMundo.IsEmpty)
+                        {
+                            // 3.2. DECLARAÇÃO GLOBAL DE ESTILO E OPACIDADE (Resolve erros de contexto)
+                            if (!_mapService.EstilosPorCamada.TryGetValue(camadaAtual, out var estiloCamada))
+                            {
+                                estiloCamada = new GeoNex.Services.EstiloCamada();
+                            }
+
+                            byte alphaCalculado = (byte)(estiloCamada.Opacidade * 255);
+
+                            // 3.3. REGRAS DE TRANSPARÊNCIA (O disjuntor "Sem Cor")
+                            SKColor corBorda = estiloCamada.CorBorda == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorBorda);
+                            SKColor corFill = estiloCamada.CorPreenchimento == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorPreenchimento);
+
+                            pincelDinamicoFill.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill.WithAlpha(alphaCalculado);
+                            pincelDinamicoBorda.Color = corBorda;
+                            pincelDinamicoBorda.StrokeWidth = estiloCamada.EspessuraBorda / zoomReal;
+                            pincelDinamicoPonto.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill;
+
+                            // 4. DESENHA POLÍGONOS
+                            if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
+                            {
+                                if (viewportMundo.IntersectsWith(polyPath.Bounds))
+                                {
+                                    canvas.SetMatrix(matriz);
+
+                                    // Só desenha se a caixa "Sem Cor" não estiver marcada
+                                    if (!estiloCamada.PreenchimentoTransparente)
+                                        canvas.DrawPath(polyPath, pincelDinamicoFill);
+
+                                    if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
+                                        canvas.DrawPath(polyPath, pincelDinamicoBorda);
+                                }
+                            }
+
+                            // 5. DESENHA LINHAS (Redes, arruamentos)
+                            if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
+                            {
+                                if (viewportMundo.IntersectsWith(linePath.Bounds))
+                                {
+                                    canvas.SetMatrix(matriz);
+                                    if (!estiloCamada.BordaTransparente)
+                                        canvas.DrawPath(linePath, pincelDinamicoBorda);
+                                }
+                            }
+
+                            // 6. DESENHA PONTOS (Postes, árvores)
+                            if (_mapService.PontosPorCamada.TryGetValue(camadaAtual, out var pointPath))
+                            {
+                                if (viewportMundo.IntersectsWith(pointPath.Bounds))
+                                {
+                                    canvas.SetMatrix(matriz);
+                                    if (!estiloCamada.PreenchimentoTransparente)
+                                        canvas.DrawPath(pointPath, pincelDinamicoPonto);
+                                    if (!estiloCamada.BordaTransparente)
+                                        canvas.DrawPath(pointPath, pincelDinamicoBorda);
+                                }
+                            }
+                        }
                     }
 
-                    if (_mapService.CaminhoDestaqueLinha != null)
+                    // 5. FERRAMENTA DE MEDIÇÃO
+                    if (_mapService.PontosMedicao.Count > 0 || _mapService.PontoCursorMundo.HasValue)
                     {
                         canvas.SetMatrix(matriz);
-                        float zoomReal = escalaAutoFit * _mapService.CameraZoom;
-                        using var pincelDestaqueBordaLOD = _mapService.PincelDestaqueBorda.Clone();
-                        pincelDestaqueBordaLOD.StrokeWidth = 4f / zoomReal;
+                        using var pincelLinha = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 2.5f / zoomReal, IsAntialias = true };
+                        using var pincelLinhaTracejada = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(180), StrokeWidth = 1.5f / zoomReal, PathEffect = SKPathEffect.CreateDash(new float[] { 10f / zoomReal, 10f / zoomReal }, 0), IsAntialias = true };
+                        using var pincelPontoMed = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
+                        using var pincelBordaPontoMed = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 1.5f / zoomReal, IsAntialias = true };
+                        using var pincelArea = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(40), IsAntialias = true };
 
-                        canvas.DrawPath(_mapService.CaminhoDestaqueLinha, pincelDestaqueBordaLOD);
+                        var pathMedicao = new SKPath();
+                        for (int i = 0; i < _mapService.PontosMedicao.Count; i++)
+                        {
+                            if (i == 0) pathMedicao.MoveTo(_mapService.PontosMedicao[i]);
+                            else pathMedicao.LineTo(_mapService.PontosMedicao[i]);
+                        }
+
+                        if (_mapService.MostrarAreaMedicao && _mapService.PontosMedicao.Count > 2)
+                        {
+                            var pathArea = new SKPath(pathMedicao);
+                            pathArea.Close();
+                            canvas.DrawPath(pathArea, pincelArea);
+                            canvas.DrawLine(_mapService.PontosMedicao[^1], _mapService.PontosMedicao[0], pincelLinhaTracejada);
+                        }
+
+                        if (_mapService.PontosMedicao.Count > 0) canvas.DrawPath(pathMedicao, pincelLinha);
+                        if (_mapService.PontosMedicao.Count > 0 && _mapService.PontoCursorMundo.HasValue)
+                        {
+                            canvas.DrawLine(_mapService.PontosMedicao[^1], _mapService.PontoCursorMundo.Value, pincelLinhaTracejada);
+                        }
+
+                        foreach (var pt in _mapService.PontosMedicao)
+                        {
+                            canvas.DrawCircle(pt, 4.5f / zoomReal, pincelPontoMed);
+                            canvas.DrawCircle(pt, 4.5f / zoomReal, pincelBordaPontoMed);
+                        }
                     }
-                    // === DESENHO DA FERRAMENTA DE MEDIÇÃO (LIMPA) ===
 
-                    // === DESENHO DO INDICADOR DE SNAP (HOVER MAGNÉTICO TIPO ARCGIS) ===
-                    // === DESENHO DA FERRAMENTA DE MEDIÇÃO (COM LINHA ELÁSTICA) ===
-                    
+                    // 6. SNAP HOVER MAGNÉTICO
+                    if (_mapService.PontoCursorSnap.HasValue)
+                    {
+                        canvas.SetMatrix(matriz);
+                        var snapPt = _mapService.PontoCursorSnap.Value;
+                        using var pincelSnap = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Yellow, StrokeWidth = 2.0f / zoomReal, IsAntialias = true };
+                        using var pincelSnapFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Yellow.WithAlpha(80), IsAntialias = true };
+                        float size = 14f / zoomReal;
+                        var rect = new SKRect(snapPt.X - size / 2, snapPt.Y - size / 2, snapPt.X + size / 2, snapPt.Y + size / 2);
+                        canvas.DrawRect(rect, pincelSnapFill);
+                        canvas.DrawRect(rect, pincelSnap);
+                        canvas.DrawLine(snapPt.X - size, snapPt.Y, snapPt.X + size, snapPt.Y, pincelSnap);
+                        canvas.DrawLine(snapPt.X, snapPt.Y - size, snapPt.X, snapPt.Y + size, pincelSnap);
+                    }
                 } // Fim do if !limitesTotais.IsEmpty
-
+            
                 canvas.Restore();
                 using var image = surface.Snapshot();
 
-                // O WebP em modo Lossy (Qualidade 75-80) entrega uma taxa de compressão
-                // superior ao JPEG com metade do tempo de processamento de codificação.
-                using var data = image.Encode(SKEncodedImageFormat.Webp, 70);
-
-                res.ContentType = "image/webp";
+                // EXPORTAÇÃO JPEG 90 OTIMIZADA PARA REDE (Alta performance, evita cortes)
+                using var data = image.Encode(SKEncodedImageFormat.Jpeg, 90);
+                res.ContentType = "image/jpeg";
                 res.ContentLength64 = data.Size;
                 data.SaveTo(res.OutputStream);
                 res.OutputStream.Close();

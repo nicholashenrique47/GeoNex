@@ -12,17 +12,12 @@
 
 <div id="map-container"
      tabindex="0"
-     @onkeydown="ProcessarTeclado"
+     
      @onpointerdown="ProcessarPressionarMouse"
      @onpointerup="ProcessarSoltarMouse"
      @onpointermove="ProcessarMovimentoMouse"
-     style="width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden;">
-
-    <img src="@_mapaUrl" style="width: 100%; height: 100%; object-fit: fill; pointer-events: none; position: absolute; left: 0; top: 0;" />
-
-    <canvas id="overlayCanvas"
-            style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;">
-    </canvas>
+     style="width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; cursor: crosshair; user-select: none; -webkit-user-select: none;">
+    <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0;" />
 </div>
 //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
@@ -495,20 +490,80 @@
 
                             @if (tipoSimbologia == "UNICA")
                             {
-                                <div class="form-group-vertical">
+                                <div class="form-group-vertical" style="position: relative; margin-bottom: 15px;">
                                     <label>Cor de Preenchimento</label>
-                                    <div class="color-picker-row">
-                                        <input type="color" @bind="corPreenchimento" class="color-box" />
-                                        <input type="text" class="glass-input" @bind="corPreenchimento" />
+                                    <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorFill = !abrirSeletorFill; abrirSeletorBorda = false; }">
+                                        @if (semCorPreenchimento)
+                                        {
+                                            <div class="color-preview-box no-color-diagonal"></div>
+                                            <span class="color-text-value">Sem Cor (Transparente)</span>
+                                        }
+                                        else
+                                        {
+                                            <div class="color-preview-box" style="background-color: @corPreenchimento;"></div>
+                                            <span class="color-text-value">@corPreenchimento.ToUpper()</span>
+                                        }
+                                        <div class="dropdown-arrow-indicator">▼</div>
                                     </div>
+
+                                    @if (abrirSeletorFill)
+                                    {
+                                        <div class="arcmap-dropdown-palette glass-panel">
+                                            <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("FILL", "transparent")'>
+                                                <div class="no-color-icon-small"></div> Sem Cor
+                                            </button>
+                                            <div class="arcmap-color-grid">
+                                                @foreach (var cor in PaletaCoresSIG)
+                                                {
+                                                    <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("FILL", cor)'></div>
+                                                }
+                                            </div>
+                                            <label class="arcmap-more-colors-btn">
+                                                Mais Cores...
+                                                <input @ref="inputColorFillRef" type="color" value="@corPreenchimento" style="display:none;"
+                                                       @onchange='(e) => SelecionarCorCustomizada("FILL", e.Value?.ToString() ?? "#38bdf8")' />
+                                            </label>
+                                        </div>
+                                    }
                                 </div>
-                                <div class="form-group-vertical">
+
+                                <div class="form-group-vertical" style="position: relative; margin-bottom: 15px;">
                                     <label>Cor da Borda</label>
-                                    <div class="color-picker-row">
-                                        <input type="color" @bind="corBorda" class="color-box" />
-                                        <input type="text" class="glass-input" @bind="corBorda" />
+                                    <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorBorda = !abrirSeletorBorda; abrirSeletorFill = false; }">
+                                        @if (semCorBorda)
+                                        {
+                                            <div class="color-preview-box no-color-diagonal"></div>
+                                            <span class="color-text-value">Sem Cor (Transparente)</span>
+                                        }
+                                        else
+                                        {
+                                            <div class="color-preview-box" style="background-color: @corBorda;"></div>
+                                            <span class="color-text-value">@corBorda.ToUpper()</span>
+                                        }
+                                        <div class="dropdown-arrow-indicator">▼</div>
                                     </div>
+
+                                    @if (abrirSeletorBorda)
+                                    {
+                                        <div class="arcmap-dropdown-palette glass-panel">
+                                            <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("BORDA", "transparent")'>
+                                                <div class="no-color-icon-small"></div> Sem Cor
+                                            </button>
+                                            <div class="arcmap-color-grid">
+                                                @foreach (var cor in PaletaCoresSIG)
+                                                {
+                                                    <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("BORDA", cor)'></div>
+                                                }
+                                            </div>
+                                            <label class="arcmap-more-colors-btn">
+                                                Mais Cores...
+                                                <input @ref="inputColorBordaRef" type="color" value="@corBorda" style="display:none;"
+                                                       @onchange='(e) => SelecionarCorCustomizada("BORDA", e.Value?.ToString() ?? "#0ea5e9")' />
+                                            </label>
+                                        </div>
+                                    }
                                 </div>
+                                
                             }
                             else
                             {
@@ -526,7 +581,7 @@
 
                             <div class="form-group-vertical" style="margin-top: 10px;">
                                 <label>Opacidade (@opacidadePreenchimento%)</label>
-                                <input type="range" min="0" max="100" step="1" @bind="opacidadePreenchimento" @bind:event="oninput" class="slider" />
+                                <input type="range" min="0" max="100" step="1" @bind="opacidadePreenchimento" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
                             </div>
 
                             <div class="form-group-vertical" style="margin-top: 10px;">
@@ -766,9 +821,158 @@
         </div>
     }
 
-</div>} <!-- Fim da div geonex-ui -->
-}
+</div> <!-- Fim da div geonex-ui -->
+
 <style>
+    /* Gatilho principal do seletor */
+    .arcmap-picker-trigger {
+        display: flex;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+        padding: 6px 10px;
+        cursor: pointer;
+        user-select: none;
+    }
+
+        .arcmap-picker-trigger:hover {
+            border-color: rgba(56, 189, 248, 0.5);
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+    .color-preview-box {
+        width: 20px;
+        height: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+        margin-right: 10px;
+    }
+
+    /* Clássico símbolo de sem cor: Fundo branco com linha diagonal vermelha */
+    .no-color-diagonal {
+        background: #ffffff !important;
+        position: relative;
+        overflow: hidden;
+    }
+
+        .no-color-diagonal::before {
+            content: "";
+            position: absolute;
+            width: 140%;
+            height: 1.5px;
+            background: #ef4444;
+            transform: rotate(35deg);
+            top: 5px;
+            left: -3px;
+        }
+
+    .color-text-value {
+        color: #e2e8f0;
+        font-size: 13px;
+        font-family: monospace;
+        flex-grow: 1;
+    }
+
+    .dropdown-arrow-indicator {
+        color: #64748b;
+        font-size: 9px;
+        margin-left: 5px;
+    }
+
+    /* Menu flutuante do painel de cores */
+    .arcmap-dropdown-palette {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        z-index: 110;
+        width: 240px;
+        padding: 8px;
+        margin-top: 4px;
+        background: rgba(22, 25, 33, 0.95) !important;
+        border: 1px solid rgba(56, 189, 248, 0.3) !important;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+    }
+
+    /* Botão Sem Cor de topo */
+    .arcmap-no-color-btn {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+        padding: 5px 0;
+        font-size: 12px;
+        border-radius: 3px;
+        cursor: pointer;
+        margin-bottom: 8px;
+    }
+
+        .arcmap-no-color-btn:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+    .no-color-icon-small {
+        width: 12px;
+        height: 12px;
+        background: #fff;
+        border: 1px solid #333;
+        position: relative;
+    }
+
+        .no-color-icon-small::before {
+            content: "";
+            position: absolute;
+            width: 140%;
+            height: 1px;
+            background: #ef4444;
+            transform: rotate(45deg);
+            top: 4px;
+            left: -2px;
+        }
+
+    /* Grade de cores */
+    .arcmap-color-grid {
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+
+    .arcmap-color-cell {
+        aspect-ratio: 1.3;
+        border: 1px solid rgba(0, 0, 0, 0.5);
+        cursor: pointer;
+        border-radius: 1px;
+    }
+
+        .arcmap-color-cell:hover {
+            outline: 1px solid #ffffff;
+            transform: scale(1.1);
+            z-index: 2;
+        }
+
+    /* Botão inferior Mais Cores */
+    .arcmap-more-colors-btn {
+        display: block;
+        text-align: center;
+        background: rgba(255, 255, 255, 0.03);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        color: #38bdf8;
+        padding: 6px 0 2px 0;
+        font-size: 12px;
+        cursor: pointer;
+        user-select: none;
+    }
+
+        .arcmap-more-colors-btn:hover {
+            color: #7dd3fc;
+            text-decoration: underline;
+        }
     /* =========================================================
        PAINEL DE MEDIÇÃO TOPOGRÁFICA (PADRÃO ARCGIS PRO)
        ========================================================= */
@@ -2144,8 +2348,12 @@
 </style>
 
 @code {
+    private double opacidadeBorda = 100;
     // Variável que alimenta a Camada 1 (Fundo do Mapa)
     private string _mapaUrl = "";
+    // Referência absoluta para não dar erro de Namespace e controlo seguro do rato
+    private Microsoft.AspNetCore.Components.ElementReference _mapContainerRef;
+    private string EstiloCursor => _ferramentaAtiva == ModoFerramenta.Medicao ? "crosshair" : "default";
         // =========================================================================
         // MÁQUINA DE ESTADOS DO MAPA (CONTROLO ESTRITO DE INTERAÇÃO)
         // =========================================================================
@@ -2161,7 +2369,7 @@
     }
 
     private ModoFerramenta _ferramentaAtiva = ModoFerramenta.Identificacao; // O Padrão do SIG
-    private bool _snapMedicaoAtivo = false; // Snap ativado por padrão
+    private bool _snapMedicaoAtivo = true; // Snap ativado por padrão
 
     // =========================================================================
     // 1. VARIÁVEIS DE ESTADO DA INTERFACE E TELEMETRIA
@@ -2227,6 +2435,50 @@
     private string colunaRotuloSelecionada = "";
     private int tamanhoFonteRotulo = 11;
     private string corFonteRotulo = "#ffffff";
+    // =========================================================================
+    // PASSO 1: INJECTAR AS NOVAS VARIÁVEIS E MÉTODOS DO SELETOR AQUI
+    // =========================================================================
+    private bool abrirSeletorFill = false;
+    private bool abrirSeletorBorda = false;
+    private bool semCorPreenchimento = false;
+    private bool semCorBorda = false;
+
+    private Microsoft.AspNetCore.Components.ElementReference inputColorFillRef;
+    private Microsoft.AspNetCore.Components.ElementReference inputColorBordaRef;
+
+    private readonly List<string> PaletaCoresSIG = new()
+    {
+        "#FFFFFF", "#E1E1E1", "#A8A8A8", "#737373", "#4E4E4E", "#000000", "#FFD700", "#FF8C00",
+        "#FF0000", "#A52A2A", "#D2691E", "#F5DEB3", "#9ACD32", "#32CD32", "#228B22", "#006400",
+        "#00FFFF", "#00BFFF", "#0000FF", "#00008B", "#4B0082", "#800080", "#FFC0CB", "#FF69B4",
+        "#E6F2FF", "#CCE5FF", "#99CCFF", "#66B2FF", "#3399FF", "#0080FF", "#0066CC", "#004C99",
+        "#E6F7ED", "#C2ECD5", "#99E2B4", "#70D69F", "#48CA96", "#20B47B", "#179A65", "#107F52",
+        "#FDF2E9", "#F5CBA7", "#F0B27A", "#EB984E", "#E67E22", "#CA6F1E", "#A0522D", "#5C2E0B"
+    };
+
+    private void SelecionarCorCustomizada(string tipo, string hex)
+    {
+        if (tipo == "FILL")
+        {
+            semCorPreenchimento = (hex == "transparent");
+            if (!semCorPreenchimento) corPreenchimento = hex;
+            abrirSeletorFill = false;
+        }
+        else if (tipo == "BORDA")
+        {
+            semCorBorda = (hex == "transparent");
+            if (!semCorBorda) corBorda = hex;
+            abrirSeletorBorda = false;
+        }
+
+        if (!string.IsNullOrEmpty(camadaEmEdicao))
+        {
+            var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, new GeoNex.Services.EstiloCamada());
+            estilo.CorPreenchimento = semCorPreenchimento ? "transparent" : corPreenchimento;
+            estilo.CorBorda = semCorBorda ? "transparent" : corBorda;
+            SolicitarNovoFrame();
+        }
+    }
 
     private List<float[]> poligonosNativos = new List<float[]>();
     private float mapaMinX, mapaMaxX, mapaMinY, mapaMaxY;
@@ -2266,6 +2518,8 @@
         if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
             MapService.PontosMedicao.Clear();
+            MapService.PontoCursorSnap = null;  // MATAR A MIRA AMARELA
+            MapService.PontoCursorMundo = null; // MATAR A LINHA ELÁSTICA
             _distanciaTotalMetros = 0;
             _areaTotalM2 = 0;
         }
@@ -2277,20 +2531,19 @@
         }
         else if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
-            // Lógica para desligar os vértices (se aplicável)
             modoEdicaoVerticeLigado = false;
         }
 
         // 2. Transição de Estado
         _ferramentaAtiva = novaFerramenta;
 
-        // 3. Configurações de Entrada (Opcional, inicializar a nova ferramenta)
+        // 3. Configurações de Entrada
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = true;
         }
 
-        // 4. Atualiza a Tela
+        // 4. Atualiza a Tela (Pede à placa de vídeo para apagar os detritos)
         SolicitarNovoFrame();
         StateHasChanged();
     }
@@ -2322,6 +2575,12 @@
     {
         if (firstRender)
         {
+            // Dá 100 milissegundos para o MAUI "respirar" e desenhar a tela física
+            await Task.Delay(100);
+
+            // Puxa o foco de forma silenciosa e protegida para os atalhos funcionarem logo!
+            try { await _mapContainerRef.FocusAsync(); } catch { }
+
             var dimensoes = await JSRuntime.InvokeAsync<DimensoesTela>("dimensoesJanela.obter");
             _larguraTela = dimensoes.largura > 0 ? dimensoes.largura : 1920;
             _alturaTela = dimensoes.altura > 0 ? dimensoes.altura : 1080;
@@ -2352,13 +2611,11 @@
     // =========================================================================
     private void SolicitarNovoFrame()
     {
-        // O parâmetro 't' com Ticks força o navegador a baixar a imagem nova e ignorar o cache antigo!
-        _mapaUrl = $"http://localhost:A_SUA_PORTA/mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
+        if (_server == null) return;
+        string url = $"{_server.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
 
-        // Ou, se você tem acesso à classe do servidor diretamente no Home.razor:
-        // _mapaUrl = $"{ServidorMapas.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
-
-        InvokeAsync(StateHasChanged);
+        // Pede ao JS para trocar a imagem sem o Blazor piscar a tela
+        InvokeAsync(() => JSRuntime.InvokeVoidAsync("mapEngine.carregarNovoFrame", url));
     }
 
     private async Task AdicionarCamadaAoMapa()
@@ -2714,18 +2971,7 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task AplicarPropriedadesUnificadas()
-    {
-        try
-        {
-            double opacidadeDecimal = opacidadePreenchimento / 100.0;
-            if (tipoSimbologia == "UNICA") await JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadeDecimal);
-            else if (tipoSimbologia == "CATEGORIZADA" && !string.IsNullOrEmpty(colunaSimbologiaCategorizada)) await JSRuntime.InvokeVoidAsync("aplicarSimbologiaCategorizada", camadaEmEdicao, colunaSimbologiaCategorizada, espessuraLinha, opacidadeDecimal);
-            await JSRuntime.InvokeVoidAsync("aplicarRotulosCamada", camadaEmEdicao, colunaRotuloSelecionada, tamanhoFonteRotulo, corFonteRotulo);
-            exibirModalPropriedades = false;
-        }
-        catch (Exception ex) { Console.WriteLine($"Erro na sincronização de estilos: {ex.Message}"); }
-    }
+    
 
     private async Task AplicarSimbologia() { await JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento); exibirModalPropriedades = false; }
 
@@ -3003,7 +3249,6 @@
 
                     case ModoFerramenta.Medicao:
                         var ptFinal = ptMundo;
-
                         if (_snapMedicaoAtivo)
                         {
                             float toleranciaSnap = (float)(15.0 / (escalaAutoFit * MapService.CameraZoom));
@@ -3017,8 +3262,8 @@
                         MapService.PontosMedicao.Add(ptFinal);
                         RecalcularMedicoes();
 
-                        // Atualização local imediata do desenho no frontend canvas
-                        await AtualizarCanvasOverlayLocal();
+                        // O C# desenha a linha e envia para a tela!
+                        SolicitarNovoFrame();
                         break;
 
                     case ModoFerramenta.AquisicaoPoligono:
@@ -3117,12 +3362,53 @@
         }
     }
 
+    // =========================================================================
+    // 16. ATALHOS DE TECLADO (ESC, M, I)
+    // =========================================================================
+    // =========================================================================
+    // 16. ATALHOS DE TECLADO GLOBAIS (ESC, M, I)
+    // =========================================================================
+    [JSInvokable]
+    public void ProcessarTecladoGlobal(string tecla)
+    {
+        tecla = tecla.ToLower();
+
+        if (tecla == "escape")
+        {
+            if (_ferramentaAtiva == ModoFerramenta.Medicao)
+            {
+                LimparMedicao(); // Aborta a medição instantaneamente
+            }
+            else if (_ferramentaAtiva == ModoFerramenta.Identificacao)
+            {
+                MapService.DestacarFeicao(null);
+                camadaSelecionadaPainel = string.Empty;
+                atributosFeicaoSelecionada?.Clear();
+                SolicitarNovoFrame();
+                StateHasChanged();
+            }
+        }
+        else if (tecla == "m")
+        {
+            TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Medicao ? ModoFerramenta.Identificacao : ModoFerramenta.Medicao);
+        }
+        else if (tecla == "i")
+        {
+            TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Identificacao ? ModoFerramenta.Navegacao : ModoFerramenta.Identificacao);
+        }
+    }
+
     private void LimparMedicao()
     {
         MapService.PontosMedicao.Clear();
+        MapService.PontoCursorSnap = null; // Apaga a mira amarela
+        MapService.PontoCursorMundo = null; // Remove o resto da linha
+
         _medicaoComprimentoMetros = 0;
         _medicaoAreaM2 = 0;
-        SolicitarNovoFrame();
+
+        SolicitarNovoFrame(); // Manda a GPU limpar a tela
+        StateHasChanged();    // Força o HTML a colocar os números a zero
     }
     // =========================================================================
     // 15. MOTOR DE MIRA MAGNÉTICA (HOVER SNAP TIPO ARCGIS)
@@ -3136,27 +3422,22 @@
     // =========================================================================
     private DateTime _ultimoMovimentoMouse = DateTime.MinValue;
 
-    private async Task ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
-    {
-        bool precisaRenderizarServidor = false;
-        bool precisaAtualizarCanvasOverlay = false;
+    private DateTime _ultimaAtualizacaoUI = DateTime.MinValue; // NOVO: Relógio separado para os textos
 
-        // 1. A MATEMÁTICA DO PAN (Executa sempre para não perder nenhum milímetro do rato)
+    private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        bool precisaRenderizar = false;
+
+        // 1. PAN
         if (_isPanning)
         {
-            float dx = (float)(e.OffsetX - _lastMouseX);
-            float dy = (float)(e.OffsetY - _lastMouseY);
-
-            MapService.CameraPanX += dx;
-            MapService.CameraPanY += dy;
-
+            MapService.CameraPanX += (float)(e.OffsetX - _lastMouseX);
+            MapService.CameraPanY += (float)(e.OffsetY - _lastMouseY);
             _lastMouseX = e.OffsetX;
             _lastMouseY = e.OffsetY;
-
-            precisaRenderizarServidor = true;
+            precisaRenderizar = true;
         }
-
-        // 2. A MATEMÁTICA DA MEDIÇÃO / SNAP (Só executa se não estiver a usar o Pan)
+        // 2. SNAP
         else if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
             SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
@@ -3191,61 +3472,44 @@
                             MapService.PontoCursorSnap = ptMagnetico.Value;
                             MapService.PontoCursorMundo = ptMagnetico.Value;
                         }
-                        else
-                        {
-                            MapService.PontoCursorSnap = null;
-                        }
+                        else { MapService.PontoCursorSnap = null; }
                     }
-                    else
-                    {
-                        MapService.PontoCursorSnap = null;
-                    }
-                    precisaAtualizarCanvasOverlay = true;
+                    else { MapService.PontoCursorSnap = null; }
+
+                    precisaRenderizar = true;
                 }
             }
         }
 
-        // 3. SELEÇÃO INTELIGENTE DE RENDERING PIPELINE (60 FPS REAL)
-        if (precisaRenderizarServidor)
+        // 3. RENDERIZAÇÃO OTIMIZADA A 60 FPS
+        if (precisaRenderizar)
         {
-            if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
-            {
-                _ultimoMovimentoMouse = DateTime.Now;
-                SolicitarNovoFrame(); // Pan aciona renderização do fundo estático via servidor
-            }
-        }
-        else if (precisaAtualizarCanvasOverlay)
-        {
+            // O mapa e a linha da régua atualizam a cada 16ms (máxima fluidez)
             if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
             {
                 _ultimoMovimentoMouse = DateTime.Now;
 
-                // Atualiza as propriedades numéricas da UI lateral
-                if (MapService.PontosMedicao.Count > 0)
+                if (_ferramentaAtiva == ModoFerramenta.Medicao && MapService.PontosMedicao.Count > 0)
                 {
                     RecalcularMedicoes();
-                    StateHasChanged();
+
+                    // O SEGREDO DA SUAVIDADE: Atualiza os números no painel apenas a cada 150ms!
+                    // Isto impede que o Blazor congele o CPU e deixe a linha "engasgada".
+                    if ((DateTime.Now - _ultimaAtualizacaoUI).TotalMilliseconds >= 150)
+                    {
+                        _ultimaAtualizacaoUI = DateTime.Now;
+                        StateHasChanged();
+                    }
                 }
 
-                // Desenho imediato na GPU local via Canvas Overlay (0ms HTTP Cost)
-                await AtualizarCanvasOverlayLocal();
+                SolicitarNovoFrame();
             }
         }
     }
     // =========================================================================
     // 16. ATALHOS DE TECLADO (ESC, ENTER)
     // =========================================================================
-    private void ProcessarTeclado(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
-    {
-        if (e.Key == "Escape")
-        {
-            if (_ferramentaAtiva == ModoFerramenta.Medicao)
-            {
-                LimparMedicao(); // Aborta a medição instantaneamente
-            }
-            // Futuramente: Se estiver a desenhar um lote (AquisicaoPoligono), abortar também.
-        }
-    }
+    
     // =========================================================================
     // 17. MOTOR DE NAVEGAÇÃO (PAN COM BOTÃO DO MEIO - PADRÃO CAD)
     // =========================================================================
@@ -3328,5 +3592,48 @@
 
         // Invocação imediata do contexto gráfico 2D do navegador
         await JSRuntime.InvokeVoidAsync("GeoNexGraphics.atualizarOverlay", pontosTela, mouseTela, snapTela);
+    }
+    // Método para ser chamado pelos botões/inputs do painel de Propriedades da Camada
+    // =========================================================================
+    // APLICAÇÃO DE SIMBOLOGIA (MODAL DE PROPRIEDADES)
+    // =========================================================================
+    private void AplicarPropriedadesUnificadas()
+    {
+        if (string.IsNullOrEmpty(camadaEmEdicao)) return;
+        var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, new GeoNex.Services.EstiloCamada());
+
+        estilo.TipoSimbologia = tipoSimbologia;
+        estilo.EspessuraBorda = Convert.ToSingle(espessuraLinha);
+        estilo.Opacidade = Convert.ToSingle(opacidadePreenchimento) / 100f;
+
+        if (tipoSimbologia == "UNICA")
+        {
+            estilo.PreenchimentoTransparente = semCorPreenchimento;
+            estilo.BordaTransparente = semCorBorda;
+
+            estilo.CorPreenchimento = corPreenchimento;
+            estilo.CorBorda = corBorda;
+        }
+        else if (tipoSimbologia == "CATEGORIZADA")
+        {
+            estilo.ColunaSimbologia = colunaSimbologiaCategorizada;
+            estilo.CoresCategorizadas.Clear();
+            // TODO: A lógica de separar os polígonos e associar cores virá numa próxima etapa!
+        }
+
+        SolicitarNovoFrame();
+        exibirModalPropriedades = false;
+    }
+    private void AtualizarSimbologiaAoVivo()
+    {
+        if (string.IsNullOrEmpty(camadaEmEdicao)) return;
+
+        var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, new Services.EstiloCamada());
+        estilo.Opacidade = (float)opacidadePreenchimento / 100f;
+        estilo.CorPreenchimento = corPreenchimento;
+        estilo.CorBorda = corBorda;
+        estilo.EspessuraBorda = (float)espessuraLinha;
+
+        SolicitarNovoFrame();
     }
 }
