@@ -192,16 +192,15 @@ namespace GeoNex.Services
                                 }
                             }
                         }
-                        // --- VETORES (Simbologia Dinâmica) ---
+
+                        // --- VETORES (Simbologia Dinâmica e Categorizada) ---
                         if (!viewportMundo.IsEmpty)
                         {
-                            // AQUI NASCEM AS VARIÁVEIS camadaAtual e estiloCamada!
                             if (!_mapService.EstilosPorCamada.TryGetValue(camadaAtual, out var estiloCamada))
                             {
                                 estiloCamada = new GeoNex.Services.EstiloCamada();
                             }
 
-                            // AQUI NASCE A VARIÁVEL alphaCalculado!
                             byte alphaCalculado = (byte)(estiloCamada.Opacidade * 255);
 
                             SKColor corBorda = estiloCamada.CorBorda == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorBorda);
@@ -212,78 +211,50 @@ namespace GeoNex.Services
                             pincelDinamicoBorda.StrokeWidth = estiloCamada.EspessuraBorda / zoomReal;
                             pincelDinamicoPonto.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill;
 
-                            // 4. DESENHA POLÍGONOS (Evita desenhar se for transparente)
-                            if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
+                            // 4. DESENHA POLÍGONOS (Única ou Categorizada)
+                            if (estiloCamada.TipoSimbologia == "UNICA")
                             {
-                                if (viewportMundo.IntersectsWith(polyPath.Bounds))
+                                if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
                                 {
-                                    canvas.SetMatrix(matriz);
+                                    if (viewportMundo.IntersectsWith(polyPath.Bounds))
+                                    {
+                                        canvas.SetMatrix(matriz);
 
-                                    // Os disjuntores evitam o bug do "transparent"
-                                    if (!estiloCamada.PreenchimentoTransparente)
-                                        canvas.DrawPath(polyPath, pincelDinamicoFill);
+                                        if (!estiloCamada.PreenchimentoTransparente)
+                                            canvas.DrawPath(polyPath, pincelDinamicoFill);
 
-                                    if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
-                                        canvas.DrawPath(polyPath, pincelDinamicoBorda);
+                                        if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
+                                            canvas.DrawPath(polyPath, pincelDinamicoBorda);
+                                    }
                                 }
                             }
-
-                            // 5. DESENHA LINHAS E PONTOS (Mantenha o seu código para Linhas e Pontos aqui)
-                            if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
+                            else if (estiloCamada.TipoSimbologia == "CATEGORIZADA")
                             {
-                                if (viewportMundo.IntersectsWith(linePath.Bounds))
+                                if (_mapService.VetoresCategorizados.TryGetValue(camadaAtual, out var fragmentosDaCamada))
                                 {
-                                    canvas.SetMatrix(matriz);
-                                    if (!estiloCamada.BordaTransparente)
-                                        canvas.DrawPath(linePath, pincelDinamicoBorda);
-                                }
-                            }
+                                    foreach (var categoria in fragmentosDaCamada)
+                                    {
+                                        string nomeCategoria = categoria.Key;
+                                        var polyPathFragmento = categoria.Value;
 
-                            if (_mapService.PontosPorCamada.TryGetValue(camadaAtual, out var pointPath))
-                            {
-                                if (viewportMundo.IntersectsWith(pointPath.Bounds))
-                                {
-                                    canvas.SetMatrix(matriz);
-                                    if (!estiloCamada.PreenchimentoTransparente)
-                                        canvas.DrawPath(pointPath, pincelDinamicoPonto);
-                                    if (!estiloCamada.BordaTransparente)
-                                        canvas.DrawPath(pointPath, pincelDinamicoBorda);
-                                }
-                            }
-                        }
+                                        if (viewportMundo.IntersectsWith(polyPathFragmento.Bounds))
+                                        {
+                                            string corHex = estiloCamada.CoresCategorizadas.ContainsKey(nomeCategoria)
+                                                            ? estiloCamada.CoresCategorizadas[nomeCategoria]
+                                                            : "#808080";
 
-                        if (!viewportMundo.IsEmpty)
-                        {
-                            // 3.2. DECLARAÇÃO GLOBAL DE ESTILO E OPACIDADE (Resolve erros de contexto)
-                            if (!_mapService.EstilosPorCamada.TryGetValue(camadaAtual, out var estiloCamada))
-                            {
-                                estiloCamada = new GeoNex.Services.EstiloCamada();
-                            }
+                                            SKColor corBase = SKColor.Parse(corHex);
+                                            pincelDinamicoFill.Color = corBase.WithAlpha(alphaCalculado);
 
-                            byte alphaCalculado = (byte)(estiloCamada.Opacidade * 255);
+                                            canvas.SetMatrix(matriz);
 
-                            // 3.3. REGRAS DE TRANSPARÊNCIA (O disjuntor "Sem Cor")
-                            SKColor corBorda = estiloCamada.CorBorda == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorBorda);
-                            SKColor corFill = estiloCamada.CorPreenchimento == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorPreenchimento);
+                                            if (!estiloCamada.PreenchimentoTransparente)
+                                                canvas.DrawPath(polyPathFragmento, pincelDinamicoFill);
 
-                            pincelDinamicoFill.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill.WithAlpha(alphaCalculado);
-                            pincelDinamicoBorda.Color = corBorda;
-                            pincelDinamicoBorda.StrokeWidth = estiloCamada.EspessuraBorda / zoomReal;
-                            pincelDinamicoPonto.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill;
-
-                            // 4. DESENHA POLÍGONOS
-                            if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
-                            {
-                                if (viewportMundo.IntersectsWith(polyPath.Bounds))
-                                {
-                                    canvas.SetMatrix(matriz);
-
-                                    // Só desenha se a caixa "Sem Cor" não estiver marcada
-                                    if (!estiloCamada.PreenchimentoTransparente)
-                                        canvas.DrawPath(polyPath, pincelDinamicoFill);
-
-                                    if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
-                                        canvas.DrawPath(polyPath, pincelDinamicoBorda);
+                                            if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
+                                                canvas.DrawPath(polyPathFragmento, pincelDinamicoBorda);
+                                        }
+                                    }
                                 }
                             }
 
@@ -310,8 +281,106 @@ namespace GeoNex.Services
                                         canvas.DrawPath(pointPath, pincelDinamicoBorda);
                                 }
                             }
+                            // ==========================================================
+                            // 7. MOTOR DE RÓTULOS DINÂMICOS (SMART FITTING TIPO ARCGIS)
+                            // ==========================================================
+                            if (estiloCamada.ExibirRotulos && !string.IsNullOrEmpty(estiloCamada.ColunaRotulo))
+                            {
+                                if (!_mapService.PontosAncoragemRotulo.TryGetValue(camadaAtual, out var ancoras) || ancoras.Count == 0)
+                                {
+                                    ancoras = new();
+                                    if (_mapService.FeicoesOriginais.TryGetValue(camadaAtual, out var feicoes))
+                                    {
+                                        foreach (var feicao in feicoes)
+                                        {
+                                            if (feicao.Geometry != null && !feicao.Geometry.IsEmpty)
+                                            {
+                                                double px = 0, py = 0;
+                                                try
+                                                {
+                                                    var ptInt = feicao.Geometry.InteriorPoint;
+                                                    if (ptInt != null && !ptInt.IsEmpty) { px = ptInt.X; py = ptInt.Y; }
+                                                    else { px = feicao.Geometry.EnvelopeInternal.Centre.X; py = feicao.Geometry.EnvelopeInternal.Centre.Y; }
+                                                }
+                                                catch { px = feicao.Geometry.EnvelopeInternal.Centre.X; py = feicao.Geometry.EnvelopeInternal.Centre.Y; }
+
+                                                float cx = (float)(px - _mapService.OffsetMundoX);
+                                                float cy = -(float)(py - _mapService.OffsetMundoY);
+
+                                                float larguraMundo = (float)feicao.Geometry.EnvelopeInternal.Width;
+                                                if (larguraMundo == 0) larguraMundo = 999999f;
+
+                                                ancoras.Add((new SkiaSharp.SKPoint(cx, cy), feicao.Attributes, larguraMundo));
+                                            }
+                                        }
+                                    }
+                                    _mapService.PontosAncoragemRotulo[camadaAtual] = ancoras;
+                                }
+
+                                if (ancoras.Count > 0)
+                                {
+                                    using var fonteTypeface = estiloCamada.RotuloNegrito
+                                        ? SKTypeface.FromFamilyName(null, SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)
+                                        : SKTypeface.Default;
+
+                                    using var pincelTexto = new SKPaint
+                                    {
+                                        Typeface = fonteTypeface,
+                                        TextSize = estiloCamada.TamanhoTextoRotulo,
+                                        IsAntialias = true,
+                                        Color = SKColor.Parse(estiloCamada.CorTextoRotulo),
+                                        TextAlign = SKTextAlign.Center
+                                    };
+
+                                    using var pincelHalo = new SKPaint
+                                    {
+                                        Typeface = fonteTypeface,
+                                        TextSize = estiloCamada.TamanhoTextoRotulo,
+                                        IsAntialias = true,
+                                        Color = SKColor.Parse(estiloCamada.CorHaloRotulo),
+                                        TextAlign = SKTextAlign.Center,
+                                        Style = SKPaintStyle.Stroke,
+                                        StrokeWidth = estiloCamada.TamanhoHaloRotulo,
+                                        StrokeJoin = SKStrokeJoin.Round
+                                    };
+
+                                    float ajusteY = (pincelTexto.FontMetrics.Descent - pincelTexto.FontMetrics.Ascent) / 2f - pincelTexto.FontMetrics.Descent;
+
+                                    canvas.SetMatrix(SKMatrix.CreateScale(dpi, dpi));
+
+                                    foreach (var ancora in ancoras)
+                                    {
+                                        // AQUI ESTÁ A MAGIA DE ESCALA: 
+                                        // Calcula o tamanho que o lote/bairro tem no ecrã exato do utilizador neste nível de zoom
+                                        float larguraNoEcra = ancora.LarguraMundo * zoomReal;
+
+                                        // Se o lote for menor que 35 pixels (muito pequeno para ler a palavra confortavelmente), esconde!
+                                        if (larguraNoEcra < 35f) continue;
+
+                                        if (viewportMundo.Contains(ancora.Ponto))
+                                        {
+                                            if (ancora.Atributos != null && ancora.Atributos.Exists(estiloCamada.ColunaRotulo))
+                                            {
+                                                var valorObjeto = ancora.Atributos[estiloCamada.ColunaRotulo];
+                                                if (valorObjeto != null)
+                                                {
+                                                    string texto = valorObjeto.ToString();
+                                                    SKPoint pontoMonitor = matriz.MapPoint(ancora.Ponto);
+
+                                                    if (estiloCamada.TamanhoHaloRotulo > 0)
+                                                    {
+                                                        canvas.DrawText(texto, pontoMonitor.X, pontoMonitor.Y + ajusteY, pincelHalo);
+                                                    }
+                                                    canvas.DrawText(texto, pontoMonitor.X, pontoMonitor.Y + ajusteY, pincelTexto);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    canvas.SetMatrix(matriz);
+                                }
+                            }
                         }
-                    }
+                    } // Fim do loop de camadas
 
                     // 5. FERRAMENTA DE MEDIÇÃO
                     if (_mapService.PontosMedicao.Count > 0 || _mapService.PontoCursorMundo.HasValue)

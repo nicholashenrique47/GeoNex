@@ -26,7 +26,9 @@ namespace GeoNex.Services
         public Dictionary<string, SKPath> VetoresPorCamada { get; private set; } = new();
         public Dictionary<string, SKPath> LinhasPorCamada { get; private set; } = new();
         public Dictionary<string, SKPath> PontosPorCamada { get; private set; } = new();
-
+        // === NOVOS DICIONÁRIOS PARA O MODO CATEGORIZADO ===
+        public Dictionary<string, FeatureCollection> FeicoesOriginais { get; private set; } = new();
+        public Dictionary<string, Dictionary<string, SKPath>> VetoresCategorizados { get; private set; } = new();
         public List<string> OrdemCamadas { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
         // === INDICADOR VISUAL DO SNAP (ARCGIS HOVER) ===
@@ -75,7 +77,7 @@ namespace GeoNex.Services
 
         // O MOTOR ANALÍTICO ESPACIAL (RAM C#) - Agora utilizando IFeature rigorosamente
         public Dictionary<string, STRtree<IFeature>> ArvoresEspaciais { get; private set; } = new();
-        //simbologia
+        public Dictionary<string, List<(SkiaSharp.SKPoint Ponto, NetTopologySuite.Features.IAttributesTable Atributos, float LarguraMundo)>> PontosAncoragemRotulo { get; set; } = new();        //simbologia
         public System.Collections.Concurrent.ConcurrentDictionary<string, EstiloCamada> EstilosPorCamada { get; } = new();
         public Dataset DatasetRaster { get; set; }
         public bool TemRaster { get; set; } = false;
@@ -104,9 +106,15 @@ namespace GeoNex.Services
 
         public void PreCompilarPoligonos(string nomeCamada, FeatureCollection feicoes)
         {
+            FeicoesOriginais[nomeCamada] = feicoes;
+
             if (VetoresPorCamada.ContainsKey(nomeCamada)) VetoresPorCamada[nomeCamada].Dispose();
             if (LinhasPorCamada.ContainsKey(nomeCamada)) LinhasPorCamada[nomeCamada].Dispose();
             if (PontosPorCamada.ContainsKey(nomeCamada)) PontosPorCamada[nomeCamada].Dispose();
+
+            // NOVO: Limpa os rótulos antigos e cria um novo cache para a camada
+            if (PontosAncoragemRotulo.ContainsKey(nomeCamada)) PontosAncoragemRotulo.Remove(nomeCamada);
+            PontosAncoragemRotulo[nomeCamada] = new();
 
             var polyPath = new SKPath { FillType = SKPathFillType.EvenOdd };
             var linePath = new SKPath();
@@ -115,6 +123,21 @@ namespace GeoNex.Services
             foreach (IFeature feicao in feicoes)
             {
                 if (feicao.Geometry == null) continue;
+
+                // NOVO: Calcula o "Centroide" geométrico e guarda para o texto ser desenhado
+                // Usa o InteriorPoint para garantir que o texto cai dentro da terra, e não na água/fora
+                var pontoAncora = feicao.Geometry.InteriorPoint ?? feicao.Geometry.Centroid;
+                if (pontoAncora != null)
+                {
+                    float cx = (float)(pontoAncora.X - OffsetMundoX);
+                    float cy = -(float)(pontoAncora.Y - OffsetMundoY);
+
+                    float larguraMundo = (float)feicao.Geometry.EnvelopeInternal.Width;
+                    // Se for um Ponto (ex: Poste), a largura é 0, então forçamos um valor gigante para aparecer sempre
+                    if (larguraMundo == 0) larguraMundo = 999999f;
+
+                    PontosAncoragemRotulo[nomeCamada].Add((new SkiaSharp.SKPoint(cx, cy), feicao.Attributes, larguraMundo));
+                }
 
                 if (!OffsetMundoDefinido)
                 {
@@ -182,7 +205,70 @@ namespace GeoNex.Services
 
             RequestRedraw();
         }
+        // === COMPILADOR DE SIMBOLOGIA CATEGORIZADA ===
+        public void CompilarCategorias(string nomeCamada, string colunaSimbologia)
+        {
+            if (!FeicoesOriginais.ContainsKey(nomeCamada)) return;
 
+            var feicoes = FeicoesOriginais[nomeCamada];
+            var dicCategorias = new Dictionary<string, SKPath>();
+
+            foreach (IFeature feicao in feicoes)
+            {
+                if (feicao.Geometry == null) continue;
+
+                // 1. Descobre a qual Categoria este polígono pertence (ex: "ELIANA")
+                string valorCategoria = "NULO";
+                if (feicao.Attributes != null && feicao.Attributes.Exists(colunaSimbologia))
+                {
+                    var objVal = feicao.Attributes[colunaSimbologia];
+                    valorCategoria = objVal != null ? objVal.ToString() : "NULO";
+                }
+
+                // 2. Se a categoria é nova, cria um "Saco" (SKPath) para ela
+                if (!dicCategorias.ContainsKey(valorCategoria))
+                {
+                    dicCategorias[valorCategoria] = new SKPath { FillType = SKPathFillType.EvenOdd };
+                }
+
+                // 3. Joga o polígono desenhado dentro do "Saco" certo
+                var polyPath = dicCategorias[valorCategoria];
+
+                for (int i = 0; i < feicao.Geometry.NumGeometries; i++)
+                {
+                    var subGeom = feicao.Geometry.GetGeometryN(i);
+                    if (subGeom is NetTopologySuite.Geometries.Polygon poly)
+                    {
+                        var extPath = new SKPath();
+                        var extCoords = poly.ExteriorRing.Coordinates;
+                        for (int j = 0; j < extCoords.Length; j++)
+                        {
+                            float x = (float)(extCoords[j].X - OffsetMundoX);
+                            float y = -(float)(extCoords[j].Y - OffsetMundoY);
+                            if (j == 0) extPath.MoveTo(x, y); else extPath.LineTo(x, y);
+                        }
+                        extPath.Close();
+                        polyPath.AddPath(extPath);
+
+                        foreach (var hole in poly.InteriorRings)
+                        {
+                            var holePath = new SKPath();
+                            var holeCoords = hole.Coordinates;
+                            for (int j = 0; j < holeCoords.Length; j++)
+                            {
+                                float x = (float)(holeCoords[j].X - OffsetMundoX);
+                                float y = -(float)(holeCoords[j].Y - OffsetMundoY);
+                                if (j == 0) holePath.MoveTo(x, y); else holePath.LineTo(x, y);
+                            }
+                            holePath.Close();
+                            polyPath.AddPath(holePath);
+                        }
+                    }
+                }
+            }
+            // Guarda na placa gráfica as geometrias separadas
+            VetoresCategorizados[nomeCamada] = dicCategorias;
+        }
         // ======================================================
         // MOTOR DE RAYCASTING (POINT-IN-POLYGON)
         // ======================================================
