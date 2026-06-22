@@ -922,8 +922,11 @@ window.mapEngine = {
     onWheel: function (e) {
         e.preventDefault();
 
-        let proporcao = e.ctrlKey ? 1 - (e.deltaY * 0.015) : (e.deltaY < 0 ? 1.15 : (1 / 1.15));
+        // === CORREÇÃO BUG 2: BLOQUEIO DO ZOOM DURANTE O PAN ===
+        // Se o botão do meio do rato (bit 4) estiver pressionado, corta a ignição do zoom!
+        if (e.buttons & 4) return;
 
+        let proporcao = e.ctrlKey ? 1 - (e.deltaY * 0.015) : (e.deltaY < 0 ? 1.15 : (1 / 1.15));
         // --- LIMITADOR DE ZOOM ABSOLUTO ---
         // --- LIMITADOR DE ZOOM ABSOLUTO ---
         let zoomProjetado = this.absoluteZoom * proporcao;

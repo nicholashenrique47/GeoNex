@@ -155,86 +155,53 @@
                 </div>
             </div>
 
-            <div class="layer-list custom-scrollbar">
+            <div class="layer-list custom-scrollbar" @onpointerup="FinalizarArraste">
                 @foreach (var camada in CamadasAtivas)
                 {
-                    // Variável local de segurança para o Blazor
                     var camadaAtual = camada;
 
+                    // Deteta se esta é a camada que o utilizador tem agarrada neste momento
+                    bool sendoArrastada = (camadaArrastada == camadaAtual);
+
                     <div @key="camadaAtual.Nome"
-                         class="layer-item @(camadaAtual.Tipo.ToLower())"
-                         draggable="true"
-                         @ondragstart="() => AoIniciarArrastar(camadaAtual)"
-                         @ondrop="() => AoSoltarCamada(camadaAtual)"
-                         @ondragenter="() => { }"
-                         @ondragenter:preventDefault="true"
-                         @ondragover="() => { }"
-                         @ondragover:preventDefault="true"
+                         class="layer-item @(camadaAtual.Tipo.ToLower()) @(sendoArrastada ? "is-dragging" : "")"
+                         @onpointerenter="() => AoSobrevoarCamada(camadaAtual)"
                          @oncontextmenu="(e) => MostrarMenuContexto(e, camadaAtual.Nome)"
                          @oncontextmenu:preventDefault="true">
 
-                        <div class="drag-handle" title="Arrastar para reordenar">
-                            <svg width="12" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="9" cy="12" r="1"></circle>
-                                <circle cx="9" cy="5" r="1"></circle>
-                                <circle cx="9" cy="19" r="1"></circle>
-                                <circle cx="15" cy="12" r="1"></circle>
-                                <circle cx="15" cy="5" r="1"></circle>
-                                <circle cx="15" cy="19" r="1"></circle>
+                        <div class="drag-handle" title="Arrastar para reordenar"
+                             @onpointerdown="() => IniciarArraste(camadaAtual)"
+                             @onpointerdown:stopPropagation="true">
+                            <svg style="pointer-events: none;" width="14" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="9" cy="12" r="1.5"></circle>
+                                <circle cx="9" cy="5" r="1.5"></circle>
+                                <circle cx="9" cy="19" r="1.5"></circle>
+                                <circle cx="15" cy="12" r="1.5"></circle>
+                                <circle cx="15" cy="5" r="1.5"></circle>
+                                <circle cx="15" cy="19" r="1.5"></circle>
                             </svg>
                         </div>
 
-                        <input type="checkbox"
-                               checked="@camadaAtual.Visivel"
-                               @onchange="@(e => ToggleCamada(camadaAtual, (bool)(e.Value ?? false)))" />
-
+                        <input type="checkbox" checked="@camadaAtual.Visivel" @onchange="@(e => ToggleCamada(camadaAtual, (bool)(e.Value ?? false)))" />
                         <span class="type-tag" style="background: @(camadaAtual.Tipo == "Raster" ? "#5b21b6" : "#065f46"); color: @(camadaAtual.Tipo == "Raster" ? "#ddd6fe" : "#a7f3d0");">
                             @(camadaAtual.Tipo == "Raster" ? "R" : "V")
                         </span>
-
                         <span class="layer-title no-select" title="@camadaAtual.Nome">@camadaAtual.Nome</span>
 
                         @if (camadaAtual.Tipo == "Vetor")
                         {
                             <div class="layer-actions" style="display: flex; gap: 5px; margin-left: auto;">
-
-                                <button type="button" class="layer-action-btn" title="Abrir Tabela de Atributos"
-                                        @onclick="() => AbrirTabela(camadaAtual.Nome)"
-                                        @onclick:stopPropagation="true">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                                        <line x1="3" y1="9" x2="21" y2="9"></line>
-                                        <line x1="9" y1="21" x2="9" y2="9"></line>
-                                    </svg>
+                                <button type="button" class="layer-action-btn" title="Abrir Tabela de Atributos" @onclick="() => AbrirTabela(camadaAtual.Nome)" @onclick:stopPropagation="true">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
                                 </button>
-                                <button type="button" class="layer-action-btn" title="Propriedades da Camada"
-                                        @onclick="() => AbrirPropriedadesSincronizadas(camadaAtual.Nome)"
-                                        @onclick:stopPropagation="true">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <circle cx="12" cy="12" r="3"></circle>
-                                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                                    </svg>
+                                <button type="button" class="layer-action-btn" title="Propriedades da Camada" @onclick="() => AbrirPropriedadesSincronizadas(camadaAtual.Nome)" @onclick:stopPropagation="true">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                 </button>
-
-                                <button type="button" class="layer-action-btn" title="Opções da Camada"
-                                        @onclick="(e) => BotaoOpcoesClicado(e, camadaAtual.Nome)"
-                                        @onclick:stopPropagation="true">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <circle cx="12" cy="12" r="1"></circle>
-                                        <circle cx="12" cy="5" r="1"></circle>
-                                        <circle cx="12" cy="19" r="1"></circle>
-                                    </svg>
+                                <button type="button" class="layer-action-btn" title="Opções da Camada" @onclick="(e) => BotaoOpcoesClicado(e, camadaAtual.Nome)" @onclick:stopPropagation="true">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
                                 </button>
-
                             </div>
                         }
-                    </div>
-                }
-
-                @if (CamadasAtivas.Count == 0)
-                {
-                    <div style="padding: 15px; color: #64748b; font-size: 0.75rem; text-align: center;">
-                        Nenhuma camada adicionada ao projeto.
                     </div>
                 }
             </div>
@@ -462,6 +429,47 @@
     @if (exibirModalPropriedades)
     {
         <style>
+                /* =======================================================
+                       FÍSICA DO DRAG & DROP (MÁXIMA SUAVIDADE E GRIP)
+                       ======================================================= */
+
+                .layer-item {
+                    /* A branda transição que remove os pulos secos do ecrã */
+                    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s, background-color 0.2s;
+                    will-change: transform;
+                }
+
+                    /* O Efeito de Levitação Magnética quando o clique é mantido */
+                    .layer-item.is-dragging {
+                        transform: scale(1.02); /* Aumenta um bocadinho, dando a ilusão que se descolou do fundo */
+                        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.6); /* Sombra pesada por baixo */
+                        background-color: rgba(30, 41, 59, 0.95) !important;
+                        border: 1px solid #38bdf8;
+                        opacity: 0.95;
+                        z-index: 100;
+                    }
+
+                /* O Seu Clique Perfeito (Refinado do seu Print) */
+                .drag-handle {
+                    padding: 6px;
+                    border-radius: 4px;
+                    background: rgba(0,0,0,0.15);
+                    cursor: grab; /* Mão aberta a pedir clique */
+                    touch-action: none;
+                    transition: background 0.2s, color 0.2s;
+                }
+
+                    .drag-handle:hover {
+                        background: rgba(0,0,0,0.3);
+                        color: #38bdf8;
+                    }
+
+                    /* Quando clica, o ícone do rato muda para mão fechada! */
+                    .drag-handle:active, .is-dragging .drag-handle {
+                        cursor: grabbing !important;
+                        background: rgba(56, 189, 248, 0.2);
+                        color: #38bdf8;
+                    }
                 .geonex-toggle {
                     position: relative;
                     display: inline-block;
@@ -2723,9 +2731,39 @@
         height: 35px;
         background: rgba(255, 255, 255, 0.1);
     }
+    /* Elemento "fantasma" deixado no lugar original durante o drag */
+    .sortable-ghost {
+        opacity: 0.4;
+        background: color-mix(in srgb, var(--accent-color, #4a90d9) 20%, transparent);
+        border: 1px dashed var(--accent-color, #4a90d9);
+        border-radius: 4px;
+    }
+
+    /* Elemento sendo activamente arrastado */
+    .sortable-chosen {
+        cursor: grabbing;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    /* A alça visual */
+    .drag-handle {
+        cursor: grab;
+        padding: 0 6px;
+        opacity: 0.5;
+        transition: opacity 0.15s;
+    }
+
+        .drag-handle:hover {
+            opacity: 1;
+        }
+
+        .drag-handle:active {
+            cursor: grabbing;
+        }
 </style>
 
 @code {
+    private ElementReference _listRef;
     private double opacidadeBorda = 100;
     // Variável que alimenta a Camada 1 (Fundo do Mapa)
     private string _mapaUrl = "";
@@ -2984,10 +3022,7 @@
     {
         if (firstRender)
         {
-            // Dá 100 milissegundos para o MAUI "respirar" e desenhar a tela física
             await Task.Delay(100);
-
-            // Puxa o foco de forma silenciosa e protegida para os atalhos funcionarem logo!
             try { await _mapContainerRef.FocusAsync(); } catch { }
 
             var dimensoes = await JSRuntime.InvokeAsync<DimensoesTela>("dimensoesJanela.obter");
@@ -2997,6 +3032,8 @@
             await JSRuntime.InvokeVoidAsync("dimensoesJanela.registrarResize", objRef);
             await JSRuntime.InvokeVoidAsync("mapEngine.init", objRef);
             SolicitarNovoFrame();
+
+            // JAVASCRIPT REMOVIDO: O C# agora assume o controlo absoluto!
         }
     }
 
@@ -3344,35 +3381,45 @@
         }
     }
 
-    // 2. O SISTEMA DE ARRASTAR E SOLTAR (Drag & Drop)
-    // 2. O SISTEMA DE ARRASTAR E SOLTAR (Drag & Drop)
+    
     // (A linha 'private Camada camadaArrastada;' foi apagada daqui porque já existe lá em cima)
 
-    private void AoIniciarArrastar(Camada camada)
+    // =========================================================================
+    // MOTOR DE ARRASTAR E SOLTAR (100% C# - BURLANDO O HTML5)
+    // =========================================================================
+
+    private void IniciarArraste(Camada camada)
     {
         camadaArrastada = camada;
     }
 
-    private void AoSoltarCamada(Camada camadaAlvo)
+    private void AoSobrevoarCamada(Camada camadaAlvo)
     {
         if (camadaArrastada == null || camadaArrastada == camadaAlvo) return;
 
-        int iOrigem = CamadasAtivas.IndexOf(camadaArrastada);
-        int iDestino = CamadasAtivas.IndexOf(camadaAlvo);
+        int indexOrigem = CamadasAtivas.IndexOf(camadaArrastada);
+        int indexDestino = CamadasAtivas.IndexOf(camadaAlvo);
 
-        if (iOrigem < 0 || iDestino < 0) return;
+        if (indexOrigem >= 0 && indexDestino >= 0)
+        {
+            CamadasAtivas.RemoveAt(indexOrigem);
+            CamadasAtivas.Insert(indexDestino, camadaArrastada);
 
-        // Remove a camada da posição onde a pegámos
-        CamadasAtivas.RemoveAt(iOrigem);
+            // A MAGIA: Avisa a placa gráfica SkiaSharp para redesenhar o Z-Index em TEMPO REAL!
+            SincronizarHierarquia();
+        }
+    }
 
-        // Insere a camada na posição onde a largámos
-        CamadasAtivas.Insert(iDestino, camadaArrastada);
+    private void FinalizarArraste()
+    {
+        if (camadaArrastada != null)
+        {
+            camadaArrastada = null;
 
-        camadaArrastada = null;
-
-        // Magia: A placa gráfica (SkiaSharp) reconstrói a hierarquia e redesenha o mapa na hora!
-        SincronizarHierarquia();
-        StateHasChanged();
+            // O mapa já foi desenhado com sucesso durante o arrasto.
+            // Aqui apenas limpamos a memória para o CSS desligar a sombra e o efeito de levitação!
+            StateHasChanged();
+        }
     }
 
     // =========================================================================
@@ -3653,118 +3700,76 @@
     [JSInvokable]
     public async Task ProcessarCliqueRaycast(double telaX, double telaY)
     {
-        SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
-        bool primeiro = true;
+        // Puxa a matriz universal e segura!
+        var matriz = ObterMatrizMatematica();
 
-        if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
-
-        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-        foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-        foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-
-        if (!limitesTotais.IsEmpty)
+        if (matriz.TryInvert(out var matrizInversa))
         {
-            float escalaX = _larguraTela / limitesTotais.Width;
-            float escalaY = _alturaTela / limitesTotais.Height;
-            float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+            var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
 
-            var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
-            matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
-            matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
+            double xMundo = ptMundo.X + MapService.OffsetMundoX;
+            double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
 
-            if (matriz.TryInvert(out var matrizInversa))
+            // MÁQUINA DE ESTADOS DO CLIQUE COORDENADO
+            switch (_ferramentaAtiva)
             {
-                var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
+                case ModoFerramenta.Identificacao:
+                    float escalaMatriz = matriz.ScaleX;
+                    double tolerancia = 5.0 / escalaMatriz; // A tolerância de clique usa a escala perfeita
+                    var feicao = MapService.DispararRaycast(yMundo, xMundo, tolerancia, out string camadaAtingida);
 
-                double xMundo = ptMundo.X + MapService.OffsetMundoX;
-                double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
+                    MapService.DestacarFeicao(feicao);
 
-                // MÁQUINA DE ESTADOS DO CLIQUE COORDENADO
-                switch (_ferramentaAtiva)
-                {
-                    case ModoFerramenta.Identificacao:
-                        double tolerancia = 5.0 / (escalaAutoFit * MapService.CameraZoom);
-                        var feicao = MapService.DispararRaycast(yMundo, xMundo, tolerancia, out string camadaAtingida);
+                    if (feicao != null)
+                    {
+                        camadaSelecionadaPainel = camadaAtingida;
+                        atributosFeicaoSelecionada = new Dictionary<string, string>();
 
-                        MapService.DestacarFeicao(feicao);
-
-                        if (feicao != null)
+                        if (feicao.Attributes != null)
                         {
-                            camadaSelecionadaPainel = camadaAtingida;
-                            atributosFeicaoSelecionada = new Dictionary<string, string>();
-
-                            if (feicao.Attributes != null)
+                            foreach (var nomeCampo in feicao.Attributes.GetNames())
                             {
-                                foreach (var nomeCampo in feicao.Attributes.GetNames())
-                                {
-                                    var valor = feicao.Attributes[nomeCampo];
-                                    atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
-                                }
+                                var valor = feicao.Attributes[nomeCampo];
+                                atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
                             }
                         }
-                        else
+                    }
+                    else
+                    {
+                        camadaSelecionadaPainel = string.Empty;
+                        atributosFeicaoSelecionada?.Clear();
+                    }
+
+                    SolicitarNovoFrame();
+                    break;
+
+                case ModoFerramenta.Medicao:
+                    var ptFinal = ptMundo;
+                    if (_snapMedicaoAtivo)
+                    {
+                        float escalaMatrizMed = matriz.ScaleX;
+                        float toleranciaSnap = 15.0f / escalaMatrizMed;
+                        var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
+                        if (ptMagnetico.HasValue)
                         {
-                            camadaSelecionadaPainel = string.Empty;
-                            atributosFeicaoSelecionada?.Clear();
+                            ptFinal = ptMagnetico.Value;
                         }
+                    }
 
-                        SolicitarNovoFrame(); // Identificação exige re-renderizar do servidor para destacar polígono
-                        break;
+                    MapService.PontosMedicao.Add(ptFinal);
+                    RecalcularMedicoes();
+                    SolicitarNovoFrame();
+                    break;
 
-                    case ModoFerramenta.Medicao:
-                        var ptFinal = ptMundo;
-                        if (_snapMedicaoAtivo)
-                        {
-                            float toleranciaSnap = (float)(15.0 / (escalaAutoFit * MapService.CameraZoom));
-                            var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
-                            if (ptMagnetico.HasValue)
-                            {
-                                ptFinal = ptMagnetico.Value;
-                            }
-                        }
-
-                        MapService.PontosMedicao.Add(ptFinal);
-                        RecalcularMedicoes();
-
-                        // O C# desenha a linha e envia para a tela!
-                        SolicitarNovoFrame();
-                        break;
-
-                    case ModoFerramenta.AquisicaoPoligono:
-                        break;
-
-                    case ModoFerramenta.Navegacao:
-                        break;
-                }
-
-                await InvokeAsync(StateHasChanged);
+                case ModoFerramenta.AquisicaoPoligono:
+                case ModoFerramenta.Navegacao:
+                    break;
             }
+
+            await InvokeAsync(StateHasChanged);
         }
     }
-    // === VARIÁVEIS DE DRAG & DROP ===
-    private Camada? _camadaArrastada;
-
-    private void IniciarArraste(Camada camada)
-    {
-        _camadaArrastada = camada;
-    }
-
-    private void SoltarCamada(Camada camadaAlvo)
-    {
-        if (_camadaArrastada == null || _camadaArrastada == camadaAlvo) return;
-
-        int indiceAlvo = CamadasAtivas.IndexOf(camadaAlvo);
-
-        // Move a camada na lista visual do HTML
-        CamadasAtivas.Remove(_camadaArrastada);
-        CamadasAtivas.Insert(indiceAlvo, _camadaArrastada);
-
-        _camadaArrastada = null;
-
-        // MAGIA: Sincroniza o novo Z-Index com a Placa Gráfica e redesenha o mapa!
-        SincronizarHierarquia();
-        StateHasChanged();
-    }
+   
     // === LÓGICA DE MEDIÇÃO ===
     private bool _modoMedicao = false;
     private double _distanciaTotalMetros = 0;
@@ -3888,70 +3893,52 @@
 
     private DateTime _ultimaAtualizacaoUI = DateTime.MinValue; // NOVO: Relógio separado para os textos
 
+    
+
     private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
         bool precisaRenderizar = false;
 
         // 1. PAN
-        // 1. PAN (O Movimento Suave de Arrastar)
-        // 1. PAN
         if (_isPanning)
         {
-            // CORREÇÃO: Calcula o movimento pelo ClientX/Y
             MapService.CameraPanX += (float)(e.ClientX - _lastMouseX);
             MapService.CameraPanY += (float)(e.ClientY - _lastMouseY);
             _lastMouseX = e.ClientX;
             _lastMouseY = e.ClientY;
             precisaRenderizar = true;
         }
-        // 2. SNAP
+        // 2. SNAP E MEDIÇÃO (Agora protegido pela Matriz Segura)
         else if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
-            SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
-            bool primeiro = true;
-            if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
-            foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-            foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-            foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-
-            if (!limitesTotais.IsEmpty)
+            var matriz = ObterMatrizMatematica();
+            if (matriz.TryInvert(out var matrizInversa))
             {
-                float escalaX = _larguraTela / limitesTotais.Width;
-                float escalaY = _alturaTela / limitesTotais.Height;
-                float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+                var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)e.OffsetX, (float)e.OffsetY));
+                MapService.PontoCursorMundo = ptMundo;
 
-                var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
-                matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
-                matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
-
-                if (matriz.TryInvert(out var matrizInversa))
+                if (_snapMedicaoAtivo)
                 {
-                    var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)e.OffsetX, (float)e.OffsetY));
-                    MapService.PontoCursorMundo = ptMundo;
+                    float escalaMatriz = matriz.ScaleX;
+                    float toleranciaSnap = 15.0f / escalaMatriz;
+                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
 
-                    if (_snapMedicaoAtivo)
+                    if (ptMagnetico.HasValue)
                     {
-                        float toleranciaSnap = (float)(15.0 / (escalaAutoFit * MapService.CameraZoom));
-                        var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
-
-                        if (ptMagnetico.HasValue)
-                        {
-                            MapService.PontoCursorSnap = ptMagnetico.Value;
-                            MapService.PontoCursorMundo = ptMagnetico.Value;
-                        }
-                        else { MapService.PontoCursorSnap = null; }
+                        MapService.PontoCursorSnap = ptMagnetico.Value;
+                        MapService.PontoCursorMundo = ptMagnetico.Value;
                     }
                     else { MapService.PontoCursorSnap = null; }
-
-                    precisaRenderizar = true;
                 }
+                else { MapService.PontoCursorSnap = null; }
+
+                precisaRenderizar = true;
             }
         }
 
         // 3. RENDERIZAÇÃO OTIMIZADA A 60 FPS
         if (precisaRenderizar)
         {
-            // O mapa e a linha da régua atualizam a cada 16ms (máxima fluidez)
             if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
             {
                 _ultimoMovimentoMouse = DateTime.Now;
@@ -3960,8 +3947,6 @@
                 {
                     RecalcularMedicoes();
 
-                    // O SEGREDO DA SUAVIDADE: Atualiza os números no painel apenas a cada 150ms!
-                    // Isto impede que o Blazor congele o CPU e deixe a linha "engasgada".
                     if ((DateTime.Now - _ultimaAtualizacaoUI).TotalMilliseconds >= 150)
                     {
                         _ultimaAtualizacaoUI = DateTime.Now;
@@ -4003,39 +3988,21 @@
             await ProcessarCliqueRaycast(e.OffsetX, e.OffsetY);
         }
     }
-
     private void ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        // Quando larga a roda do rato, a câmara pára de ser arrastada
         if (e.Button == 1)
         {
             _isPanning = false;
-            MapService.IsPanning = false; // AVISA A GPU: "Largou o rato!"
-            SolicitarNovoFrame(); // Força a placa a renderizar as bordas da Ortofoto
+            MapService.IsPanning = false;
+            SolicitarNovoFrame();
         }
+
+        // NOVO: Garante que se soltar o rato no mapa, o arrastar das camadas desliga
+        FinalizarArraste();
     }
     private SkiaSharp.SKPoint MatrizMundoParaTela(SkiaSharp.SKPoint ptMundo)
     {
-        SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
-        bool primeiro = true;
-
-        if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
-        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-        foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-        foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-
-        if (limitesTotais.IsEmpty) return ptMundo;
-
-        float escalaX = _larguraTela / limitesTotais.Width;
-        float escalaY = _alturaTela / limitesTotais.Height;
-        float escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
-
-        // Criação da matriz direta de projeção para a viewport ativa
-        var matriz = SkiaSharp.SKMatrix.CreateTranslation(-limitesTotais.MidX, -limitesTotais.MidY);
-        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
-        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
-
-        return matriz.MapPoint(ptMundo);
+        return ObterMatrizMatematica().MapPoint(ptMundo);
     }
 
     // =========================================================================
@@ -4152,23 +4119,72 @@
     private void AbrirPropriedadesSincronizadas(string nomeCamada)
     {
         camadaEmEdicao = nomeCamada;
-        abaAtivaPropriedades = "Simbologia"; // Abre sempre na primeira aba
+        abaAtivaPropriedades = "Simbologia";
 
+        // Tenta ir buscar o estilo à Placa Gráfica, ou cria um novo se a camada for virgem
         var estilo = MapService.EstilosPorCamada.TryGetValue(nomeCamada, out var est)
                      ? est : new GeoNex.Services.EstiloCamada();
 
-        // 1. Sincroniza a memória da Simbologia
-        tipoSimbologia = estilo.TipoSimbologia;
-        opacidadePreenchimento = (int)(estilo.Opacidade * 100f); espessuraLinha = estilo.EspessuraBorda;
+        // 1. SINCRONIZA A MEMÓRIA DA SIMBOLOGIA E CORES
+        tipoSimbologia = string.IsNullOrEmpty(estilo.TipoSimbologia) ? "UNICA" : estilo.TipoSimbologia;
+        colunaSimbologiaCategorizada = estilo.ColunaSimbologia ?? "";
+        opacidadePreenchimento = (int)(estilo.Opacidade * 100f);
+        espessuraLinha = estilo.EspessuraBorda;
 
-        // 2. Sincroniza a memória dos Rótulos (Isto impede o Bug de apagar os lotes!)
+        // O SEGREDO: Força a interface a ler as cores exatas da camada que acabou de clicar!
+        // Se a cor for vazia (camada nova), assume o Ciano Padrão do GeoNex
+        semCorPreenchimento = (estilo.CorPreenchimento == "transparent");
+        corPreenchimento = string.IsNullOrEmpty(estilo.CorPreenchimento) ? "#38bdf8" : (semCorPreenchimento ? "#38bdf8" : estilo.CorPreenchimento);
+
+        semCorBorda = (estilo.CorBorda == "transparent");
+        corBorda = string.IsNullOrEmpty(estilo.CorBorda) ? "#0ea5e9" : (semCorBorda ? "#0ea5e9" : estilo.CorBorda);
+
+        // 2. SINCRONIZA A MEMÓRIA DOS RÓTULOS
         exibirRotulos = estilo.ExibirRotulos;
         colunaRotuloSelecionada = estilo.ColunaRotulo ?? "";
-        tamanhoFonteRotulo = (int)(estilo.TamanhoTextoRotulo > 0 ? estilo.TamanhoTextoRotulo : 12f); tamanhoHaloRotulo = estilo.TamanhoHaloRotulo;
+        tamanhoFonteRotulo = (int)(estilo.TamanhoTextoRotulo > 0 ? estilo.TamanhoTextoRotulo : 12f);
+        tamanhoHaloRotulo = estilo.TamanhoHaloRotulo;
         corFonteRotulo = string.IsNullOrEmpty(estilo.CorTextoRotulo) ? "#FFFFFF" : estilo.CorTextoRotulo;
         corHaloRotulo = string.IsNullOrEmpty(estilo.CorHaloRotulo) ? "#000000" : estilo.CorHaloRotulo;
         rotuloNegrito = estilo.RotuloNegrito;
 
         exibirModalPropriedades = true;
+    }
+    private float _ultimoMidXUI = 0f;
+    private float _ultimoMidYUI = 0f;
+    private float _ultimaEscalaUI = 1f;
+
+    private SkiaSharp.SKMatrix ObterMatrizMatematica()
+    {
+        SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
+        bool primeiro = true;
+
+        if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+
+        float escalaAutoFit; float midX, midY;
+
+        if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
+        {
+            escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;
+            midX = _ultimoMidXUI; midY = _ultimoMidYUI;
+        }
+        else
+        {
+            float escalaX = _larguraTela / limitesTotais.Width;
+            float escalaY = _alturaTela / limitesTotais.Height;
+            escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+            midX = limitesTotais.MidX; midY = limitesTotais.MidY;
+
+            _ultimaEscalaUI = escalaAutoFit; _ultimoMidXUI = midX; _ultimoMidYUI = midY;
+        }
+
+        var matriz = SkiaSharp.SKMatrix.CreateTranslation(-midX, -midY);
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
+
+        return matriz;
     }
     }
