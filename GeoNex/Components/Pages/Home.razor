@@ -166,6 +166,9 @@
                          draggable="true"
                          @ondragstart="() => AoIniciarArrastar(camadaAtual)"
                          @ondrop="() => AoSoltarCamada(camadaAtual)"
+                         @ondragenter="() => { }"
+                         @ondragenter:preventDefault="true"
+                         @ondragover="() => { }"
                          @ondragover:preventDefault="true"
                          @oncontextmenu="(e) => MostrarMenuContexto(e, camadaAtual.Nome)"
                          @oncontextmenu:preventDefault="true">
@@ -863,6 +866,11 @@
     <!-- AGORA SIM, O MENU DE CONTEXTO É TOTALMENTE INDEPENDENTE -->
     @if (mostrarMenuContexto)
     {
+        // Lê a memória para saber o estado dos rótulos e da coluna
+        var temEstilo = MapService.EstilosPorCamada.TryGetValue(camadaSelecionadaMenu, out var estMenu);
+        bool rotulosAtivos = temEstilo && estMenu.ExibirRotulos;
+        bool bloquearRotulos = !rotulosAtivos && (!temEstilo || string.IsNullOrEmpty(estMenu.ColunaRotulo));
+
         <div class="context-menu-overlay" @onclick="FecharMenuContexto" @oncontextmenu="FecharMenuContexto" @oncontextmenu:preventDefault="true"></div>
         <div class="context-menu glass-panel" style="left: @(menuContextoX)px; top: @(menuContextoY)px;">
             <button @onclick="AproximarCamada">Aproximar à Camada</button>
@@ -870,14 +878,23 @@
             @if (CamadasAtivas.FirstOrDefault(c => c.Nome == camadaSelecionadaMenu)?.Tipo == "Vetor")
             {
                 <button @onclick="() => { FecharMenuContexto(); AbrirTabela(camadaSelecionadaMenu); }">Tabela de Atributos</button>
-                <button @onclick="() => { FecharMenuContexto(); AbrirPropriedadesCamada(camadaSelecionadaMenu); }">Propriedades e Estilos</button>
+                <button @onclick="() => { FecharMenuContexto(); AbrirPropriedadesSincronizadas(camadaSelecionadaMenu); }">Propriedades e Estilos</button>
+
+                <hr class="menu-divider" />
+
+                <button @onclick="AlternarRotulosMenuRapido"
+                        disabled="@bloquearRotulos"
+                        title="@(bloquearRotulos ? "Configure a coluna nas Propriedades primeiro" : "")"
+                        style="display: flex; justify-content: space-between; align-items: center; @(bloquearRotulos ? "opacity: 0.4; cursor: not-allowed;" : "")">
+                    <span>@(rotulosAtivos ? "Ocultar Rótulos" : "Exibir Rótulos")</span>
+                    <span style="color: @(rotulosAtivos ? "#f87171" : (bloquearRotulos ? "#64748b" : "#38bdf8")); font-weight: bold; font-family: serif;">T</span>
+                </button>
+
+                <hr class="menu-divider" />
             }
 
             <button @onclick="FecharMenuContexto">Renomear</button>
 
-            <hr class="menu-divider" />
-
-            <!-- NOVOS CONTROLES DE HIERARQUIA -->
             <button @onclick="() => MoverCamada(camadaSelecionadaMenu, -1)">Mover para Cima</button>
             <button @onclick="() => MoverCamada(camadaSelecionadaMenu, 1)">Mover para Baixo</button>
 
@@ -886,9 +903,7 @@
             <button @onclick="PrepararRemocaoCamada" class="btn-danger">Remover Camada</button>
         </div>
     }
-    <!-- MODAL DE INJEÇÃO DE COORDENADAS TOPOGRÁFICAS -->
-    <!-- MODAL DE INJEÇÃO DE COORDENADAS (CADERNETA DE CAMPO) -->
-    <!-- MODAL DE INJEÇÃO DE COORDENADAS (CADERNETA DE CAMPO) -->
+    
     <!-- MODAL DE INJEÇÃO DE COORDENADAS (CADERNETA DE CAMPO) -->
     @if (exibirModalCoordenadas)
     {
@@ -3100,9 +3115,13 @@
     // =========================================================================
     // 7. LÓGICA TÁTIL E COMPENSAÇÃO MATEMÁTICA DO VIEWPORT (MOUSE E ZOOM)
     // =========================================================================
+    
     [JSInvokable]
     public void AtualizarCameraJS(double deltaX, double deltaY, double scaleMultiplier)
     {
+        // 1. O DISJUNTOR: Se o utilizador estiver a arrastar o mapa (Pan), ignora a roda do rato (Zoom)
+        if (_isPanning) return;
+
         // O Javascript fez o movimento suave, e agora passa a matemática consolidada para o C# aplicar
         MapService.CameraPanX = (float)((MapService.CameraPanX * scaleMultiplier) + deltaX);
         MapService.CameraPanY = (float)((MapService.CameraPanY * scaleMultiplier) + deltaY);
@@ -3262,47 +3281,98 @@
         mostrarMenuContexto = true; exibirModalPropriedades = false;
         await InvokeAsync(StateHasChanged);
     }
+    private void AlternarRotulosMenuRapido()
+    {
+        if (string.IsNullOrEmpty(camadaSelecionadaMenu)) return;
 
+        var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaSelecionadaMenu, new GeoNex.Services.EstiloCamada());
+
+        // Proteção silenciosa no C# caso o HTML falhe
+        if (!estilo.ExibirRotulos && string.IsNullOrEmpty(estilo.ColunaRotulo)) return;
+
+        estilo.ExibirRotulos = !estilo.ExibirRotulos;
+
+        SolicitarNovoFrame();
+        FecharMenuContexto();
+    }
     private async Task AproximarCamada() { string alvo = camadaSelecionadaMenu; FecharMenuContexto(); await JSRuntime.InvokeVoidAsync("zoomParaCamada", alvo); }
 
     private async Task PrepararRemocaoCamada()
     {
-        string alvo = camadaSelecionadaMenu; FecharMenuContexto();
+        string alvo = camadaSelecionadaMenu;
+        FecharMenuContexto();
+
         var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == alvo);
-        if (camada != null) { CamadasAtivas.Remove(camada); StateHasChanged(); }
+        if (camada != null)
+        {
+            // 1. Remove da Interface
+            CamadasAtivas.Remove(camada);
+
+            // 2. VARRE A MEMÓRIA DA PLACA GRÁFICA (Impede as camadas fantasmas)
+            MapService.VetoresPorCamada.Remove(alvo);
+            MapService.LinhasPorCamada.Remove(alvo);
+            MapService.PontosPorCamada.Remove(alvo);
+            MapService.FeicoesOriginais.Remove(alvo);
+            MapService.VetoresCategorizados.Remove(alvo);
+            MapService.PontosAncoragemRotulo.Remove(alvo);
+
+            // 3. Atualiza a tela imediatamente
+            SincronizarHierarquia();
+            StateHasChanged();
+        }
         await JSRuntime.InvokeVoidAsync("removerCamadaDoMapa", alvo);
     }
 
-    private async Task MoverCamada(string nomeCamada, int direcao)
+    // 1. OS BOTÕES DO MENU DE CONTEXTO (Limpos do Javascript)
+    private void MoverCamada(string nomeCamada, int direcao)
     {
         FecharMenuContexto();
         int index = CamadasAtivas.FindIndex(c => c.Nome == nomeCamada);
         if (index < 0) return;
+
         int novoIndex = index + direcao;
         if (novoIndex >= 0 && novoIndex < CamadasAtivas.Count)
         {
             var item = CamadasAtivas[index];
-            CamadasAtivas.RemoveAt(index); CamadasAtivas.Insert(novoIndex, item);
-            var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
-            await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
-            StateHasChanged();
+
+            CamadasAtivas.RemoveAt(index);
+            CamadasAtivas.Insert(novoIndex, item);
+
+            // Avisa a placa gráfica e força o ecrã a atualizar
             SincronizarHierarquia();
+            StateHasChanged();
         }
     }
 
-    private void AoIniciarArrastar(Camada camada) { camadaArrastada = camada; }
+    // 2. O SISTEMA DE ARRASTAR E SOLTAR (Drag & Drop)
+    // 2. O SISTEMA DE ARRASTAR E SOLTAR (Drag & Drop)
+    // (A linha 'private Camada camadaArrastada;' foi apagada daqui porque já existe lá em cima)
 
-    private async Task AoSoltarCamada(Camada camadaAlvo)
+    private void AoIniciarArrastar(Camada camada)
+    {
+        camadaArrastada = camada;
+    }
+
+    private void AoSoltarCamada(Camada camadaAlvo)
     {
         if (camadaArrastada == null || camadaArrastada == camadaAlvo) return;
+
         int iOrigem = CamadasAtivas.IndexOf(camadaArrastada);
         int iDestino = CamadasAtivas.IndexOf(camadaAlvo);
+
         if (iOrigem < 0 || iDestino < 0) return;
-        CamadasAtivas.RemoveAt(iOrigem); CamadasAtivas.Insert(iDestino, camadaArrastada);
-        var listaOrdenadaNomes = CamadasAtivas.Select(c => c.Nome).ToArray();
-        await JSRuntime.InvokeVoidAsync("atualizarOrdemRenderizacao", listaOrdenadaNomes);
-        camadaArrastada = null; StateHasChanged();
+
+        // Remove a camada da posição onde a pegámos
+        CamadasAtivas.RemoveAt(iOrigem);
+
+        // Insere a camada na posição onde a largámos
+        CamadasAtivas.Insert(iDestino, camadaArrastada);
+
+        camadaArrastada = null;
+
+        // Magia: A placa gráfica (SkiaSharp) reconstrói a hierarquia e redesenha o mapa na hora!
         SincronizarHierarquia();
+        StateHasChanged();
     }
 
     // =========================================================================
@@ -3823,12 +3893,15 @@
         bool precisaRenderizar = false;
 
         // 1. PAN
+        // 1. PAN (O Movimento Suave de Arrastar)
+        // 1. PAN
         if (_isPanning)
         {
-            MapService.CameraPanX += (float)(e.OffsetX - _lastMouseX);
-            MapService.CameraPanY += (float)(e.OffsetY - _lastMouseY);
-            _lastMouseX = e.OffsetX;
-            _lastMouseY = e.OffsetY;
+            // CORREÇÃO: Calcula o movimento pelo ClientX/Y
+            MapService.CameraPanX += (float)(e.ClientX - _lastMouseX);
+            MapService.CameraPanY += (float)(e.ClientY - _lastMouseY);
+            _lastMouseX = e.ClientX;
+            _lastMouseY = e.ClientY;
             precisaRenderizar = true;
         }
         // 2. SNAP
@@ -3910,7 +3983,6 @@
     private bool _isPanning = false;
     private double _lastMouseX = 0;
     private double _lastMouseY = 0;
-
     private async Task ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
         // e.Button == 1 é o botão do meio (Roda do Rato)
@@ -3918,8 +3990,10 @@
         {
             _isPanning = true;
             MapService.IsPanning = true; // AVISA A GPU: "O arrasto começou!"
-            _lastMouseX = e.OffsetX;
-            _lastMouseY = e.OffsetY;
+
+            // CORREÇÃO: Usar ClientX/Y impede os solavancos
+            _lastMouseX = e.ClientX;
+            _lastMouseY = e.ClientY;
             return;
         }
 
@@ -4012,7 +4086,8 @@
         // 2. A PONTE DOS RÓTULOS
         // 2. A PONTE DOS RÓTULOS
         // O motor só liga se o botão estiver ativado E uma coluna válida estiver selecionada!
-        estilo.ExibirRotulos = exibirRotulos && !string.IsNullOrEmpty(colunaRotuloSelecionada); estilo.CorTextoRotulo = corFonteRotulo;
+        estilo.ExibirRotulos = !string.IsNullOrEmpty(colunaRotuloSelecionada);
+        estilo.ColunaRotulo = colunaRotuloSelecionada; // <-- A LINHA QUE FALTAVA E QUEBROU TUDO!
         estilo.CorHaloRotulo = corHaloRotulo;
         estilo.TamanhoTextoRotulo = (float)tamanhoFonteRotulo;
         estilo.TamanhoHaloRotulo = (float)tamanhoHaloRotulo;
