@@ -12,12 +12,12 @@ namespace GeoNex.Services
         private readonly MapRenderingService _mapService;
         private bool _isRunning;
         private int _port;
-
+        
         // === MEMÓRIA ANTI-EXPLOSÃO DE CÂMARA ===
         private static float _ultimoMidX = 0f;
         private static float _ultimoMidY = 0f;
         private static float _ultimaEscalaAutoFit = 1f;
-
+        
         public string BaseUrl => $"http://localhost:{_port}/";
 
         public LocalMapServer(MapRenderingService mapService)
@@ -141,23 +141,22 @@ namespace GeoNex.Services
                 using var pincelDinamicoFill = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
                 using var pincelDinamicoBorda = new SKPaint { Style = SKPaintStyle.Stroke, IsAntialias = true, StrokeJoin = SKStrokeJoin.Round };
                 using var pincelDinamicoPonto = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
-
+                
                 // 3. MOTOR HIERÁRQUICO DE Z-INDEX
                 for (int i = 0; i < _mapService.OrdemCamadas.Count; i++)
                 {
                     string camadaAtual = _mapService.OrdemCamadas[i];
 
                     // RASTER
-                    // RASTER (Ajustado para Renderização Nativa em Resolução Física)
                     lock (_mapService)
                     {
                         if (_mapService.TemRaster && camadaAtual == _mapService.NomeRasterAtivo && _mapService.DatasetRaster != null && matriz.TryInvert(out SKMatrix inverse))
                         {
-                            // Resetamos a matriz para trabalhar em píxeis físicos puros (1:1 com a tela)
                             canvas.ResetMatrix();
+                            // === CORREÇÃO BUG 1 (Parte B): ALINHAR O DPI DO RASTER ===
+                            canvas.Scale(dpi);
 
-                            // O Cache Key agora monitoriza as dimensões físicas exatas
-                            string targetCacheKey = $"{physicalWidth}_{physicalHeight}_{_mapService.CameraPanX}_{_mapService.CameraPanY}_{_mapService.CameraZoom}_{_mapService.NomeRasterAtivo}_{midX}_{midY}_{escalaAutoFit}";
+                            string targetCacheKey = $"{width}_{height}_{_mapService.CameraPanX}_{_mapService.CameraPanY}_{_mapService.CameraZoom}_{_mapService.NomeRasterAtivo}_{midX}_{midY}_{escalaAutoFit}";
 
                             if (_mapService.RasterCache != null && _mapService.CacheKey == targetCacheKey)
                             {
@@ -165,9 +164,8 @@ namespace GeoNex.Services
                             }
                             else if (_mapService.IsPanning && _mapService.RasterCache != null)
                             {
-                                // Multiplicamos o deslocamento lógico pelo DPI para mover em píxeis físicos exatos
-                                float offsetX = ((float)_mapService.CameraPanX - _mapService.CachePanX) * dpi;
-                                float offsetY = ((float)_mapService.CameraPanY - _mapService.CachePanY) * dpi;
+                                float offsetX = (float)_mapService.CameraPanX - _mapService.CachePanX;
+                                float offsetY = (float)_mapService.CameraPanY - _mapService.CachePanY;
                                 canvas.DrawBitmap(_mapService.RasterCache, offsetX, offsetY);
                             }
                             else
@@ -185,7 +183,7 @@ namespace GeoNex.Services
                                            minLat.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                            maxLng.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                            maxLat.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                                    "-ts", physicalWidth.ToString(), physicalHeight.ToString(), // GDAL processa no tamanho físico real
+                                    "-ts", width.ToString(), height.ToString(),
                                     "-r", "bilinear", "-dstalpha", "-wm", "2048", "-multi", "-wo", "NUM_THREADS=ALL_CPUS", "-of", "MEM"
                                 };
 
@@ -198,14 +196,13 @@ namespace GeoNex.Services
                                     int[] listaBandas = new int[numBandas];
                                     for (int b = 0; b < numBandas; b++) listaBandas[b] = b + 1;
 
-                                    // Aloca o bitmap diretamente no tamanho físico
-                                    using var rasterBitmap = new SKBitmap(physicalWidth, physicalHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
+                                    using var rasterBitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
                                     using (var tmpCanvas = new SKCanvas(rasterBitmap)) { tmpCanvas.Clear(new SKColor(0, 0, 0, 0)); }
 
                                     IntPtr ptr = rasterBitmap.GetPixels();
                                     if (ptr != IntPtr.Zero)
                                     {
-                                        memDs.ReadRaster(0, 0, physicalWidth, physicalHeight, ptr, physicalWidth, physicalHeight, DataType.GDT_Byte, numBandas, listaBandas, 4, physicalWidth * 4, 1);
+                                        memDs.ReadRaster(0, 0, width, height, ptr, width, height, DataType.GDT_Byte, numBandas, listaBandas, 4, width * 4, 1);
 
                                         _mapService.RasterCache?.Dispose();
                                         _mapService.RasterCache = rasterBitmap.Copy();
@@ -308,7 +305,7 @@ namespace GeoNex.Services
                                     canvas.DrawPath(pointPath, pincelDinamicoBorda);
                             }
                         }
-
+                        
                         // 7. MOTOR DE RÓTULOS DINÂMICOS
                         if (estiloCamada.ExibirRotulos && !string.IsNullOrEmpty(estiloCamada.ColunaRotulo))
                         {

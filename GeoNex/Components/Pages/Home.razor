@@ -16,7 +16,9 @@
      @onpointerup="ProcessarSoltarMouse"
      @onpointermove="ProcessarMovimentoMouse"
      style="width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
-    //começou aqui
+
+    <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0;" />
+</div>
 <!-- A INTERFACE FLUTUANTE -->
 <div class="geonex-ui">
 
@@ -2983,8 +2985,7 @@
 
         // 2. Transição de Estado
         _ferramentaAtiva = novaFerramenta;
-        JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());
-        // 3. Configurações de Entrada
+        _ = JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());        // 3. Configurações de Entrada
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = true;
