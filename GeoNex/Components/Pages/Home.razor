@@ -12,14 +12,11 @@
 
 <div id="map-container"
      tabindex="0"
-     
      @onpointerdown="ProcessarPressionarMouse"
      @onpointerup="ProcessarSoltarMouse"
      @onpointermove="ProcessarMovimentoMouse"
-     style="width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; cursor: crosshair; user-select: none; -webkit-user-select: none;">
-    <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0;" />
-</div>
-//começou aqui
+     style="width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
+    //começou aqui
 <!-- A INTERFACE FLUTUANTE -->
 <div class="geonex-ui">
 
@@ -80,12 +77,13 @@
             <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
                 <button class="menu-btn" style="@(_ferramentaAtiva == ModoFerramenta.Identificacao ? "color: #38bdf8;" : "")">Aquisição ▾</button>
                 <div class="dropdown-content">
+                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Navegacao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Navegacao)">
+                        Mover Mapa (Pan)
+                    </button>
                     <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Identificacao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)">
                         Identificar / Selecionar
                     </button>
-                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.AquisicaoPoligono)">
-                        Desenhar Polígono (Lote)
-                    </button>
+                   
                     <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Medicao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)">
                         Régua Topográfica
                     </button>
@@ -2769,8 +2767,10 @@
     private string _mapaUrl = "";
     // Referência absoluta para não dar erro de Namespace e controlo seguro do rato
     private Microsoft.AspNetCore.Components.ElementReference _mapContainerRef;
-    private string EstiloCursor => _ferramentaAtiva == ModoFerramenta.Medicao ? "crosshair" : "default";
-    // =========================================================================
+    private string EstiloCursor =>
+            _isPanning ? "grabbing" :
+            (_ferramentaAtiva == ModoFerramenta.Navegacao ? "grab" :
+             (_ferramentaAtiva == ModoFerramenta.Medicao ? "crosshair" : "default"));    // =========================================================================
     // MÁQUINA DE ESTADOS DO MAPA (CONTROLO ESTRITO DE INTERAÇÃO)
     // =========================================================================
     public enum ModoFerramenta
@@ -2983,7 +2983,7 @@
 
         // 2. Transição de Estado
         _ferramentaAtiva = novaFerramenta;
-
+        JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());
         // 3. Configurações de Entrada
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
@@ -3031,6 +3031,7 @@
 
             await JSRuntime.InvokeVoidAsync("dimensoesJanela.registrarResize", objRef);
             await JSRuntime.InvokeVoidAsync("mapEngine.init", objRef);
+            await JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", _ferramentaAtiva.ToString()); // <-- ADICIONAR ESTA LINHA
             SolicitarNovoFrame();
 
             // JAVASCRIPT REMOVIDO: O C# agora assume o controlo absoluto!
@@ -3970,34 +3971,44 @@
     private double _lastMouseY = 0;
     private async Task ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        // e.Button == 1 é o botão do meio (Roda do Rato)
+        // Botão do meio (Roda do Rato) faz PAN em qualquer ferramenta (padrão CAD)
         if (e.Button == 1)
         {
             _isPanning = true;
-            MapService.IsPanning = true; // AVISA A GPU: "O arrasto começou!"
-
-            // CORREÇÃO: Usar ClientX/Y impede os solavancos
+            MapService.IsPanning = true;
             _lastMouseX = e.ClientX;
             _lastMouseY = e.ClientY;
             return;
         }
 
-        // e.Button == 0 é o clique Esquerdo normal
+        // Clique Esquerdo do Rato
         if (e.Button == 0)
         {
-            await ProcessarCliqueRaycast(e.OffsetX, e.OffsetY);
+            if (_ferramentaAtiva == ModoFerramenta.Navegacao)
+            {
+                // Se estiver no Modo Navegação, o clique esquerdo inicia o Pan (padrão ArcGIS)
+                _isPanning = true;
+                MapService.IsPanning = true;
+                _lastMouseX = e.ClientX;
+                _lastMouseY = e.ClientY;
+            }
+            else
+            {
+                // Nas outras ferramentas, o clique esquerdo executa a ação normal (Raycast/Medição)
+                await ProcessarCliqueRaycast(e.OffsetX, e.OffsetY);
+            }
         }
     }
     private void ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (e.Button == 1)
+        if (_isPanning)
         {
             _isPanning = false;
             MapService.IsPanning = false;
             SolicitarNovoFrame();
         }
 
-        // NOVO: Garante que se soltar o rato no mapa, o arrastar das camadas desliga
+        // Garante a segurança do sistema de arrasto de camadas
         FinalizarArraste();
     }
     private SkiaSharp.SKPoint MatrizMundoParaTela(SkiaSharp.SKPoint ptMundo)

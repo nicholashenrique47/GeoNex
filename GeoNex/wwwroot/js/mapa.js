@@ -977,51 +977,78 @@ window.mapEngine = {
         this.scheduleRender();
     },
 
-    onPointerDown: function (e) {
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        this.isDragging = true;
+    ferramentaAtual: 'Identificacao',
 
-        this.startX = e.clientX;
-        this.startY = e.clientY;
-        this.startPanX = this.targetX;
-        this.startPanY = this.targetY;
-
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
-        this.lastEventTime = performance.now();
-
-        // --- NOVO: O Relógio de Precisão para detetar um clique ---
-        this.clickStartTime = performance.now();
-
-        this.velocityX = 0;
-        this.velocityY = 0;
-
-        this.container.style.cursor = 'grabbing';
-    },
-
-    onPointerUp: function (e) {
-        if (!this.isDragging) return;
-        this.isDragging = false;
-        this.container.style.cursor = 'grab';
-
-        const tempoDecorrido = performance.now() - this.clickStartTime;
-        const distMovida = Math.abs(e.clientX - this.startX) + Math.abs(e.clientY - this.startY);
-
-        // --- DETETOR TOPOGRÁFICO DE CLIQUE ---
-        // Se o engenheiro não arrastou o rato (distância < 10) e foi um toque rápido (tempo < 300ms)
-        if (tempoDecorrido < 300 && distMovida < 10) {
-            this.dispararRaycast(e.clientX, e.clientY);
-        } else {
-            // Caso contrário, executa a fricção de deslize normal da câmara
-            const multiplicadorFriccao = 250;
-            if (Math.abs(this.velocityX) > 0.3 || Math.abs(this.velocityY) > 0.3) {
-                this.targetX += this.velocityX * multiplicadorFriccao;
-                this.targetY += this.velocityY * multiplicadorFriccao;
-                this.scheduleRender();
-            }
+    setFerramenta: function (nomeFerramenta) {
+        this.ferramentaAtual = nomeFerramenta;
+        if (this.container) {
+            // Atualiza o cursor nativo instantaneamente
+            this.container.style.cursor =
+                nomeFerramenta === 'Navegacao' ? 'grab' :
+                    (nomeFerramenta === 'Medicao' ? 'crosshair' : 'default');
         }
     },
 
+    // (Mantenha o seu init, onDoubleClick e onWheel, onPointerMove iguais...)
+
+    onPointerDown: function (e) {
+        // Aceita botão esquerdo (0) e botão do meio (1)
+        if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+
+        this.startX = e.clientX;
+        this.startY = e.clientY;
+        this.clickStartTime = performance.now();
+
+        // === A BLINDAGEM DO ARCGIS ===
+        // Só arrasta o mapa se usar o botão do MEIO (1) 
+        // OU se usar o botão ESQUERDO (0) E a ferramenta for Navegação!
+        if (e.button === 1 || (e.button === 0 && this.ferramentaAtual === 'Navegacao')) {
+            this.isDragging = true;
+            this.startPanX = this.targetX;
+            this.startPanY = this.targetY;
+
+            this.lastX = e.clientX;
+            this.lastY = e.clientY;
+            this.lastEventTime = performance.now();
+
+            this.velocityX = 0;
+            this.velocityY = 0;
+
+            this.container.style.cursor = 'grabbing'; // Mão fechada
+        }
+    },
+
+    onPointerUp: function (e) {
+        const tempoDecorrido = performance.now() - this.clickStartTime;
+        const distMovida = Math.abs(e.clientX - this.startX) + Math.abs(e.clientY - this.startY);
+
+        // 1. DESLIGAR O ARRASTO (Pan)
+        if (this.isDragging) {
+            this.isDragging = false;
+
+            // Devolve o cursor para o ícone da ferramenta ativa
+            this.container.style.cursor =
+                this.ferramentaAtual === 'Navegacao' ? 'grab' :
+                    (this.ferramentaAtual === 'Medicao' ? 'crosshair' : 'default');
+
+            // Executa a fricção/inércia apenas se houve um arrasto real
+            if (distMovida > 10) {
+                const multiplicadorFriccao = 250;
+                if (Math.abs(this.velocityX) > 0.3 || Math.abs(this.velocityY) > 0.3) {
+                    this.targetX += this.velocityX * multiplicadorFriccao;
+                    this.targetY += this.velocityY * multiplicadorFriccao;
+                    this.scheduleRender();
+                }
+                return; // Sai cedo, porque isto foi um Pan, não um clique de seleção!
+            }
+        }
+
+        // 2. DISPARO DO CLIQUE (Raycast / Seleção)
+        // Se foi botão esquerdo (0), super rápido e sem arrastar, então é um clique válido!
+        if (e.button === 0 && tempoDecorrido < 300 && distMovida < 10) {
+            this.dispararRaycast(e.clientX, e.clientY);
+        }
+    },
     // === SENSOR VISUAL (JavaScript) ===
     dispararRaycast: function (clientX, clientY) {
         if (!this.dotNetHelper) return;
