@@ -12,12 +12,14 @@
 
 <div id="map-container"
      tabindex="0"
-     @onpointerdown="ProcessarPressionarMouse"
-     @onpointerup="ProcessarSoltarMouse"
-     @onpointermove="ProcessarMovimentoMouse"
-     style="width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
+     style="cursor: @EstiloCursor; width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
 
-    <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0;" />
+    <img id="skia-buffer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 0;" />
+
+    <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 1;" />
+
+    <canvas id="overlayCanvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
+
 </div>
 <!-- A INTERFACE FLUTUANTE -->
 <div class="geonex-ui">
@@ -2763,16 +2765,15 @@
 </style>
 
 @code {
+
+    
     private ElementReference _listRef;
     private double opacidadeBorda = 100;
     // Variável que alimenta a Camada 1 (Fundo do Mapa)
     private string _mapaUrl = "";
     // Referência absoluta para não dar erro de Namespace e controlo seguro do rato
     private Microsoft.AspNetCore.Components.ElementReference _mapContainerRef;
-    private string EstiloCursor =>
-            _isPanning ? "grabbing" :
-            (_ferramentaAtiva == ModoFerramenta.Navegacao ? "grab" :
-             (_ferramentaAtiva == ModoFerramenta.Medicao ? "crosshair" : "default"));    // =========================================================================
+   
     // MÁQUINA DE ESTADOS DO MAPA (CONTROLO ESTRITO DE INTERAÇÃO)
     // =========================================================================
     public enum ModoFerramenta
@@ -2836,7 +2837,8 @@
     private string nomeCamadaAtiva = "";
     private List<string> colunasTabela = new List<string>();
     private List<Dictionary<string, object>> dadosTabela = new List<Dictionary<string, object>>();
-
+    // Guarda a coordenada pura na memória para sobreviver aos Zooms
+    private NetTopologySuite.Geometries.Geometry? _geometriaDestacada;
     private string camadaSelecionadaPainel = "";
     private Dictionary<string, string> atributosFeicaoSelecionada = new Dictionary<string, string>();
 
@@ -3013,7 +3015,13 @@
         OSGeo.GDAL.Gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR");
 
         // 2. Aloca 2048 Megabytes (2GB) de RAM puros. O GDAL lê valores pequenos (<100.000) nativamente como MB.
-        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_CACHEMAX", "2048");
+        OSGeo.GDAL.Gdal.SetConfigOption("GDAL_CACHEMAX", "4096");
+
+        // 3. [NOVO] Ativa o cache VSI (Virtual File System) para o GDAL carregar o TIF na RAM.
+        OSGeo.GDAL.Gdal.SetConfigOption("VSI_CACHE", "TRUE");
+
+        // 4. [NOVO] Obriga a carregar buffers de 128 MB (em bytes) na frente do cursor.
+        OSGeo.GDAL.Gdal.SetConfigOption("VSI_CACHE_SIZE", "134217728");
 
         _server = new GeoNex.Services.LocalMapServer(MapService);
         _server.Start();
@@ -3056,10 +3064,10 @@
 
     // =========================================================================
     // 6. PIPELINE DE COMUNICAÇÃO DO MOTOR GRÁFICO (STREAMING BINÁRIO NATIVO)
-    // =========================================================================
     private void SolicitarNovoFrame()
     {
         if (_server == null) return;
+        // O C# não precisa de enviar fases de animação. O URL regressa à sua forma pura e leve.
         string url = $"{_server.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&t={DateTime.Now.Ticks}";
 
         // Pede ao JS para trocar a imagem sem o Blazor piscar a tela
@@ -3092,10 +3100,10 @@
                     return;
                 }
 
-                if (MapService.DatasetRaster.RasterCount > 0 && MapService.DatasetRaster.GetRasterBand(1).GetOverviewCount() == 0)
-                {
-                    MapService.DatasetRaster.BuildOverviews("AVERAGE", new int[] { 2, 4, 8, 16, 32 });
-                }
+                // if (MapService.DatasetRaster.RasterCount > 0 && MapService.DatasetRaster.GetRasterBand(1).GetOverviewCount() == 0)
+                // {
+                //     MapService.DatasetRaster.BuildOverviews("AVERAGE", new int[] { 2, 4, 8, 16, 32 });
+                // }
 
                 double[] trans = new double[6];
                 MapService.DatasetRaster.GetGeoTransform(trans);
@@ -3154,20 +3162,7 @@
     // =========================================================================
     // 7. LÓGICA TÁTIL E COMPENSAÇÃO MATEMÁTICA DO VIEWPORT (MOUSE E ZOOM)
     // =========================================================================
-    
-    [JSInvokable]
-    public void AtualizarCameraJS(double deltaX, double deltaY, double scaleMultiplier)
-    {
-        // 1. O DISJUNTOR: Se o utilizador estiver a arrastar o mapa (Pan), ignora a roda do rato (Zoom)
-        if (_isPanning) return;
-
-        // O Javascript fez o movimento suave, e agora passa a matemática consolidada para o C# aplicar
-        MapService.CameraPanX = (float)((MapService.CameraPanX * scaleMultiplier) + deltaX);
-        MapService.CameraPanY = (float)((MapService.CameraPanY * scaleMultiplier) + deltaY);
-        MapService.CameraZoom *= (float)scaleMultiplier;
-
-        SolicitarNovoFrame();
-    }
+   
 
     // =========================================================================
     // 8. IMPORTAÇÃO E ANÁLISE DE VETORES (SHAPEFILES / GEOJSON OGR)
@@ -3702,7 +3697,6 @@
     [JSInvokable]
     public async Task ProcessarCliqueRaycast(double telaX, double telaY)
     {
-        // Puxa a matriz universal e segura!
         var matriz = ObterMatrizMatematica();
 
         if (matriz.TryInvert(out var matrizInversa))
@@ -3712,12 +3706,11 @@
             double xMundo = ptMundo.X + MapService.OffsetMundoX;
             double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
 
-            // MÁQUINA DE ESTADOS DO CLIQUE COORDENADO
             switch (_ferramentaAtiva)
             {
                 case ModoFerramenta.Identificacao:
                     float escalaMatriz = matriz.ScaleX;
-                    double tolerancia = 5.0 / escalaMatriz; // A tolerância de clique usa a escala perfeita
+                    double tolerancia = 5.0 / escalaMatriz;
                     var feicao = MapService.DispararRaycast(yMundo, xMundo, tolerancia, out string camadaAtingida);
 
                     MapService.DestacarFeicao(feicao);
@@ -3727,19 +3720,22 @@
                         camadaSelecionadaPainel = camadaAtingida;
                         atributosFeicaoSelecionada = new Dictionary<string, string>();
 
-                        if (feicao.Attributes != null)
+                        foreach (var nomeCampo in feicao.Attributes.GetNames())
                         {
-                            foreach (var nomeCampo in feicao.Attributes.GetNames())
-                            {
-                                var valor = feicao.Attributes[nomeCampo];
-                                atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
-                            }
+                            var valor = feicao.Attributes[nomeCampo];
+                            atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
                         }
+
+                        // Guarda a geometria geografica e força o desenho preciso
+                        _geometriaDestacada = feicao.Geometry;
+                        _ = AtualizarDestaqueAnimadoNoEcra();
                     }
                     else
                     {
                         camadaSelecionadaPainel = string.Empty;
                         atributosFeicaoSelecionada?.Clear();
+                        _geometriaDestacada = null;
+                        _ = AtualizarDestaqueAnimadoNoEcra();
                     }
 
                     SolicitarNovoFrame();
@@ -3752,10 +3748,7 @@
                         float escalaMatrizMed = matriz.ScaleX;
                         float toleranciaSnap = 15.0f / escalaMatrizMed;
                         var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
-                        if (ptMagnetico.HasValue)
-                        {
-                            ptFinal = ptMagnetico.Value;
-                        }
+                        if (ptMagnetico.HasValue) ptFinal = ptMagnetico.Value;
                     }
 
                     MapService.PontosMedicao.Add(ptFinal);
@@ -3840,7 +3833,7 @@
     // 16. ATALHOS DE TECLADO GLOBAIS (ESC, M, I)
     // =========================================================================
     [JSInvokable]
-    public void ProcessarTecladoGlobal(string tecla)
+    public async Task ProcessarTecladoGlobal(string tecla)
     {
         tecla = tecla.ToLower();
 
@@ -3855,6 +3848,7 @@
                 MapService.DestacarFeicao(null);
                 camadaSelecionadaPainel = string.Empty;
                 atributosFeicaoSelecionada?.Clear();
+                await JSRuntime.InvokeVoidAsync("GeoNexGraphics.limparDestaqueAnimado");
                 SolicitarNovoFrame();
                 StateHasChanged();
             }
@@ -3891,27 +3885,43 @@
     // =========================================================================
     // 15. MOTOR DE MIRA MAGNÉTICA (HOVER SNAP & PANNING BLINDADO)
     // =========================================================================
+   
+    // =========================================================================
+    // VARIÁVEIS DE ESTADO DO RATO (O JS TRATA DA FÍSICA, O C# DAS FERRAMENTAS)
+    // =========================================================================
     private DateTime _ultimoMovimentoMouse = DateTime.MinValue;
+    private DateTime _ultimaAtualizacaoUI = DateTime.MinValue;
 
-    private DateTime _ultimaAtualizacaoUI = DateTime.MinValue; // NOVO: Relógio separado para os textos
+    private bool _isPanning = false;
 
-    
+    private string EstiloCursor =>
+        _isPanning ? "grabbing" :
+        (_ferramentaAtiva == ModoFerramenta.Navegacao ? "grab" :
+         (_ferramentaAtiva == ModoFerramenta.Medicao ? "crosshair" : "default"));
+
+    private void ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        // Modo Pan: Só altera o cursor. O JS faz o arrasto real!
+        if (e.Button == 1 || (e.Button == 0 && _ferramentaAtiva == ModoFerramenta.Navegacao))
+        {
+            _isPanning = true;
+            MapService.IsPanning = true;
+            return;
+        }
+
+        // Modo Identificação/Régua
+        if (e.Button == 0 && _ferramentaAtiva != ModoFerramenta.Navegacao)
+        {
+            _ = ProcessarCliqueRaycast(e.OffsetX, e.OffsetY);
+        }
+    }
 
     private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        bool precisaRenderizar = false;
+        if (_isPanning) return; // O C# IGNORA O ARRASTO! O JS é quem manda.
 
-        // 1. PAN
-        if (_isPanning)
-        {
-            MapService.CameraPanX += (float)(e.ClientX - _lastMouseX);
-            MapService.CameraPanY += (float)(e.ClientY - _lastMouseY);
-            _lastMouseX = e.ClientX;
-            _lastMouseY = e.ClientY;
-            precisaRenderizar = true;
-        }
-        // 2. SNAP E MEDIÇÃO (Agora protegido pela Matriz Segura)
-        else if (_ferramentaAtiva == ModoFerramenta.Medicao)
+        // === MODO MEDIÇÃO E RÉGUAS ===
+        if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
             var matriz = ObterMatrizMatematica();
             if (matriz.TryInvert(out var matrizInversa))
@@ -3921,10 +3931,8 @@
 
                 if (_snapMedicaoAtivo)
                 {
-                    float escalaMatriz = matriz.ScaleX;
-                    float toleranciaSnap = 15.0f / escalaMatriz;
+                    float toleranciaSnap = 15.0f / matriz.ScaleX;
                     var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
-
                     if (ptMagnetico.HasValue)
                     {
                         MapService.PontoCursorSnap = ptMagnetico.Value;
@@ -3934,83 +3942,78 @@
                 }
                 else { MapService.PontoCursorSnap = null; }
 
-                precisaRenderizar = true;
-            }
-        }
-
-        // 3. RENDERIZAÇÃO OTIMIZADA A 60 FPS
-        if (precisaRenderizar)
-        {
-            if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
-            {
-                _ultimoMovimentoMouse = DateTime.Now;
-
-                if (_ferramentaAtiva == ModoFerramenta.Medicao && MapService.PontosMedicao.Count > 0)
+                // Na secção do tempo de atualização (16ms)
+                if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
                 {
-                    RecalcularMedicoes();
-
-                    if ((DateTime.Now - _ultimaAtualizacaoUI).TotalMilliseconds >= 150)
+                    _ultimoMovimentoMouse = DateTime.Now;
+                    if (MapService.PontosMedicao.Count > 0)
                     {
-                        _ultimaAtualizacaoUI = DateTime.Now;
-                        StateHasChanged();
+                        RecalcularMedicoes();
+                        if ((DateTime.Now - _ultimaAtualizacaoUI).TotalMilliseconds >= 150)
+                        {
+                            _ultimaAtualizacaoUI = DateTime.Now;
+                            StateHasChanged();
+                        }
                     }
+                    // RESTAURADO: Devolve o comando de renderização nativo e limpo para o Snap voar
+                    SolicitarNovoFrame();
                 }
-
-                SolicitarNovoFrame();
             }
         }
     }
-    // =========================================================================
-    // 16. ATALHOS DE TECLADO (ESC, ENTER)
-    // =========================================================================
 
-    // =========================================================================
-    // 17. MOTOR DE NAVEGAÇÃO (PAN COM BOTÃO DO MEIO - PADRÃO CAD)
-    // =========================================================================
-    private bool _isPanning = false;
-    private double _lastMouseX = 0;
-    private double _lastMouseY = 0;
-    private async Task ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
-    {
-        // Botão do meio (Roda do Rato) faz PAN em qualquer ferramenta (padrão CAD)
-        if (e.Button == 1)
-        {
-            _isPanning = true;
-            MapService.IsPanning = true;
-            _lastMouseX = e.ClientX;
-            _lastMouseY = e.ClientY;
-            return;
-        }
-
-        // Clique Esquerdo do Rato
-        if (e.Button == 0)
-        {
-            if (_ferramentaAtiva == ModoFerramenta.Navegacao)
-            {
-                // Se estiver no Modo Navegação, o clique esquerdo inicia o Pan (padrão ArcGIS)
-                _isPanning = true;
-                MapService.IsPanning = true;
-                _lastMouseX = e.ClientX;
-                _lastMouseY = e.ClientY;
-            }
-            else
-            {
-                // Nas outras ferramentas, o clique esquerdo executa a ação normal (Raycast/Medição)
-                await ProcessarCliqueRaycast(e.OffsetX, e.OffsetY);
-            }
-        }
-    }
     private void ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
         if (_isPanning)
         {
             _isPanning = false;
             MapService.IsPanning = false;
-            SolicitarNovoFrame();
         }
-
-        // Garante a segurança do sistema de arrasto de camadas
         FinalizarArraste();
+    }
+
+    // =========================================================================
+    // PONTE DO MOTOR DE FÍSICA JAVASCRIPT (SEM O BLOQUEIO _isPanning)
+    // =========================================================================
+    
+    [JSInvokable]
+    public void AtualizarCameraJS(double deltaX, double deltaY, double scaleMultiplier)
+    {
+        MapService.CameraPanX = (float)((MapService.CameraPanX * scaleMultiplier) + deltaX);
+        MapService.CameraPanY = (float)((MapService.CameraPanY * scaleMultiplier) + deltaY);
+        MapService.CameraZoom *= (float)scaleMultiplier;
+
+        SolicitarNovoFrame();
+    }
+    // ADICIONE O MÉTODO EXATAMENTE AQUI:
+    [JSInvokable]
+    public void ReceberMovimentoFerramentas(double pixelX, double pixelY)
+    {
+        if (_ferramentaAtiva == ModoFerramenta.Medicao)
+        {
+            var matriz = ObterMatrizMatematica();
+            if (matriz.TryInvert(out var matrizInversa))
+            {
+                var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)pixelX, (float)pixelY));
+                MapService.PontoCursorMundo = ptMundo;
+
+                if (_snapMedicaoAtivo)
+                {
+                    float dispositivoDpi = matriz.ScaleX;
+                    float toleranciaSnap = 15.0f / dispositivoDpi;
+                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
+                    if (ptMagnetico.HasValue)
+                    {
+                        MapService.PontoCursorSnap = ptMagnetico.Value;
+                        MapService.PontoCursorMundo = ptMagnetico.Value;
+                    }
+                    else { MapService.PontoCursorSnap = null; }
+                }
+                else { MapService.PontoCursorSnap = null; }
+
+                SolicitarNovoFrame();
+            }
+        }
     }
     private SkiaSharp.SKPoint MatrizMundoParaTela(SkiaSharp.SKPoint ptMundo)
     {
@@ -4020,26 +4023,7 @@
     // =========================================================================
     // PIPELINE DE ATUALIZAÇÃO DO CANVAS OVERLAY VIA INTEROP JAVASCRIPT
     // =========================================================================
-    private async Task AtualizarCanvasOverlayLocal()
-    {
-        // Converte as coordenadas geográficas estáveis para píxeis inteiros de tela
-        var pontosTela = MapService.PontosMedicao
-            .Select(p => { var pt = MatrizMundoParaTela(p); return new { x = pt.X, y = pt.Y }; })
-            .ToList();
-
-        var mouseMundo = MapService.PontoCursorMundo;
-        var mouseTela = mouseMundo.HasValue
-            ? new { x = MatrizMundoParaTela(mouseMundo.Value).X, y = MatrizMundoParaTela(mouseMundo.Value).Y }
-            : null;
-
-        var snapMundo = MapService.PontoCursorSnap;
-        var snapTela = snapMundo.HasValue
-            ? new { x = MatrizMundoParaTela(snapMundo.Value).X, y = MatrizMundoParaTela(snapMundo.Value).Y }
-            : null;
-
-        // Invocação imediata do contexto gráfico 2D do navegador
-        await JSRuntime.InvokeVoidAsync("GeoNexGraphics.atualizarOverlay", pontosTela, mouseTela, snapTela);
-    }
+   
     // Método para ser chamado pelos botões/inputs do painel de Propriedades da Camada
     // =========================================================================
     // APLICAÇÃO DE SIMBOLOGIA (MODAL DE PROPRIEDADES)
@@ -4167,36 +4151,122 @@
     private float _ultimaEscalaUI = 1f;
 
     private SkiaSharp.SKMatrix ObterMatrizMatematica()
+{
+    SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
+    bool primeiro = true;
+
+    if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+    foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+    foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+    foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+
+    float escalaAutoFit; float midX, midY;
+
+    if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
     {
+        escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;
+        midX = _ultimoMidXUI; midY = _ultimoMidYUI;
+    }
+    else
+    {
+        float escalaX = _larguraTela / limitesTotais.Width;
+        float escalaY = _alturaTela / limitesTotais.Height;
+        escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+        midX = limitesTotais.MidX; midY = limitesTotais.MidY;
+
+        _ultimaEscalaUI = escalaAutoFit; _ultimoMidXUI = midX; _ultimoMidYUI = midY;
+    }
+
+    var matriz = SkiaSharp.SKMatrix.CreateTranslation(-midX, -midY);
+    matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
+    
+    // A MÁGICA DE ALINHAMENTO: Arredondamento para o pixel físico mais próximo
+    float panXFinal = (float)Math.Round(_larguraTela / 2f + MapService.CameraPanX);
+    float panYFinal = (float)Math.Round(_alturaTela / 2f + MapService.CameraPanY);
+
+    matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(panXFinal, panYFinal));
+
+    return matriz;
+}
+    private async Task AtualizarDestaqueAnimadoNoEcra(bool pendenteParaSwap = false)
+    {
+        if (_geometriaDestacada == null || _geometriaDestacada.IsEmpty)
+        {
+            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.limparDestaqueAnimado");
+            return;
+        }
+
+        var aneisEcra = new List<List<object>>();
+        ExtrairAneisMultiplos(_geometriaDestacada, aneisEcra);
+
+        if (pendenteParaSwap)
+        {
+            // O arrasto terminou. Manda os dados para a "Sala de Espera" do JS!
+            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.prepararDestaqueAnimado", aneisEcra);
+        }
+        else
+        {
+            // Clique normal. Aplica na hora.
+            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirDestaqueAnimado", aneisEcra);
+        }
+    }
+
+    private void ExtrairAneisMultiplos(NetTopologySuite.Geometries.Geometry geom, List<List<object>> listaSaida)
+    {
+        if (geom is NetTopologySuite.Geometries.Polygon poly)
+        {
+            listaSaida.Add(ConverterCoordenadas(poly.ExteriorRing.Coordinates));
+            foreach (var furo in poly.InteriorRings) listaSaida.Add(ConverterCoordenadas(furo.Coordinates));
+        }
+        else if (geom is NetTopologySuite.Geometries.MultiPolygon multi)
+        {
+            foreach (NetTopologySuite.Geometries.Polygon p in multi.Geometries) ExtrairAneisMultiplos(p, listaSaida);
+        }
+        else if (geom is NetTopologySuite.Geometries.LineString linha)
+        {
+            listaSaida.Add(ConverterCoordenadas(linha.Coordinates));
+        }
+        else if (geom is NetTopologySuite.Geometries.MultiLineString multiLinha)
+        {
+            foreach (NetTopologySuite.Geometries.LineString l in multiLinha.Geometries) ExtrairAneisMultiplos(l, listaSaida);
+        }
+        else
+        {
+            listaSaida.Add(ConverterCoordenadas(geom.Coordinates));
+        }
+    }
+
+    private List<object> ConverterCoordenadas(NetTopologySuite.Geometries.Coordinate[] coords)
+    {
+        // Obtém a matriz gráfica real do frame (inclui Pan, Zoom e DPI)
+        var matriz = ObterMatrizMatematica();
+        return coords.Select(c =>
+        {
+            float cx = (float)(c.X - MapService.OffsetMundoX);
+            float cy = -(float)(c.Y - MapService.OffsetMundoY);
+
+            // Projeta os vértices geográficos diretamente no espaço de píxeis absolutos do monitor
+            var ptTela = matriz.MapPoint(new SkiaSharp.SKPoint(cx, cy));
+            return (object)new { x = ptTela.X, y = ptTela.Y };
+        }).ToList();
+    }
+    private SkiaSharp.SKPoint MatrizMundoParaLocalImagem(SkiaSharp.SKPoint ptMundo)
+    {
+        // Cria a matriz base idêntica à do LocalMapServer, mas SEM a deformação instantânea da câmara
         SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
         bool primeiro = true;
-
         if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
         foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
         foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
         foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
 
-        float escalaAutoFit; float midX, midY;
-
-        if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
-        {
-            escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;
-            midX = _ultimoMidXUI; midY = _ultimoMidYUI;
-        }
-        else
-        {
-            float escalaX = _larguraTela / limitesTotais.Width;
-            float escalaY = _alturaTela / limitesTotais.Height;
-            escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
-            midX = limitesTotais.MidX; midY = limitesTotais.MidY;
-
-            _ultimaEscalaUI = escalaAutoFit; _ultimoMidXUI = midX; _ultimoMidYUI = midY;
-        }
+        float escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;
+        float midX = _ultimoMidXUI; float midY = _ultimoMidYUI;
 
         var matriz = SkiaSharp.SKMatrix.CreateTranslation(-midX, -midY);
-        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit * MapService.CameraZoom, escalaAutoFit * MapService.CameraZoom));
-        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f + MapService.CameraPanX, _alturaTela / 2f + MapService.CameraPanY));
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit, escalaAutoFit));
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f, _alturaTela / 2f));
 
-        return matriz;
+        return matriz.MapPoint(ptMundo);
     }
     }

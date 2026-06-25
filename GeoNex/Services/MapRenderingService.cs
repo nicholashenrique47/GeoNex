@@ -13,7 +13,7 @@ namespace GeoNex.Services
         public float CameraZoom { get; set; } = 1.0f;
         public float CameraPanX { get; set; } = 0f;
         public float CameraPanY { get; set; } = 0f;
-
+        public SkiaSharp.SKPath? CaminhoFeicaoDestacada { get; set; }
         public SKPaint PincelFill { get; private set; }
         public SKPaint PincelBorda { get; private set; }
         // === FERRAMENTAS DE SELEÇÃO VETORIAL ===

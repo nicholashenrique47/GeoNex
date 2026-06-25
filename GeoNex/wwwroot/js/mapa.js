@@ -1,5 +1,24 @@
 // mapa.js - Motor de Geovisualização WMS e Vetorial (GeoNex Desktop)
+// =========================================================================
+// 0. ESCUDO DO WINDOWS E TRAVA DO RATO
+// =========================================================================
+document.addEventListener('mousedown', function (e) {
+    if (e.button === 1) e.preventDefault(); // Mata o símbolo de scroll do Windows
+}, { passive: false });
 
+window.mapEngine = window.mapEngine || {};
+
+window.mapEngine.prenderRato = function (pointerId) {
+    var mapa = document.getElementById('map-container');
+    if (mapa && mapa.setPointerCapture) mapa.setPointerCapture(pointerId);
+};
+
+window.mapEngine.soltarRato = function (pointerId) {
+    var mapa = document.getElementById('map-container');
+    if (mapa && mapa.hasPointerCapture && mapa.hasPointerCapture(pointerId)) {
+        mapa.releasePointerCapture(pointerId);
+    }
+};
 // 1. Variáveis Globais (Memória do Mapa)
 window.dotnetReferencia = null;
 window.geonexMap = null;
@@ -834,9 +853,13 @@ window.dimensoesJanela = {
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (144Hz LERP GPU + INÉRCIA + RUBBER-BANDING) ===
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (Tempo-Delta VRAM GPU + INÉRCIA + RUBBER-BANDING) ===
 // === MOTOR DE FÍSICA E RENDERIZAÇÃO (Tempo-Delta VRAM GPU + LIMITES ABSOLUTOS) ===
+
+// === MOTOR DE FÍSICA E RENDERIZAÇÃO (144Hz LERP GPU + INÉRCIA + DOUBLE BUFFERING) ===
+// === MOTOR DE FÍSICA E RENDERIZAÇÃO (PRECISÃO GIS 1:1 - MOVIMENTO SECO) ===
 window.mapEngine = {
     container: null,
-    imgAtiva: null,
+    activeLayer: null,
+    bufferLayer: null,
     dotNetHelper: null,
 
     targetX: 0, targetY: 0, targetScale: 1,
@@ -852,7 +875,6 @@ window.mapEngine = {
     lastX: 0, lastY: 0, lastEventTime: 0,
     lastFrameTime: 0,
 
-    // ---> A MEMÓRIA DO ZOOM TOTAL (O coração do Teto de Vidro) <---
     absoluteZoom: 1.0,
 
     rafId: null, renderTimeout: null,
@@ -860,7 +882,8 @@ window.mapEngine = {
 
     init: function (dotNetRef) {
         this.container = document.getElementById('map-container');
-        this.imgAtiva = document.getElementById('skia-layer');
+        this.activeLayer = document.getElementById('skia-layer');
+        this.bufferLayer = document.getElementById('skia-buffer');
         this.dotNetHelper = dotNetRef;
 
         if (this.container && !this.initialized) {
@@ -878,7 +901,6 @@ window.mapEngine = {
         }
     },
 
-    // Função de utilidade para o C# chamar ao carregar projetos novos
     resetarCamera: function () {
         this.absoluteZoom = 1.0;
         this.targetX = 0; this.targetY = 0; this.targetScale = 1;
@@ -893,10 +915,7 @@ window.mapEngine = {
         e.preventDefault();
         let proporcao = 2.0;
 
-        // --- LIMITADOR DE ZOOM ABSOLUTO ---
         let zoomProjetado = this.absoluteZoom * proporcao;
-
-        // QUANTO MAIOR O NÚMERO, MAIS FUNDO VOCÊ MERGULHA NA ORTOFOTO
         const limiteMaximo = 800.0;
         const limiteMinimo = 0.05;
 
@@ -904,8 +923,6 @@ window.mapEngine = {
         if (zoomProjetado < limiteMinimo) proporcao = limiteMinimo / this.absoluteZoom;
 
         this.absoluteZoom *= proporcao;
-        // ----------------------------------
-
         let novoScale = this.targetScale * proporcao;
         this.targetScale = novoScale;
 
@@ -922,16 +939,11 @@ window.mapEngine = {
     onWheel: function (e) {
         e.preventDefault();
 
-        // === CORREÇÃO BUG 2: BLOQUEIO DO ZOOM DURANTE O PAN ===
-        // Se o botão do meio do rato (bit 4) estiver pressionado, corta a ignição do zoom!
         if (e.buttons & 4) return;
 
         let proporcao = e.ctrlKey ? 1 - (e.deltaY * 0.015) : (e.deltaY < 0 ? 1.15 : (1 / 1.15));
-        // --- LIMITADOR DE ZOOM ABSOLUTO ---
-        // --- LIMITADOR DE ZOOM ABSOLUTO ---
-        let zoomProjetado = this.absoluteZoom * proporcao;
 
-        // QUANTO MAIOR O NÚMERO, MAIS FUNDO VOCÊ MERGULHA NA ORTOFOTO
+        let zoomProjetado = this.absoluteZoom * proporcao;
         const limiteMaximo = 800.0;
         const limiteMinimo = 0.05;
 
@@ -939,7 +951,6 @@ window.mapEngine = {
         if (zoomProjetado < limiteMinimo) proporcao = limiteMinimo / this.absoluteZoom;
 
         this.absoluteZoom *= proporcao;
-        // ----------------------------------
 
         let novoScale = this.targetScale * proporcao;
         this.targetScale = novoScale;
@@ -954,16 +965,34 @@ window.mapEngine = {
         this.scheduleRender();
     },
 
-   
-
     onPointerMove: function (e) {
-        if (!this.isDragging) return;
+        if (!this.isDragging) {
+            // CAPTURA DO SNAP E RÉGUA COM COMPENSAÇÃO DE TRANSFORMAÇÃO CSS
+            if (this.ferramentaAtual === 'Medicao' && this.dotNetHelper) {
+                const rect = this.container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const cx = rect.width / 2;
+                const cy = rect.height / 2;
+
+                // Anula a escala e a translação do CSS dinâmico para obter o píxel nativo do bitmap
+                const pixelImagemX = (mouseX - cx - this.currentX) / this.currentScale + cx;
+                const pixelImagemY = (mouseY - cy - this.currentY) / this.currentScale + cy;
+
+                this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas', pixelImagemX, pixelImagemY)
+                    .catch(err => console.warn(err));
+            }
+            return;
+        }
 
         const now = performance.now();
         const deltaTime = now - this.lastEventTime;
 
         this.targetX = this.startPanX + (e.clientX - this.startX);
         this.targetY = this.startPanY + (e.clientY - this.startY);
+
+        this.currentX = this.targetX;
+        this.currentY = this.targetY;
 
         if (deltaTime > 0) {
             this.velocityX = (e.clientX - this.lastX) / deltaTime;
@@ -982,26 +1011,19 @@ window.mapEngine = {
     setFerramenta: function (nomeFerramenta) {
         this.ferramentaAtual = nomeFerramenta;
         if (this.container) {
-            // Atualiza o cursor nativo instantaneamente
             this.container.style.cursor =
                 nomeFerramenta === 'Navegacao' ? 'grab' :
                     (nomeFerramenta === 'Medicao' ? 'crosshair' : 'default');
         }
     },
 
-    // (Mantenha o seu init, onDoubleClick e onWheel, onPointerMove iguais...)
-
     onPointerDown: function (e) {
-        // Aceita botão esquerdo (0) e botão do meio (1)
         if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
 
         this.startX = e.clientX;
         this.startY = e.clientY;
         this.clickStartTime = performance.now();
 
-        // === A BLINDAGEM DO ARCGIS ===
-        // Só arrasta o mapa se usar o botão do MEIO (1) 
-        // OU se usar o botão ESQUERDO (0) E a ferramenta for Navegação!
         if (e.button === 1 || (e.button === 0 && this.ferramentaAtual === 'Navegacao')) {
             this.isDragging = true;
             this.startPanX = this.targetX;
@@ -1014,7 +1036,7 @@ window.mapEngine = {
             this.velocityX = 0;
             this.velocityY = 0;
 
-            this.container.style.cursor = 'grabbing'; // Mão fechada
+            this.container.style.cursor = 'grabbing';
         }
     },
 
@@ -1022,34 +1044,33 @@ window.mapEngine = {
         const tempoDecorrido = performance.now() - this.clickStartTime;
         const distMovida = Math.abs(e.clientX - this.startX) + Math.abs(e.clientY - this.startY);
 
-        // 1. DESLIGAR O ARRASTO (Pan)
         if (this.isDragging) {
             this.isDragging = false;
 
-            // Devolve o cursor para o ícone da ferramenta ativa
             this.container.style.cursor =
                 this.ferramentaAtual === 'Navegacao' ? 'grab' :
                     (this.ferramentaAtual === 'Medicao' ? 'crosshair' : 'default');
 
-            // Executa a fricção/inércia apenas se houve um arrasto real
             if (distMovida > 10) {
-                const multiplicadorFriccao = 250;
+                // INÉRCIA ZERADA: O mapa agora para de forma completamente seca e militar
+                const multiplicadorFriccao = 0;
                 if (Math.abs(this.velocityX) > 0.3 || Math.abs(this.velocityY) > 0.3) {
                     this.targetX += this.velocityX * multiplicadorFriccao;
                     this.targetY += this.velocityY * multiplicadorFriccao;
+
+                    this.currentX = this.targetX;
+                    this.currentY = this.targetY;
                     this.scheduleRender();
                 }
-                return; // Sai cedo, porque isto foi um Pan, não um clique de seleção!
+                return;
             }
         }
 
-        // 2. DISPARO DO CLIQUE (Raycast / Seleção)
-        // Se foi botão esquerdo (0), super rápido e sem arrastar, então é um clique válido!
         if (e.button === 0 && tempoDecorrido < 300 && distMovida < 10) {
             this.dispararRaycast(e.clientX, e.clientY);
         }
     },
-    // === SENSOR VISUAL (JavaScript) ===
+
     dispararRaycast: function (clientX, clientY) {
         if (!this.dotNetHelper) return;
 
@@ -1060,11 +1081,9 @@ window.mapEngine = {
         const cx = rect.width / 2;
         const cy = rect.height / 2;
 
-        // Calcula o píxel exato da imagem anulando a animação CSS em andamento
         const pixelImagemX = (mouseX - cx - this.currentX) / this.currentScale + cx;
         const pixelImagemY = (mouseY - cy - this.currentY) / this.currentScale + cy;
 
-        // Envia APENAS 2 parâmetros para o C# (X e Y absolutos)
         this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', pixelImagemX, pixelImagemY)
             .catch(err => console.warn("Erro no Túnel:", err));
     },
@@ -1078,15 +1097,13 @@ window.mapEngine = {
 
         const lerpFactor = 1 - Math.exp(-0.012 * deltaTime);
 
-        const limiteX = (window.innerWidth || 1920) * 1.2;
-        const limiteY = (window.innerHeight || 1080) * 1.2;
-        if (this.targetX > limiteX) this.targetX -= (this.targetX - limiteX) * lerpFactor * 1.5;
-        if (this.targetX < -limiteX) this.targetX -= (this.targetX + limiteX) * lerpFactor * 1.5;
-        if (this.targetY > limiteY) this.targetY -= (this.targetY - limiteY) * lerpFactor * 1.5;
-        if (this.targetY < -limiteY) this.targetY -= (this.targetY + limiteY) * lerpFactor * 1.5;
+        // A suavização elástica (lerp) agora funciona APENAS para o Zoom ficar suave.
+        // O Pan fica cravado no rato sem flutuações, graças à lógica do onPointerMove.
+        if (!this.isDragging) {
+            this.currentX += (this.targetX - this.currentX) * lerpFactor;
+            this.currentY += (this.targetY - this.currentY) * lerpFactor;
+        }
 
-        this.currentX += (this.targetX - this.currentX) * lerpFactor;
-        this.currentY += (this.targetY - this.currentY) * lerpFactor;
         this.currentScale += (this.targetScale - this.currentScale) * lerpFactor;
 
         if (Math.abs(this.targetX - this.currentX) < 0.05) this.currentX = this.targetX;
@@ -1110,7 +1127,7 @@ window.mapEngine = {
                     this.executarRequisicao();
                 }
             }
-        }, 120);
+        }, 16);
     },
 
     executarRequisicao: function () {
@@ -1125,30 +1142,25 @@ window.mapEngine = {
     },
 
     carregarNovoFrame: function (url) {
+        if (!this.imgAtiva) this.imgAtiva = document.getElementById('skia-layer');
         if (!this.imgAtiva) return;
+
         var imgClone = new Image();
         imgClone.onload = () => {
             this.imgAtiva.src = url;
-
             this.imgAtiva.style.opacity = 0;
             requestAnimationFrame(() => {
                 this.imgAtiva.style.transition = 'opacity 0.15s ease-out';
                 this.imgAtiva.style.opacity = 1;
             });
 
-            // === A PROTEÇÃO CONTRA O BUG DO ZOOM! ===
-            // Só compensa a câmara se a imagem for fruto de um "arrasto/scroll" do rato.
-            // Se for apenas o lote a ficar amarelo (clique), não mexe na escala!
             if (this.isFetching) {
                 this.targetScale = this.targetScale / this.pendingScale;
                 this.currentScale = this.currentScale / this.pendingScale;
-
                 this.targetX = this.targetX - (this.pendingX * this.targetScale);
                 this.targetY = this.targetY - (this.pendingY * this.targetScale);
-
                 this.currentX = this.currentX - (this.pendingX * this.currentScale);
                 this.currentY = this.currentY - (this.pendingY * this.currentScale);
-
                 this.isFetching = false;
             }
 
@@ -1305,77 +1317,78 @@ function finalizarMedicao(e) {
     }
 }
 window.GeoNexGraphics = {
-    atualizarOverlay: function (pontosMedicao, pontoMouse, pontoSnap) {
+    _pontosDestaque: [],
+    _faseDeslocamento: 0,
+    _animacaoId: null,
+
+    // Simplificado: Já não mexe no tamanho do canvas e não interfere com a régua do C#
+    atualizarOverlay: function () { },
+
+    definirDestaqueAnimado: function (listaPontos) {
+        this._pontosDestaque = listaPontos;
+
+        // Redimensiona o canvas apenas uma vez ao selecionar, evitando gargalos de Layout
         const canvas = document.getElementById('overlayCanvas');
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
-
-        // Sincroniza o tamanho do canvas com a resolução real da tela
-        if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
-            canvas.width = canvas.clientWidth;
-            canvas.height = canvas.clientHeight;
+        if (canvas) {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
         }
 
-        // Limpa o frame anterior de forma ultrarrápida
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!this._animacaoId) {
+            this._executarLoopAnimacao();
+        }
+    },
 
-        if (pontosMedicao.length === 0 && !pontoSnap) return;
+    limparDestaqueAnimado: function () {
+        this._pontosDestaque = [];
+        if (this._animacaoId) {
+            cancelAnimationFrame(this._animacaoId);
+            this._animacaoId = null;
+        }
+        const canvas = document.getElementById('overlayCanvas');
+        if (canvas) {
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        }
+    },
 
-        // 1. DESENHAR LINHAS DA RÉGUA (Se houver pontos clicados)
-        if (pontosMedicao.length > 0) {
-            ctx.beginPath();
-            ctx.strokeStyle = '#00ffff'; // Ciano
-            ctx.lineWidth = 2.5;
-            ctx.lineJoin = 'round';
-            ctx.lineCap = 'round';
+    _executarLoopAnimacao: function () {
+        this._faseDeslocamento += 0.25;
+        if (this._faseDeslocamento > 15) this._faseDeslocamento = 0;
 
-            ctx.moveTo(pontosMedicao[0].x, pontosMedicao[0].y);
-            for (let i = 1; i < pontosMedicao.length; i++) {
-                ctx.lineTo(pontosMedicao[i].x, pontosMedicao[i].y);
+        const canvas = document.getElementById('overlayCanvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            this._desenharDestaqueSelecao(ctx);
+        }
+
+        this._animacaoId = requestAnimationFrame(() => this._executarLoopAnimacao());
+    },
+
+    _desenharDestaqueSelecao: function (ctx) {
+        if (!this._pontosDestaque || this._pontosDestaque.length === 0) return;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 3.5;
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([10, 5]);
+        ctx.lineDashOffset = -this._faseDeslocamento;
+
+        this._pontosDestaque.forEach(anel => {
+            if (!anel || anel.length < 2) return;
+            ctx.moveTo(anel[0].x, anel[0].y);
+            for (let i = 1; i < anel.length; i++) {
+                ctx.lineTo(anel[i].x, anel[i].y);
             }
+            ctx.closePath();
+        });
 
-            // Se houver linha elástica ativa seguindo o rato
-            if (pontoMouse) {
-                ctx.lineTo(pontoMouse.x, pontoMouse.y);
-            }
-            ctx.stroke();
-
-            // Desenhar os pinos brancos nos nós clicados
-            pontosMedicao.forEach(pt => {
-                ctx.beginPath();
-                ctx.fillStyle = '#ffffff';
-                ctx.arc(pt.x, pt.y, 4.5, 0, 2 * Math.PI);
-                ctx.fill();
-                ctx.strokeStyle = '#00ffff';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-            });
-        }
-
-        // 2. DESENHAR MIRA DE SNAP (TIPO ARCGIS HOVER)
-        if (pontoSnap) {
-            const size = 14;
-            ctx.beginPath();
-            ctx.strokeStyle = '#ffff00'; // Amarelo
-            ctx.lineWidth = 2;
-
-            // Caixa de captura
-            ctx.rect(pontoSnap.x - size / 2, pontoSnap.y - size / 2, size, size);
-            ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
-            ctx.fillRect(pontoSnap.x - size / 2, pontoSnap.y - size / 2, size, size);
-
-            // Cruz tática
-            ctx.moveTo(pontoSnap.x - size, pontoSnap.y);
-            ctx.lineTo(pontoSnap.x + size, pontoSnap.y);
-            ctx.moveTo(pontoSnap.x, pontoSnap.y - size);
-            ctx.lineTo(pontoSnap.x, pontoSnap.y + size);
-
-            ctx.stroke();
-        }
+        ctx.stroke();
+        ctx.restore();
     }
-};
-// =========================================================================
+};// =========================================================================
 // GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
 // =========================================================================
 document.addEventListener('keydown', function (event) {
@@ -1396,3 +1409,24 @@ document.addEventListener('keydown', function (event) {
         }
     }
 });
+// === BLOQUEIO DO WINDOWS E TRAVA DO RATO ===
+document.addEventListener('mousedown', function (e) {
+    // Se for o botão do meio (1), impede o Windows de abrir a "bolinha de scroll"
+    if (e.button === 1) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+window.mapEngine = window.mapEngine || {};
+
+window.mapEngine.prenderRato = function (pointerId) {
+    var mapa = document.getElementById('map-container');
+    if (mapa && mapa.setPointerCapture) mapa.setPointerCapture(pointerId);
+};
+
+window.mapEngine.soltarRato = function (pointerId) {
+    var mapa = document.getElementById('map-container');
+    if (mapa && mapa.hasPointerCapture && mapa.hasPointerCapture(pointerId)) {
+        mapa.releasePointerCapture(pointerId);
+    }
+};

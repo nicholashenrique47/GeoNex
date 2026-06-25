@@ -67,7 +67,7 @@ namespace GeoNex.Services
                 int cssWidth = int.Parse(req.QueryString["w"] ?? "1920");
                 int cssHeight = int.Parse(req.QueryString["h"] ?? "1080");
                 float dpi = float.Parse(req.QueryString["dpi"] ?? "1.0", System.Globalization.CultureInfo.InvariantCulture);
-
+                float faseSelecao = float.Parse(req.QueryString["phase"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
                 int physicalWidth = (int)(cssWidth * dpi);
                 int physicalHeight = (int)(cssHeight * dpi);
 
@@ -454,14 +454,19 @@ namespace GeoNex.Services
                     canvas.DrawLine(snapPt.X - size, snapPt.Y, snapPt.X + size, snapPt.Y, pincelSnap);
                     canvas.DrawLine(snapPt.X, snapPt.Y - size, snapPt.X, snapPt.Y + size, pincelSnap);
                 }
-
+                // =========================================================================
+                // 10. CONTORNO ANIMADO DA FEIÇÃO SELECIONADA (MARCHING ANTS)
+                // =========================================================================
+                // Nota: Substitua '_mapService.CaminhoFeicaoDestacada' pela propriedade correspondente 
+                // do seu MapService que armazena o SKPath do lote selecionado atualmente.
+                
                 // === NOTA: APAGADA A CHAVE DE FECHO DO IF ANTIGO ===
 
                 canvas.Restore();
                 using var image = surface.Snapshot();
 
-                using var data = image.Encode(SKEncodedImageFormat.Jpeg, 90);
-                res.ContentType = "image/jpeg";
+                using var data = image.Encode(SKEncodedImageFormat.Webp, 85);
+                res.ContentType = "image/webp";
                 res.ContentLength64 = data.Size;
                 data.SaveTo(res.OutputStream);
                 res.OutputStream.Close();
