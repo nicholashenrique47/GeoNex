@@ -10,17 +10,15 @@
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
-<div id="map-container"
-     tabindex="0"
+<div id="map-container" tabindex="0"
      style="cursor: @EstiloCursor; width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
 
     <img id="skia-buffer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 0;" />
-
     <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 1;" />
-
-    <canvas id="overlayCanvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
-
 </div>
+
+<canvas id="overlayCanvas" style="width: 100vw; height: 100vh; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
+
 <!-- A INTERFACE FLUTUANTE -->
 <div class="geonex-ui">
 
@@ -3753,7 +3751,19 @@
 
                     MapService.PontosMedicao.Add(ptFinal);
                     RecalcularMedicoes();
-                    SolicitarNovoFrame();
+
+                    // === A CORREÇÃO: PROJETAR A RÉGUA PARA O ECRÃ (JS) ===
+                    // Sincroniza os nós fixados com a folha estática do JavaScript
+                    var pontosMedicaoBase = MapService.PontosMedicao.Select(p =>
+                    {
+                        var ptBase = ObterMatrizBaseSemMover().MapPoint(p);
+                        return new { x = ptBase.X, y = ptBase.Y };
+                    }).ToList();
+
+                    _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontosMedicao", pontosMedicaoBase);
+
+                    // IMPORTANTE: NÃO HÁ "SolicitarNovoFrame();" AQUI!
+                    // O servidor não precisa de gerar a ortofoto de 2MB só para desenhar um traço.
                     break;
 
                 case ModoFerramenta.AquisicaoPoligono:
@@ -3991,27 +4001,46 @@
     {
         if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
-            var matriz = ObterMatrizMatematica();
-            if (matriz.TryInvert(out var matrizInversa))
-            {
-                var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)pixelX, (float)pixelY));
-                MapService.PontoCursorMundo = ptMundo;
+            var matrizCompleta = ObterMatrizMatematica();
+            var matrizBase = ObterMatrizBaseSemMover();
 
+            if (matrizCompleta.TryInvert(out var matrizInversa))
+            {
+                // 1. Transforma o píxel atual no mapa real
+                var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)pixelX, (float)pixelY));
+
+                // 2. Calcula a posição do rato na "folha base" para o JS animar
+                var ptMouseBase = matrizBase.MapPoint(ptMundo);
+                _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontoMouse", ptMouseBase.X, ptMouseBase.Y);
+
+                // 3. Procura o Snap
                 if (_snapMedicaoAtivo)
                 {
-                    float dispositivoDpi = matriz.ScaleX;
-                    float toleranciaSnap = 15.0f / dispositivoDpi;
+                    float toleranciaSnap = 15.0f / matrizCompleta.ScaleX;
                     var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
+
                     if (ptMagnetico.HasValue)
                     {
-                        MapService.PontoCursorSnap = ptMagnetico.Value;
-                        MapService.PontoCursorMundo = ptMagnetico.Value;
+                        var ptSnapBase = matrizBase.MapPoint(ptMagnetico.Value);
+                        _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontoSnap", ptSnapBase.X, ptSnapBase.Y);
                     }
-                    else { MapService.PontoCursorSnap = null; }
+                    else
+                    {
+                        _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontoSnap", null, null);
+                    }
                 }
-                else { MapService.PontoCursorSnap = null; }
 
-                SolicitarNovoFrame();
+                // Cálculo das distâncias no painel lateral
+                if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 50)
+                {
+                    _ultimoMovimentoMouse = DateTime.Now;
+                    MapService.PontoCursorMundo = ptMundo; // Usado para a matemática de área
+                    if (MapService.PontosMedicao.Count > 0)
+                    {
+                        RecalcularMedicoes();
+                        StateHasChanged(); // Atualiza apenas o HTML numérico! NUNCA o SolicitarNovoFrame()
+                    }
+                }
             }
         }
     }
@@ -4235,19 +4264,31 @@
             listaSaida.Add(ConverterCoordenadas(geom.Coordinates));
         }
     }
+    private SkiaSharp.SKMatrix ObterMatrizBaseSemMover()
+    {
+        // Esta matriz ignora o CameraPan e Zoom. Representa a "folha de papel" no estado zero.
+        SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
+        bool primeiro = true;
+        if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
 
+        float escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;
+        var matriz = SkiaSharp.SKMatrix.CreateTranslation(-_ultimoMidXUI, -_ultimoMidYUI);
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateScale(escalaAutoFit, escalaAutoFit));
+        matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f, _alturaTela / 2f));
+        return matriz;
+    }
     private List<object> ConverterCoordenadas(NetTopologySuite.Geometries.Coordinate[] coords)
     {
-        // Obtém a matriz gráfica real do frame (inclui Pan, Zoom e DPI)
-        var matriz = ObterMatrizMatematica();
+        var matrizBase = ObterMatrizBaseSemMover();
         return coords.Select(c =>
         {
             float cx = (float)(c.X - MapService.OffsetMundoX);
             float cy = -(float)(c.Y - MapService.OffsetMundoY);
 
-            // Projeta os vértices geográficos diretamente no espaço de píxeis absolutos do monitor
-            var ptTela = matriz.MapPoint(new SkiaSharp.SKPoint(cx, cy));
-            return (object)new { x = ptTela.X, y = ptTela.Y };
+            // Projeta no espaço local da imagem, delegando a translação do Pan/Zoom ao CSS nativo
+            var ptBase = matrizBase.MapPoint(new SkiaSharp.SKPoint(cx, cy));
+            return (object)new { x = ptBase.X, y = ptBase.Y };
         }).ToList();
     }
     private SkiaSharp.SKPoint MatrizMundoParaLocalImagem(SkiaSharp.SKPoint ptMundo)

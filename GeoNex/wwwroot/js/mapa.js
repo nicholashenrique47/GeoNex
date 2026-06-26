@@ -1318,75 +1318,101 @@ function finalizarMedicao(e) {
 }
 window.GeoNexGraphics = {
     _pontosDestaque: [],
+    _pontosMedicao: [],
+    _pontoSnap: null,
+    _pontoMouse: null,
     _faseDeslocamento: 0,
     _animacaoId: null,
 
-    // Simplificado: Já não mexe no tamanho do canvas e não interfere com a régua do C#
-    atualizarOverlay: function () { },
+    definirDestaqueAnimado: function (lista) { this._pontosDestaque = lista; this._iniciarLoop(); },
+    definirPontosMedicao: function (lista) { this._pontosMedicao = lista; this._iniciarLoop(); },
+    definirPontoSnap: function (x, y) { this._pontoSnap = (x !== null && y !== null) ? { x, y } : null; },
+    definirPontoMouse: function (x, y) { this._pontoMouse = (x !== null && y !== null) ? { x, y } : null; },
 
-    definirDestaqueAnimado: function (listaPontos) {
-        this._pontosDestaque = listaPontos;
-
-        // Redimensiona o canvas apenas uma vez ao selecionar, evitando gargalos de Layout
-        const canvas = document.getElementById('overlayCanvas');
-        if (canvas) {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-
-        if (!this._animacaoId) {
-            this._executarLoopAnimacao();
-        }
+    limparTudo: function () {
+        this._pontosDestaque = []; this._pontosMedicao = []; this._pontoSnap = null; this._pontoMouse = null;
+        if (this._animacaoId) { cancelAnimationFrame(this._animacaoId); this._animacaoId = null; }
+        const cvs = document.getElementById('overlayCanvas');
+        if (cvs) cvs.getContext('2d').clearRect(0, 0, cvs.width, cvs.height);
     },
 
-    limparDestaqueAnimado: function () {
-        this._pontosDestaque = [];
-        if (this._animacaoId) {
-            cancelAnimationFrame(this._animacaoId);
-            this._animacaoId = null;
-        }
-        const canvas = document.getElementById('overlayCanvas');
-        if (canvas) {
-            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-        }
+    _iniciarLoop: function () {
+        const cvs = document.getElementById('overlayCanvas');
+        if (cvs) { cvs.width = window.innerWidth; cvs.height = window.innerHeight; }
+        if (!this._animacaoId) this._loop();
     },
 
-    _executarLoopAnimacao: function () {
-        this._faseDeslocamento += 0.25;
-        if (this._faseDeslocamento > 15) this._faseDeslocamento = 0;
-
-        const canvas = document.getElementById('overlayCanvas');
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            this._desenharDestaqueSelecao(ctx);
-        }
-
-        this._animacaoId = requestAnimationFrame(() => this._executarLoopAnimacao());
+    // A FÓRMULA MÁGICA: Sincroniza o Píxel Fixo com o Pan e Zoom atuais
+    _projetar: function (pt, cX, cY, cS) {
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        return {
+            x: (pt.x - cx) * cS + cx + cX,
+            y: (pt.y - cy) * cS + cy + cY
+        };
     },
 
-    _desenharDestaqueSelecao: function (ctx) {
-        if (!this._pontosDestaque || this._pontosDestaque.length === 0) return;
+    _loop: function () {
+        this._faseDeslocamento = (this._faseDeslocamento + 0.5) % 15;
+        const cvs = document.getElementById('overlayCanvas');
+        if (!cvs) return;
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 3.5;
-        ctx.lineJoin = 'round';
-        ctx.setLineDash([10, 5]);
-        ctx.lineDashOffset = -this._faseDeslocamento;
+        const ctx = cvs.getContext('2d');
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
 
-        this._pontosDestaque.forEach(anel => {
-            if (!anel || anel.length < 2) return;
-            ctx.moveTo(anel[0].x, anel[0].y);
-            for (let i = 1; i < anel.length; i++) {
-                ctx.lineTo(anel[i].x, anel[i].y);
+        // Busca a posição atual do mapa
+        const eng = window.mapEngine;
+        const cX = eng ? eng.currentX : 0; const cY = eng ? eng.currentY : 0; const cS = eng ? eng.currentScale : 1;
+
+        // 1. DESENHA A SELEÇÃO
+        if (this._pontosDestaque.length > 0) {
+            ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#facc15'; ctx.lineWidth = 3;
+            ctx.setLineDash([10, 5]); ctx.lineDashOffset = -this._faseDeslocamento;
+            this._pontosDestaque.forEach(anel => {
+                if (anel.length < 2) return;
+                let p0 = this._projetar(anel[0], cX, cY, cS);
+                ctx.moveTo(p0.x, p0.y);
+                for (let i = 1; i < anel.length; i++) {
+                    let p = this._projetar(anel[i], cX, cY, cS); ctx.lineTo(p.x, p.y);
+                }
+                ctx.closePath();
+            });
+            ctx.stroke(); ctx.restore();
+        }
+
+        // 2. DESENHA A RÉGUA
+        if (this._pontosMedicao.length > 0) {
+            ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2.5;
+            let p0 = this._projetar(this._pontosMedicao[0], cX, cY, cS); ctx.moveTo(p0.x, p0.y);
+            for (let i = 1; i < this._pontosMedicao.length; i++) {
+                let p = this._projetar(this._pontosMedicao[i], cX, cY, cS); ctx.lineTo(p.x, p.y);
             }
-            ctx.closePath();
-        });
+            if (this._pontoMouse && !this._pontoSnap) {
+                let pm = this._projetar(this._pontoMouse, cX, cY, cS); ctx.lineTo(pm.x, pm.y);
+            } else if (this._pontoSnap) {
+                let ps = this._projetar(this._pontoSnap, cX, cY, cS); ctx.lineTo(ps.x, ps.y);
+            }
+            ctx.stroke();
 
-        ctx.stroke();
-        ctx.restore();
+            this._pontosMedicao.forEach(pt => {
+                let p = this._projetar(pt, cX, cY, cS);
+                ctx.beginPath(); ctx.fillStyle = '#fff'; ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#00ffff'; ctx.stroke();
+            });
+            ctx.restore();
+        }
+
+        // 3. DESENHA A MIRA DO SNAP
+        if (this._pontoSnap) {
+            ctx.save();
+            let ps = this._projetar(this._pontoSnap, cX, cY, cS);
+            ctx.beginPath(); ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+            ctx.rect(ps.x - 7, ps.y - 7, 14, 14); ctx.stroke();
+            ctx.fillStyle = 'rgba(255,255,0,0.2)'; ctx.fill();
+            ctx.restore();
+        }
+
+        this._animacaoId = requestAnimationFrame(() => this._loop());
     }
 };// =========================================================================
 // GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
