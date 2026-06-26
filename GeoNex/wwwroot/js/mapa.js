@@ -1362,10 +1362,17 @@ window.GeoNexGraphics = {
     },
 
     _loop: function () {
-        this._fase = (this._fase + 0.5) % 15;
-        this.desenharFrameEstatico();
-        if (this._destaque.length > 0) this._animId = requestAnimationFrame(() => this._loop());
-        else this._animId = null;
+        // LIMITADOR DE GPU: Roda a animação a 30 FPS em vez do máximo do monitor
+        setTimeout(() => {
+            this._fase = (this._fase + 0.5) % 15;
+            this.desenharFrameEstatico();
+
+            if (this._destaque.length > 0) {
+                this._animId = requestAnimationFrame(() => this._loop());
+            } else {
+                this._animId = null;
+            }
+        }, 33);
     },
 
     desenharFrameEstatico: function () {
@@ -1374,8 +1381,8 @@ window.GeoNexGraphics = {
         const ctx = cvs.getContext('2d');
         ctx.clearRect(0, 0, cvs.width, cvs.height);
 
-        // 1. DESENHO DA SELEÇÃO (AMARELA ANIMADA)
-        if (this._destaque.length > 0) {
+        // DESENHA APENAS O CONTORNO ANIMADO (A régua e o Snap agora são desenhados perfeitamente pelo C#)
+        if (this._destaque && this._destaque.length > 0) {
             ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#facc15'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
             ctx.setLineDash([10, 5]); ctx.lineDashOffset = -this._fase;
             this._destaque.forEach(anel => {
@@ -1386,40 +1393,9 @@ window.GeoNexGraphics = {
             });
             ctx.stroke(); ctx.restore();
         }
-
-        // 2. DESENHO DA MEDIÇÃO E ÁREA
-        if (this._medicao.length > 0) {
-            ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
-            ctx.moveTo(this._medicao[0].x, this._medicao[0].y);
-            for (let i = 1; i < this._medicao.length; i++) ctx.lineTo(this._medicao[i].x, this._medicao[i].y);
-
-            let temFim = false;
-            if (this._snap) { ctx.lineTo(this._snap.x, this._snap.y); temFim = true; }
-            else if (this._mouse) { ctx.lineTo(this._mouse.x, this._mouse.y); temFim = true; }
-
-            // Pinta o interior translúcido se a ferramenta de área estiver ativa
-            if (this._mostrarArea && (this._medicao.length > 2 || (this._medicao.length === 2 && temFim))) {
-                ctx.fillStyle = 'rgba(56, 189, 248, 0.3)'; // Preenchimento azul/ciano
-                ctx.fill();
-            }
-            ctx.stroke();
-
-            this._medicao.forEach(pt => {
-                ctx.beginPath(); ctx.fillStyle = '#ffffff'; ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI); ctx.fill();
-                ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 1.5; ctx.stroke();
-            });
-            ctx.restore();
-        }
-
-        // 3. DESENHO DO SNAP MAGNÉTICO
-        if (this._snap) {
-            ctx.save(); ctx.beginPath(); ctx.strokeStyle = '#ffff00'; ctx.lineWidth = 2;
-            ctx.rect(this._snap.x - 7, this._snap.y - 7, 14, 14); ctx.stroke();
-            ctx.fillStyle = 'rgba(255, 255, 0, 0.2)'; ctx.fill();
-            ctx.restore();
-        }
     }
 };
+
 
 window.addEventListener('resize', () => { if (window.GeoNexGraphics) window.GeoNexGraphics.redimensionar(); });
 // GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)

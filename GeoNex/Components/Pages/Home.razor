@@ -2765,7 +2765,8 @@
 
 @code {
 
-    
+    // Lembra onde o último Snap foi desenhado para não renderizar à toa
+    private SkiaSharp.SKPoint? _ultimoSnapRenderizado = null;
     private ElementReference _listRef;
     private double opacidadeBorda = 100;
     // Variável que alimenta a Camada 1 (Fundo do Mapa)
@@ -3970,7 +3971,6 @@
         _ = SincronizarOverlay(true); // Envia para a sala de espera antes da imagem carregar
         SolicitarNovoFrame();
     }
-    // ADICIONE O MÉTODO EXATAMENTE AQUI:
     [JSInvokable]
     public void ReceberMovimentoFerramentas(double pixelX, double pixelY)
     {
@@ -3980,11 +3980,12 @@
 
             if (matrizCompleta.TryInvert(out var matrizInversa))
             {
-                // 1. Acha o rato no mundo
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)pixelX, (float)pixelY));
                 MapService.PontoCursorMundo = ptMundo;
 
-                // 2. Trava o Snap Magnético se necessário
+                // Guarda o estado anterior para saber se o Snap acabou de sumir
+                bool tinhaSnap = MapService.PontoCursorSnap.HasValue;
+
                 if (_snapMedicaoAtivo)
                 {
                     var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matrizCompleta.ScaleX);
@@ -3997,20 +3998,33 @@
                 }
                 else { MapService.PontoCursorSnap = null; }
 
-                // 3. O FREIO E A ATUALIZAÇÃO (A MÁGICA DA ÁREA FUNCIONAR)
-                // Atualiza a tela a ~30 frames por segundo para a linha seguir o rato fluido
+                // Freio otimizado para ~25 FPS (40ms) - Super leve para a GPU
+                // Freio otimizado para ~30 FPS
                 if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 33)
                 {
                     _ultimoMovimentoMouse = DateTime.Now;
+                    bool precisaRedesenhar = false;
 
+                    // 1. Se estiver a desenhar a linha, precisa atualizar para ela seguir o rato
                     if (MapService.PontosMedicao.Count > 0)
                     {
                         RecalcularMedicoes();
-                        StateHasChanged(); // Atualiza os números no painel
+                        StateHasChanged();
+                        precisaRedesenhar = true;
                     }
 
-                    // A CORREÇÃO: Faz o servidor C# redesenhar a área e a linha em tempo real!
-                    SolicitarNovoFrame();
+                    // 2. A INTELIGÊNCIA DO SNAP: Só gasta GPU se o Snap MUDAR de vértice (aparecer, sumir ou trocar)
+                    if (!Nullable.Equals(MapService.PontoCursorSnap, _ultimoSnapRenderizado))
+                    {
+                        precisaRedesenhar = true;
+                        _ultimoSnapRenderizado = MapService.PontoCursorSnap;
+                    }
+
+                    // O servidor repousa a 0% a menos que algo realmente se mova na tela
+                    if (precisaRedesenhar)
+                    {
+                        SolicitarNovoFrame();
+                    }
                 }
             }
         }
