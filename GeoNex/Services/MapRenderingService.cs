@@ -13,6 +13,8 @@ namespace GeoNex.Services
         public float CameraZoom { get; set; } = 1.0f;
         public float CameraPanX { get; set; } = 0f;
         public float CameraPanY { get; set; } = 0f;
+        public double DistanciaTotal { get; set; }
+        public double AreaTotal { get; set; }
         public SkiaSharp.SKPath? CaminhoFeicaoDestacada { get; set; }
         public SKPaint PincelFill { get; private set; }
         public SKPaint PincelBorda { get; private set; }

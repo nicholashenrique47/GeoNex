@@ -10,14 +10,15 @@
 @using ProjNet.CoordinateSystems.Transformations
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
-<div id="map-container" tabindex="0"
+<div id="map-container"
+     tabindex="0"
      style="cursor: @EstiloCursor; width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
 
     <img id="skia-buffer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 0;" />
     <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 1;" />
-</div>
 
-<canvas id="overlayCanvas" style="width: 100vw; height: 100vh; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
+    <canvas id="overlayCanvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
+</div>
 
 <!-- A INTERFACE FLUTUANTE -->
 <div class="geonex-ui">
@@ -231,7 +232,7 @@
                             </button>
 
                             <button class="tool-btn @(MapService.MostrarAreaMedicao ? "active" : "")"
-                                    @onclick="@(() => { MapService.MostrarAreaMedicao = !MapService.MostrarAreaMedicao; SolicitarNovoFrame(); StateHasChanged(); })"
+                                    @onclick="@(() => { MapService.MostrarAreaMedicao = !MapService.MostrarAreaMedicao; _ = SincronizarOverlay(false); RecalcularMedicoes(); StateHasChanged(); })"
                                     title="Calcular e Desenhar Área Poligonal"
                                     style="font-size: 1.2rem; padding: 6px 12px;">
                                 📐
@@ -3696,11 +3697,9 @@
     public async Task ProcessarCliqueRaycast(double telaX, double telaY)
     {
         var matriz = ObterMatrizMatematica();
-
         if (matriz.TryInvert(out var matrizInversa))
         {
             var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
-
             double xMundo = ptMundo.X + MapService.OffsetMundoX;
             double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
 
@@ -3710,41 +3709,33 @@
                     float escalaMatriz = matriz.ScaleX;
                     double tolerancia = 5.0 / escalaMatriz;
                     var feicao = MapService.DispararRaycast(yMundo, xMundo, tolerancia, out string camadaAtingida);
-
                     MapService.DestacarFeicao(feicao);
 
                     if (feicao != null)
                     {
                         camadaSelecionadaPainel = camadaAtingida;
                         atributosFeicaoSelecionada = new Dictionary<string, string>();
-
                         foreach (var nomeCampo in feicao.Attributes.GetNames())
                         {
-                            var valor = feicao.Attributes[nomeCampo];
-                            atributosFeicaoSelecionada[nomeCampo] = valor?.ToString() ?? string.Empty;
+                            atributosFeicaoSelecionada[nomeCampo] = feicao.Attributes[nomeCampo]?.ToString() ?? string.Empty;
                         }
-
-                        // Guarda a geometria geografica e força o desenho preciso
                         _geometriaDestacada = feicao.Geometry;
-                        _ = AtualizarDestaqueAnimadoNoEcra();
                     }
                     else
                     {
                         camadaSelecionadaPainel = string.Empty;
                         atributosFeicaoSelecionada?.Clear();
                         _geometriaDestacada = null;
-                        _ = AtualizarDestaqueAnimadoNoEcra();
                     }
 
-                    SolicitarNovoFrame();
+                    _ = SincronizarOverlay(false);
                     break;
 
                 case ModoFerramenta.Medicao:
                     var ptFinal = ptMundo;
                     if (_snapMedicaoAtivo)
                     {
-                        float escalaMatrizMed = matriz.ScaleX;
-                        float toleranciaSnap = 15.0f / escalaMatrizMed;
+                        float toleranciaSnap = 15.0f / matriz.ScaleX;
                         var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
                         if (ptMagnetico.HasValue) ptFinal = ptMagnetico.Value;
                     }
@@ -3752,25 +3743,10 @@
                     MapService.PontosMedicao.Add(ptFinal);
                     RecalcularMedicoes();
 
-                    // === A CORREÇÃO: PROJETAR A RÉGUA PARA O ECRÃ (JS) ===
-                    // Sincroniza os nós fixados com a folha estática do JavaScript
-                    var pontosMedicaoBase = MapService.PontosMedicao.Select(p =>
-                    {
-                        var ptBase = ObterMatrizBaseSemMover().MapPoint(p);
-                        return new { x = ptBase.X, y = ptBase.Y };
-                    }).ToList();
-
-                    _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontosMedicao", pontosMedicaoBase);
-
-                    // IMPORTANTE: NÃO HÁ "SolicitarNovoFrame();" AQUI!
-                    // O servidor não precisa de gerar a ortofoto de 2MB só para desenhar um traço.
-                    break;
-
-                case ModoFerramenta.AquisicaoPoligono:
-                case ModoFerramenta.Navegacao:
+                    // Sincroniza o JS usando o motor centralizado
+                    _ = SincronizarOverlay(false);
                     break;
             }
-
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -3846,44 +3822,42 @@
     public async Task ProcessarTecladoGlobal(string tecla)
     {
         tecla = tecla.ToLower();
-
         if (tecla == "escape")
         {
             if (_ferramentaAtiva == ModoFerramenta.Medicao)
             {
-                LimparMedicao(); // Aborta a medição instantaneamente
+                LimparMedicao();
             }
             else if (_ferramentaAtiva == ModoFerramenta.Identificacao)
             {
                 MapService.DestacarFeicao(null);
                 camadaSelecionadaPainel = string.Empty;
                 atributosFeicaoSelecionada?.Clear();
-                await JSRuntime.InvokeVoidAsync("GeoNexGraphics.limparDestaqueAnimado");
+                _geometriaDestacada = null;
+
+                await JSRuntime.InvokeVoidAsync("GeoNexGraphics.limpar");
                 SolicitarNovoFrame();
                 StateHasChanged();
             }
         }
-        else if (tecla == "m")
-        {
-            TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Medicao ? ModoFerramenta.Identificacao : ModoFerramenta.Medicao);
-        }
-        else if (tecla == "i")
-        {
-            TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Identificacao ? ModoFerramenta.Navegacao : ModoFerramenta.Identificacao);
-        }
+        else if (tecla == "m") TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Medicao ? ModoFerramenta.Identificacao : ModoFerramenta.Medicao);
+        else if (tecla == "i") TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Identificacao ? ModoFerramenta.Navegacao : ModoFerramenta.Identificacao);
     }
-
     private void LimparMedicao()
     {
         MapService.PontosMedicao.Clear();
-        MapService.PontoCursorSnap = null; // Apaga a mira amarela
-        MapService.PontoCursorMundo = null; // Remove o resto da linha
-
+        MapService.PontoCursorSnap = null;
+        MapService.PontoCursorMundo = null;
         _medicaoComprimentoMetros = 0;
         _medicaoAreaM2 = 0;
 
-        SolicitarNovoFrame(); // Manda a GPU limpar a tela
-        StateHasChanged();    // Força o HTML a colocar os números a zero
+        // Limpa o rastro animado do JS (se houver)
+        _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.limparTudo");
+
+        // A CORREÇÃO: Força o C# a gerar a imagem limpa sem a régua!
+        SolicitarNovoFrame();
+
+        StateHasChanged();
     }
     // =========================================================================
     // 15. MOTOR DE MIRA MAGNÉTICA (HOVER SNAP TIPO ARCGIS)
@@ -3993,6 +3967,7 @@
         MapService.CameraPanY = (float)((MapService.CameraPanY * scaleMultiplier) + deltaY);
         MapService.CameraZoom *= (float)scaleMultiplier;
 
+        _ = SincronizarOverlay(true); // Envia para a sala de espera antes da imagem carregar
         SolicitarNovoFrame();
     }
     // ADICIONE O MÉTODO EXATAMENTE AQUI:
@@ -4002,44 +3977,40 @@
         if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
             var matrizCompleta = ObterMatrizMatematica();
-            var matrizBase = ObterMatrizBaseSemMover();
 
             if (matrizCompleta.TryInvert(out var matrizInversa))
             {
-                // 1. Transforma o píxel atual no mapa real
+                // 1. Acha o rato no mundo
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)pixelX, (float)pixelY));
+                MapService.PontoCursorMundo = ptMundo;
 
-                // 2. Calcula a posição do rato na "folha base" para o JS animar
-                var ptMouseBase = matrizBase.MapPoint(ptMundo);
-                _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontoMouse", ptMouseBase.X, ptMouseBase.Y);
-
-                // 3. Procura o Snap
+                // 2. Trava o Snap Magnético se necessário
                 if (_snapMedicaoAtivo)
                 {
-                    float toleranciaSnap = 15.0f / matrizCompleta.ScaleX;
-                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
-
+                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matrizCompleta.ScaleX);
                     if (ptMagnetico.HasValue)
                     {
-                        var ptSnapBase = matrizBase.MapPoint(ptMagnetico.Value);
-                        _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontoSnap", ptSnapBase.X, ptSnapBase.Y);
+                        MapService.PontoCursorSnap = ptMagnetico.Value;
+                        MapService.PontoCursorMundo = ptMagnetico.Value; // Trava o mundo no vértice
                     }
-                    else
-                    {
-                        _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirPontoSnap", null, null);
-                    }
+                    else { MapService.PontoCursorSnap = null; }
                 }
+                else { MapService.PontoCursorSnap = null; }
 
-                // Cálculo das distâncias no painel lateral
-                if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 50)
+                // 3. O FREIO E A ATUALIZAÇÃO (A MÁGICA DA ÁREA FUNCIONAR)
+                // Atualiza a tela a ~30 frames por segundo para a linha seguir o rato fluido
+                if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 33)
                 {
                     _ultimoMovimentoMouse = DateTime.Now;
-                    MapService.PontoCursorMundo = ptMundo; // Usado para a matemática de área
+
                     if (MapService.PontosMedicao.Count > 0)
                     {
                         RecalcularMedicoes();
-                        StateHasChanged(); // Atualiza apenas o HTML numérico! NUNCA o SolicitarNovoFrame()
+                        StateHasChanged(); // Atualiza os números no painel
                     }
+
+                    // A CORREÇÃO: Faz o servidor C# redesenhar a área e a linha em tempo real!
+                    SolicitarNovoFrame();
                 }
             }
         }
@@ -4217,28 +4188,7 @@
 
     return matriz;
 }
-    private async Task AtualizarDestaqueAnimadoNoEcra(bool pendenteParaSwap = false)
-    {
-        if (_geometriaDestacada == null || _geometriaDestacada.IsEmpty)
-        {
-            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.limparDestaqueAnimado");
-            return;
-        }
-
-        var aneisEcra = new List<List<object>>();
-        ExtrairAneisMultiplos(_geometriaDestacada, aneisEcra);
-
-        if (pendenteParaSwap)
-        {
-            // O arrasto terminou. Manda os dados para a "Sala de Espera" do JS!
-            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.prepararDestaqueAnimado", aneisEcra);
-        }
-        else
-        {
-            // Clique normal. Aplica na hora.
-            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirDestaqueAnimado", aneisEcra);
-        }
-    }
+    
 
     private void ExtrairAneisMultiplos(NetTopologySuite.Geometries.Geometry geom, List<List<object>> listaSaida)
     {
@@ -4280,16 +4230,29 @@
     }
     private List<object> ConverterCoordenadas(NetTopologySuite.Geometries.Coordinate[] coords)
     {
-        var matrizBase = ObterMatrizBaseSemMover();
+        var matriz = ObterMatrizMatematica();
         return coords.Select(c =>
         {
-            float cx = (float)(c.X - MapService.OffsetMundoX);
-            float cy = -(float)(c.Y - MapService.OffsetMundoY);
-
-            // Projeta no espaço local da imagem, delegando a translação do Pan/Zoom ao CSS nativo
-            var ptBase = matrizBase.MapPoint(new SkiaSharp.SKPoint(cx, cy));
-            return (object)new { x = ptBase.X, y = ptBase.Y };
+            var pt = matriz.MapPoint(new SkiaSharp.SKPoint((float)(c.X - MapService.OffsetMundoX), -(float)(c.Y - MapService.OffsetMundoY)));
+            return (object)new { x = pt.X, y = pt.Y };
         }).ToList();
+    }
+    private async Task SincronizarOverlay(bool pendenteParaSwap = false)
+    {
+        var destaque = new List<List<object>>();
+        if (_geometriaDestacada != null && !_geometriaDestacada.IsEmpty)
+            ExtrairAneisMultiplos(_geometriaDestacada, destaque);
+
+        var medicao = MapService.PontosMedicao.Select(p =>
+        {
+            var pt = ObterMatrizBaseSemMover().MapPoint(p);
+            return (object)new { x = pt.X, y = pt.Y };
+        }).ToList();
+
+        if (pendenteParaSwap)
+            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.prepararFuturo", destaque, medicao, MapService.MostrarAreaMedicao);
+        else
+            await JSRuntime.InvokeVoidAsync("GeoNexGraphics.definirAtivos", destaque, medicao, MapService.MostrarAreaMedicao);
     }
     private SkiaSharp.SKPoint MatrizMundoParaLocalImagem(SkiaSharp.SKPoint ptMundo)
     {
