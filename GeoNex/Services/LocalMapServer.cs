@@ -439,6 +439,49 @@ namespace GeoNex.Services
                         canvas.DrawCircle(pt, 4.5f / zoomReal, pincelBordaPontoMed);
                     }
                 }
+                // 8.1. FERRAMENTA DE AQUISIÇÃO (DESENHO DE LOTE)
+                if (_mapService.PontosAquisicao.Count > 0)
+                {
+                    canvas.SetMatrix(matriz);
+
+                    // Estética Profissional para o modo de Desenho (Verde Primavera)
+                    using var pincelLinhaAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen, StrokeWidth = 2.5f / zoomReal, IsAntialias = true };
+                    using var pincelTracejadoAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen.WithAlpha(180), StrokeWidth = 1.5f / zoomReal, PathEffect = SKPathEffect.CreateDash(new float[] { 10f / zoomReal, 10f / zoomReal }, 0), IsAntialias = true };
+                    using var pincelPontoAq = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
+                    using var pincelBordaPontoAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen, StrokeWidth = 1.5f / zoomReal, IsAntialias = true };
+                    using var pincelAreaAq = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.SpringGreen.WithAlpha(60), IsAntialias = true };
+
+                    var pathAq = new SKPath();
+                    for (int i = 0; i < _mapService.PontosAquisicao.Count; i++)
+                    {
+                        if (i == 0) pathAq.MoveTo(_mapService.PontosAquisicao[i]);
+                        else pathAq.LineTo(_mapService.PontosAquisicao[i]);
+                    }
+
+                    // A Linha Elástica (Rubberband) que acompanha o rato
+                    if (_mapService.PontoCursorMundo.HasValue)
+                    {
+                        pathAq.LineTo(_mapService.PontoCursorMundo.Value);
+                    }
+
+                    // Desenha o preenchimento translúcido quando tivermos pelo menos 2 pontos + rato
+                    if (_mapService.PontosAquisicao.Count >= 2 && _mapService.PontoCursorMundo.HasValue)
+                    {
+                        var pathAreaAq = new SKPath(pathAq);
+                        pathAreaAq.Close(); // Fecha virtualmente com o cursor para mostrar a área real
+                        canvas.DrawPath(pathAreaAq, pincelAreaAq);
+                    }
+
+                    // Desenha o esqueleto da linha
+                    canvas.DrawPath(pathAq, pincelLinhaAq);
+
+                    // Desenha os vértices (bolinhas brancas com borda verde)
+                    foreach (var pt in _mapService.PontosAquisicao)
+                    {
+                        canvas.DrawCircle(pt, 4.5f / zoomReal, pincelPontoAq);
+                        canvas.DrawCircle(pt, 4.5f / zoomReal, pincelBordaPontoAq);
+                    }
+                }
 
                 // 9. SNAP HOVER MAGNÉTICO
                 if (_mapService.PontoCursorSnap.HasValue)

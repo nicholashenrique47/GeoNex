@@ -13,7 +13,6 @@
 <div id="map-container"
      tabindex="0"
      style="cursor: @EstiloCursor; width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
-
     <img id="skia-buffer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 0;" />
     <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 1;" />
 
@@ -90,6 +89,9 @@
                     <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Medicao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)">
                         Régua Topográfica
                     </button>
+                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.AquisicaoPoligono)">
+                        Desenhar Novo Polígono
+                    </button>
                 </div>
             </div>
 
@@ -143,7 +145,69 @@
         </div>
 
     </header>
+    <!-- ========================================================= -->
+    <!-- PAINEL FLUTUANTE DE DESENHO (AQUISIÇÃO)                   -->
+    <!-- ========================================================= -->
+    <!-- ========================================================= -->
+    <!-- PAINEL FLUTUANTE DE DESENHO (AQUISIÇÃO)                   -->
+    <!-- ========================================================= -->
+    <!-- ========================================================= -->
+    <!-- PAINEL FLUTUANTE DE DESENHO (AQUISIÇÃO)                   -->
+    <!-- ========================================================= -->
+    <!-- ========================================================= -->
+    <!-- PAINEL FLUTUANTE DE DESENHO (AQUISIÇÃO)                   -->
+    <!-- ========================================================= -->
+    @if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+    {
+        <div class="glass-panel" style="position: absolute; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 20px; border-radius: 12px; z-index: 9999; display: flex; gap: 15px; align-items: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);">
 
+            <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 15px; margin-right: 5px;">
+                MODO DESENHO
+            </span>
+
+            <!-- NOVO: SELETOR DE CAMADA ALVO -->
+            <select @bind="_camadaDestinoAquisicao" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #38bdf8; padding: 6px 10px; border-radius: 4px; font-weight: bold; outline: none; cursor: pointer; max-width: 180px;">
+                <option value="">[ Nova Camada ]</option>
+                @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
+                {
+                    <option value="@camada.Nome">@camada.Nome</option>
+                }
+            </select>
+
+            <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.2);"></div>
+
+            <!-- O BOTÃO SUSPENSO (DROPDOWN) DE SNAP -->
+            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
+                <button class="menu-btn" style="color: @(_snapAquisicaoVertice || _snapAquisicaoAresta ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
+                    SNAP ▾
+                </button>
+                <div class="dropdown-content" style="top: 100%; left: 0; min-width: 180px; margin-top: 10px;">
+                    <button class="drop-item" style="display: flex; justify-content: space-between; align-items: center; color: @(_snapAquisicaoVertice ? "#38bdf8" : "#cbd5e1"); background: @(_snapAquisicaoVertice ? "rgba(56, 189, 248, 0.1)" : "transparent");" @onclick="() => _snapAquisicaoVertice = !_snapAquisicaoVertice">
+                        <span>Atrair Vértices</span>
+                        <span style="font-weight: bold; font-size: 0.7rem;">@(_snapAquisicaoVertice ? "ON" : "")</span>
+                    </button>
+                    <button class="drop-item" style="display: flex; justify-content: space-between; align-items: center; color: @(_snapAquisicaoAresta ? "#38bdf8" : "#cbd5e1"); background: @(_snapAquisicaoAresta ? "rgba(56, 189, 248, 0.1)" : "transparent");" @onclick="() => _snapAquisicaoAresta = !_snapAquisicaoAresta">
+                        <span>Atrair Arestas</span>
+                        <span style="font-weight: bold; font-size: 0.7rem;">@(_snapAquisicaoAresta ? "ON" : "")</span>
+                    </button>
+                </div>
+            </div>
+
+            <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.2);"></div>
+
+            <button class="btn-clean" @onclick="DesfazerUltimoPontoAquisicao" title="Desfazer (Backspace)" disabled="@(MapService.PontosAquisicao.Count == 0)" style="background: transparent; border: none; color: #cbd5e1; font-weight: 500; cursor: pointer; transition: 0.2s; opacity: @(MapService.PontosAquisicao.Count == 0 ? "0.5" : "1");">
+                DESFAZER
+            </button>
+
+            <button class="btn-clean" @onclick="CancelarAquisicao" title="Cancelar Desenho (Esc)" style="background: transparent; border: none; color: #f87171; font-weight: 500; cursor: pointer; transition: 0.2s;">
+                CANCELAR
+            </button>
+
+            <button class="btn-clean" @onclick="ConcluirAquisicaoPoligono" title="Finalizar Polígono (Clique Direito ou Enter)" disabled="@(MapService.PontosAquisicao.Count < 3)" style="background: transparent; border: none; color: #34d399; font-weight: bold; cursor: pointer; transition: 0.2s; opacity: @(MapService.PontosAquisicao.Count < 3 ? "0.5" : "1");">
+                CONCLUIR
+            </button>
+        </div>
+    }
     <!-- PAINÉIS LATERAIS E ÁREA DE TRABALHO -->
     <main class="workspace-area">
 
@@ -2765,6 +2829,8 @@
 
 @code {
 
+    // Define para que camada o polígono desenhado vai ser enviado
+    private string _camadaDestinoAquisicao = "";
     // Lembra onde o último Snap foi desenhado para não renderizar à toa
     private SkiaSharp.SKPoint? _ultimoSnapRenderizado = null;
     private ElementReference _listRef;
@@ -2963,14 +3029,17 @@
     private List<Dictionary<string, string>> listaPontosCaderneta = new List<Dictionary<string, string>>();
     private string metodoEntrada = "COORDENADA";
     private bool temEdicoesPendentes = false;
-    private void TrocarFerramenta(ModoFerramenta novaFerramenta)
+    public async Task TrocarFerramenta(ModoFerramenta novaFerramenta)
     {
-        // 1. Limpeza de Saída (O que fazer ao desligar a ferramenta antiga)
+        // Impede processamento fantasma se já estiver na ferramenta certa
+        if (_ferramentaAtiva == novaFerramenta) return;
+
+        // 1. Limpeza de Saída
         if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
             MapService.PontosMedicao.Clear();
-            MapService.PontoCursorSnap = null;  // MATAR A MIRA AMARELA
-            MapService.PontoCursorMundo = null; // MATAR A LINHA ELÁSTICA
+            MapService.PontoCursorSnap = null;
+            MapService.PontoCursorMundo = null;
             _distanciaTotalMetros = 0;
             _areaTotalM2 = 0;
         }
@@ -2979,6 +3048,13 @@
             MapService.DestacarFeicao(null);
             camadaSelecionadaPainel = string.Empty;
             atributosFeicaoSelecionada?.Clear();
+            _geometriaDestacada = null;
+        }
+        else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+        {
+            MapService.PontosAquisicao.Clear();
+            MapService.PontoCursorSnap = null;
+            MapService.PontoCursorMundo = null;
         }
         else if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
@@ -2987,14 +3063,19 @@
 
         // 2. Transição de Estado
         _ferramentaAtiva = novaFerramenta;
-        _ = JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());        // 3. Configurações de Entrada
+
+        await JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());
+
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = true;
         }
 
-        // 4. Atualiza a Tela (Pede à placa de vídeo para apagar os detritos)
+        // 3. Limpeza do Overlay e Atualização Forçada e Síncrona da UI
+        await SincronizarOverlay(false);
         SolicitarNovoFrame();
+
+        // Em métodos async, isto obriga o HTML a acender o painel da nova ferramenta!
         StateHasChanged();
     }
     // =========================================================================
@@ -3728,24 +3809,32 @@
                         atributosFeicaoSelecionada?.Clear();
                         _geometriaDestacada = null;
                     }
-
                     _ = SincronizarOverlay(false);
                     break;
 
                 case ModoFerramenta.Medicao:
-                    var ptFinal = ptMundo;
+                    var ptFinalMed = ptMundo;
                     if (_snapMedicaoAtivo)
                     {
-                        float toleranciaSnap = 15.0f / matriz.ScaleX;
-                        var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
-                        if (ptMagnetico.HasValue) ptFinal = ptMagnetico.Value;
+                        // MEDIÇÃO: checarVertices = true, checarArestas = false (Isolamento total!)
+                        var ptMagneticoMed = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matriz.ScaleX, true, false);
+                        if (ptMagneticoMed.HasValue) ptFinalMed = ptMagneticoMed.Value;
                     }
-
-                    MapService.PontosMedicao.Add(ptFinal);
+                    MapService.PontosMedicao.Add(ptFinalMed);
                     RecalcularMedicoes();
-
-                    // Sincroniza o JS usando o motor centralizado
                     _ = SincronizarOverlay(false);
+                    break;
+
+                case ModoFerramenta.AquisicaoPoligono:
+                    var ptFinalAq = ptMundo;
+                    if (_snapAquisicaoVertice || _snapAquisicaoAresta)
+                    {
+                        // DESENHO: Passa as variáveis exatas que ativou no menu
+                        var ptMagneticoAq = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matriz.ScaleX, _snapAquisicaoVertice, _snapAquisicaoAresta);
+                        if (ptMagneticoAq.HasValue) ptFinalAq = ptMagneticoAq.Value;
+                    }
+                    MapService.PontosAquisicao.Add(ptFinalAq);
+                    SolicitarNovoFrame();
                     break;
             }
             await InvokeAsync(StateHasChanged);
@@ -3823,6 +3912,21 @@
     public async Task ProcessarTecladoGlobal(string tecla)
     {
         tecla = tecla.ToLower();
+
+        // 1. ATALHOS DE TRANSIÇÃO DE FERRAMENTAS (Mudar de modo rapidamente com AWAIT)
+        if (tecla == "m") { await TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Medicao ? ModoFerramenta.Identificacao : ModoFerramenta.Medicao); return; }
+        if (tecla == "i") { await TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Identificacao ? ModoFerramenta.Navegacao : ModoFerramenta.Identificacao); return; }
+        if (tecla == "d" || tecla == "p") { await TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? ModoFerramenta.Identificacao : ModoFerramenta.AquisicaoPoligono); return; }
+
+        // 2. ATALHOS EXCLUSIVOS DA FERRAMENTA DE DESENHO
+        if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+        {
+            if (tecla == "escape") { CancelarAquisicao(); return; }
+            if (tecla == "z" || tecla == "ctrl+z" || tecla == "backspace") { DesfazerUltimoPontoAquisicao(); return; }
+            if (tecla == "enter" || tecla == "c") { ConcluirAquisicaoPoligono(); return; }
+        }
+
+        // 3. ATALHOS GLOBAIS DE CANCELAMENTO E LIMPEZA DE TELA (ESC)
         if (tecla == "escape")
         {
             if (_ferramentaAtiva == ModoFerramenta.Medicao)
@@ -3836,13 +3940,11 @@
                 atributosFeicaoSelecionada?.Clear();
                 _geometriaDestacada = null;
 
-                await JSRuntime.InvokeVoidAsync("GeoNexGraphics.limpar");
+                await SincronizarOverlay(false);
                 SolicitarNovoFrame();
                 StateHasChanged();
             }
         }
-        else if (tecla == "m") TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Medicao ? ModoFerramenta.Identificacao : ModoFerramenta.Medicao);
-        else if (tecla == "i") TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Identificacao ? ModoFerramenta.Navegacao : ModoFerramenta.Identificacao);
     }
     private void LimparMedicao()
     {
@@ -3882,11 +3984,16 @@
     private string EstiloCursor =>
         _isPanning ? "grabbing" :
         (_ferramentaAtiva == ModoFerramenta.Navegacao ? "grab" :
-         (_ferramentaAtiva == ModoFerramenta.Medicao ? "crosshair" : "default"));
-
+         (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "crosshair" : "default"));
     private void ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        // Modo Pan: Só altera o cursor. O JS faz o arrasto real!
+        // NOVO: CLIQUE DIREITO (2) FECHA O POLÍGONO IMEDIATAMENTE (Padrão CAD/SIG)
+        if (e.Button == 2 && _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+        {
+            ConcluirAquisicaoPoligono();
+            return;
+        }
+
         if (e.Button == 1 || (e.Button == 0 && _ferramentaAtiva == ModoFerramenta.Navegacao))
         {
             _isPanning = true;
@@ -3894,7 +4001,6 @@
             return;
         }
 
-        // Modo Identificação/Régua
         if (e.Button == 0 && _ferramentaAtiva != ModoFerramenta.Navegacao)
         {
             _ = ProcessarCliqueRaycast(e.OffsetX, e.OffsetY);
@@ -3903,10 +4009,9 @@
 
     private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (_isPanning) return; // O C# IGNORA O ARRASTO! O JS é quem manda.
+        if (_isPanning) return;
 
-        // === MODO MEDIÇÃO E RÉGUAS ===
-        if (_ferramentaAtiva == ModoFerramenta.Medicao)
+        if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
         {
             var matriz = ObterMatrizMatematica();
             if (matriz.TryInvert(out var matrizInversa))
@@ -3914,10 +4019,30 @@
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)e.OffsetX, (float)e.OffsetY));
                 MapService.PontoCursorMundo = ptMundo;
 
-                if (_snapMedicaoAtivo)
+                // --- ISOLAMENTO MAGNÉTICO (Vértices e Arestas 100% Independentes) ---
+                bool usarSnap = false;
+                bool checarVertices = false;
+                bool checarArestas = false;
+
+                if (_ferramentaAtiva == ModoFerramenta.Medicao && _snapMedicaoAtivo)
                 {
-                    float toleranciaSnap = 15.0f / matriz.ScaleX;
-                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, toleranciaSnap);
+                    usarSnap = true;
+                    checarVertices = true;
+                    checarArestas = false; // A correção da Medição: Nunca usa arestas!
+                }
+                else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+                {
+                    if (_snapAquisicaoVertice || _snapAquisicaoAresta)
+                    {
+                        usarSnap = true;
+                        checarVertices = _snapAquisicaoVertice;
+                        checarArestas = _snapAquisicaoAresta;
+                    }
+                }
+
+                if (usarSnap)
+                {
+                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matriz.ScaleX, checarVertices, checarArestas);
                     if (ptMagnetico.HasValue)
                     {
                         MapService.PontoCursorSnap = ptMagnetico.Value;
@@ -3927,22 +4052,7 @@
                 }
                 else { MapService.PontoCursorSnap = null; }
 
-                // Na secção do tempo de atualização (16ms)
-                if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 16)
-                {
-                    _ultimoMovimentoMouse = DateTime.Now;
-                    if (MapService.PontosMedicao.Count > 0)
-                    {
-                        RecalcularMedicoes();
-                        if ((DateTime.Now - _ultimaAtualizacaoUI).TotalMilliseconds >= 150)
-                        {
-                            _ultimaAtualizacaoUI = DateTime.Now;
-                            StateHasChanged();
-                        }
-                    }
-                    // RESTAURADO: Devolve o comando de renderização nativo e limpo para o Snap voar
-                    SolicitarNovoFrame();
-                }
+                SolicitarNovoFrame();
             }
         }
     }
@@ -3971,10 +4081,14 @@
         _ = SincronizarOverlay(true); // Envia para a sala de espera antes da imagem carregar
         SolicitarNovoFrame();
     }
+    // Variável que controla a física do íman de desenho
+    // Variáveis que controlam os ímanes de desenho simultaneamente
+    private bool _snapAquisicaoVertice = true;
+    private bool _snapAquisicaoAresta = false; 
     [JSInvokable]
     public void ReceberMovimentoFerramentas(double pixelX, double pixelY)
     {
-        if (_ferramentaAtiva == ModoFerramenta.Medicao)
+        if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
         {
             var matrizCompleta = ObterMatrizMatematica();
 
@@ -3983,46 +4097,64 @@
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)pixelX, (float)pixelY));
                 MapService.PontoCursorMundo = ptMundo;
 
-                // Guarda o estado anterior para saber se o Snap acabou de sumir
-                bool tinhaSnap = MapService.PontoCursorSnap.HasValue;
+                // --- ISOLAMENTO MAGNÉTICO (Vértices e Arestas 100% Independentes) ---
+                bool usarSnap = false;
+                bool checarVertices = false;
+                bool checarArestas = false;
 
-                if (_snapMedicaoAtivo)
+                if (_ferramentaAtiva == ModoFerramenta.Medicao && _snapMedicaoAtivo)
                 {
-                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matrizCompleta.ScaleX);
+                    usarSnap = true;
+                    checarVertices = true;
+                    checarArestas = false; // A correção da Medição: Nunca usa arestas!
+                }
+                else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+                {
+                    if (_snapAquisicaoVertice || _snapAquisicaoAresta)
+                    {
+                        usarSnap = true;
+                        checarVertices = _snapAquisicaoVertice;
+                        checarArestas = _snapAquisicaoAresta;
+                    }
+                }
+
+                if (usarSnap)
+                {
+                    var ptMagnetico = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matrizCompleta.ScaleX, checarVertices, checarArestas);
                     if (ptMagnetico.HasValue)
                     {
                         MapService.PontoCursorSnap = ptMagnetico.Value;
-                        MapService.PontoCursorMundo = ptMagnetico.Value; // Trava o mundo no vértice
+                        MapService.PontoCursorMundo = ptMagnetico.Value;
                     }
                     else { MapService.PontoCursorSnap = null; }
                 }
                 else { MapService.PontoCursorSnap = null; }
 
-                // Freio otimizado para ~25 FPS (40ms) - Super leve para a GPU
-                // Freio otimizado para ~30 FPS
                 if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 33)
                 {
                     _ultimoMovimentoMouse = DateTime.Now;
                     bool precisaRedesenhar = false;
 
-                    // 1. Se estiver a desenhar a linha, precisa atualizar para ela seguir o rato
-                    if (MapService.PontosMedicao.Count > 0)
+                    if (_ferramentaAtiva == ModoFerramenta.Medicao && MapService.PontosMedicao.Count > 0)
                     {
                         RecalcularMedicoes();
-                        StateHasChanged();
                         precisaRedesenhar = true;
                     }
 
-                    // 2. A INTELIGÊNCIA DO SNAP: Só gasta GPU se o Snap MUDAR de vértice (aparecer, sumir ou trocar)
+                    if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count > 0)
+                    {
+                        precisaRedesenhar = true;
+                    }
+
                     if (!Nullable.Equals(MapService.PontoCursorSnap, _ultimoSnapRenderizado))
                     {
                         precisaRedesenhar = true;
                         _ultimoSnapRenderizado = MapService.PontoCursorSnap;
                     }
 
-                    // O servidor repousa a 0% a menos que algo realmente se mova na tela
                     if (precisaRedesenhar)
                     {
+                        StateHasChanged();
                         SolicitarNovoFrame();
                     }
                 }
@@ -4286,5 +4418,105 @@
         matriz = matriz.PostConcat(SkiaSharp.SKMatrix.CreateTranslation(_larguraTela / 2f, _alturaTela / 2f));
 
         return matriz.MapPoint(ptMundo);
+    }
+    private void ConcluirAquisicaoPoligono()
+    {
+        if (MapService.PontosAquisicao.Count >= 3)
+        {
+            string camadaAlvo = _camadaDestinoAquisicao;
+
+            // SEGURANÇA: Se o engenheiro escolheu [ Nova Camada ] no menu flutuante
+            if (string.IsNullOrEmpty(camadaAlvo))
+            {
+                camadaAlvo = "Novos_Lotes";
+
+                // Evita criar camadas com o mesmo nome se o utilizador repetir o processo
+                int contador = 1;
+                while (CamadasAtivas.Any(c => c.Nome == camadaAlvo))
+                {
+                    camadaAlvo = $"Novos_Lotes_{contador}";
+                    contador++;
+                }
+
+                CamadasAtivas.Insert(0, new Camada { Nome = camadaAlvo, Tipo = "Vetor", Visivel = true });
+
+                MapService.EstilosPorCamada[camadaAlvo] = new GeoNex.Services.EstiloCamada
+                { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
+
+                // Avisa o visualizador que uma nova camada nasceu
+                SincronizarHierarquia();
+            }
+
+            var pontos = MapService.PontosAquisicao.ToList();
+            pontos.Add(pontos[0]); // Fecha o perímetro
+
+            var coordsWkt = pontos.Select(p => $"{(p.X + MapService.OffsetMundoX).ToString(System.Globalization.CultureInfo.InvariantCulture)} {(-p.Y + MapService.OffsetMundoY).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            string geometriaWKT = $"POLYGON (({string.Join(", ", coordsWkt)}))";
+
+            try
+            {
+                var leitorWkt = new NetTopologySuite.IO.WKTReader();
+                var geometriaNts = leitorWkt.Read(geometriaWKT);
+
+                // === ESTRUTURA DE ATRIBUTOS (HERANÇA) ===
+                var atributos = new NetTopologySuite.Features.AttributesTable();
+
+                if (!MapService.FeicoesOriginais.TryGetValue(camadaAlvo, out var colecao))
+                {
+                    colecao = new NetTopologySuite.Features.FeatureCollection();
+                    MapService.FeicoesOriginais[camadaAlvo] = colecao;
+                }
+
+                // Clona as colunas da camada existente para que a Tabela de Atributos não sofra crash
+                if (colecao.Count > 0 && colecao[0].Attributes != null)
+                {
+                    foreach (var nomeAtributo in colecao[0].Attributes.GetNames())
+                    {
+                        atributos.Add(nomeAtributo, ""); // Inicia em branco
+                    }
+                }
+
+                var novaFeicao = new NetTopologySuite.Features.Feature(geometriaNts, atributos);
+                colecao.Add(novaFeicao);
+
+                // 1. INJETA NA PLACA DE VÍDEO
+                MapService.PreCompilarPoligonos(camadaAlvo, colecao);
+
+                // 2. ATUALIZA A MIRA DO RATO (Raycast) PARA PODERMOS CLICAR NA NOVA FEIÇÃO
+                MapService.ConstruirIndiceEspacial(camadaAlvo, colecao);
+
+                // 3. SE O MAPA FOR TEMÁTICO, RECALCULA AS CORES DE TUDO
+                if (MapService.EstilosPorCamada.TryGetValue(camadaAlvo, out var estilo) && estilo.TipoSimbologia == "CATEGORIZADA")
+                {
+                    MapService.CompilarCategorias(camadaAlvo, estilo.ColunaSimbologia);
+                }
+            }
+            catch (Exception ex) { Console.WriteLine("Erro topológico: " + ex.Message); }
+
+            // Limpeza final do rascunho de ecrã
+            MapService.PontosAquisicao.Clear();
+            MapService.PontoCursorMundo = null;
+
+            SolicitarNovoFrame();
+            StateHasChanged();
+        }
+    }
+
+    private void CancelarAquisicao()
+    {
+        MapService.PontosAquisicao.Clear();
+        MapService.PontoCursorMundo = null;
+        SolicitarNovoFrame();
+        StateHasChanged();
+    }
+
+    private void DesfazerUltimoPontoAquisicao()
+    {
+        if (MapService.PontosAquisicao.Count > 0)
+        {
+            MapService.PontosAquisicao.RemoveAt(MapService.PontosAquisicao.Count - 1);
+            SolicitarNovoFrame();
+            StateHasChanged();
+        }
     }
     }

@@ -33,6 +33,7 @@ namespace GeoNex.Services
         public Dictionary<string, Dictionary<string, SKPath>> VetoresCategorizados { get; private set; } = new();
         public List<string> OrdemCamadas { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
+        public List<SkiaSharp.SKPoint> PontosAquisicao { get; set; } = new();
         // === INDICADOR VISUAL DO SNAP (ARCGIS HOVER) ===
         public SkiaSharp.SKPoint? PontoCursorSnap { get; set; }
         public SkiaSharp.SKPoint? PontoCursorMundo { get; set; }
@@ -41,37 +42,82 @@ namespace GeoNex.Services
         // === MOTOR DE SNAP (ATRAÇÃO MAGNÉTICA) ===
         // 2. MOTOR DE SNAP MAGNÉTICO (Procura vértices em TODAS as camadas)
         // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO
-        public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo)
+        // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO (Vértices + Arestas)
+        // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO (Vértices ou Arestas)
+        // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO (Vértices e/ou Arestas isolados)
+        public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo, bool checarVertices = true, bool checarArestas = false)
         {
             SkiaSharp.SKPoint? melhorPonto = null;
             float menorDistanciaSq = toleranciaMundo * toleranciaMundo;
 
-            void ChecarVertices(Dictionary<string, SKPath> dicionarioPaths)
+            void ChecarGeometrias(Dictionary<string, SKPath> dicionarioPaths, bool avaliarArestas)
             {
                 foreach (var path in dicionarioPaths.Values)
                 {
-                    // OTIMIZAÇÃO: Acede aos pontos apenas uma vez por geometria, 
-                    // evitando sobrecarga de alocação de memória na RAM.
                     var pontosDaGeometria = path.Points;
                     int numPontos = pontosDaGeometria.Length;
 
-                    for (int i = 0; i < numPontos; i++)
+                    // 1. CHECAR VÉRTICES (Controlado pela UI)
+                    if (checarVertices)
                     {
-                        var pt = pontosDaGeometria[i];
-                        float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
-
-                        if (distSq < menorDistanciaSq)
+                        for (int i = 0; i < numPontos; i++)
                         {
-                            menorDistanciaSq = distSq;
-                            melhorPonto = pt;
+                            var pt = pontosDaGeometria[i];
+                            float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
+
+                            if (distSq < menorDistanciaSq)
+                            {
+                                menorDistanciaSq = distSq;
+                                melhorPonto = pt;
+                            }
+                        }
+                    }
+
+                    // 2. CHECAR ARESTAS (Controlado pela UI)
+                    if (avaliarArestas && checarArestas && numPontos >= 2)
+                    {
+                        for (int i = 0; i < numPontos - 1; i++)
+                        {
+                            var p1 = pontosDaGeometria[i];
+                            var p2 = pontosDaGeometria[i + 1];
+
+                            float l2 = (p1.X - p2.X) * (p1.X - p2.X) + (p1.Y - p2.Y) * (p1.Y - p2.Y);
+                            if (l2 == 0) continue;
+
+                            float t = Math.Max(0, Math.Min(1, ((ptClique.X - p1.X) * (p2.X - p1.X) + (ptClique.Y - p1.Y) * (p2.Y - p1.Y)) / l2));
+                            float projX = p1.X + t * (p2.X - p1.X);
+                            float projY = p1.Y + t * (p2.Y - p1.Y);
+
+                            float distSqSegmento = (ptClique.X - projX) * (ptClique.X - projX) + (ptClique.Y - projY) * (ptClique.Y - projY);
+
+                            if (distSqSegmento < menorDistanciaSq)
+                            {
+                                menorDistanciaSq = distSqSegmento;
+                                melhorPonto = new SkiaSharp.SKPoint(projX, projY);
+                            }
                         }
                     }
                 }
             }
 
-            ChecarVertices(VetoresPorCamada);
-            ChecarVertices(LinhasPorCamada);
-            ChecarVertices(PontosPorCamada);
+            ChecarGeometrias(VetoresPorCamada, true);
+            ChecarGeometrias(LinhasPorCamada, true);
+            ChecarGeometrias(PontosPorCamada, false);
+
+            // === NOVO: SNAP NO PRÓPRIO RASCUNHO ===
+            // Permite que o polígono grude nos próprios vértices para fechar perfeitamente
+            if (checarVertices && PontosAquisicao.Count > 0)
+            {
+                foreach (var pt in PontosAquisicao)
+                {
+                    float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
+                    if (distSq < menorDistanciaSq)
+                    {
+                        menorDistanciaSq = distSq;
+                        melhorPonto = pt;
+                    }
+                }
+            }
 
             return melhorPonto;
         }

@@ -751,35 +751,36 @@ window.forcarPosicaoVertice = function (nomeCamada, indice, novaLat, novaLng) {
 };
 // 6. GESTOR DE ATALHOS DE TECLADO (SHORTCUTS)
 // 6. GESTOR DE ATALHOS DE TECLADO INTELIGENTES
+// GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
+// =========================================================================
+// GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
+// =========================================================================
+// GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
+// =========================================================================
 document.addEventListener('keydown', function (event) {
-    // Evita disparar se estivermos a escrever o nome de uma rua ou lote
+    // A MAGIA QUE FALTAVA: Ignora o efeito "metralhadora" de segurar a tecla
+    if (event.repeat) return;
+
+    // Ignora se o engenheiro estiver a digitar dentro de um campo de texto
     const tagsIgnoradas = ['INPUT', 'TEXTAREA', 'SELECT'];
-    if (tagsIgnoradas.includes(event.target.tagName)) {
-        return;
+    if (tagsIgnoradas.includes(event.target.tagName)) return;
+
+    let tecla = event.key.toLowerCase();
+
+    if (event.ctrlKey && tecla === 'z') {
+        tecla = 'ctrl+z';
     }
 
-    if (event.key === 'v' || event.key === 'V') {
-        event.preventDefault(); // Impede comportamentos estranhos do navegador
+    const atalhos = ['escape', 'm', 'i', 'd', 'p', 'z', 'ctrl+z', 'backspace', 'enter', 'c'];
 
-        if (window.dotnetReferencia) {
-            // CENÁRIO 1: O rato está em cima de um Vértice? Abre a Janela de Edição daquele Vértice!
-            if (window.verticeSobO_Mouse) {
-                window.dotnetReferencia.invokeMethodAsync('PedirCoordenadaVertice',
-                    window.verticeSobO_Mouse.camada,
-                    window.verticeSobO_Mouse.indice,
-                    window.verticeSobO_Mouse.lat,
-                    window.verticeSobO_Mouse.lng
-                ).catch(erro => console.error("Erro na edição de vértice: ", erro));
-            }
-            // CENÁRIO 2: O rato está vazio? Abre a Caderneta de Campo (Novo Polígono).
-            else {
-                window.dotnetReferencia.invokeMethodAsync('AbrirModalCoordenadasAtalho')
-                    .catch(erro => console.error("Erro ao invocar atalho V: ", erro));
-            }
+    if (atalhos.includes(tecla)) {
+        if (window.mapEngine && window.mapEngine.dotNetHelper) {
+            event.preventDefault();
+            window.mapEngine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', tecla)
+                .catch(err => console.warn("Erro no atalho: ", err));
         }
     }
-});
-// 7. MOTOR DE SIMBOLOGIA TEMÁTICA (AUTO-CATEGORIZADOR)
+});// 7. MOTOR DE SIMBOLOGIA TEMÁTICA (AUTO-CATEGORIZADOR)
 window.aplicarSimbologiaCategorizada = function (nomeCamada, colunaAtributo, espessura, opacidade) {
     let camada = window.camadasGeoNex[nomeCamada];
     if (!camada) return false;
@@ -967,9 +968,8 @@ window.mapEngine = {
 
     onPointerMove: function (e) {
         if (!this.isDragging) {
-            if (this.ferramentaAtual === 'Medicao' && this.dotNetHelper) {
+            if ((this.ferramentaAtual === 'Medicao' || this.ferramentaAtual === 'AquisicaoPoligono') && this.dotNetHelper) {
                 const rect = this.container.getBoundingClientRect();
-                // Envia o pixel puro relativo à tela, sem matemática de Pan
                 this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas', e.clientX - rect.left, e.clientY - rect.top);
             }
             return;
@@ -1003,7 +1003,7 @@ window.mapEngine = {
         if (this.container) {
             this.container.style.cursor =
                 nomeFerramenta === 'Navegacao' ? 'grab' :
-                    (nomeFerramenta === 'Medicao' ? 'crosshair' : 'default');
+                    (nomeFerramenta === 'Medicao' || nomeFerramenta === 'AquisicaoPoligono' ? 'crosshair' : 'default');
         }
     },
 
