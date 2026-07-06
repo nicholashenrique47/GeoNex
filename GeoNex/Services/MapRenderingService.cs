@@ -50,14 +50,31 @@ namespace GeoNex.Services
             SkiaSharp.SKPoint? melhorPonto = null;
             float menorDistanciaSq = toleranciaMundo * toleranciaMundo;
 
-            void ChecarGeometrias(Dictionary<string, SKPath> dicionarioPaths, bool avaliarArestas)
+            // === OTIMIZAÇÃO EXTREMA: A CAIXA ESPACIAL ===
+            // Cria um retângulo minúsculo à volta do rato.
+            var rectClique = new SkiaSharp.SKRect(
+                ptClique.X - toleranciaMundo,
+                ptClique.Y - toleranciaMundo,
+                ptClique.X + toleranciaMundo,
+                ptClique.Y + toleranciaMundo
+            );
+
+            void ChecarGeometrias(Dictionary<string, SkiaSharp.SKPath> dicionarioPaths, bool avaliarArestas)
             {
                 foreach (var path in dicionarioPaths.Values)
                 {
+                    // A BARREIRA: Se a geometria inteira estiver fora do quadrado do rato, 
+                    // abortamos imediatamente. Isto corta 99.9% do processamento da GPU!
+                    if (!path.Bounds.IntersectsWith(rectClique)) continue;
+
+                    // Como agora só 1 ou 2 polígonos sobrevivem ao filtro, 
+                    // podemos usar o array nativo de altíssima velocidade sem sobrecarregar a memória
                     var pontosDaGeometria = path.Points;
                     int numPontos = pontosDaGeometria.Length;
 
-                    // 1. CHECAR VÉRTICES (Controlado pela UI)
+                    if (numPontos < 2) continue;
+
+                    // 1. CHECAR VÉRTICES
                     if (checarVertices)
                     {
                         for (int i = 0; i < numPontos; i++)
@@ -73,8 +90,8 @@ namespace GeoNex.Services
                         }
                     }
 
-                    // 2. CHECAR ARESTAS (Controlado pela UI)
-                    if (avaliarArestas && checarArestas && numPontos >= 2)
+                    // 2. CHECAR ARESTAS
+                    if (avaliarArestas && checarArestas)
                     {
                         for (int i = 0; i < numPontos - 1; i++)
                         {
@@ -104,12 +121,12 @@ namespace GeoNex.Services
             ChecarGeometrias(LinhasPorCamada, true);
             ChecarGeometrias(PontosPorCamada, false);
 
-            // === NOVO: SNAP NO PRÓPRIO RASCUNHO ===
-            // Permite que o polígono grude nos próprios vértices para fechar perfeitamente
+            // SNAP NO PRÓPRIO RASCUNHO (Permite fechar o polígono)
             if (checarVertices && PontosAquisicao.Count > 0)
             {
                 foreach (var pt in PontosAquisicao)
                 {
+                    // O rascunho tem poucos pontos, não requer a caixa espacial
                     float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
                     if (distSq < menorDistanciaSq)
                     {

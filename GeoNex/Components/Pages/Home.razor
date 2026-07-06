@@ -3029,9 +3029,9 @@
     private List<Dictionary<string, string>> listaPontosCaderneta = new List<Dictionary<string, string>>();
     private string metodoEntrada = "COORDENADA";
     private bool temEdicoesPendentes = false;
-    public async Task TrocarFerramenta(ModoFerramenta novaFerramenta)
+    public void TrocarFerramenta(ModoFerramenta novaFerramenta)
     {
-        // Impede processamento fantasma se já estiver na ferramenta certa
+        // Impede processamento fantasma se já estiver na mesma ferramenta
         if (_ferramentaAtiva == novaFerramenta) return;
 
         // 1. Limpeza de Saída
@@ -3063,20 +3063,25 @@
 
         // 2. Transição de Estado
         _ferramentaAtiva = novaFerramenta;
-
-        await JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());
-
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = true;
         }
 
-        // 3. Limpeza do Overlay e Atualização Forçada e Síncrona da UI
-        await SincronizarOverlay(false);
-        SolicitarNovoFrame();
+        // 3. A MÁGICA: Força a interface a ligar o painel PRIMEIRO, protegendo o HTML de qualquer falha do JS!
+        InvokeAsync(StateHasChanged);
 
-        // Em métodos async, isto obriga o HTML a acender o painel da nova ferramenta!
-        StateHasChanged();
+        // 4. Fire-and-Forget: Envia a ordem para o JavaScript e para a GPU em pano de fundo
+        try
+        {
+            _ = JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());
+            _ = SincronizarOverlay(false);
+            SolicitarNovoFrame();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Aviso JS/Interop: {ex.Message}");
+        }
     }
     // =========================================================================
     // 5. EVENTOS DO CICLO DE VIDA DA INTERFACE
@@ -3909,14 +3914,14 @@
     // 16. ATALHOS DE TECLADO GLOBAIS (ESC, M, I)
     // =========================================================================
     [JSInvokable]
-    public async Task ProcessarTecladoGlobal(string tecla)
+    public void ProcessarTecladoGlobal(string tecla)
     {
         tecla = tecla.ToLower();
 
-        // 1. ATALHOS DE TRANSIÇÃO DE FERRAMENTAS (Mudar de modo rapidamente com AWAIT)
-        if (tecla == "m") { await TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Medicao ? ModoFerramenta.Identificacao : ModoFerramenta.Medicao); return; }
-        if (tecla == "i") { await TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.Identificacao ? ModoFerramenta.Navegacao : ModoFerramenta.Identificacao); return; }
-        if (tecla == "d" || tecla == "p") { await TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? ModoFerramenta.Identificacao : ModoFerramenta.AquisicaoPoligono); return; }
+        // 1. ATALHOS ABSOLUTOS (Sem Toggle - Previne o salto para outras ferramentas)
+        if (tecla == "m") { TrocarFerramenta(ModoFerramenta.Medicao); return; }
+        if (tecla == "i") { TrocarFerramenta(ModoFerramenta.Identificacao); return; }
+        if (tecla == "d" || tecla == "p") { TrocarFerramenta(ModoFerramenta.AquisicaoPoligono); return; }
 
         // 2. ATALHOS EXCLUSIVOS DA FERRAMENTA DE DESENHO
         if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
@@ -3926,7 +3931,7 @@
             if (tecla == "enter" || tecla == "c") { ConcluirAquisicaoPoligono(); return; }
         }
 
-        // 3. ATALHOS GLOBAIS DE CANCELAMENTO E LIMPEZA DE TELA (ESC)
+        // 3. ATALHOS GLOBAIS DE CANCELAMENTO (ESC)
         if (tecla == "escape")
         {
             if (_ferramentaAtiva == ModoFerramenta.Medicao)
@@ -3940,9 +3945,9 @@
                 atributosFeicaoSelecionada?.Clear();
                 _geometriaDestacada = null;
 
-                await SincronizarOverlay(false);
+                _ = SincronizarOverlay(false);
                 SolicitarNovoFrame();
-                StateHasChanged();
+                InvokeAsync(StateHasChanged);
             }
         }
     }
@@ -4013,13 +4018,16 @@
 
         if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
         {
+            // OTIMIZAÇÃO: Limita o processamento a 30 FPS para salvar a GPU
+            if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds < 33) return;
+            _ultimoMovimentoMouse = DateTime.Now;
+
             var matriz = ObterMatrizMatematica();
             if (matriz.TryInvert(out var matrizInversa))
             {
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)e.OffsetX, (float)e.OffsetY));
                 MapService.PontoCursorMundo = ptMundo;
 
-                // --- ISOLAMENTO MAGNÉTICO (Vértices e Arestas 100% Independentes) ---
                 bool usarSnap = false;
                 bool checarVertices = false;
                 bool checarArestas = false;
@@ -4028,7 +4036,7 @@
                 {
                     usarSnap = true;
                     checarVertices = true;
-                    checarArestas = false; // A correção da Medição: Nunca usa arestas!
+                    checarArestas = false;
                 }
                 else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
                 {
@@ -4052,7 +4060,34 @@
                 }
                 else { MapService.PontoCursorSnap = null; }
 
-                SolicitarNovoFrame();
+                // LÓGICA INTELIGENTE DE RENDERIZAÇÃO
+                bool precisaRedesenhar = false;
+                bool precisaAtualizarHTML = false;
+
+                if (_ferramentaAtiva == ModoFerramenta.Medicao && MapService.PontosMedicao.Count > 0)
+                {
+                    RecalcularMedicoes();
+                    precisaRedesenhar = true;
+                    precisaAtualizarHTML = true; // A interface HTML só precisa de atualizar os números na régua!
+                }
+
+                if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count > 0)
+                {
+                    precisaRedesenhar = true;
+                    // Ao desenhar polígonos, o HTML NÃO precisa de ser recalculado, apenas o ecrã do mapa!
+                }
+
+                if (!Nullable.Equals(MapService.PontoCursorSnap, _ultimoSnapRenderizado))
+                {
+                    precisaRedesenhar = true;
+                    _ultimoSnapRenderizado = MapService.PontoCursorSnap;
+                }
+
+                if (precisaRedesenhar)
+                {
+                    SolicitarNovoFrame();
+                    if (precisaAtualizarHTML) InvokeAsync(StateHasChanged);
+                }
             }
         }
     }
@@ -4134,16 +4169,18 @@
                 {
                     _ultimoMovimentoMouse = DateTime.Now;
                     bool precisaRedesenhar = false;
+                    bool precisaAtualizarHTML = false;
 
                     if (_ferramentaAtiva == ModoFerramenta.Medicao && MapService.PontosMedicao.Count > 0)
                     {
                         RecalcularMedicoes();
                         precisaRedesenhar = true;
+                        precisaAtualizarHTML = true;
                     }
 
                     if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count > 0)
                     {
-                        precisaRedesenhar = true;
+                        precisaRedesenhar = true; 
                     }
 
                     if (!Nullable.Equals(MapService.PontoCursorSnap, _ultimoSnapRenderizado))
@@ -4154,8 +4191,8 @@
 
                     if (precisaRedesenhar)
                     {
-                        StateHasChanged();
                         SolicitarNovoFrame();
+                        if (precisaAtualizarHTML) StateHasChanged();
                     }
                 }
             }
