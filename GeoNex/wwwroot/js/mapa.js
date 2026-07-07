@@ -757,30 +757,29 @@ window.forcarPosicaoVertice = function (nomeCamada, indice, novaLat, novaLng) {
 // =========================================================================
 // GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
 // =========================================================================
+// GESTOR GLOBAL DE ATALHOS - UNIFICADO
 document.addEventListener('keydown', function (event) {
-    // A MAGIA QUE FALTAVA: Ignora o efeito "metralhadora" de segurar a tecla
-    if (event.repeat) return;
+    // 1. Não deixar o navegador processar estas teclas específicas
+    const teclasProtegidas = ['tab', 'f6', 'escape', 'm', 'i', 'd', 'p', 'enter', 'c', 'backspace', 'z', 'ctrl+z'];    let tecla = event.key.toLowerCase();
 
-    // Ignora se o engenheiro estiver a digitar dentro de um campo de texto
-    const tagsIgnoradas = ['INPUT', 'TEXTAREA', 'SELECT'];
-    if (tagsIgnoradas.includes(event.target.tagName)) return;
+    // Suporte para Ctrl+Z
+    if (event.ctrlKey && tecla === 'z') tecla = 'ctrl+z';
 
-    let tecla = event.key.toLowerCase();
+    if (teclasProtegidas.includes(tecla)) {
+        // Ignora se estiver a escrever num input
+        const tagsIgnoradas = ['INPUT', 'TEXTAREA', 'SELECT'];
+        if (tagsIgnoradas.includes(event.target.tagName)) return;
 
-    if (event.ctrlKey && tecla === 'z') {
-        tecla = 'ctrl+z';
-    }
+        event.preventDefault(); // Impede o navegador de saltar para a barra de endereços (F6) ou mudar foco (Tab)
 
-    const atalhos = ['escape', 'm', 'i', 'd', 'p', 'z', 'ctrl+z', 'backspace', 'enter', 'c'];
-
-    if (atalhos.includes(tecla)) {
+        // Envia para o C#
         if (window.mapEngine && window.mapEngine.dotNetHelper) {
-            event.preventDefault();
             window.mapEngine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', tecla)
-                .catch(err => console.warn("Erro no atalho: ", err));
+                .catch(err => console.warn("Erro ao enviar tecla para o C#: ", err));
         }
     }
-});// 7. MOTOR DE SIMBOLOGIA TEMÁTICA (AUTO-CATEGORIZADOR)
+}, { passive: false });
+// 7. MOTOR DE SIMBOLOGIA TEMÁTICA (AUTO-CATEGORIZADOR)
 window.aplicarSimbologiaCategorizada = function (nomeCamada, colunaAtributo, espessura, opacidade) {
     let camada = window.camadasGeoNex[nomeCamada];
     if (!camada) return false;
@@ -1438,4 +1437,51 @@ window.mapEngine.soltarRato = function (pointerId) {
     if (mapa && mapa.hasPointerCapture && mapa.hasPointerCapture(pointerId)) {
         mapa.releasePointerCapture(pointerId);
     }
+};
+// =========================================================================
+// MOTOR DE ARRASTO DE JANELAS (HARDWARE ACCELERATION BYPASS BLAZOR)
+// =========================================================================
+window.iniciarArrasteHUD = function (e, elementId) {
+    e.preventDefault(); // Impede que selecione texto enquanto arrasta
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    // Lê a coordenada exata onde o ecrã desenhou a janela agora
+    const style = window.getComputedStyle(el);
+    const matrix = new DOMMatrix(style.transform);
+    let startX = matrix.m41;
+    let startY = matrix.m42;
+
+    const initialMouseX = e.clientX;
+    const initialMouseY = e.clientY;
+
+    let finalX = startX;
+    let finalY = startY;
+
+    // Função que mexe a janela na velocidade nativa do monitor
+    function onMouseMove(event) {
+        const dx = event.clientX - initialMouseX;
+        const dy = event.clientY - initialMouseY;
+        finalX = startX + dx;
+        finalY = startY + dy;
+
+        // Atira para a GPU instantaneamente
+        el.style.transform = `translate3d(${finalX}px, ${finalY}px, 0)`;
+    }
+
+    // Função que avisa o C# quando acabar
+    function onMouseUp(event) {
+        window.removeEventListener('pointermove', onMouseMove);
+        window.removeEventListener('pointerup', onMouseUp);
+
+        // Sincroniza silenciosamente com o C# para a janela não voltar para trás
+        let dotNet = window.dotnetReferencia || (window.mapEngine && window.mapEngine.dotNetHelper);
+        if (dotNet) {
+            dotNet.invokeMethodAsync('AtualizarMemoriaHUD', finalX, finalY);
+        }
+    }
+
+    // Liga os sensores de alta velocidade no ecrã inteiro
+    window.addEventListener('pointermove', onMouseMove);
+    window.addEventListener('pointerup', onMouseUp);
 };

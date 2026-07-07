@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using NetTopologySuite.Features;
 using NetTopologySuite.Index.Strtree;
+using NetTopologySuite.Geometries;
 
 namespace GeoNex.Services
 {
@@ -38,95 +39,127 @@ namespace GeoNex.Services
         public SkiaSharp.SKPoint? PontoCursorSnap { get; set; }
         public SkiaSharp.SKPoint? PontoCursorMundo { get; set; }
         public bool MostrarAreaMedicao { get; set; } = false; // Controla se desenha a área
+        // 1. Árvore de Busca Rápida (O(log n)) para as feições carregadas da base de dados
+        private STRtree<SkiaSharp.SKPath> _indiceEspacialEstatico = new STRtree<SkiaSharp.SKPath>();
 
-        // === MOTOR DE SNAP (ATRAÇÃO MAGNÉTICA) ===
-        // 2. MOTOR DE SNAP MAGNÉTICO (Procura vértices em TODAS as camadas)
-        // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO
-        // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO (Vértices + Arestas)
-        // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO (Vértices ou Arestas)
+        // 2. Buffer de Edição Dinâmica para feições criadas/modificadas antes de salvar
+        private List<SkiaSharp.SKPath> _bufferEdicaoAtiva = new List<SkiaSharp.SKPath>();
+
+        // Flag para controlar se a árvore precisa de ser reconstruída
+        private bool _indiceNecessitaReconstrucao = true;
+        /// <summary>
+        /// Reconstrói a árvore espacial (STRtree) com base nos dicionários de geometria atuais.
+        /// Deve ser chamado apenas após carregamento em lote (Bulk Load) de novas feições.
+        /// </summary>
+        public void ConstruirIndiceEspacial()
+        {
+            _indiceEspacialEstatico = new STRtree<SkiaSharp.SKPath>();
+
+            void InserirNoIndice(Dictionary<string, SkiaSharp.SKPath> dicionario)
+            {
+                foreach (var path in dicionario.Values)
+                {
+                    if (path.PointCount < 2) continue;
+
+                    var bounds = path.Bounds;
+                    var envelope = new Envelope(bounds.Left, bounds.Right, bounds.Top, bounds.Bottom);
+
+                    _indiceEspacialEstatico.Insert(envelope, path);
+                }
+            }
+
+            InserirNoIndice(VetoresPorCamada);
+            InserirNoIndice(LinhasPorCamada);
+
+            // A árvore é construída definitivamente aqui
+            _indiceEspacialEstatico.Build();
+            _indiceNecessitaReconstrucao = false;
+        }
         // 2. MOTOR DE SNAP MAGNÉTICO OTIMIZADO (Vértices e/ou Arestas isolados)
         public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo, bool checarVertices = true, bool checarArestas = false)
         {
             SkiaSharp.SKPoint? melhorPonto = null;
             float menorDistanciaSq = toleranciaMundo * toleranciaMundo;
 
-            // === OTIMIZAÇÃO EXTREMA: A CAIXA ESPACIAL ===
-            // Cria um retângulo minúsculo à volta do rato.
-            var rectClique = new SkiaSharp.SKRect(
+            // 1. CAIXA ESPACIAL (NTS): O "Radar" do cursor para a STRtree
+            var envelopeBusca = new NetTopologySuite.Geometries.Envelope(
                 ptClique.X - toleranciaMundo,
-                ptClique.Y - toleranciaMundo,
                 ptClique.X + toleranciaMundo,
+                ptClique.Y - toleranciaMundo,
                 ptClique.Y + toleranciaMundo
             );
 
-            void ChecarGeometrias(Dictionary<string, SkiaSharp.SKPath> dicionarioPaths, bool avaliarArestas)
+            // 2. CAIXA ESPACIAL (SkiaSharp): Para o buffer de edição ativa
+            var rectClique = new SkiaSharp.SKRect(
+                ptClique.X - toleranciaMundo, ptClique.Y - toleranciaMundo,
+                ptClique.X + toleranciaMundo, ptClique.Y + toleranciaMundo
+            );
+
+            // 3. CONSULTA O(log n): Extrai instantaneamente apenas as geometrias na zona do cursor
+            var candidatosEstaticos = _indiceEspacialEstatico.Query(envelopeBusca);
+
+            // Unifica os resultados estáticos com as geometrias em edição/rascunho ativo
+            var todasGeometriasAValidar = candidatosEstaticos.Concat(_bufferEdicaoAtiva);
+
+            // 4. CÁLCULO TOPOLÓGICO: Só roda nos 1 ou 2 lotes retornados pela árvore
+            foreach (var path in todasGeometriasAValidar)
             {
-                foreach (var path in dicionarioPaths.Values)
+                // Dupla checagem de colisão (Garante que não foge do limite do rato)
+                if (!path.Bounds.IntersectsWith(rectClique)) continue;
+
+                // Seguro para extrair para RAM, pois filtrou-se 99.9% do mapa
+                var pontosDaGeometria = path.Points;
+                int numPontos = pontosDaGeometria.Length;
+
+                if (numPontos < 2) continue;
+
+                // 4.1. CÁLCULO DE NÓS (VÉRTICES)
+                if (checarVertices)
                 {
-                    // A BARREIRA: Se a geometria inteira estiver fora do quadrado do rato, 
-                    // abortamos imediatamente. Isto corta 99.9% do processamento da GPU!
-                    if (!path.Bounds.IntersectsWith(rectClique)) continue;
-
-                    // Como agora só 1 ou 2 polígonos sobrevivem ao filtro, 
-                    // podemos usar o array nativo de altíssima velocidade sem sobrecarregar a memória
-                    var pontosDaGeometria = path.Points;
-                    int numPontos = pontosDaGeometria.Length;
-
-                    if (numPontos < 2) continue;
-
-                    // 1. CHECAR VÉRTICES
-                    if (checarVertices)
+                    for (int i = 0; i < numPontos; i++)
                     {
-                        for (int i = 0; i < numPontos; i++)
-                        {
-                            var pt = pontosDaGeometria[i];
-                            float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
+                        var pt = pontosDaGeometria[i];
+                        float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
 
-                            if (distSq < menorDistanciaSq)
-                            {
-                                menorDistanciaSq = distSq;
-                                melhorPonto = pt;
-                            }
+                        if (distSq < menorDistanciaSq)
+                        {
+                            menorDistanciaSq = distSq;
+                            melhorPonto = pt;
                         }
                     }
+                }
 
-                    // 2. CHECAR ARESTAS
-                    if (avaliarArestas && checarArestas)
+                // 4.2. CÁLCULO DE PROJEÇÃO ORTOGONAL (ARESTAS)
+                if (checarArestas)
+                {
+                    for (int i = 0; i < numPontos - 1; i++)
                     {
-                        for (int i = 0; i < numPontos - 1; i++)
+                        var p1 = pontosDaGeometria[i];
+                        var p2 = pontosDaGeometria[i + 1];
+
+                        float l2 = (p1.X - p2.X) * (p1.X - p2.X) + (p1.Y - p2.Y) * (p1.Y - p2.Y);
+                        if (l2 == 0) continue;
+
+                        float t = Math.Max(0, Math.Min(1, ((ptClique.X - p1.X) * (p2.X - p1.X) + (ptClique.Y - p1.Y) * (p2.Y - p1.Y)) / l2));
+                        float projX = p1.X + t * (p2.X - p1.X);
+                        float projY = p1.Y + t * (p2.Y - p1.Y);
+
+                        float distSqSegmento = (ptClique.X - projX) * (ptClique.X - projX) + (ptClique.Y - projY) * (ptClique.Y - projY);
+
+                        if (distSqSegmento < menorDistanciaSq)
                         {
-                            var p1 = pontosDaGeometria[i];
-                            var p2 = pontosDaGeometria[i + 1];
-
-                            float l2 = (p1.X - p2.X) * (p1.X - p2.X) + (p1.Y - p2.Y) * (p1.Y - p2.Y);
-                            if (l2 == 0) continue;
-
-                            float t = Math.Max(0, Math.Min(1, ((ptClique.X - p1.X) * (p2.X - p1.X) + (ptClique.Y - p1.Y) * (p2.Y - p1.Y)) / l2));
-                            float projX = p1.X + t * (p2.X - p1.X);
-                            float projY = p1.Y + t * (p2.Y - p1.Y);
-
-                            float distSqSegmento = (ptClique.X - projX) * (ptClique.X - projX) + (ptClique.Y - projY) * (ptClique.Y - projY);
-
-                            if (distSqSegmento < menorDistanciaSq)
-                            {
-                                menorDistanciaSq = distSqSegmento;
-                                melhorPonto = new SkiaSharp.SKPoint(projX, projY);
-                            }
+                            menorDistanciaSq = distSqSegmento;
+                            melhorPonto = new SkiaSharp.SKPoint(projX, projY);
                         }
                     }
                 }
             }
 
-            ChecarGeometrias(VetoresPorCamada, true);
-            ChecarGeometrias(LinhasPorCamada, true);
-            ChecarGeometrias(PontosPorCamada, false);
-
-            // SNAP NO PRÓPRIO RASCUNHO (Permite fechar o polígono)
+            // 5. ATRAÇÃO NO PRÓPRIO RASCUNHO (Fundamental para o fecho de polígonos)
             if (checarVertices && PontosAquisicao.Count > 0)
             {
                 foreach (var pt in PontosAquisicao)
                 {
-                    // O rascunho tem poucos pontos, não requer a caixa espacial
                     float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
                     if (distSq < menorDistanciaSq)
                     {

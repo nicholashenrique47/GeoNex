@@ -8,10 +8,15 @@
 @using SkiaSharp.Views.Blazor
 @using ProjNet.CoordinateSystems
 @using ProjNet.CoordinateSystems.Transformations
+@using GeoNex.Services
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
 <div id="map-container"
      tabindex="0"
+     @onpointerdown="ProcessarPressionarMouse"
+     @onpointermove="ProcessarMovimentoMouse"
+     @onpointerup="ProcessarSoltarMouse"
+     @oncontextmenu:preventDefault="true"
      style="cursor: @EstiloCursor; width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none;">
     <img id="skia-buffer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 0;" />
     <img id="skia-layer" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none; position: absolute; left: 0; top: 0; opacity: 1;" />
@@ -1134,7 +1139,104 @@
             </div>
         </div>
     }
+    <!-- ========================================================= -->
+    <!-- HUD DE ENGENHARIA: MENU DE CONTEXTO TÁTICO                -->
+    <!-- ========================================================= -->
+    <!-- ========================================================= -->
+    <!-- HUD DE ENGENHARIA: MENU DE CONTEXTO TÁTICO                -->
+    <!-- ========================================================= -->
+    @if (_mostrarMenuContexto && !_mostrarInputCogo)
+    {
+        <div style="pointer-events: auto; position: fixed; top: @(_menuContextoY)px; left: @(_menuContextoX)px; width: 220px; background: rgba(15, 23, 42, 0.90); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); z-index: 10000; backdrop-filter: blur(16px); display: flex; flex-direction: column; padding: 4px 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+             @onpointerdown:stopPropagation="true"
+             @onpointerup:stopPropagation="true"
+             @onclick:stopPropagation="true"
+             @oncontextmenu:preventDefault="true">
 
+            <button class="ctx-btn" @onclick="() => { _mostrarInputCogo = true; }" style="text-align: left; padding: 8px 16px; background: transparent; border: none; color: #e2e8f0; font-size: 13px; font-weight: 500; cursor: pointer; border-left: 3px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderLeft='3px solid #38bdf8';" onmouseout="this.style.background='transparent'; this.style.borderLeft='3px solid transparent';">
+                Vetor Restrito (Comprimento e Direção)
+            </button>
+
+            <div style="height: 1px; background: rgba(255,255,255,0.08); margin: 4px 0;"></div>
+
+            <button class="ctx-btn" @onclick="() => { ConcluirAquisicaoPoligono(); _mostrarMenuContexto = false; }" style="text-align: left; padding: 8px 16px; background: transparent; border: none; color: #34d399; font-size: 13px; font-weight: 600; cursor: pointer; border-left: 3px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='rgba(52, 211, 153, 0.1)'; this.style.borderLeft='3px solid #34d399';" onmouseout="this.style.background='transparent'; this.style.borderLeft='3px solid transparent';">
+                Concluir Esboço
+            </button>
+        </div>
+    }
+
+    <!-- ========================================================= -->
+    <!-- HUD DE ENGENHARIA [TAB]: COGO POLAR                       -->
+    <!-- ========================================================= -->
+    @if (_mostrarInputCogo)
+    {
+        <div id="hud-cogo" style="pointer-events: auto; position: fixed; top: 0px; left: 0px; transform: translate3d(@(_hudX)px, @(_hudY)px, 0); will-change: transform; width: 280px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 6px; box-shadow: 0 15px 50px rgba(0,0,0,0.7); z-index: 10001; backdrop-filter: blur(16px); display: flex; flex-direction: column; overflow: hidden;"
+             @onpointerdown:stopPropagation="true"
+             @onpointerup:stopPropagation="true"
+             @onclick:stopPropagation="true"
+             @oncontextmenu:preventDefault="true">
+
+            <div onpointerdown="window.iniciarArrasteHUD(event, 'hud-cogo')" style="background: rgba(56, 189, 248, 0.15); padding: 6px 12px; cursor: grab; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;" onmousedown="this.style.cursor='grabbing'" onmouseup="this.style.cursor='grab'">
+                <span style="font-size: 10px; color: #38bdf8; font-weight: bold; letter-spacing: 1px;">COGO AVANÇADO (TAB)</span>
+                <span style="color: #94a3b8; font-size: 14px; cursor: pointer; padding: 0 4px;" @onclick="() => _mostrarInputCogo = false" title="Fechar">✕</span>
+            </div>
+
+            <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+
+                <span style="font-size: 10px; color: #94a3b8; font-weight: 600;">1. VETOR POLAR</span>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #cbd5e1; font-size: 11px;">Distância (m)</label>
+                    <input @ref="_inputDistanciaRef" type="number" @bind="_cogoDistancia" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none;" />
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #cbd5e1; font-size: 11px;">Azimute (º)</label>
+                    <input type="number" @bind="_cogoAzimute" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none;" />
+                </div>
+                <button @onclick="AplicarVetorRestritoCogo" style="background: #0369a1; border: none; color: white; padding: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 2px; transition: 0.2s;" onmouseover="this.style.background='#0284c7';" onmouseout="this.style.background='#0369a1';">PROJETAR POLAR</button>
+
+                <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
+
+                <span style="font-size: 10px; color: #94a3b8; font-weight: 600;">2. COORDENADA ABSOLUTA</span>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #cbd5e1; font-size: 11px;">ESTE (X)</label>
+                    <input type="number" @bind="_absolutoX" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #cbd5e1; font-size: 11px;">NORTE (Y)</label>
+                    <input type="number" @bind="_absolutoY" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+                </div>
+                <button @onclick="AplicarCoordenadaAbsoluta" style="background: #047857; border: none; color: white; padding: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 2px; transition: 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#047857';">CRAVAR COORDENADA</button>
+            </div>
+        </div>
+    }
+    @if (_mostrarInputAbsoluto && !_mostrarInputCogo)
+    {
+        <div id="hud-f6" style="pointer-events: auto; position: fixed; top: 0px; left: 0px; transform: translate3d(@(_hudX)px, @(_hudY)px, 0); will-change: transform; width: 260px; background: rgba(15, 23, 42, 0.95); border: 1px solid #10b981; border-radius: 6px; box-shadow: 0 15px 50px rgba(0,0,0,0.7); z-index: 10001; backdrop-filter: blur(16px); display: flex; flex-direction: column; overflow: hidden;"
+             @onpointerdown:stopPropagation="true"
+             @onpointerup:stopPropagation="true"
+             @onclick:stopPropagation="true"
+             @oncontextmenu:preventDefault="true">
+
+            <div onpointerdown="window.iniciarArrasteHUD(event, 'hud-f6')" style="background: rgba(16, 185, 129, 0.15); padding: 6px 12px; cursor: grab; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;" onmousedown="this.style.cursor='grabbing'" onmouseup="this.style.cursor='grab'">
+                <span style="font-size: 10px; color: #10b981; font-weight: bold; letter-spacing: 1px;">INSERÇÃO ABSOLUTA (F6)</span>
+                <span style="color: #94a3b8; font-size: 14px; cursor: pointer; padding: 0 4px;" @onclick="() => _mostrarInputAbsoluto = false" title="Fechar">✕</span>
+            </div>
+
+            <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #cbd5e1; font-size: 11px; font-weight: 600;">ESTE (X)</label>
+                    <input @ref="_inputAbsolutoXRef" type="number" @bind="_absolutoX" style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="color: #cbd5e1; font-size: 11px; font-weight: 600;">NORTE (Y)</label>
+                    <input type="number" @bind="_absolutoY" style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+                </div>
+
+                <button @onclick="AplicarCoordenadaAbsoluta" style="background: #047857; border: none; color: white; padding: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 2px; margin-top: 4px; transition: 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#047857';">CRAVAR VÉRTICE</button>
+            </div>
+        </div>
+    }
+    
 </div> <!-- Fim da div geonex-ui -->
 
 <style>
@@ -2828,7 +2930,59 @@
 </style>
 
 @code {
+    // =========================================================
+    // MOTORES DE ARRASTO DO HUD (Física Segura com Escudo)
+    // =========================================================
+    private bool _arrastandoHud = false;
+    private double _hudDragOffsetX = 0;
+    private double _hudDragOffsetY = 0;
 
+    private void IniciarArrasteHud(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        _arrastandoHud = true;
+        _hudDragOffsetX = e.ClientX - _hudX;
+        _hudDragOffsetY = e.ClientY - _hudY;
+    }
+
+    private void MoverHud(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        // Este método só é ativado quando o rato se move por cima do Escudo Invisível
+        if (_arrastandoHud)
+        {
+            _hudX = e.ClientX - _hudDragOffsetX;
+            _hudY = e.ClientY - _hudDragOffsetY;
+            // O Blazor atualiza a posição do escudo em tempo real sem intercetar o mapa
+        }
+    }
+
+    private void PararArrasteHud(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        _arrastandoHud = false;
+    }
+    // =========================================================
+    // VARIÁVEIS DE ATALHOS DE HARDWARE (TAB e F6)
+    // =========================================================
+    private bool _mostrarInputAbsoluto = false;
+    private double _absolutoX = 0;
+    private double _absolutoY = 0;
+
+    // Rastreio em tempo real de onde o HUD deve abrir
+    private double _hudX = 0;
+    private double _hudY = 0;
+
+    // Referências para foco instantâneo do teclado
+    private ElementReference _inputDistanciaRef;
+    private ElementReference _inputAbsolutoXRef;
+    // =========================================================
+    // VARIÁVEIS DO MENU DE CONTEXTO E COGO
+    // =========================================================
+    private bool _mostrarMenuContexto = false;
+    private double _menuContextoX = 0;
+    private double _menuContextoY = 0;
+
+    private bool _mostrarInputCogo = false;
+    private double _cogoDistancia = 0;
+    private double _cogoAzimute = 0;
     // Define para que camada o polígono desenhado vai ser enviado
     private string _camadaDestinoAquisicao = "";
     // Lembra onde o último Snap foi desenhado para não renderizar à toa
@@ -3074,8 +3228,7 @@
         // 4. Fire-and-Forget: Envia a ordem para o JavaScript e para a GPU em pano de fundo
         try
         {
-            _ = JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", novaFerramenta.ToString());
-            _ = SincronizarOverlay(false);
+            JSRuntime.InvokeVoidAsyncSafe("mapEngine.setFerramenta", novaFerramenta.ToString()); _ = SincronizarOverlay(false);
             SolicitarNovoFrame();
         }
         catch (Exception ex)
@@ -3283,10 +3436,15 @@
 
             // === A MÁGICA ACONTECE AQUI ===
             // Substituímos o extrator antigo pelo nosso Motor Duplo que carrega o SkiaSharp e a Árvore NTS
+            // === A MÁGICA ACONTECE AQUI ===
+            // Substituímos o extrator antigo pelo nosso Motor Duplo que carrega o SkiaSharp e a Árvore NTS
             await Task.Run(() =>
             {
                 ProjetoService.CarregarShapefileParaMotorMapas(caminhoArquivoVetor, nomeArquivo, MapService);
             });
+
+            // CORREÇÃO CRÍTICA: Popula a árvore de busca logarítmica com os lotes importados
+            MapService.ConstruirIndiceEspacial();
 
             // Impede que o Shapefile duplique o painel se for importado novamente
             // Substitua o bloco do camadaExistente por este:
@@ -3916,40 +4074,69 @@
     [JSInvokable]
     public void ProcessarTecladoGlobal(string tecla)
     {
-        tecla = tecla.ToLower();
-
-        // 1. ATALHOS ABSOLUTOS (Sem Toggle - Previne o salto para outras ferramentas)
-        if (tecla == "m") { TrocarFerramenta(ModoFerramenta.Medicao); return; }
-        if (tecla == "i") { TrocarFerramenta(ModoFerramenta.Identificacao); return; }
-        if (tecla == "d" || tecla == "p") { TrocarFerramenta(ModoFerramenta.AquisicaoPoligono); return; }
-
-        // 2. ATALHOS EXCLUSIVOS DA FERRAMENTA DE DESENHO
-        if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+        // A MÁGICA: Transfere o sinal do JavaScript para a Thread Visual do Blazor
+        InvokeAsync(async () =>
         {
-            if (tecla == "escape") { CancelarAquisicao(); return; }
-            if (tecla == "z" || tecla == "ctrl+z" || tecla == "backspace") { DesfazerUltimoPontoAquisicao(); return; }
-            if (tecla == "enter" || tecla == "c") { ConcluirAquisicaoPoligono(); return; }
-        }
+            tecla = tecla.ToLower();
 
-        // 3. ATALHOS GLOBAIS DE CANCELAMENTO (ESC)
-        if (tecla == "escape")
-        {
-            if (_ferramentaAtiva == ModoFerramenta.Medicao)
-            {
-                LimparMedicao();
-            }
-            else if (_ferramentaAtiva == ModoFerramenta.Identificacao)
-            {
-                MapService.DestacarFeicao(null);
-                camadaSelecionadaPainel = string.Empty;
-                atributosFeicaoSelecionada?.Clear();
-                _geometriaDestacada = null;
+            // 1. ATALHOS ABSOLUTOS GLOBAIS
+            if (tecla == "m") { TrocarFerramenta(ModoFerramenta.Medicao); return; }
+            if (tecla == "i") { TrocarFerramenta(ModoFerramenta.Identificacao); return; }
+            if (tecla == "d" || tecla == "p") { TrocarFerramenta(ModoFerramenta.AquisicaoPoligono); return; }
 
-                _ = SincronizarOverlay(false);
-                SolicitarNovoFrame();
-                InvokeAsync(StateHasChanged);
+            // 2. ATALHOS EXCLUSIVOS DA FERRAMENTA DE DESENHO
+            if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+            {
+                if (tecla == "tab")
+                {
+                    _mostrarInputCogo = true;
+                    _mostrarInputAbsoluto = false;
+                    _mostrarMenuContexto = false;
+                    StateHasChanged();
+
+                    // Espera 50ms para o HTML renderizar e foca no campo automaticamente
+                    await Task.Delay(50);
+                    try { await _inputDistanciaRef.FocusAsync(); } catch { }
+                    return;
+                }
+
+                if (tecla == "f6")
+                {
+                    _mostrarInputAbsoluto = true;
+                    _mostrarInputCogo = false;
+                    _mostrarMenuContexto = false;
+                    StateHasChanged();
+
+                    await Task.Delay(50);
+                    try { await _inputAbsolutoXRef.FocusAsync(); } catch { }
+                    return;
+                }
+
+                if (tecla == "escape") { CancelarAquisicao(); return; }
+                if (tecla == "z" || tecla == "ctrl+z" || tecla == "backspace") { DesfazerUltimoPontoAquisicao(); return; }
+                if (tecla == "enter" || tecla == "c") { ConcluirAquisicaoPoligono(); return; }
             }
-        }
+
+            // 3. ATALHOS GLOBAIS DE CANCELAMENTO (ESC)
+            if (tecla == "escape")
+            {
+                if (_ferramentaAtiva == ModoFerramenta.Medicao)
+                {
+                    LimparMedicao();
+                }
+                else if (_ferramentaAtiva == ModoFerramenta.Identificacao)
+                {
+                    MapService.DestacarFeicao(null);
+                    camadaSelecionadaPainel = string.Empty;
+                    atributosFeicaoSelecionada?.Clear();
+                    _geometriaDestacada = null;
+
+                    _ = SincronizarOverlay(false);
+                    SolicitarNovoFrame();
+                    StateHasChanged();
+                }
+            }
+        });
     }
     private void LimparMedicao()
     {
@@ -3992,11 +4179,21 @@
          (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "crosshair" : "default"));
     private void ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        // NOVO: CLIQUE DIREITO (2) FECHA O POLÍGONO IMEDIATAMENTE (Padrão CAD/SIG)
+        // GATILHO TÁTICO: Clique Direito durante a vetorização
         if (e.Button == 2 && _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
         {
-            ConcluirAquisicaoPoligono();
+            _menuContextoX = e.ClientX;
+            _menuContextoY = e.ClientY;
+            _mostrarMenuContexto = true;
+            _mostrarInputCogo = false;
             return;
+        }
+
+        // Se clicou com o esquerdo noutro local e o menu estava aberto, fecha-o
+        if (e.Button == 0 && _mostrarMenuContexto)
+        {
+            _mostrarMenuContexto = false;
+            _mostrarInputCogo = false;
         }
 
         if (e.Button == 1 || (e.Button == 0 && _ferramentaAtiva == ModoFerramenta.Navegacao))
@@ -4014,8 +4211,15 @@
 
     private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (_isPanning) return;
+        // 1. CONGELAMENTO ESTRITO DA ÂNCORA (Zero lógica de arrasto aqui)
+        if (_mostrarInputCogo == false && _mostrarInputAbsoluto == false && _mostrarMenuContexto == false)
+        {
+            _hudX = e.ClientX + 15;
+            _hudY = e.ClientY;
+        }
 
+        // 2. FÍSICA DO MAPA (PAN E SNAP)
+        if (_isPanning) return;
         if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
         {
             // OTIMIZAÇÃO: Limita o processamento a 30 FPS para salvar a GPU
@@ -4068,13 +4272,12 @@
                 {
                     RecalcularMedicoes();
                     precisaRedesenhar = true;
-                    precisaAtualizarHTML = true; // A interface HTML só precisa de atualizar os números na régua!
+                    precisaAtualizarHTML = true; // A interface HTML precisa de atualizar os números na régua!
                 }
 
                 if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count > 0)
                 {
                     precisaRedesenhar = true;
-                    // Ao desenhar polígonos, o HTML NÃO precisa de ser recalculado, apenas o ecrã do mapa!
                 }
 
                 if (!Nullable.Equals(MapService.PontoCursorSnap, _ultimoSnapRenderizado))
@@ -4092,6 +4295,7 @@
         }
     }
 
+    // ✔️ O SEU MÉTODO LIMPO DEVE FICAR ASSIM:
     private void ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
         if (_isPanning)
@@ -4520,8 +4724,8 @@
                 MapService.PreCompilarPoligonos(camadaAlvo, colecao);
 
                 // 2. ATUALIZA A MIRA DO RATO (Raycast) PARA PODERMOS CLICAR NA NOVA FEIÇÃO
-                MapService.ConstruirIndiceEspacial(camadaAlvo, colecao);
-
+                // 2. RECONSTRÓI A ÁRVORE ESPACIAL PARA O SNAP E O RAYCAST LEREM O NOVO LOTE
+                MapService.ConstruirIndiceEspacial();
                 // 3. SE O MAPA FOR TEMÁTICO, RECALCULA AS CORES DE TUDO
                 if (MapService.EstilosPorCamada.TryGetValue(camadaAlvo, out var estilo) && estilo.TipoSimbologia == "CATEGORIZADA")
                 {
@@ -4552,8 +4756,56 @@
         if (MapService.PontosAquisicao.Count > 0)
         {
             MapService.PontosAquisicao.RemoveAt(MapService.PontosAquisicao.Count - 1);
-            SolicitarNovoFrame();
-            StateHasChanged();
+            SolicitarNovoFrame(); // Força a placa gráfica a recalcular a linha elástica
+            StateHasChanged();    // Atualiza a interface
         }
+    }
+    private void AplicarVetorRestritoCogo()
+    {
+        if (MapService.PontosAquisicao.Count == 0) return;
+
+        var ultimoPonto = MapService.PontosAquisicao.Last();
+
+        // Conversão de graus (azimute topográfico) para radianos
+        double radianos = _cogoAzimute * (Math.PI / 180.0);
+
+        // APLICAÇÃO DA INVERSÃO DE MATRIZ: Y negativo para subir na tela (Norte)
+        float matrizMundoProjX = ultimoPonto.X + (float)(_cogoDistancia * Math.Sin(radianos));
+        float matrizMundoProjY = ultimoPonto.Y - (float)(_cogoDistancia * Math.Cos(radianos));
+
+        // Injeta a nova coordenada cravada no mapa
+        MapService.PontosAquisicao.Add(new SkiaSharp.SKPoint(matrizMundoProjX, matrizMundoProjY));
+        // Limpeza de estado e retorno ao modo fluido
+        _mostrarInputCogo = false;
+        _mostrarMenuContexto = false;
+        _cogoDistancia = 0;
+        _cogoAzimute = 0;
+
+        SolicitarNovoFrame();
+        InvokeAsync(StateHasChanged);
+    }
+    private void AplicarCoordenadaAbsoluta()
+    {
+        // Subtrai o "Offset do Mundo" (que tira os milhões da coordenada UTM)
+        // e aplica a inversão forçada do Eixo Y na tela.
+        float matrizX = (float)(_absolutoX - MapService.OffsetMundoX);
+        float matrizY = (float)(MapService.OffsetMundoY - _absolutoY);
+
+        MapService.PontosAquisicao.Add(new SkiaSharp.SKPoint(matrizX, matrizY));
+
+        _mostrarInputAbsoluto = false;
+        _absolutoX = 0;
+        _absolutoY = 0;
+
+        SolicitarNovoFrame();
+        InvokeAsync(StateHasChanged);
+    }
+    // ✔️ ADICIONE ESTE NOVO MÉTODO (A PONTE COM O JAVASCRIPT):
+    [JSInvokable]
+    public void AtualizarMemoriaHUD(double novoX, double novoY)
+    {
+        _hudX = novoX;
+        _hudY = novoY;
+        // Não usamos StateHasChanged() para evitar que o ecrã pisque!
     }
     }
