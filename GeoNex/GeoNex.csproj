@@ -78,23 +78,29 @@
       <Content Include="..\x64\Debug\GeoNex.Core.dll" Link="GeoNex.Core.dll" />
     </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="MaxRev.Gdal.Core" Version="3.12.4.520" />
-        <PackageReference Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.12.4.520" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.7" />
-        <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
-        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
-        <PackageReference Include="NetTopologySuite" Version="2.6.0" />
-        <PackageReference Include="NetTopologySuite.IO.Shapefile" Version="2.1.0" />
-        <PackageReference Include="ProjNET" Version="2.1.0" />
-        <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
-        <PackageReference Include="SkiaSharp.Views.Blazor" Version="3.119.2" />
-        <PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.2" />
-        <PackageReference Include="System.Drawing.Common" Version="10.0.7" />
-		<PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="2.6.0" />
-    </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="MaxRev.Gdal.Core" Version="3.12.4.520" />
+		<PackageReference Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.12.4.520" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.7" />
 
+		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.60" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.60" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+
+		<PackageReference Include="CommunityToolkit.Maui" Version="14.2.0" />
+
+		<PackageReference Include="NetTopologySuite" Version="2.6.0" />
+		<PackageReference Include="NetTopologySuite.IO.Shapefile" Version="2.1.0" />
+		<PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="2.6.0" />
+		<PackageReference Include="ProjNET" Version="2.1.0" />
+
+		<PackageReference Include="SkiaSharp" Version="3.119.2" />
+		<PackageReference Include="SkiaSharp.Views.Blazor" Version="3.119.2" />
+		<PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.2" />
+
+		<PackageReference Include="System.Drawing.Common" Version="10.0.7" />
+	</ItemGroup>
     <ItemGroup>
       <MauiXaml Update="MainPage.xaml">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -171,8 +171,9 @@
             </span>
 
             <!-- NOVO: SELETOR DE CAMADA ALVO -->
-            <select @bind="_camadaDestinoAquisicao" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #38bdf8; padding: 6px 10px; border-radius: 4px; font-weight: bold; outline: none; cursor: pointer; max-width: 180px;">
-                <option value="">[ Nova Camada ]</option>
+            <select value="@_camadaDestinoAquisicao" @onchange="AoMudarCamadaDestino" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #38bdf8; padding: 6px 10px; border-radius: 4px; font-weight: bold; outline: none; cursor: pointer; max-width: 220px;">
+                <option value="" disabled selected>[ Selecione o Destino ]</option>
+                <option value="NOVA" style="background: #064e3b; color: #34d399;">+ Criar Novo Ficheiro...</option>
                 @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
                 {
                     <option value="@camada.Nome">@camada.Nome</option>
@@ -1170,42 +1171,117 @@
     <!-- ========================================================= -->
     @if (_mostrarInputCogo)
     {
-        <div id="hud-cogo" style="pointer-events: auto; position: fixed; top: 0px; left: 0px; transform: translate3d(@(_hudX)px, @(_hudY)px, 0); will-change: transform; width: 280px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 6px; box-shadow: 0 15px 50px rgba(0,0,0,0.7); z-index: 10001; backdrop-filter: blur(16px); display: flex; flex-direction: column; overflow: hidden;"
+        <style>
+                .hud-input::-webkit-inner-spin-button,
+                .hud-input::-webkit-outer-spin-button {
+                    -webkit-appearance: none;
+                    margin: 0;
+                }
+
+                .hud-input {
+                    -moz-appearance: textfield;
+                    font-family: 'Consolas', 'Courier New', monospace;
+                    text-align: right;
+                }
+
+                .hud-btn {
+                    transition: all 0.2s ease-in-out;
+                }
+
+                    .hud-btn:hover {
+                        filter: brightness(1.3);
+                    }
+        </style>
+
+        <div id="hud-cogo" style="pointer-events: auto; position: fixed; top: 0px; left: 0px; transform: translate3d(@(_hudX)px, @(_hudY)px, 0); will-change: transform; width: 280px; background: rgba(15, 23, 42, 0.70); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; box-shadow: 0 24px 48px rgba(0,0,0,0.6); z-index: 10001; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); display: flex; flex-direction: column; overflow: hidden; font-family: 'Segoe UI', sans-serif;"
              @onpointerdown:stopPropagation="true"
              @onpointerup:stopPropagation="true"
+             @onmousedown:stopPropagation="true"
+             @onmouseup:stopPropagation="true"
              @onclick:stopPropagation="true"
              @oncontextmenu:preventDefault="true">
 
-            <div onpointerdown="window.iniciarArrasteHUD(event, 'hud-cogo')" style="background: rgba(56, 189, 248, 0.15); padding: 6px 12px; cursor: grab; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;" onmousedown="this.style.cursor='grabbing'" onmouseup="this.style.cursor='grab'">
-                <span style="font-size: 10px; color: #38bdf8; font-weight: bold; letter-spacing: 1px;">COGO AVANÇADO (TAB)</span>
-                <span style="color: #94a3b8; font-size: 14px; cursor: pointer; padding: 0 4px;" @onclick="() => _mostrarInputCogo = false" title="Fechar">✕</span>
+            <div onpointerdown="window.iniciarArrasteHUD(event, 'hud-cogo')" style="background: rgba(0, 0, 0, 0.25); padding: 12px 16px; cursor: grab; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;" onmousedown="this.style.cursor='grabbing'" onmouseup="this.style.cursor='grab'">
+                <span style="font-size: 10px; color: #38bdf8; font-weight: 700; letter-spacing: 1.5px;">COGO AVANÇADO (TAB)</span>
+                <span style="color: #64748b; font-size: 14px; cursor: pointer;" @onclick="() => _mostrarInputCogo = false">✕</span>
             </div>
 
-            <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
 
-                <span style="font-size: 10px; color: #94a3b8; font-weight: 600;">1. VETOR POLAR</span>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #cbd5e1; font-size: 11px;">Distância (m)</label>
-                    <input @ref="_inputDistanciaRef" type="number" @bind="_cogoDistancia" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none;" />
+                <div>
+                    <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">1. VETOR POLAR</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label style="color: #94a3b8; font-size: 11px;">Distância (m)</label>
+                        <input class="hud-input" type="number" @bind="_cogoDistancia" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label style="color: #94a3b8; font-size: 11px;">Azimute (º)</label>
+                        <input class="hud-input" type="number" @bind="_cogoAzimute" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                    </div>
+                    <button class="hud-btn"
+                            @onclick="AplicarVetorRestritoCogo"
+                            @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+                            style="width: 100%; margin-top: 8px; background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;">
+                        PROJETAR POLAR
+                    </button>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #cbd5e1; font-size: 11px;">Azimute (º)</label>
-                    <input type="number" @bind="_cogoAzimute" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none;" />
-                </div>
-                <button @onclick="AplicarVetorRestritoCogo" style="background: #0369a1; border: none; color: white; padding: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 2px; transition: 0.2s;" onmouseover="this.style.background='#0284c7';" onmouseout="this.style.background='#0369a1';">PROJETAR POLAR</button>
 
-                <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
+                <div style="height: 1px; background: rgba(255,255,255,0.05);"></div>
 
-                <span style="font-size: 10px; color: #94a3b8; font-weight: 600;">2. COORDENADA ABSOLUTA</span>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #cbd5e1; font-size: 11px;">ESTE (X)</label>
-                    <input type="number" @bind="_absolutoX" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+                <div>
+                    <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">2. COORDENADA ABSOLUTA</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label style="color: #94a3b8; font-size: 11px;">ESTE (X)</label>
+                        <input class="hud-input" type="number" @bind="_absolutoX" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label style="color: #94a3b8; font-size: 11px;">NORTE (Y)</label>
+                        <input class="hud-input" type="number" @bind="_absolutoY" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                    </div>
+                    <button class="hud-btn"
+                            @onclick="AplicarCoordenadaAbsoluta"
+                            @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+                            style="width: 100%; margin-top: 8px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(52, 211, 153, 0.3); color: #34d399; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;">
+                        CRAVAR COORDENADA
+                    </button>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #cbd5e1; font-size: 11px;">NORTE (Y)</label>
-                    <input type="number" @bind="_absolutoY" style="width: 130px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+
+                <div style="height: 1px; background: rgba(255,255,255,0.05);"></div>
+                <div>
+                    <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">3. RESTRIÇÃO DE DISTÂNCIA</span>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label style="color: #94a3b8; font-size: 11px;">Raio (m)</label>
+                        <input class="hud-input" type="number" @bind="_travaDistanciaValor" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                    </div>
+
+                    <div style="display: flex; gap: 4px; margin-bottom: 10px;">
+                        <button class="hud-btn" @onclick="() => _travaModoFixo = false" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+                                style="flex: 1; padding: 4px; font-size: 9px; font-weight: 700; border-radius: 4px; cursor: pointer;
+                            background: @(!_travaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)");
+                            color: @(!_travaModoFixo ? "#38bdf8" : "#64748b");
+                            border: 1px solid @(!_travaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
+                            MÁXIMO
+                        </button>
+                        <button class="hud-btn" @onclick="() => _travaModoFixo = true" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+                                style="flex: 1; padding: 4px; font-size: 9px; font-weight: 700; border-radius: 4px; cursor: pointer;
+                            background: @(_travaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)");
+                            color: @(_travaModoFixo ? "#38bdf8" : "#64748b");
+                            border: 1px solid @(_travaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
+                            FIXO
+                        </button>
+                    </div>
+
+                    <button class="hud-btn"
+                            @onclick="AlternarTravaDistancia"
+                            @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+                            style="width: 100%; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;
+                        background: @(_travaDistanciaAtiva ? "rgba(239, 68, 68, 0.15)" : "rgba(148, 163, 184, 0.1)");
+                        border: 1px solid @(_travaDistanciaAtiva ? "rgba(248, 113, 113, 0.4)" : "rgba(148, 163, 184, 0.3)");
+                        color: @(_travaDistanciaAtiva ? "#f87171" : "#94a3b8");">
+                        @(_travaDistanciaAtiva ? "DESATIVAR RESTRIÇÃO" : "ATIVAR RESTRIÇÃO")
+                    </button>
                 </div>
-                <button @onclick="AplicarCoordenadaAbsoluta" style="background: #047857; border: none; color: white; padding: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 2px; transition: 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#047857';">CRAVAR COORDENADA</button>
             </div>
         </div>
     }
@@ -1233,6 +1309,74 @@
                 </div>
 
                 <button @onclick="AplicarCoordenadaAbsoluta" style="background: #047857; border: none; color: white; padding: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 2px; margin-top: 4px; transition: 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#047857';">CRAVAR VÉRTICE</button>
+            </div>
+        </div>
+    }
+    @if (exibirModalNovaCamada)
+    {
+        <div class="modal-overlay">
+            <div class="glass-panel import-modal" style="width: 550px; height: auto;">
+                <div class="modal-header">
+                    <h2>ALOCAÇÃO DE DATASET VETORIAL</h2>
+                    <button class="close-btn-red" @onclick="FecharModalNovaCamada">✕</button>
+                </div>
+                <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 15px; height: auto;">
+
+                    <div class="form-row">
+                        <div class="form-group-vertical">
+                            <label class="gis-label">NOME DA CAMADA</label>
+                            <input type="text" class="glass-input" @bind="novaCamadaNome" @bind:event="oninput" placeholder="Ex: Levantamento_Topografico" />
+                        </div>
+
+                        <div class="form-group-vertical">
+                            <label class="gis-label">FORMATO FÍSICO</label>
+                            <select class="gis-select" @bind="novaCamadaFormato">
+                                <option value="SHP">ESRI Shapefile (.shp)</option>
+                                <option value="GEOJSON">GeoJSON (.geojson)</option>
+                                <option value="GPKG">GeoPackage (.gpkg)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group-vertical">
+                            <label class="gis-label">CLASSE DE GEOMETRIA</label>
+                            <select class="gis-select" @bind="novaCamadaGeometria">
+                                <option value="POLIGONO">Polígono (Polygon)</option>
+                                <option value="LINHA">Linha (LineString)</option>
+                                <option value="PONTO">Ponto (Point)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group-vertical">
+                            <label class="gis-label">SISTEMA DE REFERÊNCIA (CRS)</label>
+                            <select class="gis-select" @bind="novaCamadaCrs">
+                                <option value="EPSG:31982">EPSG:31982 - SIRGAS 2000 / UTM 22S</option>
+                                <option value="EPSG:4326">EPSG:4326 - WGS 84</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group-vertical">
+                        <label class="gis-label">DIRETÓRIO DE DESTINO (PASTA)</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" class="glass-input" @bind="pastaDestinoSelecionada" @bind:event="oninput" placeholder="Ex: C:\Projetos_SIG" style="flex: 1; font-family: monospace; font-size: 12px; color: #fff;" />
+                            <button class="btn-browse" @onclick="SelecionarDiretorioDestino">PROCURAR...</button>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(CaminhoAbsolutoGerado))
+                        {
+                            <span style="font-size: 10px; color: #34d399; font-family: monospace; margin-top: 4px;">
+                                <strong>Destino Final:</strong> @CaminhoAbsolutoGerado
+                            </span>
+                        }
+                    </div>
+
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 10px;">
+                        <button class="btn-cancel" @onclick="FecharModalNovaCamada">CANCELAR</button>
+                        <button class="btn-save" @onclick="ConfirmarCriacaoNovaCamada" disabled="@(!PermiteCriarCamada)" style="background: @(PermiteCriarCamada ? "#047857" : "rgba(255,255,255,0.1)"); border-color: @(PermiteCriarCamada ? "#059669" : "transparent"); color: @(PermiteCriarCamada ? "white" : "#64748b"); width: auto; margin: 0; transition: 0.2s;">PROCESSAR ALOCAÇÃO</button>
+                    </div>
+                </div>
             </div>
         </div>
     }
@@ -2930,6 +3074,110 @@
 </style>
 
 @code {
+    private bool _travaModoFixo = false; // False = Limite Máximo, True = Compasso Fixo
+    private double _travaDistanciaValor = 50.0;
+    private bool _travaDistanciaAtiva = false;
+
+    private void AlternarTravaDistancia()
+    {
+        _travaDistanciaAtiva = !_travaDistanciaAtiva;
+        StateHasChanged();
+    }
+    // =========================================================
+    // VARIÁVEIS PARA ALOCAÇÃO DE DATASET VETORIAL (FASE 1)
+    // =========================================================
+    private bool exibirModalNovaCamada = false;
+    private string novaCamadaNome = "";
+    private string novaCamadaFormato = "SHP";
+    private string novaCamadaGeometria = "POLIGONO";
+    private string novaCamadaCrs = "EPSG:31982";
+    private string pastaDestinoSelecionada = "";
+
+    // Propriedade Reativa: Monta o caminho automaticamente
+    private string CaminhoAbsolutoGerado
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(pastaDestinoSelecionada) || string.IsNullOrWhiteSpace(novaCamadaNome))
+                return "";
+
+            return System.IO.Path.Combine(pastaDestinoSelecionada, $"{novaCamadaNome.Trim().Replace(" ", "_")}.{novaCamadaFormato.ToLower()}");
+        }
+    }
+
+    // Bloqueia o botão se faltar o nome ou a pasta
+    private bool PermiteCriarCamada => !string.IsNullOrWhiteSpace(CaminhoAbsolutoGerado);
+
+    private void AoMudarCamadaDestino(ChangeEventArgs e)
+    {
+        string valor = e.Value?.ToString() ?? "";
+        if (valor == "NOVA")
+        {
+            novaCamadaNome = "";
+            pastaDestinoSelecionada = "";
+            exibirModalNovaCamada = true;
+            _camadaDestinoAquisicao = "";
+        }
+        else
+        {
+            _camadaDestinoAquisicao = valor;
+        }
+    }
+
+    private void FecharModalNovaCamada()
+    {
+        exibirModalNovaCamada = false;
+    }
+
+    private async Task SelecionarDiretorioDestino()
+    {
+        try
+        {
+            // Tenta invocar o Seletor de Pastas Nativo do Windows/Mac (Requer CommunityToolkit.Maui)
+            // Caso ainda não tenha o pacote instalado, o utilizador pode simplesmente colar o caminho no Input!
+            var resultado = await CommunityToolkit.Maui.Storage.FolderPicker.Default.PickAsync(default);
+
+            if (resultado != null && resultado.IsSuccessful)
+            {
+                pastaDestinoSelecionada = resultado.Folder.Path;
+                StateHasChanged();
+            }
+        }
+        catch (Exception)
+        {
+            // Fallback elegante caso a janela seja fechada ou o pacote não esteja configurado
+            await JSRuntime.InvokeVoidAsync("console.warn", "Seletor de pasta cancelado ou indisponível. Utilize a inserção manual.");
+        }
+    }
+
+    private async Task ConfirmarCriacaoNovaCamada()
+    {
+        string caminhoFinal = CaminhoAbsolutoGerado;
+
+        if (string.IsNullOrEmpty(caminhoFinal)) return;
+
+        // Limpeza de string para garantir nome válido no painel
+        string nomeFicheiroLimpo = novaCamadaNome.Trim().Replace(" ", "_");
+
+        CamadasAtivas.Insert(0, new Camada
+        {
+            Nome = nomeFicheiroLimpo,
+            Tipo = "Vetor",
+            Visivel = true,
+            CaminhoArquivo = caminhoFinal
+        });
+
+        MapService.EstilosPorCamada[nomeFicheiroLimpo] = new GeoNex.Services.EstiloCamada
+        { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
+
+        // Define a nova camada como alvo oficial da máquina de estados de desenho
+        _camadaDestinoAquisicao = nomeFicheiroLimpo;
+        exibirModalNovaCamada = false;
+
+        SincronizarHierarquia();
+        StateHasChanged();
+    }
+
     // =========================================================
     // MOTORES DE ARRASTO DO HUD (Física Segura com Escudo)
     // =========================================================
@@ -3990,12 +4238,32 @@
 
                 case ModoFerramenta.AquisicaoPoligono:
                     var ptFinalAq = ptMundo;
-                    if (_snapAquisicaoVertice || _snapAquisicaoAresta)
+
+                    // 1. PRIORIDADE ABSOLUTA: RESTRIÇÃO DE DISTÂNCIA
+                    if (_travaDistanciaAtiva && _travaDistanciaValor > 0 && MapService.PontosAquisicao.Count > 0)
+                    {
+                        var ultimoPonto = MapService.PontosAquisicao.Last();
+
+                        // Recalcula o ângulo no momento exato do clique para evitar atrasos (lag) do rato
+                        double dx = ptFinalAq.X - ultimoPonto.X;
+                        double dy = ptFinalAq.Y - ultimoPonto.Y;
+                        double anguloRadianos = Math.Atan2(dy, dx);
+
+                        // Esmaga a coordenada do clique, forçando-a a ficar no raio
+                        ptFinalAq = new SkiaSharp.SKPoint(
+                            (float)(ultimoPonto.X + Math.Cos(anguloRadianos) * _travaDistanciaValor),
+                            (float)(ultimoPonto.Y + Math.Sin(anguloRadianos) * _travaDistanciaValor)
+                        );
+                    }
+                    // 2. SE A RESTRIÇÃO ESTIVER DESLIGADA: PROCURA O SNAP MAGNÉTICO
+                    else if (_snapAquisicaoVertice || _snapAquisicaoAresta)
                     {
                         // DESENHO: Passa as variáveis exatas que ativou no menu
                         var ptMagneticoAq = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matriz.ScaleX, _snapAquisicaoVertice, _snapAquisicaoAresta);
                         if (ptMagneticoAq.HasValue) ptFinalAq = ptMagneticoAq.Value;
                     }
+
+                    // 3. INJETA O VÉRTICE BLINDADO NA MEMÓRIA
                     MapService.PontosAquisicao.Add(ptFinalAq);
                     SolicitarNovoFrame();
                     break;
@@ -4225,13 +4493,42 @@
             // OTIMIZAÇÃO: Limita o processamento a 30 FPS para salvar a GPU
             if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds < 33) return;
             _ultimoMovimentoMouse = DateTime.Now;
-
             var matriz = ObterMatrizMatematica();
             if (matriz.TryInvert(out var matrizInversa))
             {
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)e.OffsetX, (float)e.OffsetY));
-                MapService.PontoCursorMundo = ptMundo;
 
+                // 1. A MATEMÁTICA DA RESTRIÇÃO DOMINA PRIMEIRO
+                // 1. A MATEMÁTICA DA RESTRIÇÃO DOMINA PRIMEIRO
+                // 2. A MATEMÁTICA DE RESTRIÇÃO DOMINA O FLUXO
+                if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && _travaDistanciaAtiva && _travaDistanciaValor > 0 && MapService.PontosAquisicao.Count > 0)
+                {
+                    var ultimoPonto = MapService.PontosAquisicao.Last();
+
+                    double dx = ptMundo.X - ultimoPonto.X;
+                    double dy = ptMundo.Y - ultimoPonto.Y;
+
+                    double distanciaRato = Math.Sqrt(dx * dx + dy * dy);
+                    double anguloRadianos = Math.Atan2(dy, dx);
+
+                    // SE FOR MODO FIXO *OU* SE O RATO TENTAR PASSAR DO LIMITE MÁXIMO
+                    if (_travaModoFixo || distanciaRato > _travaDistanciaValor)
+                    {
+                        ptMundo = new SkiaSharp.SKPoint(
+                            (float)(ultimoPonto.X + Math.Cos(anguloRadianos) * _travaDistanciaValor),
+                            (float)(ultimoPonto.Y + Math.Sin(anguloRadianos) * _travaDistanciaValor)
+                        );
+                    }
+
+                    MapService.PontoCursorMundo = ptMundo;
+                    MapService.PontoCursorSnap = null;
+
+                    SolicitarNovoFrame();
+                    return;
+                }
+
+                // 2. SE A TRAVA ESTIVER DESLIGADA, O FLUXO CONTINUA NORMALMENTE:
+                MapService.PontoCursorMundo = ptMundo;
                 bool usarSnap = false;
                 bool checarVertices = false;
                 bool checarArestas = false;
