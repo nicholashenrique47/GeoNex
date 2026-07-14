@@ -1175,13 +1175,19 @@ window.ativarSensorRaycast = function () {
     if (!mapa) return;
 
     mapa.on('click', function (e) {
-        // O disparo é anulado se o engenheiro estiver a medir ou a desenhar vetores
-        if (window.modoDesenhoAtivo || window.ferramentaMedicaoAtiva) return;
+        // Trava cega contra botão direito/meio
+        if (e.originalEvent && e.originalEvent.button !== 0) return;
 
+        // O motor nativo Leaflet não deve enviar o clique para o Raycast do C#
+        // porque o nosso window.mapEngine (Motor de Física) JÁ FAZ ISSO no onPointerUp!
+        // Se deixarmos isto ligado, gera o BUG DOS DOIS PONTOS NA ORIGEM.
+
+        /* 
         if (window.dotnetReferencia) {
             window.dotnetReferencia.invokeMethodAsync('ProcessarCliqueRaycast', e.latlng.lat, e.latlng.lng)
                 .catch(err => console.warn("Falha no túnel de Raycast:", err));
         }
+        */
     });
 };
 

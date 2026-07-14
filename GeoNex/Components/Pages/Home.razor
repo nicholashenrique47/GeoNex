@@ -82,21 +82,40 @@
             </div>
 
             <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn" style="@(_ferramentaAtiva == ModoFerramenta.Identificacao ? "color: #38bdf8;" : "")">Aquisição ▾</button>
+                <button class="menu-btn" style="@(_ferramentaAtiva != ModoFerramenta.Navegacao ? "color: #38bdf8;" : "")">Ferramentas ▾</button>
                 <div class="dropdown-content">
+
                     <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Navegacao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Navegacao)">
-                        Mover Mapa (Pan)
+                        <div style="display: flex; align-items: center;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M19 9l3 3-3 3M9 19l3 3 3-3M2 12h20M12 2v20" /></svg>
+                            Mover Mapa (Pan)
+                        </div>
                     </button>
+
                     <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Identificacao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)">
-                        Identificar / Selecionar
+                        <div style="display: flex; align-items: center;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                            Identificar Feição
+                        </div>
                     </button>
-                   
+
                     <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Medicao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)">
-                        Régua Topográfica
+                        <div style="display: flex; align-items: center;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><rect x="2" y="6" width="20" height="12" rx="2" ry="2" /><line x1="6" y1="6" x2="6" y2="10" /><line x1="10" y1="6" x2="10" y2="10" /><line x1="14" y1="6" x2="14" y2="10" /><line x1="18" y1="6" x2="18" y2="10" /></svg>
+                            Régua Topográfica
+                        </div>
                     </button>
-                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.AquisicaoPoligono)">
-                        Desenhar Novo Polígono
+
+                    <div class="drop-divider"></div>
+
+                    <!-- O NOSSO BOTÃO MESTRE DE VETORIZAÇÃO (CHAMA A MÁQUINA DE ESTADOS) -->
+                    <button class="drop-item" style="@((_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto) ? "background: #0284c7; color: white;" : "")" @onclick="AtivarModoVetorizacao">
+                        <div style="display: flex; align-items: center;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                            Vetorizar Feição
+                        </div>
                     </button>
+
                 </div>
             </div>
 
@@ -162,21 +181,27 @@
     <!-- ========================================================= -->
     <!-- PAINEL FLUTUANTE DE DESENHO (AQUISIÇÃO)                   -->
     <!-- ========================================================= -->
-    @if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+    <!-- ========================================================= -->
+    <!-- PAINEL FLUTUANTE DE DESENHO (AQUISIÇÃO)                   -->
+    <!-- ========================================================= -->
+    @if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
     {
-        <div class="glass-panel" style="position: absolute; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 20px; border-radius: 12px; z-index: 9999; display: flex; gap: 15px; align-items: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);">
+        <div class="glass-panel" style="position: absolute; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); padding: 8px 20px; border-radius: 12px; z-index: 9999; display: flex; gap: 15px; align-items: center; box-shadow: 0 8px 32px rgba(0,0,0,0.4); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);">
 
-            <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 15px; margin-right: 5px;">
-                MODO DESENHO
-            </span>
+            <!-- INDICADOR DE GRAVAÇÃO (PONTO VERMELHO) -->
+            <div style="display: flex; align-items: center; gap: 8px; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 15px; margin-right: 5px;">
+                <span class="recording-dot"></span>
+                <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.5px;">MODO DESENHO</span>
+            </div>
 
-            <!-- NOVO: SELETOR DE CAMADA ALVO -->
-            <select value="@_camadaDestinoAquisicao" @onchange="AoMudarCamadaDestino" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #38bdf8; padding: 6px 10px; border-radius: 4px; font-weight: bold; outline: none; cursor: pointer; max-width: 220px;">
+            <!-- NOVO: SELETOR DE CAMADA ALVO (AGORA COM A CLASSE GIS-SELECT E MOSTRANDO A GEOMETRIA) -->
+            <!-- NOVO: SELETOR DE CAMADA ALVO (INJEÇÃO DIRETA DE ESTILO DARK) -->
+            <select class="gis-select" value="@_camadaDestinoAquisicao" @onchange="AoMudarCamadaDestino" style="min-width: 220px; font-weight: bold;">
                 <option value="" disabled selected>[ Selecione o Destino ]</option>
-                <option value="NOVA" style="background: #064e3b; color: #34d399;">+ Criar Novo Ficheiro...</option>
+                <option value="NOVA" style="color: #34d399;">+ Criar Novo Ficheiro...</option>
                 @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
                 {
-                    <option value="@camada.Nome">@camada.Nome</option>
+                    <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
                 }
             </select>
 
@@ -184,7 +209,8 @@
 
             <!-- O BOTÃO SUSPENSO (DROPDOWN) DE SNAP -->
             <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn" style="color: @(_snapAquisicaoVertice || _snapAquisicaoAresta ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
+                <button class="menu-btn" style="display: flex; align-items: center; color: @(_snapAquisicaoVertice || _snapAquisicaoAresta ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                     SNAP ▾
                 </button>
                 <div class="dropdown-content" style="top: 100%; left: 0; min-width: 180px; margin-top: 10px;">
@@ -201,15 +227,21 @@
 
             <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.2);"></div>
 
-            <button class="btn-clean" @onclick="DesfazerUltimoPontoAquisicao" title="Desfazer (Backspace)" disabled="@(MapService.PontosAquisicao.Count == 0)" style="background: transparent; border: none; color: #cbd5e1; font-weight: 500; cursor: pointer; transition: 0.2s; opacity: @(MapService.PontosAquisicao.Count == 0 ? "0.5" : "1");">
+            <button class="btn-clean" @onclick="DesfazerUltimoPontoAquisicao" title="Desfazer (Backspace/Z)" disabled="@(MapService.PontosAquisicao.Count == 0)" style="display: flex; align-items: center; gap: 6px; background: transparent; border: none; color: #cbd5e1; font-weight: 500; cursor: pointer; transition: 0.2s; opacity: @(MapService.PontosAquisicao.Count == 0 ? "0.5" : "1");">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
                 DESFAZER
             </button>
 
-            <button class="btn-clean" @onclick="CancelarAquisicao" title="Cancelar Desenho (Esc)" style="background: transparent; border: none; color: #f87171; font-weight: 500; cursor: pointer; transition: 0.2s;">
+            <button class="btn-clean" @onclick="CancelarAquisicao" title="Cancelar Desenho (Esc)" style="display: flex; align-items: center; gap: 6px; background: transparent; border: none; color: #f87171; font-weight: 500; cursor: pointer; transition: 0.2s;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 CANCELAR
             </button>
 
-            <button class="btn-clean" @onclick="ConcluirAquisicaoPoligono" title="Finalizar Polígono (Clique Direito ou Enter)" disabled="@(MapService.PontosAquisicao.Count < 3)" style="background: transparent; border: none; color: #34d399; font-weight: bold; cursor: pointer; transition: 0.2s; opacity: @(MapService.PontosAquisicao.Count < 3 ? "0.5" : "1");">
+            <!-- AGORA APONTA PARA ConcluirAquisicaoGeometrica E MUDA A OPACIDADE DINAMICAMENTE -->
+            <button class="btn-clean" @onclick="ConcluirAquisicaoGeometrica" title="Finalizar Geometria (Enter)"
+                    disabled="@((_ferramentaAtiva == ModoFerramenta.AquisicaoPonto && MapService.PontosAquisicao.Count < 1) || (_ferramentaAtiva == ModoFerramenta.AquisicaoLinha && MapService.PontosAquisicao.Count < 2) || (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count < 3))"
+                    style="display: flex; align-items: center; gap: 6px; background: transparent; border: none; color: #34d399; font-weight: bold; cursor: pointer; transition: 0.2s; opacity: @(((_ferramentaAtiva == ModoFerramenta.AquisicaoPonto && MapService.PontosAquisicao.Count < 1) || (_ferramentaAtiva == ModoFerramenta.AquisicaoLinha && MapService.PontosAquisicao.Count < 2) || (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count < 3)) ? "0.5" : "1");">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 CONCLUIR
             </button>
         </div>
@@ -500,6 +532,7 @@
     @if (exibirModalPropriedades)
     {
         <style>
+                
                 /* =======================================================
                        FÍSICA DO DRAG & DROP (MÁXIMA SUAVIDADE E GRIP)
                        ======================================================= */
@@ -677,50 +710,6 @@
                     display: block;
                 }
 
-                /* NOVOS ESTILOS: Fundo Escuro para a Lista de Atributos */
-                .gis-select {
-                    width: 100%;
-                    background: rgba(0,0,0,0.4);
-                    border: 1px solid rgba(255,255,255,0.1);
-                    color: #fff;
-                    padding: 8px 10px;
-                    font-size: 13px;
-                    border-radius: 4px;
-                    outline: none;
-                    transition: 0.2s;
-                }
-
-                    .gis-select:focus {
-                        border-color: #38bdf8;
-                    }
-
-                    .gis-select option {
-                        background-color: #1e293b;
-                        color: #fff;
-                        padding: 10px;
-                    }
-
-                /* NOVOS ESTILOS: Botão de Fechar Vermelho */
-                .close-btn-red {
-                    background: transparent;
-                    border: none;
-                    color: #ef4444;
-                    font-size: 20px;
-                    font-weight: bold;
-                    cursor: pointer;
-                    transition: 0.2s;
-                    border-radius: 4px;
-                    width: 30px;
-                    height: 30px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-
-                    .close-btn-red:hover {
-                        background: #ef4444;
-                        color: #fff;
-                    }
         </style>
 
         <div class="modal-overlay">
@@ -999,18 +988,28 @@
                     <!-- CONFIGURAÇÕES DE SISTEMA -->
                     <div class="form-row">
                         <div class="form-group-vertical">
-                            <label>SISTEMA (CRS)</label>
-                            <select class="glass-input" @bind="sistemaCoordenadas">
-                                <option value="DECIMAL">Geográfica Decimal (WGS 84)</option>
-                                <option value="UTM">UTM (SIRGAS 2000)</option>
+                            <label class="gis-label">FORMATO FÍSICO</label>
+                            <select class="gis-select" @bind="novaCamadaFormato" style="width: 100%; border-color: rgba(255,255,255,0.2);">
+                                <option value="SHP">ESRI Shapefile (.shp)</option>
+                                <option value="GEOJSON">GeoJSON (.geojson)</option>
+                                <option value="GPKG">GeoPackage (.gpkg)</option>
                             </select>
                         </div>
+
                         <div class="form-group-vertical">
-                            <label>GEOMETRIA ALVO</label>
-                            <select class="glass-input" @bind="tipoGeometriaAlvo">
-                                <option value="POLIGONO">Polígono (Área)</option>
-                                <option value="LINHA">Linha / Eixo</option>
-                                <option value="PONTOS">Pontos Individuais</option>
+                            <label class="gis-label">CLASSE DE GEOMETRIA</label>
+                            <select class="gis-select" @bind="novaCamadaGeometria" style="width: 100%; border-color: rgba(255,255,255,0.2);">
+                                <option value="POLIGONO">Polígono (Polygon)</option>
+                                <option value="LINHA">Linha (LineString)</option>
+                                <option value="PONTO">Ponto (Point)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group-vertical">
+                            <label class="gis-label">SISTEMA DE REFERÊNCIA (CRS)</label>
+                            <select class="gis-select" @bind="novaCamadaCrs" style="width: 100%; border-color: rgba(255,255,255,0.2);">
+                                <option value="EPSG:31982">EPSG:31982 - SIRGAS 2000 / UTM 22S</option>
+                                <option value="EPSG:4326">EPSG:4326 - WGS 84</option>
                             </select>
                         </div>
                     </div>
@@ -1149,9 +1148,10 @@
     @if (_mostrarMenuContexto && !_mostrarInputCogo)
     {
         <div style="pointer-events: auto; position: fixed; top: @(_menuContextoY)px; left: @(_menuContextoX)px; width: 220px; background: rgba(15, 23, 42, 0.90); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); z-index: 10000; backdrop-filter: blur(16px); display: flex; flex-direction: column; padding: 4px 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+             @onclick:stopPropagation="true"
+             @onmousedown:stopPropagation="true"
              @onpointerdown:stopPropagation="true"
              @onpointerup:stopPropagation="true"
-             @onclick:stopPropagation="true"
              @oncontextmenu:preventDefault="true">
 
             <button class="ctx-btn" @onclick="() => { _mostrarInputCogo = true; }" style="text-align: left; padding: 8px 16px; background: transparent; border: none; color: #e2e8f0; font-size: 13px; font-weight: 500; cursor: pointer; border-left: 3px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderLeft='3px solid #38bdf8';" onmouseout="this.style.background='transparent'; this.style.borderLeft='3px solid transparent';">
@@ -1160,7 +1160,7 @@
 
             <div style="height: 1px; background: rgba(255,255,255,0.08); margin: 4px 0;"></div>
 
-            <button class="ctx-btn" @onclick="() => { ConcluirAquisicaoPoligono(); _mostrarMenuContexto = false; }" style="text-align: left; padding: 8px 16px; background: transparent; border: none; color: #34d399; font-size: 13px; font-weight: 600; cursor: pointer; border-left: 3px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='rgba(52, 211, 153, 0.1)'; this.style.borderLeft='3px solid #34d399';" onmouseout="this.style.background='transparent'; this.style.borderLeft='3px solid transparent';">
+            <button class="ctx-btn" @onclick="() => { ConcluirAquisicaoGeometrica(); _mostrarMenuContexto = false; }" style="text-align: left; padding: 8px 16px; background: transparent; border: none; color: #34d399; font-size: 13px; font-weight: 600; cursor: pointer; border-left: 3px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='rgba(52, 211, 153, 0.1)'; this.style.borderLeft='3px solid #34d399';" onmouseout="this.style.background='transparent'; this.style.borderLeft='3px solid transparent';">
                 Concluir Esboço
             </button>
         </div>
@@ -1208,23 +1208,23 @@
 
             <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
 
-                <div>
-                    <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">1. VETOR POLAR</span>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <label style="color: #94a3b8; font-size: 11px;">Distância (m)</label>
-                        <input class="hud-input" type="number" @bind="_cogoDistancia" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <label style="color: #94a3b8; font-size: 11px;">Azimute (º)</label>
-                        <input class="hud-input" type="number" @bind="_cogoAzimute" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
-                    </div>
-                    <button class="hud-btn"
-                            @onclick="AplicarVetorRestritoCogo"
-                            @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
-                            style="width: 100%; margin-top: 8px; background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;">
-                        PROJETAR POLAR
-                    </button>
-                </div>
+               <div>
+     <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">1. VETOR POLAR</span>
+     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+         <label style="color: #94a3b8; font-size: 11px;">Distância (m)</label>
+         <input class="hud-input" type="number" @bind="_cogoDistancia" @onkeyup='@(e => { if (e.Key == "Enter") AplicarVetorRestritoCogo(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+     </div>
+     <div style="display: flex; justify-content: space-between; align-items: center;">
+         <label style="color: #94a3b8; font-size: 11px;">Azimute (º)</label>
+         <input class="hud-input" type="number" @bind="_cogoAzimute" @onkeyup='@(e => { if (e.Key == "Enter") AplicarVetorRestritoCogo(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+     </div>
+     <button class="hud-btn"
+             @onclick="AplicarVetorRestritoCogo"
+             @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+             style="width: 100%; margin-top: 8px; background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;">
+         PROJETAR POLAR
+     </button>
+ </div>
 
                 <div style="height: 1px; background: rgba(255,255,255,0.05);"></div>
 
@@ -1232,11 +1232,11 @@
                     <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">2. COORDENADA ABSOLUTA</span>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                         <label style="color: #94a3b8; font-size: 11px;">ESTE (X)</label>
-                        <input class="hud-input" type="number" @bind="_absolutoX" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                        <input class="hud-input" type="number" @bind="_absolutoX" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <label style="color: #94a3b8; font-size: 11px;">NORTE (Y)</label>
-                        <input class="hud-input" type="number" @bind="_absolutoY" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                        <input class="hud-input" type="number" @bind="_absolutoY" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
                     </div>
                     <button class="hud-btn"
                             @onclick="AplicarCoordenadaAbsoluta"
@@ -1252,34 +1252,34 @@
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <label style="color: #94a3b8; font-size: 11px;">Raio (m)</label>
-                        <input class="hud-input" type="number" @bind="_travaDistanciaValor" style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
+                        <input class="hud-input" type="number"
+                               @bind="MapService.TravaDistanciaValor"
+                               @bind:event="oninput"
+                               @onkeyup='@(e => { if (e.Key == "Enter") MapService.TravaDistanciaAtiva = true; })'
+                               style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
                     </div>
 
                     <div style="display: flex; gap: 4px; margin-bottom: 10px;">
-                        <button class="hud-btn" @onclick="() => _travaModoFixo = false" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+                        <button class="hud-btn" @onclick="() => MapService.TravaModoFixo = false" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
                                 style="flex: 1; padding: 4px; font-size: 9px; font-weight: 700; border-radius: 4px; cursor: pointer;
-                            background: @(!_travaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)");
-                            color: @(!_travaModoFixo ? "#38bdf8" : "#64748b");
-                            border: 1px solid @(!_travaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
+                            background: @(!MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)"); color: @(!MapService.TravaModoFixo ? "#38bdf8" : "#64748b"); border: 1px solid @(!MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
                             MÁXIMO
                         </button>
-                        <button class="hud-btn" @onclick="() => _travaModoFixo = true" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
+                        <button class="hud-btn" @onclick="() => MapService.TravaModoFixo = true" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
                                 style="flex: 1; padding: 4px; font-size: 9px; font-weight: 700; border-radius: 4px; cursor: pointer;
-                            background: @(_travaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)");
-                            color: @(_travaModoFixo ? "#38bdf8" : "#64748b");
-                            border: 1px solid @(_travaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
+                            background: @(MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)"); color: @(MapService.TravaModoFixo ? "#38bdf8" : "#64748b"); border: 1px solid @(MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
                             FIXO
                         </button>
                     </div>
 
                     <button class="hud-btn"
-                            @onclick="AlternarTravaDistancia"
+                            @onclick="() => MapService.TravaDistanciaAtiva = !MapService.TravaDistanciaAtiva"
                             @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
                             style="width: 100%; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;
-                        background: @(_travaDistanciaAtiva ? "rgba(239, 68, 68, 0.15)" : "rgba(148, 163, 184, 0.1)");
-                        border: 1px solid @(_travaDistanciaAtiva ? "rgba(248, 113, 113, 0.4)" : "rgba(148, 163, 184, 0.3)");
-                        color: @(_travaDistanciaAtiva ? "#f87171" : "#94a3b8");">
-                        @(_travaDistanciaAtiva ? "DESATIVAR RESTRIÇÃO" : "ATIVAR RESTRIÇÃO")
+                        background: @(MapService.TravaDistanciaAtiva ? "rgba(239, 68, 68, 0.15)" : "rgba(148, 163, 184, 0.1)");
+                        border: 1px solid @(MapService.TravaDistanciaAtiva ? "rgba(248, 113, 113, 0.4)" : "rgba(148, 163, 184, 0.3)");
+                        color: @(MapService.TravaDistanciaAtiva ? "#f87171" : "#94a3b8");">
+                        @(MapService.TravaDistanciaAtiva ? "DESATIVAR RESTRIÇÃO" : "ATIVAR RESTRIÇÃO")
                     </button>
                 </div>
             </div>
@@ -1301,11 +1301,11 @@
             <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <label style="color: #cbd5e1; font-size: 11px; font-weight: 600;">ESTE (X)</label>
-                    <input @ref="_inputAbsolutoXRef" type="number" @bind="_absolutoX" style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+                    <input @ref="_inputAbsolutoXRef" type="number" @bind="_absolutoX" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <label style="color: #cbd5e1; font-size: 11px; font-weight: 600;">NORTE (Y)</label>
-                    <input type="number" @bind="_absolutoY" style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
+                    <input type="number" @bind="_absolutoY" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
                 </div>
 
                 <button @onclick="AplicarCoordenadaAbsoluta" style="background: #047857; border: none; color: white; padding: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 2px; margin-top: 4px; transition: 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#047857';">CRAVAR VÉRTICE</button>
@@ -1384,6 +1384,86 @@
 </div> <!-- Fim da div geonex-ui -->
 
 <style>
+    /* =========================================================
+           COMPONENTES DE FORMULÁRIO (DARK MODE NATIVO)
+           ========================================================= */
+    .gis-select {
+        color-scheme: dark;
+        appearance: none;
+        -webkit-appearance: none;
+        background-color: #0f172a;
+        border: 1px solid rgba(56, 189, 248, 0.4);
+        color: #e2e8f0;
+        padding: 8px 32px 8px 12px;
+        border-radius: 4px;
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 0.8rem;
+        cursor: pointer;
+        outline: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        background-size: 16px;
+        transition: all 0.2s ease;
+    }
+
+        .gis-select:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
+
+        .gis-select option {
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+    /* ==========================================
+           ESTILOS DE COMPONENTES GLOBAIS (FIX BLAZOR)
+           ========================================== */
+    /* Animação do Ponto de Gravação. Note o duplo @@ para enganar o compilador do Blazor! */
+    @@keyframes pulse-red {
+        0% {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+        }
+
+        70% {
+            box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+        }
+
+        100% {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+        }
+    }
+
+    .recording-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background-color: #ef4444;
+        border-radius: 50%;
+        animation: pulse-red 2s infinite;
+    }
+
+    /* O Botão de Fechar Vermelho */
+    .close-btn-red {
+        background: transparent;
+        border: none;
+        color: #ef4444;
+        font-size: 18px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: 0.2s;
+        border-radius: 4px;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+        .close-btn-red:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+        }
     /* Toggle Switch Moderno */
     .geonex-toggle {
         position: relative;
@@ -2130,7 +2210,6 @@
             z-index: 10;
         }
     /* RESET GLOBAL E MAPA */
-    /* RESET GLOBAL E MAPA */
     ::deep, body, html, #app {
         margin: 0;
         padding: 0;
@@ -2140,6 +2219,7 @@
         font-family: 'Segoe UI', system-ui, sans-serif;
         background: transparent !important;
         background-color: transparent !important;
+        color-scheme: dark; /* FORÇA TUDO NO WINDOWS A SER DARK */
     }
 
     .map-background {
@@ -3074,8 +3154,15 @@
 </style>
 
 @code {
+    // =========================================================
+    // VARIÁVEIS DO PROMPT DE ATRIBUTOS (PÓS-DESENHO)
+    // =========================================================
+    private bool exibirModalAtributos = false;
+    private string novoAtributoNome = "";
+    private NetTopologySuite.Geometries.Geometry _geometriaPendente = null;
+    private string _camadaPendente = "";
     private bool _travaModoFixo = false; // False = Limite Máximo, True = Compasso Fixo
-    private double _travaDistanciaValor = 50.0;
+    private double _travaDistanciaValor = 0;
     private bool _travaDistanciaAtiva = false;
 
     private void AlternarTravaDistancia()
@@ -3121,6 +3208,37 @@
         else
         {
             _camadaDestinoAquisicao = valor;
+
+            // =======================================================
+            // >>> O CÉREBRO HIERÁRQUICO: ADAPTA A FERRAMENTA À CAMADA
+            // =======================================================
+            var camadaSelecionada = CamadasAtivas.FirstOrDefault(c => c.Nome == valor);
+            if (camadaSelecionada != null)
+            {
+                if (camadaSelecionada.Geometria == "PONTO") TrocarFerramenta(ModoFerramenta.AquisicaoPonto);
+                else if (camadaSelecionada.Geometria == "LINHA") TrocarFerramenta(ModoFerramenta.AquisicaoLinha);
+                else TrocarFerramenta(ModoFerramenta.AquisicaoPoligono);
+            }
+        }
+    }
+
+    private void AtivarModoVetorizacao()
+    {
+        if (string.IsNullOrEmpty(_camadaDestinoAquisicao))
+        {
+            // Liga o painel no modo neutro e obriga o engenheiro a escolher o destino primeiro
+            TrocarFerramenta(ModoFerramenta.AquisicaoPoligono);
+        }
+        else
+        {
+            // Se já tem um destino em memória, arma a ferramenta correta automaticamente!
+            var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == _camadaDestinoAquisicao);
+            if (camada != null)
+            {
+                if (camada.Geometria == "PONTO") TrocarFerramenta(ModoFerramenta.AquisicaoPonto);
+                else if (camada.Geometria == "LINHA") TrocarFerramenta(ModoFerramenta.AquisicaoLinha);
+                else TrocarFerramenta(ModoFerramenta.AquisicaoPoligono);
+            }
         }
     }
 
@@ -3156,26 +3274,138 @@
 
         if (string.IsNullOrEmpty(caminhoFinal)) return;
 
-        // Limpeza de string para garantir nome válido no painel
+        // Limpeza de string para garantir nome de ficheiro válido no Windows/Linux
         string nomeFicheiroLimpo = novaCamadaNome.Trim().Replace(" ", "_");
 
-        CamadasAtivas.Insert(0, new Camada
+        try
         {
-            Nome = nomeFicheiroLimpo,
-            Tipo = "Vetor",
-            Visivel = true,
-            CaminhoArquivo = caminhoFinal
-        });
+            // =====================================================================
+            // >>> 1. O MOTOR FÍSICO DO GDAL/OGR ENTRA EM AÇÃO
+            // =====================================================================
+            OSGeo.OGR.Ogr.RegisterAll();
 
-        MapService.EstilosPorCamada[nomeFicheiroLimpo] = new GeoNex.Services.EstiloCamada
-        { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
+            // Escolhe o compilador certo baseado no dropdown do HTML
+            string driverName = novaCamadaFormato switch
+            {
+                "SHP" => "ESRI Shapefile",
+                "GEOJSON" => "GeoJSON",
+                "GPKG" => "GPKG",
+                _ => "ESRI Shapefile"
+            };
 
-        // Define a nova camada como alvo oficial da máquina de estados de desenho
-        _camadaDestinoAquisicao = nomeFicheiroLimpo;
-        exibirModalNovaCamada = false;
+            OSGeo.OGR.Driver driver = OSGeo.OGR.Ogr.GetDriverByName(driverName);
+            if (driver == null)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Driver GDAL '{driverName}' não encontrado no sistema.");
+                return;
+            }
 
-        SincronizarHierarquia();
-        StateHasChanged();
+            // =====================================================================
+            // >>> 2. CRIAÇÃO DO DATASET FÍSICO NO DISCO (Ex: lote.shp, lote.dbf...)
+            // =====================================================================
+            OSGeo.OGR.DataSource ds = driver.CreateDataSource(caminhoFinal, null);
+            if (ds == null)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Falha de Permissão I/O: Não foi possível gravar o arquivo na pasta de destino.");
+                return;
+            }
+
+            // 3. Configura a Matriz Espacial (O ficheiro .prj)
+            OSGeo.OSR.SpatialReference srs = new OSGeo.OSR.SpatialReference("");
+            if (novaCamadaCrs.Contains("31982")) srs.ImportFromEPSG(31982); // UTM 22S
+            else srs.ImportFromEPSG(4326); // Decimal Geográfico
+            srs.MorphToESRI();
+            // 4. Mapeia a Arquitetura da Geometria do OGR
+            OSGeo.OGR.wkbGeometryType wkbTipo = novaCamadaGeometria switch
+            {
+                "POLIGONO" => OSGeo.OGR.wkbGeometryType.wkbPolygon,
+                "LINHA" => OSGeo.OGR.wkbGeometryType.wkbLineString,
+                "PONTO" => OSGeo.OGR.wkbGeometryType.wkbPoint,
+                _ => OSGeo.OGR.wkbGeometryType.wkbUnknown
+            };
+
+            // 5. Injeta a Layer e gera a Tabela de Atributos (.dbf) PADRÃO!
+            OSGeo.OGR.Layer layer = ds.CreateLayer(nomeFicheiroLimpo, srs, wkbTipo, null);
+
+            // --- COLUNAS AUTOMÁTICAS DE ENGENHARIA (Adaptação Inteligente por Geometria) ---
+            using (var campoId = new OSGeo.OGR.FieldDefn("ID", OSGeo.OGR.FieldType.OFTInteger)) { layer.CreateField(campoId, 1); }
+            using (var campoNome = new OSGeo.OGR.FieldDefn("NOME", OSGeo.OGR.FieldType.OFTString)) { campoNome.SetWidth(50); layer.CreateField(campoNome, 1); }
+
+            if (novaCamadaGeometria == "POLIGONO")
+            {
+                using (var campoArea = new OSGeo.OGR.FieldDefn("AREA_M2", OSGeo.OGR.FieldType.OFTReal)) { campoArea.SetPrecision(2); layer.CreateField(campoArea, 1); }
+            }
+            else if (novaCamadaGeometria == "LINHA")
+            {
+                using (var campoComp = new OSGeo.OGR.FieldDefn("COMPRIM_M", OSGeo.OGR.FieldType.OFTReal)) { campoComp.SetPrecision(2); layer.CreateField(campoComp, 1); }
+            }
+            else if (novaCamadaGeometria == "PONTO")
+            {
+                using (var campoCoordX = new OSGeo.OGR.FieldDefn("COORD_X", OSGeo.OGR.FieldType.OFTReal)) { campoCoordX.SetPrecision(6); layer.CreateField(campoCoordX, 1); }
+                using (var campoCoordY = new OSGeo.OGR.FieldDefn("COORD_Y", OSGeo.OGR.FieldType.OFTReal)) { campoCoordY.SetPrecision(6); layer.CreateField(campoCoordY, 1); }
+            }
+
+            using (var campoData = new OSGeo.OGR.FieldDefn("DATA_CRIAC", OSGeo.OGR.FieldType.OFTString)) { campoData.SetWidth(15); layer.CreateField(campoData, 1); }
+
+            // 6. Fecha o bloqueio do Windows (Liberta os ficheiros criados)
+            layer.Dispose();
+            ds.Dispose();
+
+            // =====================================================================
+            // >>> 3. ALOCAÇÃO NA MEMÓRIA DA INTERFACE DO GEONEX
+            // =====================================================================
+
+            // Pede ao sistema para carregar o ficheiro que acabou de nascer físico para a memória do mapa
+            await Task.Run(() =>
+            {
+                ProjetoService.CarregarShapefileParaMotorMapas(caminhoFinal, nomeFicheiroLimpo, MapService);
+            });
+
+            // Impede que duplique no painel da esquerda
+            var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeFicheiroLimpo);
+            if (camadaExistente == null)
+            {
+                CamadasAtivas.Insert(0, new Camada
+                {
+                    Nome = nomeFicheiroLimpo,
+                    Tipo = "Vetor",
+                    Visivel = true,
+                    CaminhoArquivo = caminhoFinal,
+                    Geometria = novaCamadaGeometria
+                });
+            }
+
+            // Aplica o Estilo Verde/Esmeralda automático para novas camadas de aquisição
+            MapService.EstilosPorCamada[nomeFicheiroLimpo] = new GeoNex.Services.EstiloCamada
+            { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
+
+            // Diz ao menu flutuante para focar na camada nova!
+            _camadaDestinoAquisicao = nomeFicheiroLimpo;
+
+            // =====================================================================
+            // >>> O ELO PERDIDO DO FLUXOGRAMA (MÁQUINA DE ESTADOS) <<<
+            // Força a mudança da ferramenta de desenho para bater com a geometria!
+            // =====================================================================
+            if (novaCamadaGeometria == "PONTO") TrocarFerramenta(ModoFerramenta.AquisicaoPonto);
+            else if (novaCamadaGeometria == "LINHA") TrocarFerramenta(ModoFerramenta.AquisicaoLinha);
+            else TrocarFerramenta(ModoFerramenta.AquisicaoPoligono);
+
+            exibirModalNovaCamada = false;
+            novaCamadaNome = "";
+
+            SincronizarHierarquia();
+            SolicitarNovoFrame();
+            StateHasChanged();
+
+           
+
+            // Alerta de sucesso silencioso via consola para auditoria
+            await JSRuntime.InvokeVoidAsync("console.log", $"Shapefile criado com sucesso: {caminhoFinal}");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"ERRO FATAL DE I/O FÍSICO:\n{ex.Message}");
+        }
     }
 
     // =========================================================
@@ -3278,6 +3508,7 @@
         public string Tipo { get; set; } = string.Empty;
         public bool Visivel { get; set; } = true;
         public string CaminhoArquivo { get; set; } = string.Empty;
+        public string Geometria { get; set; } = "POLIGONO";
     }
 
     // Estrutura de dados para o payload de dimensionamento do viewport
@@ -3433,10 +3664,9 @@
     private bool temEdicoesPendentes = false;
     public void TrocarFerramenta(ModoFerramenta novaFerramenta)
     {
-        // Impede processamento fantasma se já estiver na mesma ferramenta
         if (_ferramentaAtiva == novaFerramenta) return;
 
-        // 1. Limpeza de Saída
+        // 1. Limpeza Estrita de Memória
         if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
             MapService.PontosMedicao.Clear();
@@ -3452,7 +3682,10 @@
             atributosFeicaoSelecionada?.Clear();
             _geometriaDestacada = null;
         }
-        else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+        // A CORREÇÃO: Limpa a memória independentemente se era Polígono, Linha ou Ponto
+        else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ||
+                 _ferramentaAtiva == ModoFerramenta.AquisicaoLinha ||
+                 _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
         {
             MapService.PontosAquisicao.Clear();
             MapService.PontoCursorSnap = null;
@@ -3463,26 +3696,27 @@
             modoEdicaoVerticeLigado = false;
         }
 
-        // 2. Transição de Estado
         _ferramentaAtiva = novaFerramenta;
+
+        // AVISAR A PLACA GRÁFICA: Transmite o tipo de geometria para o LocalMapServer
+        if (novaFerramenta == ModoFerramenta.AquisicaoLinha) MapService.TipoGeometriaAtiva = "LINHA";
+        else if (novaFerramenta == ModoFerramenta.AquisicaoPonto) MapService.TipoGeometriaAtiva = "PONTO";
+        else MapService.TipoGeometriaAtiva = "POLIGONO";
+
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = true;
         }
 
-        // 3. A MÁGICA: Força a interface a ligar o painel PRIMEIRO, protegendo o HTML de qualquer falha do JS!
         InvokeAsync(StateHasChanged);
 
-        // 4. Fire-and-Forget: Envia a ordem para o JavaScript e para a GPU em pano de fundo
         try
         {
-            JSRuntime.InvokeVoidAsyncSafe("mapEngine.setFerramenta", novaFerramenta.ToString()); _ = SincronizarOverlay(false);
+            JSRuntime.InvokeVoidAsyncSafe("mapEngine.setFerramenta", novaFerramenta.ToString());
+            _ = SincronizarOverlay(false);
             SolicitarNovoFrame();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Aviso JS/Interop: {ex.Message}");
-        }
+        catch (Exception ex) { Console.WriteLine($"Aviso JS/Interop: {ex.Message}"); }
     }
     // =========================================================================
     // 5. EVENTOS DO CICLO DE VIDA DA INTERFACE
@@ -4031,15 +4265,119 @@
     private async Task ConfirmarTodasEdicoes()
     {
         if (!temEdicoesPendentes) return;
+
         try
         {
-            await Task.Delay(500);
-            await JSRuntime.InvokeVoidAsync("alert", "EDIÇÕES CONSOLIDADAS!\n\nTodas as modificações de malha e vértices foram gravadas permanentemente no banco de dados.");
+            // 1. Inicia o motor GDAL/OGR (Comunicação com o Disco Rígido)
+            OSGeo.OGR.Ogr.RegisterAll();
+            int totalGravados = 0;
+
+            // 2. Percorre as camadas vetoriais ativas no GeoNex
+            foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
+            {
+                // Verifica se temos polígonos na Memória RAM para esta camada
+                if (MapService.FeicoesOriginais.TryGetValue(camada.Nome, out var colecaoRAM))
+                {
+                    // Tenta abrir o arquivo físico (Shapefile) no modo UPDATE (1)
+                    using var ds = OSGeo.OGR.Ogr.Open(camada.CaminhoArquivo, 1);
+                    if (ds == null) continue; // Pula ficheiros que não existam ou estejam bloqueados
+
+                    var layerOGR = ds.GetLayerByIndex(0);
+                    if (layerOGR == null) continue;
+
+                    // Inicia a transação segura (Se a luz cair, o ficheiro não corrompe)
+                    layerOGR.StartTransaction();
+
+                    // 3. Lê os lotes que desenhámos e injeta-os no ficheiro
+                    for (int i = 0; i < colecaoRAM.Count; i++)
+                    {
+                        var feicaoRAM = colecaoRAM[i];
+
+                        // SISTEMA ANTI-DUPLICAÇÃO: Se já foi gravado num "Save" anterior, ignora!
+                        if (feicaoRAM.Attributes != null && feicaoRAM.Attributes.Exists("_SYS_GRAVADO") && feicaoRAM.Attributes["_SYS_GRAVADO"].ToString() == "SIM")
+                        {
+                            continue;
+                        }
+
+                        // Traduz a Matemática Visual (NetTopologySuite -> WKT Texto -> OGR C++)
+                        string wkt = feicaoRAM.Geometry.ToText();
+                        using var geomOGR = OSGeo.OGR.Geometry.CreateFromWkt(wkt);
+
+                        // Prepara a "linha do Excel" (Feature) na Tabela de Atributos do Shapefile
+                        using var featureDefn = layerOGR.GetLayerDefn();
+                        using var novaFeicaoOGR = new OSGeo.OGR.Feature(featureDefn);
+
+                        novaFeicaoOGR.SetGeometry(geomOGR);
+
+                        // ==========================================================
+                        // >>> GEOPROCESSAMENTO AO VIVO (Cálculo de Área) <<<
+                        // ==========================================================
+                        // ==========================================================
+                        // >>> GEOPROCESSAMENTO AO VIVO (Área, Comprimento, Coords)
+                        // ==========================================================
+                        if (feicaoRAM.Geometry is NetTopologySuite.Geometries.Polygon || feicaoRAM.Geometry is NetTopologySuite.Geometries.MultiPolygon)
+                        {
+                            int idxArea = featureDefn.GetFieldIndex("AREA_M2");
+                            if (idxArea >= 0) novaFeicaoOGR.SetField(idxArea, feicaoRAM.Geometry.Area);
+                        }
+                        else if (feicaoRAM.Geometry is NetTopologySuite.Geometries.LineString || feicaoRAM.Geometry is NetTopologySuite.Geometries.MultiLineString)
+                        {
+                            // Para linhas, grava a extensão topográfica linear
+                            int idxComp = featureDefn.GetFieldIndex("COMPRIM_M");
+                            if (idxComp >= 0) novaFeicaoOGR.SetField(idxComp, feicaoRAM.Geometry.Length);
+                        }
+                        else if (feicaoRAM.Geometry is NetTopologySuite.Geometries.Point pontoNts)
+                        {
+                            // Para pontos, grava as ordenadas nativas absolutas
+                            int idxX = featureDefn.GetFieldIndex("COORD_X");
+                            int idxY = featureDefn.GetFieldIndex("COORD_Y");
+                            if (idxX >= 0) novaFeicaoOGR.SetField(idxX, pontoNts.X);
+                            if (idxY >= 0) novaFeicaoOGR.SetField(idxY, pontoNts.Y);
+                        }
+
+                        // Preenche a data de aquisição automaticamente
+                        int idxData = featureDefn.GetFieldIndex("DATA_CRIAC");
+                        if (idxData >= 0) novaFeicaoOGR.SetField(idxData, DateTime.Now.ToString("dd/MM/yyyy"));
+
+                        // 4. Grava fisicamente na base de dados!
+                        layerOGR.CreateFeature(novaFeicaoOGR);
+
+                        // Marca na Memória RAM que este lote já está a salvo
+                        if (feicaoRAM.Attributes != null)
+                        {
+                            if (!feicaoRAM.Attributes.Exists("_SYS_GRAVADO"))
+                                feicaoRAM.Attributes.Add("_SYS_GRAVADO", "SIM");
+                            else
+                                feicaoRAM.Attributes["_SYS_GRAVADO"] = "SIM";
+                        }
+
+                        totalGravados++;
+                    }
+
+                    // Sela a transação e força o HD/SSD a salvar os bytes
+                    layerOGR.CommitTransaction();
+                    layerOGR.SyncToDisk();
+                }
+            }
+
+            // Desliga a luz amarela do botão de "Salvar"
             temEdicoesPendentes = false;
             if (modoEdicaoVerticeLigado) await AlternarEdicaoVertices();
             StateHasChanged();
+
+            if (totalGravados > 0)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"TRANSAÇÃO CONCLUÍDA!\n\n{totalGravados} geometria(s) injetada(s) com sucesso na Base de Dados e na Tabela DBF.");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("console.log", "Nenhuma edição nova pendente para gravação.");
+            }
         }
-        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Falha no Commit I/O: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Falha crítica de Input/Output (Disco):\n{ex.Message}");
+        }
     }
 
     // =========================================================================
@@ -4235,36 +4573,68 @@
                     RecalcularMedicoes();
                     _ = SincronizarOverlay(false);
                     break;
-
+                case ModoFerramenta.AquisicaoPonto:
+                case ModoFerramenta.AquisicaoLinha:
                 case ModoFerramenta.AquisicaoPoligono:
+                    if (string.IsNullOrEmpty(_camadaDestinoAquisicao) || _camadaDestinoAquisicao == "NOVA")
+                    {
+                        JSRuntime.InvokeVoidAsync("alert", "⚠️ SELECIONE UM DESTINO!\n\nPor favor, selecione uma camada no menu superior ou conclua a criação do Novo Ficheiro antes de vetorizar.");
+                        return; // Aborta o clique imediatamente! A linha não é desenhada.
+                    }
+
                     var ptFinalAq = ptMundo;
 
-                    // 1. PRIORIDADE ABSOLUTA: RESTRIÇÃO DE DISTÂNCIA
-                    if (_travaDistanciaAtiva && _travaDistanciaValor > 0 && MapService.PontosAquisicao.Count > 0)
+                    // 1. PRIORIDADE ABSOLUTA: RESTRIÇÃO E MODOS (MÁXIMO VS FIXO)
+                    if (MapService.TravaDistanciaAtiva && MapService.TravaDistanciaValor > 0 && MapService.PontosAquisicao.Count > 0)
                     {
                         var ultimoPonto = MapService.PontosAquisicao.Last();
 
-                        // Recalcula o ângulo no momento exato do clique para evitar atrasos (lag) do rato
                         double dx = ptFinalAq.X - ultimoPonto.X;
                         double dy = ptFinalAq.Y - ultimoPonto.Y;
-                        double anguloRadianos = Math.Atan2(dy, dx);
+                        double distanciaRato = Math.Sqrt(dx * dx + dy * dy);
 
-                        // Esmaga a coordenada do clique, forçando-a a ficar no raio
-                        ptFinalAq = new SkiaSharp.SKPoint(
-                            (float)(ultimoPonto.X + Math.Cos(anguloRadianos) * _travaDistanciaValor),
-                            (float)(ultimoPonto.Y + Math.Sin(anguloRadianos) * _travaDistanciaValor)
-                        );
+                        if (MapService.TravaModoFixo || distanciaRato > MapService.TravaDistanciaValor)
+                        {
+                            double anguloRadianos = Math.Atan2(dy, dx);
+                            ptFinalAq = new SkiaSharp.SKPoint(
+                                (float)(ultimoPonto.X + Math.Cos(anguloRadianos) * MapService.TravaDistanciaValor),
+                                (float)(ultimoPonto.Y + Math.Sin(anguloRadianos) * MapService.TravaDistanciaValor)
+                            );
+                        }
                     }
-                    // 2. SE A RESTRIÇÃO ESTIVER DESLIGADA: PROCURA O SNAP MAGNÉTICO
+                    // 2. SE A RESTRIÇÃO ESTIVER DESLIGADA: PROCURA O SNAP
                     else if (_snapAquisicaoVertice || _snapAquisicaoAresta)
                     {
-                        // DESENHO: Passa as variáveis exatas que ativou no menu
                         var ptMagneticoAq = MapService.EncontrarVerticeProximo(ptMundo, 15.0f / matriz.ScaleX, _snapAquisicaoVertice, _snapAquisicaoAresta);
                         if (ptMagneticoAq.HasValue) ptFinalAq = ptMagneticoAq.Value;
                     }
 
+                    // ==========================================================
+                    // >>> TRAVA TOPOLÓGICA ANTI-DUPLO-CLIQUE E SANGRAMENTO <<<
+                    // ==========================================================
+                    if (MapService.PontosAquisicao.Count > 0)
+                    {
+                        var ultimoGravado = MapService.PontosAquisicao.Last();
+
+                        // Mede a distância entre o NOVO ponto processado e o ÚLTIMO ponto gravado
+                        double distTesteX = ptFinalAq.X - ultimoGravado.X;
+                        double distTesteY = ptFinalAq.Y - ultimoGravado.Y;
+                        double distFisica = Math.Sqrt(distTesteX * distTesteX + distTesteY * distTesteY);
+
+                        // Se a diferença for menor que 1 milímetro, é um clique fantasma/duplo!
+                        if (distFisica < 0.001)
+                        {
+                            return; // Aborta silenciosamente. Não grava e protege o banco de dados.
+                        }
+                    }
+
                     // 3. INJETA O VÉRTICE BLINDADO NA MEMÓRIA
                     MapService.PontosAquisicao.Add(ptFinalAq);
+                    if (_ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
+                    {
+                        ConcluirAquisicaoGeometrica();
+                        return; // Aborta o resto, o modal já vai abrir!
+                    }
                     SolicitarNovoFrame();
                     break;
             }
@@ -4382,7 +4752,7 @@
 
                 if (tecla == "escape") { CancelarAquisicao(); return; }
                 if (tecla == "z" || tecla == "ctrl+z" || tecla == "backspace") { DesfazerUltimoPontoAquisicao(); return; }
-                if (tecla == "enter" || tecla == "c") { ConcluirAquisicaoPoligono(); return; }
+                if (tecla == "enter" || tecla == "c") { ConcluirAquisicaoGeometrica(); return; }
             }
 
             // 3. ATALHOS GLOBAIS DE CANCELAMENTO (ESC)
@@ -4447,6 +4817,7 @@
          (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "crosshair" : "default"));
     private void ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
+        if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
         // GATILHO TÁTICO: Clique Direito durante a vetorização
         if (e.Button == 2 && _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
         {
@@ -4479,6 +4850,7 @@
 
     private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
+        if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
         // 1. CONGELAMENTO ESTRITO DA ÂNCORA (Zero lógica de arrasto aqui)
         if (_mostrarInputCogo == false && _mostrarInputAbsoluto == false && _mostrarMenuContexto == false)
         {
@@ -4488,7 +4860,7 @@
 
         // 2. FÍSICA DO MAPA (PAN E SNAP)
         if (_isPanning) return;
-        if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+        if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
         {
             // OTIMIZAÇÃO: Limita o processamento a 30 FPS para salvar a GPU
             if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds < 33) return;
@@ -4501,7 +4873,11 @@
                 // 1. A MATEMÁTICA DA RESTRIÇÃO DOMINA PRIMEIRO
                 // 1. A MATEMÁTICA DA RESTRIÇÃO DOMINA PRIMEIRO
                 // 2. A MATEMÁTICA DE RESTRIÇÃO DOMINA O FLUXO
-                if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && _travaDistanciaAtiva && _travaDistanciaValor > 0 && MapService.PontosAquisicao.Count > 0)
+                // 2. A MATEMÁTICA DE RESTRIÇÃO DOMINA O FLUXO
+                // 1. A MATEMÁTICA DE RESTRIÇÃO DOMINA O FLUXO
+                // 2. A MATEMÁTICA DE RESTRIÇÃO DOMINA O FLUXO
+                // 1. A MATEMÁTICA DE RESTRIÇÃO DOMINA O FLUXO (1:1 com o Raster)
+                if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.TravaDistanciaAtiva && MapService.TravaDistanciaValor > 0 && MapService.PontosAquisicao.Count > 0)
                 {
                     var ultimoPonto = MapService.PontosAquisicao.Last();
 
@@ -4511,18 +4887,17 @@
                     double distanciaRato = Math.Sqrt(dx * dx + dy * dy);
                     double anguloRadianos = Math.Atan2(dy, dx);
 
-                    // SE FOR MODO FIXO *OU* SE O RATO TENTAR PASSAR DO LIMITE MÁXIMO
-                    if (_travaModoFixo || distanciaRato > _travaDistanciaValor)
+                    // COMPORTAMENTO ARCMAP PERFEITO:
+                    if (MapService.TravaModoFixo || distanciaRato > MapService.TravaDistanciaValor)
                     {
                         ptMundo = new SkiaSharp.SKPoint(
-                            (float)(ultimoPonto.X + Math.Cos(anguloRadianos) * _travaDistanciaValor),
-                            (float)(ultimoPonto.Y + Math.Sin(anguloRadianos) * _travaDistanciaValor)
+                            (float)(ultimoPonto.X + Math.Cos(anguloRadianos) * MapService.TravaDistanciaValor),
+                            (float)(ultimoPonto.Y + Math.Sin(anguloRadianos) * MapService.TravaDistanciaValor)
                         );
                     }
 
                     MapService.PontoCursorMundo = ptMundo;
                     MapService.PontoCursorSnap = null;
-
                     SolicitarNovoFrame();
                     return;
                 }
@@ -4572,7 +4947,7 @@
                     precisaAtualizarHTML = true; // A interface HTML precisa de atualizar os números na régua!
                 }
 
-                if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count > 0)
+                if ((_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto) && MapService.PontosAquisicao.Count > 0)
                 {
                     precisaRedesenhar = true;
                 }
@@ -4624,7 +4999,8 @@
     [JSInvokable]
     public void ReceberMovimentoFerramentas(double pixelX, double pixelY)
     {
-        if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+        if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
+        if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
         {
             var matrizCompleta = ObterMatrizMatematica();
 
@@ -4644,7 +5020,7 @@
                     checarVertices = true;
                     checarArestas = false; // A correção da Medição: Nunca usa arestas!
                 }
-                else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+                else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
                 {
                     if (_snapAquisicaoVertice || _snapAquisicaoAresta)
                     {
@@ -4679,7 +5055,7 @@
                         precisaAtualizarHTML = true;
                     }
 
-                    if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count > 0)
+                    if ((_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto) && MapService.PontosAquisicao.Count > 0)
                     {
                         precisaRedesenhar = true; 
                     }
@@ -4957,87 +5333,98 @@
 
         return matriz.MapPoint(ptMundo);
     }
-    private void ConcluirAquisicaoPoligono()
+    private void ConcluirAquisicaoGeometrica()
     {
-        if (MapService.PontosAquisicao.Count >= 3)
+        // Validação matemática de segurança para evitar que o OGR crashe com geometrias incompletas
+        if (_ferramentaAtiva == ModoFerramenta.AquisicaoPonto && MapService.PontosAquisicao.Count < 1) return;
+        if (_ferramentaAtiva == ModoFerramenta.AquisicaoLinha && MapService.PontosAquisicao.Count < 2) return;
+        if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count < 3) return;
+
+        string camadaAlvo = _camadaDestinoAquisicao;
+
+        // Fallback de segurança se o utilizador não selecionar a camada no painel
+        if (string.IsNullOrEmpty(camadaAlvo))
         {
-            string camadaAlvo = _camadaDestinoAquisicao;
+            camadaAlvo = "Nova_Aquisicao";
+            int contador = 1;
+            while (CamadasAtivas.Any(c => c.Nome == camadaAlvo)) { camadaAlvo = $"Nova_Aquisicao_{contador}"; contador++; }
 
-            // SEGURANÇA: Se o engenheiro escolheu [ Nova Camada ] no menu flutuante
-            if (string.IsNullOrEmpty(camadaAlvo))
-            {
-                camadaAlvo = "Novos_Lotes";
-
-                // Evita criar camadas com o mesmo nome se o utilizador repetir o processo
-                int contador = 1;
-                while (CamadasAtivas.Any(c => c.Nome == camadaAlvo))
-                {
-                    camadaAlvo = $"Novos_Lotes_{contador}";
-                    contador++;
-                }
-
-                CamadasAtivas.Insert(0, new Camada { Nome = camadaAlvo, Tipo = "Vetor", Visivel = true });
-
-                MapService.EstilosPorCamada[camadaAlvo] = new GeoNex.Services.EstiloCamada
-                { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
-
-                // Avisa o visualizador que uma nova camada nasceu
-                SincronizarHierarquia();
-            }
-
-            var pontos = MapService.PontosAquisicao.ToList();
-            pontos.Add(pontos[0]); // Fecha o perímetro
-
-            var coordsWkt = pontos.Select(p => $"{(p.X + MapService.OffsetMundoX).ToString(System.Globalization.CultureInfo.InvariantCulture)} {(-p.Y + MapService.OffsetMundoY).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
-            string geometriaWKT = $"POLYGON (({string.Join(", ", coordsWkt)}))";
-
-            try
-            {
-                var leitorWkt = new NetTopologySuite.IO.WKTReader();
-                var geometriaNts = leitorWkt.Read(geometriaWKT);
-
-                // === ESTRUTURA DE ATRIBUTOS (HERANÇA) ===
-                var atributos = new NetTopologySuite.Features.AttributesTable();
-
-                if (!MapService.FeicoesOriginais.TryGetValue(camadaAlvo, out var colecao))
-                {
-                    colecao = new NetTopologySuite.Features.FeatureCollection();
-                    MapService.FeicoesOriginais[camadaAlvo] = colecao;
-                }
-
-                // Clona as colunas da camada existente para que a Tabela de Atributos não sofra crash
-                if (colecao.Count > 0 && colecao[0].Attributes != null)
-                {
-                    foreach (var nomeAtributo in colecao[0].Attributes.GetNames())
-                    {
-                        atributos.Add(nomeAtributo, ""); // Inicia em branco
-                    }
-                }
-
-                var novaFeicao = new NetTopologySuite.Features.Feature(geometriaNts, atributos);
-                colecao.Add(novaFeicao);
-
-                // 1. INJETA NA PLACA DE VÍDEO
-                MapService.PreCompilarPoligonos(camadaAlvo, colecao);
-
-                // 2. ATUALIZA A MIRA DO RATO (Raycast) PARA PODERMOS CLICAR NA NOVA FEIÇÃO
-                // 2. RECONSTRÓI A ÁRVORE ESPACIAL PARA O SNAP E O RAYCAST LEREM O NOVO LOTE
-                MapService.ConstruirIndiceEspacial();
-                // 3. SE O MAPA FOR TEMÁTICO, RECALCULA AS CORES DE TUDO
-                if (MapService.EstilosPorCamada.TryGetValue(camadaAlvo, out var estilo) && estilo.TipoSimbologia == "CATEGORIZADA")
-                {
-                    MapService.CompilarCategorias(camadaAlvo, estilo.ColunaSimbologia);
-                }
-            }
-            catch (Exception ex) { Console.WriteLine("Erro topológico: " + ex.Message); }
-
-            // Limpeza final do rascunho de ecrã
-            MapService.PontosAquisicao.Clear();
-            MapService.PontoCursorMundo = null;
-
-            SolicitarNovoFrame();
-            StateHasChanged();
+            CamadasAtivas.Insert(0, new Camada { Nome = camadaAlvo, Tipo = "Vetor", Visivel = true });
+            MapService.EstilosPorCamada[camadaAlvo] = new GeoNex.Services.EstiloCamada
+            { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
+            SincronizarHierarquia();
         }
+
+        var pontos = MapService.PontosAquisicao.ToList();
+        string geometriaWKT = "";
+
+        // ==========================================================
+        // >>> MOTOR DE GERAÇÃO WKT MULTI-GEOMETRIA <<<
+        // ==========================================================
+        if (_ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
+        {
+            var p = pontos[0];
+            geometriaWKT = $"POINT ({(p.X + MapService.OffsetMundoX).ToString(System.Globalization.CultureInfo.InvariantCulture)} {(-p.Y + MapService.OffsetMundoY).ToString(System.Globalization.CultureInfo.InvariantCulture)})";
+        }
+        else if (_ferramentaAtiva == ModoFerramenta.AquisicaoLinha)
+        {
+            var coordsWkt = pontos.Select(p => $"{(p.X + MapService.OffsetMundoX).ToString(System.Globalization.CultureInfo.InvariantCulture)} {(-p.Y + MapService.OffsetMundoY).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            geometriaWKT = $"LINESTRING ({string.Join(", ", coordsWkt)})";
+        }
+        else if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
+        {
+            pontos.Add(pontos[0]); // Para polígonos, fechamos o anel forçando o último vértice a ser igual ao primeiro
+            var coordsWkt = pontos.Select(p => $"{(p.X + MapService.OffsetMundoX).ToString(System.Globalization.CultureInfo.InvariantCulture)} {(-p.Y + MapService.OffsetMundoY).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            geometriaWKT = $"POLYGON (({string.Join(", ", coordsWkt)}))";
+        }
+
+        try
+        {
+            var leitorWkt = new NetTopologySuite.IO.WKTReader();
+            var geometriaNts = leitorWkt.Read(geometriaWKT);
+
+            var atributos = new NetTopologySuite.Features.AttributesTable();
+            if (!MapService.FeicoesOriginais.TryGetValue(camadaAlvo, out var colecao))
+            {
+                colecao = new NetTopologySuite.Features.FeatureCollection();
+                MapService.FeicoesOriginais[camadaAlvo] = colecao;
+            }
+
+            // Mantém as colunas da tabela alinhadas para não corromper o DBF
+            if (colecao.Count > 0 && colecao[0].Attributes != null)
+            {
+                foreach (var nomeAtributo in colecao[0].Attributes.GetNames())
+                {
+                    atributos.Add(nomeAtributo, "");
+                }
+            }
+
+            var novaFeicao = new NetTopologySuite.Features.Feature(geometriaNts, atributos);
+            colecao.Add(novaFeicao);
+
+            // 1. Injeta na Placa de Vídeo
+            MapService.PreCompilarPoligonos(camadaAlvo, colecao);
+
+            // 2. Reconstrói a árvore de pesquisa espacial (SNAP)
+            MapService.ConstruirIndiceEspacial();
+
+            // 3. Recalcula as cores se for um mapa temático
+            if (MapService.EstilosPorCamada.TryGetValue(camadaAlvo, out var estilo) && estilo.TipoSimbologia == "CATEGORIZADA")
+            {
+                MapService.CompilarCategorias(camadaAlvo, estilo.ColunaSimbologia);
+            }
+        }
+        catch (Exception ex) { Console.WriteLine("Erro topológico: " + ex.Message); }
+
+        // Acende a luz amarela de "Gravação Pendente" no menu superior
+        temEdicoesPendentes = true;
+
+        // Limpa a tela
+        MapService.PontosAquisicao.Clear();
+        MapService.PontoCursorMundo = null;
+
+        SolicitarNovoFrame();
+        StateHasChanged();
     }
 
     private void CancelarAquisicao()
@@ -5052,7 +5439,21 @@
     {
         if (MapService.PontosAquisicao.Count > 0)
         {
+            // 1. Remove o último vértice cravado
             MapService.PontosAquisicao.RemoveAt(MapService.PontosAquisicao.Count - 1);
+
+            // ==========================================================
+            // >>> AUDITORIA DO COGO: DESARMA A RESTRIÇÃO DE DISTÂNCIA <<<
+            // ==========================================================
+            // Se o engenheiro ativou o compasso e apertou Ctrl+Z ou Desfazer,
+            // temos de garantir que a trava é quebrada e a linha volta a ficar livre!
+            if (MapService.TravaDistanciaAtiva)
+            {
+                MapService.TravaDistanciaAtiva = false;
+                // MapService.TravaDistanciaValor = 0; // Opcional: Zera o número digitado na caixa
+            }
+            // ==========================================================
+
             SolicitarNovoFrame(); // Força a placa gráfica a recalcular a linha elástica
             StateHasChanged();    // Atualiza a interface
         }
@@ -5096,6 +5497,32 @@
 
         SolicitarNovoFrame();
         InvokeAsync(StateHasChanged);
+    }
+    public double ConverterAzimuteParaGrausDecimais(string entrada)
+    {
+        if (string.IsNullOrWhiteSpace(entrada)) return 0;
+
+        // Limpa símbolos clássicos e transforma tudo num padrão separado por espaços
+        entrada = entrada.Replace("°", " ").Replace("'", " ").Replace("\"", " ").Trim();
+
+        // Divide os números (Ex: "90 30 00" vira um array com [90, 30, 00])
+        var partes = entrada.Split(new[] { ' ', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+
+        double grausDecimais = 0;
+
+        // Converte os Graus
+        if (partes.Length > 0 && double.TryParse(partes[0].Replace(".", ","), out double graus))
+            grausDecimais += graus;
+
+        // Converte os Minutos
+        if (partes.Length > 1 && double.TryParse(partes[1].Replace(".", ","), out double minutos))
+            grausDecimais += minutos / 60.0;
+
+        // Converte os Segundos
+        if (partes.Length > 2 && double.TryParse(partes[2].Replace(".", ","), out double segundos))
+            grausDecimais += segundos / 3600.0;
+
+        return grausDecimais;
     }
     // ✔️ ADICIONE ESTE NOVO MÉTODO (A PONTE COM O JAVASCRIPT):
     [JSInvokable]

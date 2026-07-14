@@ -10,11 +10,15 @@ namespace GeoNex.Services
 {
     public class MapRenderingService
     {
-
+        public string TipoGeometriaAtiva { get; set; } = "POLIGONO";
+        public bool TravaDistanciaAtiva { get; set; } = false;
+        public double TravaDistanciaValor { get; set; } = 50;
+        public bool TravaModoFixo { get; set; } = true; // <-- MUDE ISTO PARA TRUE!
         public float CameraZoom { get; set; } = 1.0f;
         public float CameraPanX { get; set; } = 0f;
         public float CameraPanY { get; set; } = 0f;
         public double DistanciaTotal { get; set; }
+        
         public double AreaTotal { get; set; }
         public SkiaSharp.SKPath? CaminhoFeicaoDestacada { get; set; }
         public SKPaint PincelFill { get; private set; }
