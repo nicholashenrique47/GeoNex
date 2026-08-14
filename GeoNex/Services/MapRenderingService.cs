@@ -1,4 +1,4 @@
-﻿using SkiaSharp;
+using SkiaSharp;
 using OSGeo.GDAL;
 using System;
 using System.Collections.Generic;
@@ -33,9 +33,11 @@ namespace GeoNex.Services
         public Dictionary<string, SKPath> VetoresPorCamada { get; private set; } = new();
         public Dictionary<string, SKPath> LinhasPorCamada { get; private set; } = new();
         public Dictionary<string, SKPath> PontosPorCamada { get; private set; } = new();
-        // === NOVOS DICIONÁRIOS PARA O MODO CATEGORIZADO ===
+
+        // CACHE DE CAMADAS CATEGORIZADAS (Chave 1: Nome da Camada, Chave 2: Nome da Categoria (Ex: ELIANA), Valor: Caminho Combinado)
         public Dictionary<string, FeatureCollection> FeicoesOriginais { get; private set; } = new();
         public Dictionary<string, Dictionary<string, SKPath>> VetoresCategorizados { get; private set; } = new();
+        public Dictionary<string, Dictionary<string, SKPath>> LinhasCategorizadas { get; private set; } = new();
         public List<string> OrdemCamadas { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosAquisicao { get; set; } = new();
@@ -295,7 +297,8 @@ namespace GeoNex.Services
                     {
                         float x = (float)(pt.Coordinate.X - OffsetMundoX);
                         float y = -(float)(pt.Coordinate.Y - OffsetMundoY);
-                        pointPath.AddCircle(x, y, 2.5f);
+                        pointPath.MoveTo(x, y);
+                        pointPath.LineTo(x, y); // Linha de comprimento zero (desenhada como círculo pelo Round Cap)
                     }
                 }
             }
@@ -313,13 +316,14 @@ namespace GeoNex.Services
             if (!FeicoesOriginais.ContainsKey(nomeCamada)) return;
 
             var feicoes = FeicoesOriginais[nomeCamada];
-            var dicCategorias = new Dictionary<string, SKPath>();
+            var dicCategoriasPoly = new Dictionary<string, SKPath>();
+            var dicCategoriasLine = new Dictionary<string, SKPath>();
 
             foreach (IFeature feicao in feicoes)
             {
                 if (feicao.Geometry == null) continue;
 
-                // 1. Descobre a qual Categoria este polígono pertence (ex: "ELIANA")
+                // 1. Descobre a qual Categoria este elemento pertence (ex: "ELIANA")
                 string valorCategoria = "NULO";
                 if (feicao.Attributes != null && feicao.Attributes.Exists(colunaSimbologia))
                 {
@@ -327,20 +331,15 @@ namespace GeoNex.Services
                     valorCategoria = objVal != null ? objVal.ToString() : "NULO";
                 }
 
-                // 2. Se a categoria é nova, cria um "Saco" (SKPath) para ela
-                if (!dicCategorias.ContainsKey(valorCategoria))
-                {
-                    dicCategorias[valorCategoria] = new SKPath { FillType = SKPathFillType.EvenOdd };
-                }
-
-                // 3. Joga o polígono desenhado dentro do "Saco" certo
-                var polyPath = dicCategorias[valorCategoria];
-
                 for (int i = 0; i < feicao.Geometry.NumGeometries; i++)
                 {
                     var subGeom = feicao.Geometry.GetGeometryN(i);
                     if (subGeom is NetTopologySuite.Geometries.Polygon poly)
                     {
+                        if (!dicCategoriasPoly.ContainsKey(valorCategoria))
+                            dicCategoriasPoly[valorCategoria] = new SKPath { FillType = SKPathFillType.EvenOdd };
+
+                        var polyPath = dicCategoriasPoly[valorCategoria];
                         var extPath = new SKPath();
                         var extCoords = poly.ExteriorRing.Coordinates;
                         for (int j = 0; j < extCoords.Length; j++)
@@ -366,10 +365,27 @@ namespace GeoNex.Services
                             polyPath.AddPath(holePath);
                         }
                     }
+                    else if (subGeom is NetTopologySuite.Geometries.LineString line)
+                    {
+                        if (!dicCategoriasLine.ContainsKey(valorCategoria))
+                            dicCategoriasLine[valorCategoria] = new SKPath();
+
+                        var linePath = dicCategoriasLine[valorCategoria];
+                        var lp = new SKPath();
+                        var coords = line.Coordinates;
+                        for (int j = 0; j < coords.Length; j++)
+                        {
+                            float x = (float)(coords[j].X - OffsetMundoX);
+                            float y = -(float)(coords[j].Y - OffsetMundoY);
+                            if (j == 0) lp.MoveTo(x, y); else lp.LineTo(x, y);
+                        }
+                        linePath.AddPath(lp);
+                    }
                 }
             }
             // Guarda na placa gráfica as geometrias separadas
-            VetoresCategorizados[nomeCamada] = dicCategorias;
+            VetoresCategorizados[nomeCamada] = dicCategoriasPoly;
+            LinhasCategorizadas[nomeCamada] = dicCategoriasLine;
         }
         // ======================================================
         // MOTOR DE RAYCASTING (POINT-IN-POLYGON)

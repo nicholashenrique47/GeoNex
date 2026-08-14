@@ -1,11 +1,14 @@
-﻿namespace GeoNex.Services
+namespace GeoNex.Services
 {
     public class EstiloCamada
     {
         public string TipoSimbologia { get; set; } = "UNICA";
         public string CorPreenchimento { get; set; } = "#38bdf8";
         public string CorBorda { get; set; } = "#0ea5e9";
-        public float EspessuraBorda { get; set; } = 1.0f;
+        public string TipoLinha { get; set; } = "Solid"; // Solid, Dash, Dot, DashDot
+        public float Tamanho { get; set; } = 5.0f; // Usado como espessura para linhas e raio para pontos
+        public float EspessuraLinha { get; set; } = 2.0f; // Miolo da linha
+        public float EspessuraBorda { get; set; } = 1.0f; // Casing (borda extra)
         public float Opacidade { get; set; } = 0.35f;
 
         // Disjuntores de Transparência Absoluta

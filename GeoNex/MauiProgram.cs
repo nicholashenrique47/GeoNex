@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using SkiaSharp.Views.Maui.Controls.Hosting;
 using GeoNex.Services;
 using CommunityToolkit.Maui; // 1. OBRIGATÓRIO: Importação do Toolkit
@@ -13,6 +13,7 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        System.IO.File.AppendAllText("debug_boot.txt", "1. CreateMauiApp Started\n");
         var builder = MauiApp.CreateBuilder();
 
         // A CORRENTE DE EXECUÇÃO
@@ -23,7 +24,7 @@ public static class MauiProgram
 
 #if WINDOWS
         // Aplica a transparência no arranque
-        WebView2Transparency.Aplicar();
+        // WebView2Transparency.Aplicar();
 #endif
 
         builder.Services.AddMauiBlazorWebView();
@@ -36,7 +37,10 @@ public static class MauiProgram
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
 #endif
-
-        return builder.Build();
+        
+        System.IO.File.AppendAllText("debug_boot.txt", "2. CreateMauiApp Build\n");
+        var app = builder.Build();
+        System.IO.File.AppendAllText("debug_boot.txt", "3. CreateMauiApp Finished\n");
+        return app;
     }
 }

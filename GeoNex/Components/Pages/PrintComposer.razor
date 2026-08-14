@@ -1,0 +1,428 @@
+@using GeoNex.Services
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+
+@if (IsVisible)
+{
+    <div class="composer-overlay">
+        <!-- BARRA SUPERIOR -->
+        <header class="composer-header glass-panel">
+            <div class="brand-group">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 10px; color: #38bdf8;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <h2>Compositor de Impressão</h2>
+            </div>
+            
+            <div class="composer-actions">
+                <button class="tool-btn" @onclick="ExportarPNG" title="Exportar como Imagem (PNG 300 DPI)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    Exportar Imagem
+                </button>
+                <button class="tool-btn" @onclick="ExportarPDF" title="Exportar como Documento (PDF vetorial)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    Exportar PDF
+                </button>
+                <div class="vertical-divider"></div>
+                <button class="btn-close" @onclick="Fechar" title="Fechar Compositor">✕</button>
+            </div>
+        </header>
+
+        <div class="composer-workspace">
+            
+            <!-- TOOLBAR ESQUERDA (FERRAMENTAS) -->
+            <aside class="composer-toolbar glass-panel">
+                <div class="tool-group">
+                    <button class="composer-tool @(_modoInteracaoMapa ? "" : "active")" title="Selecionar/Mover Item" @onclick="() => AlternarModoInteracao(false)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path><path d="M13 13l6 6"></path></svg>
+                    </button>
+                    <button class="composer-tool @(_modoInteracaoMapa ? "active" : "")" title="Mover Conteúdo do Item (Pan Mapa)" @onclick="() => AlternarModoInteracao(true)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M19 9l3 3-3 3M9 19l3 3 3-3M2 12h20M12 2v20"></path></svg>
+                    </button>
+                </div>
+                
+                <div class="tool-divider"></div>
+                
+                <div class="tool-group">
+                    <button class="composer-tool" @onclick="AdicionarMapa" title="Adicionar Novo Mapa">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+                    </button>
+                    <button class="composer-tool" @onclick="AdicionarTexto" title="Adicionar Rótulo (Texto)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                    </button>
+                    <button class="composer-tool" @onclick="AdicionarLegenda" title="Adicionar Legenda">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                    </button>
+                    <button class="composer-tool" @onclick="AdicionarNorte" title="Adicionar Seta de Norte">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 19 21 12 17 5 21 12 2"></polygon></svg>
+                    </button>
+                    <button class="composer-tool" title="Adicionar Barra de Escala">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6" y2="10"></line><line x1="10" y1="6" x2="10" y2="10"></line><line x1="14" y1="6" x2="14" y2="10"></line><line x1="18" y1="6" x2="18" y2="10"></line></svg>
+                    </button>
+                    <button class="composer-tool" title="Adicionar Imagem">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- ÁREA DO PAPEL (CANVAS) -->
+            <main class="composer-canvas-area" id="composer-canvas-area">
+                <div class="canvas-ruler horizontal"></div>
+                <div class="canvas-ruler vertical"></div>
+                
+                <div class="paper-sheet shadow-2xl" id="paper-sheet" style="width: @(LarguraPapelPx)px; height: @(AlturaPapelPx)px;">
+                    <!-- Elementos do Layout serão renderizados aqui pelo Javascript -->
+                </div>
+            </main>
+
+            <!-- PAINEL DIREITO (PROPRIEDADES) -->
+            <aside class="composer-properties glass-panel custom-scrollbar">
+                <div class="props-header">
+                    <h3>Propriedades da Página</h3>
+                </div>
+                
+                <div class="props-content">
+                    <div class="form-group-vertical">
+                        <label class="gis-label">Tamanho da Página</label>
+                        <select class="gis-select" @bind="TamanhoPagina" @bind:after="AtualizarDimensoesPapel">
+                            <option value="A0">A0 (841 x 1189 mm)</option>
+                            <option value="A1">A1 (594 x 841 mm)</option>
+                            <option value="A2">A2 (420 x 594 mm)</option>
+                            <option value="A3">A3 (297 x 420 mm)</option>
+                            <option value="A4">A4 (210 x 297 mm)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group-vertical" style="margin-top: 15px;">
+                        <label class="gis-label">Orientação</label>
+                        <select class="gis-select" @bind="Orientacao" @bind:after="AtualizarDimensoesPapel">
+                            <option value="Landscape">Paisagem (Horizontal)</option>
+                            <option value="Portrait">Retrato (Vertical)</option>
+                        </select>
+                    </div>
+                    
+                    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
+                    
+                    <div class="props-header">
+                        <h3>Itens do Layout</h3>
+                    </div>
+                    
+                    <div class="items-list">
+                        <div class="item-layer active">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon></svg>
+                            Mapa 1
+                        </div>
+                        <div class="item-layer">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                            Título do Mapa
+                        </div>
+                        <div class="item-layer">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                            Legenda
+                        </div>
+                    </div>
+                    
+                    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
+                    
+                    <!-- Abaixo disto entrariam as Propriedades do Item Selecionado -->
+                    <div class="props-header">
+                        <h3>Propriedades do Item</h3>
+                        <span style="font-size: 0.75rem; color: #64748b; font-style: italic; display: block; margin-top: 5px;">Selecione um item no papel...</span>
+                    </div>
+
+                </div>
+            </aside>
+            
+        </div>
+    </div>
+}
+
+<style>
+    /* COMPOSER OVERLAY BASE */
+    .composer-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: #0f111a;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* HEADER */
+    .composer-header {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        background: rgba(22, 25, 33, 0.95);
+    }
+
+    .composer-header h2 {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin: 0;
+        letter-spacing: 0.5px;
+    }
+
+    .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .btn-close {
+        background: transparent;
+        border: none;
+        color: #ef4444;
+        font-size: 1.2rem;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+    }
+    .btn-close:hover {
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* WORKSPACE */
+    .composer-workspace {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    /* TOOLBAR ESQUERDA */
+    .composer-toolbar {
+        width: 50px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 15px 0;
+        border-right: 1px solid rgba(255,255,255,0.05);
+        background: rgba(22, 25, 33, 0.95);
+        z-index: 10;
+    }
+
+    .tool-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .tool-divider {
+        width: 60%;
+        height: 1px;
+        background: rgba(255,255,255,0.1);
+        margin: 15px 0;
+    }
+
+    .composer-tool {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: transparent;
+        border: 1px solid transparent;
+        color: #94a3b8;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .composer-tool:hover {
+        background: rgba(255,255,255,0.05);
+        color: #f8fafc;
+    }
+    .composer-tool.active {
+        background: rgba(56, 189, 248, 0.15);
+        border-color: rgba(56, 189, 248, 0.3);
+        color: #38bdf8;
+    }
+
+    /* CANVAS AREA */
+    .composer-canvas-area {
+        flex: 1;
+        background-color: #1e222d;
+        position: relative;
+        overflow: auto;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-image: 
+            linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+        background-size: 20px 20px;
+    }
+
+    /* O PAPEL */
+    .paper-sheet {
+        background-color: #ffffff;
+        position: relative;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        transition: width 0.3s ease, height 0.3s ease;
+        /* Inicialmente um A4 Paisagem para teste visual */
+        overflow: hidden;
+    }
+
+    /* PAINEL DIREITO */
+    .composer-properties {
+        width: 320px;
+        border-left: 1px solid rgba(255,255,255,0.05);
+        background: rgba(22, 25, 33, 0.95);
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .props-header {
+        padding: 15px 20px 5px 20px;
+    }
+    .props-header h3 {
+        font-size: 0.85rem;
+        color: #e2e8f0;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin: 0;
+    }
+
+    .props-content {
+        padding: 15px 20px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    /* ITEM LIST LAYER */
+    .items-list {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .item-layer {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        color: #cbd5e1;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: all 0.2s ease;
+    }
+    .item-layer:hover {
+        background: rgba(255,255,255,0.05);
+    }
+    .item-layer.active {
+        background: rgba(56, 189, 248, 0.1);
+        border-color: rgba(56, 189, 248, 0.2);
+        color: #38bdf8;
+    }
+</style>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; } = false;
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string TamanhoPagina { get; set; } = "A4";
+    private string Orientacao { get; set; } = "Landscape";
+
+    // O browser assume tipicamente 96 DPI.
+    // 1 milímetro = 3.779527559 pixels a 96 DPI
+    private const double PixelsPerMm = 3.779527559;
+
+    private int LarguraPapelPx { get; set; } = 1123; // A4 Landscape
+    private int AlturaPapelPx { get; set; } = 794;
+
+    private bool _foiInicializado = false;
+    private bool _modoInteracaoMapa = false;
+
+    private void Fechar()
+    {
+        IsVisible = false;
+        OnClose.InvokeAsync();
+    }
+
+    protected override void OnInitialized()
+    {
+        AtualizarDimensoesPapel();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsVisible && !_foiInicializado)
+        {
+            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet");
+            _foiInicializado = true;
+        }
+        else if (!IsVisible)
+        {
+            _foiInicializado = false;
+        }
+    }
+
+    private void AtualizarDimensoesPapel()
+    {
+        double widthMm = 297;
+        double heightMm = 210;
+
+        switch (TamanhoPagina)
+        {
+            case "A0": widthMm = 1189; heightMm = 841; break;
+            case "A1": widthMm = 841; heightMm = 594; break;
+            case "A2": widthMm = 594; heightMm = 420; break;
+            case "A3": widthMm = 420; heightMm = 297; break;
+            case "A4": widthMm = 297; heightMm = 210; break;
+        }
+
+        if (Orientacao == "Portrait")
+        {
+            var temp = widthMm;
+            widthMm = heightMm;
+            heightMm = temp;
+        }
+
+        LarguraPapelPx = (int)Math.Round(widthMm * PixelsPerMm);
+        AlturaPapelPx = (int)Math.Round(heightMm * PixelsPerMm);
+    }
+
+    private async Task AdicionarMapa()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", "Mapa 1", 50, 50, 800, 500);
+    }
+
+    private async Task AdicionarTexto()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Text", "Título Principal", 50, 20, 400, 60);
+    }
+
+    private async Task AdicionarLegenda()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Legend", "Legenda", 50, 600, 250, 150);
+    }
+
+    private async Task AdicionarNorte()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Image", "Seta de Norte", 1000, 50, 80, 80);
+    }
+
+    private async Task ExportarPNG()
+    {
+        // Aqui chamaremos a engine em C# futuramente
+        await JSRuntime.InvokeVoidAsync("alert", "O motor de exportação de alta resolução SkiaSharp (PNG) será processado no C#.");
+    }
+
+    private async Task ExportarPDF()
+    {
+        await JSRuntime.InvokeVoidAsync("alert", "O motor de exportação vetorial de alta resolução SkiaSharp (PDF) será processado no C#.");
+    }
+
+    private async Task AlternarModoInteracao(bool ativarPanZoom)
+    {
+        _modoInteracaoMapa = ativarPanZoom;
+        await JSRuntime.InvokeVoidAsync("composerSetMapInteractionModeV3", ativarPanZoom);
+    }
+}

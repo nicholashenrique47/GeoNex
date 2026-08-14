@@ -120,12 +120,23 @@ window.adicionarVetorAoMapa = function (geoJsonString, nomeCamada) {
 
         var camadaVetor = L.geoJSON(dados, {
             style: function (feature) {
+                var isLineOnly = feature.geometry.type === "LineString" || feature.geometry.type === "MultiLineString";
                 return {
+                    color: isLineOnly ? "#38bdf8" : "#0ea5e9", // Linhas usam corPreenchimento
+                    weight: 1,
+                    fillColor: "#38bdf8",
+                    fillOpacity: 0.3,
+                    opacity: 0.3
+                };
+            },
+            pointToLayer: function (feature, latlng) {
+                return L.circleMarker(latlng, {
+                    radius: 5,
                     color: "#0ea5e9",
                     weight: 1,
                     fillColor: "#38bdf8",
                     fillOpacity: 0.3
-                };
+                });
             },
             onEachFeature: function (feature, layer) {
                 layer.on('click', function (e) {
@@ -214,18 +225,61 @@ window.habilitarEdicaoGeometria = function (nomeCamada) {
     
 };
 // Motor de Simbologia
-window.alterarEstiloCamada = function (nomeCamada, corPreenchimento, corBorda, espessura, opacidade) {
+window.alterarEstiloCamada = function (nomeCamada, corPreenchimento, corBorda, espessura, opacidade, tamanhoPonto, tipoLinha) {
     var camadaAlvo = window.camadasGeoNex[nomeCamada];
+    console.log("alterarEstiloCamada INICIO: " + nomeCamada, corPreenchimento, corBorda, espessura, opacidade, tamanhoPonto, tipoLinha);
 
     if (camadaAlvo) {
-        camadaAlvo.setStyle({
-            fillColor: corPreenchimento,
-            color: corBorda,
-            weight: parseFloat(espessura),
-            fillOpacity: parseFloat(opacidade)
-        });
+        var dashArray = null;
+        if (tipoLinha === "Dash") dashArray = "5, 5";
+        else if (tipoLinha === "Dot") dashArray = "1, 5";
+        else if (tipoLinha === "DashDot") dashArray = "5, 5, 1, 5";
+
+        // 1. O Leaflet agora atua 100% como uma camada "Fantasma" apenas para capturar cliques (Hitbox).
+        // Toda a renderização visual pertence ao SkiaSharp. Para não corromper as cores da Placa Gráfica,
+        // o Leaflet é tornado totalmente invisível (opacity 0).
+        if (typeof camadaAlvo.eachLayer === 'function') {
+            camadaAlvo.eachLayer(function(l) {
+                if (typeof l.setStyle === 'function') {
+                    l.setStyle({
+                        fillColor: 'transparent',
+                        color: 'transparent',
+                        fillOpacity: 0,
+                        opacity: 0,
+                        weight: parseFloat(espessura) > 5 ? parseFloat(espessura) : 5, // Hitbox generosa para cliques
+                        dashArray: null
+                    });
+                }
+            });
+        } else if (typeof camadaAlvo.setStyle === 'function') {
+            camadaAlvo.setStyle({
+                fillColor: 'transparent',
+                color: 'transparent',
+                fillOpacity: 0,
+                opacity: 0,
+                weight: parseFloat(espessura) > 5 ? parseFloat(espessura) : 5,
+                dashArray: null
+            });
+        }
+        
+        // 2. A propriedade 'radius' não é um Path Option padrão e não é propagada. 
+        // Temos que descer na árvore (útil para MultiPoints que são LayerGroups) e injetar o setRadius()
+        var contagemPontos = 0;
+        function propagarRaio(layer) {
+            if (typeof layer.setRadius === 'function') {
+                layer.setRadius(parseFloat(tamanhoPonto));
+                contagemPontos++;
+            }
+            if (typeof layer.eachLayer === 'function') {
+                layer.eachLayer(propagarRaio);
+            }
+        }
+        
+        propagarRaio(camadaAlvo);
+        console.log("Pontos redimensionados para " + tamanhoPonto + ": " + contagemPontos);
         return true;
     }
+    console.log("Camada alvo não encontrada!");
     return false;
 };
 // Motor de Rótulos Profissional (Fundo Transparente e Contorno)

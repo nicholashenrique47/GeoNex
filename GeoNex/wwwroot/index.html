@@ -79,6 +79,10 @@
         // Gera um carimbo de tempo em milissegundos para forçar o bypass do cache
         scriptMapa.src = 'js/mapa.js?t=' + new Date().getTime();
         document.body.appendChild(scriptMapa);
+        // Carrega também o script do compositor
+        var scriptComposer = document.createElement('script');
+        scriptComposer.src = 'js/composer_v2.js?t=' + new Date().getTime();
+        document.body.appendChild(scriptComposer);
     </script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>

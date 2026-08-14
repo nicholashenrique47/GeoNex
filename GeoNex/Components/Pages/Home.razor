@@ -1,4 +1,4 @@
-﻿@page "/"
+@page "/"
 @inject IJSRuntime JSRuntime
 @implements IDisposable
 @inject GeoNex.Services.ProjetoService ProjetoService
@@ -133,8 +133,13 @@
             <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
                 <button class="menu-btn">Exportar ▾</button>
                 <div class="dropdown-content">
-                    <button>Exportar Vetor (Shapefile)</button>
-                    <button>Exportar Tabela (CSV)</button>
+                    <button class="drop-item" style="color: #38bdf8; font-weight: bold;" @onclick="AbrirCompositorImpressao">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                        Compositor de Impressão
+                    </button>
+                    <div class="drop-divider"></div>
+                    <button class="drop-item">Exportar Vetor (Shapefile)</button>
+                    <button class="drop-item">Exportar Tabela (CSV)</button>
                 </div>
             </div>
 
@@ -779,43 +784,6 @@
                                         </div>
                                     }
                                 </div>
-
-                                <div class="form-group-vertical" style="position: relative; margin-bottom: 15px;">
-                                    <label class="gis-label">Cor da Borda</label>
-                                    <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorBorda = !abrirSeletorBorda; abrirSeletorFill = false; }">
-                                        @if (semCorBorda)
-                                        {
-                                            <div class="color-preview-box no-color-diagonal"></div>
-                                            <span class="color-text-value">Sem Cor (Transparente)</span>
-                                        }
-                                        else
-                                        {
-                                            <div class="color-preview-box" style="background-color: @corBorda;"></div>
-                                            <span class="color-text-value">@corBorda.ToUpper()</span>
-                                        }
-                                        <div class="dropdown-arrow-indicator">▼</div>
-                                    </div>
-
-                                    @if (abrirSeletorBorda)
-                                    {
-                                        <div class="arcmap-dropdown-palette glass-panel">
-                                            <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("BORDA", "transparent")'>
-                                                <div class="no-color-icon-small"></div> Sem Cor
-                                            </button>
-                                            <div class="arcmap-color-grid">
-                                                @foreach (var cor in PaletaCoresSIG)
-                                                {
-                                                    <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("BORDA", cor)'></div>
-                                                }
-                                            </div>
-                                            <label class="arcmap-more-colors-btn">
-                                                Mais Cores...
-                                                <input @ref="inputColorBordaRef" type="color" value="@corBorda" style="display:none;"
-                                                       @onchange='(e) => SelecionarCorCustomizada("BORDA", e.Value?.ToString() ?? "#0ea5e9")' />
-                                            </label>
-                                        </div>
-                                    }
-                                </div>
                             }
                             else
                             {
@@ -831,6 +799,45 @@
                                 </div>
                             }
 
+                            <!-- O CONTORNO (BORDA/CASING) DEVE ESTAR SEMPRE DISPONÍVEL -->
+                            <div class="form-group-vertical" style="position: relative; margin-top: 15px;">
+                                <label class="gis-label">Cor do Contorno (Borda/Casing)</label>
+                                <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorBorda = !abrirSeletorBorda; abrirSeletorFill = false; }">
+                                    @if (semCorBorda)
+                                    {
+                                        <div class="color-preview-box no-color-diagonal"></div>
+                                        <span class="color-text-value">Sem Cor (Transparente)</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="color-preview-box" style="background-color: @corBorda;"></div>
+                                        <span class="color-text-value">@corBorda.ToUpper()</span>
+                                    }
+                                    <div class="dropdown-arrow-indicator">▼</div>
+                                </div>
+
+                                @if (abrirSeletorBorda)
+                                {
+                                    <div class="arcmap-dropdown-palette glass-panel">
+                                        <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("BORDA", "transparent")'>
+                                            <div class="no-color-icon-small"></div> Sem Cor
+                                        </button>
+                                        <div class="arcmap-color-grid">
+                                            @foreach (var cor in PaletaCoresSIG)
+                                            {
+                                                <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("BORDA", cor)'></div>
+                                            }
+                                        </div>
+                                        <label class="arcmap-more-colors-btn">
+                                            Mais Cores...
+                                            <input @ref="inputColorBordaRef" type="color" value="@corBorda" style="display:none;"
+                                                   @onchange='(e) => SelecionarCorCustomizada("BORDA", e.Value?.ToString() ?? "#0ea5e9")' />
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+
+
                             <div class="form-group-vertical" style="margin-top: 15px;">
                                 <label class="gis-label" style="display: flex; justify-content: space-between;">
                                     Opacidade <span>@opacidadePreenchimento%</span>
@@ -839,11 +846,41 @@
                             </div>
 
                             <div class="form-group-vertical" style="margin-top: 15px;">
-                                <label class="gis-label" style="display: flex; justify-content: space-between;">
-                                    Espessura da Linha <span>@espessuraLinha px</span>
+                                <label class="gis-label" style="display: flex; justify-content: space-between; align-items: center;" title="Espessura do miolo interno (Linha Central)">
+                                    Espessura do Miolo (Linha Central)
+                                    <input type="number" min="0" max="30" step="1" @bind="espessuraLinha" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" style="width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 4px; padding: 2px 5px;" />
                                 </label>
-                                <input type="range" min="0" max="5" step="0.5" @bind="espessuraLinha" class="slider" />
+                                <input type="range" min="0" max="15" step="1" @bind="espessuraLinha" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
                             </div>
+
+                            <div class="form-group-vertical" style="margin-top: 15px;">
+                                <label class="gis-label" style="display: flex; justify-content: space-between; align-items: center;" title="Espessura absoluta da base (deve ser maior que o Miolo para ser visível)">
+                                    Espessura da Base (Casing/Borda)
+                                    <input type="number" min="0" max="15" step="0.5" @bind="espessuraBorda" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" style="width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 4px; padding: 2px 5px;" />
+                                </label>
+                                <input type="range" min="0" max="15" step="0.5" @bind="espessuraBorda" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
+                            </div>
+
+                            <div class="form-group-vertical" style="margin-top: 15px;">
+                                <label class="gis-label">Estilo do Contorno (Traço)</label>
+                                <select class="gis-select" @bind="tipoLinha" @bind:after="AtualizarSimbologiaAoVivo">
+                                    <option value="Solid">Linha Sólida (Continua)</option>
+                                    <option value="Dash">Tracejado Regular</option>
+                                    <option value="Dot">Pontilhado (Pontos)</option>
+                                    <option value="DashDot">Traço-Ponto (Alternado)</option>
+                                </select>
+                            </div>
+
+                            @if (MapService.PontosPorCamada.ContainsKey(camadaEmEdicao))
+                            {
+                                <div class="form-group-vertical" style="margin-top: 15px;">
+                                    <label class="gis-label" style="display: flex; justify-content: space-between; align-items: center;">
+                                        Tamanho do Símbolo (Ponto)
+                                        <input type="number" min="0" max="100" step="1" @bind="tamanhoPonto" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" style="width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 4px; padding: 2px 5px;" />
+                                    </label>
+                                    <input type="range" min="0" max="40" step="1" @bind="tamanhoPonto" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
+                                </div>
+                            }
                         }
                         else if (abaAtivaPropriedades == "Rotulos")
                         {
@@ -3153,6 +3190,8 @@
         }
 </style>
 
+<PrintComposer IsVisible="@_mostrarCompositor" OnClose="FecharCompositorImpressao" />
+
 @code {
     // =========================================================
     // VARIÁVEIS DO PROMPT DE ATRIBUTOS (PÓS-DESENHO)
@@ -3377,7 +3416,7 @@
 
             // Aplica o Estilo Verde/Esmeralda automático para novas camadas de aquisição
             MapService.EstilosPorCamada[nomeFicheiroLimpo] = new GeoNex.Services.EstiloCamada
-            { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
+            { CorPreenchimento = "#10b981", CorBorda = "#047857", Tamanho = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
 
             // Diz ao menu flutuante para focar na camada nova!
             _camadaDestinoAquisicao = nomeFicheiroLimpo;
@@ -3546,7 +3585,10 @@
     private string abaAtivaPropriedades = "Simbologia";
     private string corPreenchimento = "#38bdf8";
     private string corBorda = "#0ea5e9";
-    private double espessuraLinha = 1.0;
+    private double espessuraLinha = 2.0;
+    private double espessuraBorda = 1.0;
+    private string tipoLinha = "Solid";
+    private double tamanhoPonto = 5.0;
     private int opacidadePreenchimento = 50;
     private string tipoSimbologia = "UNICA";
     private string colunaSimbologiaCategorizada = "";
@@ -3620,7 +3662,9 @@
             var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, new GeoNex.Services.EstiloCamada());
             estilo.CorPreenchimento = semCorPreenchimento ? "transparent" : corPreenchimento;
             estilo.CorBorda = semCorBorda ? "transparent" : corBorda;
-            SolicitarNovoFrame();
+            
+            // Sincroniza tanto a Placa Gráfica (Skia) como a Camada Injetada JS (Leaflet)
+            AtualizarSimbologiaAoVivo();
         }
     }
 
@@ -4207,7 +4251,7 @@
 
 
 
-    private async Task AplicarSimbologia() { await JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento); exibirModalPropriedades = false; }
+    private async Task AplicarSimbologia() { await JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento, tamanhoPonto, tipoLinha); exibirModalPropriedades = false; }
 
     // =========================================================================
     // 12. CONTROLO E MANIPULAÇÃO DE GEOMETRIAS (VÉRTICES DINÂMICOS C#)
@@ -5104,6 +5148,7 @@
 
         // 1. PROPRIEDADES GERAIS
         estilo.TipoSimbologia = tipoSimbologia;
+        estilo.Tamanho = Convert.ToSingle(tamanhoPonto);
         estilo.EspessuraBorda = Convert.ToSingle(espessuraLinha);
         estilo.Opacidade = Convert.ToSingle(opacidadePreenchimento) / 100f;
         // 2. A PONTE DOS RÓTULOS
@@ -5121,12 +5166,13 @@
         estilo.EscalaMinimaRotulo = escalaMinimaRotulo; // <-- Adicione esta linha
         estilo.ExibirRotulos = exibirRotulos && !string.IsNullOrEmpty(colunaRotuloSelecionada);
         // 3. MOTOR DE SIMBOLOGIA (ÚNICA OU CATEGORIZADA)
+        estilo.BordaTransparente = semCorBorda;
+        estilo.CorBorda = corBorda;
+
         if (tipoSimbologia == "UNICA")
         {
             estilo.PreenchimentoTransparente = semCorPreenchimento;
-            estilo.BordaTransparente = semCorBorda;
             estilo.CorPreenchimento = corPreenchimento;
-            estilo.CorBorda = corBorda;
         }
         else if (tipoSimbologia == "CATEGORIZADA")
         {
@@ -5135,23 +5181,27 @@
 
             MapService.CompilarCategorias(camadaEmEdicao, colunaSimbologiaCategorizada);
 
-            if (MapService.VetoresCategorizados.TryGetValue(camadaEmEdicao, out var dicionarioCategorias))
+            // Funde Polígonos e Linhas para garantir que atribuímos cor a todas as categorias
+            var categorias = new HashSet<string>();
+            if (MapService.VetoresCategorizados.TryGetValue(camadaEmEdicao, out var dicPoly))
+                foreach (var k in dicPoly.Keys) categorias.Add(k);
+            if (MapService.LinhasCategorizadas.TryGetValue(camadaEmEdicao, out var dicLine))
+                foreach (var k in dicLine.Keys) categorias.Add(k);
+
+            int corIndex = 0;
+            foreach (string nomeCategoria in categorias)
             {
-                int corIndex = 0;
-                foreach (string nomeCategoria in dicionarioCategorias.Keys)
-                {
-                    // Motor de Harmonia Cartográfica ArcMap
-                    float hue = (corIndex * 137.508f) % 360f;
-                    int perfil = corIndex % 4;
+                // Motor de Harmonia Cartográfica ArcMap
+                float hue = (corIndex * 137.508f) % 360f;
+                int perfil = corIndex % 4;
 
-                    float sat = perfil switch { 0 => 80f, 1 => 45f, 2 => 65f, _ => 55f };
-                    float val = perfil switch { 0 => 95f, 1 => 100f, 2 => 80f, _ => 90f };
+                float sat = perfil switch { 0 => 80f, 1 => 45f, 2 => 65f, _ => 55f };
+                float val = perfil switch { 0 => 95f, 1 => 100f, 2 => 80f, _ => 90f };
 
-                    var corHsv = SkiaSharp.SKColor.FromHsv(hue, sat, val);
-                    estilo.CoresCategorizadas[nomeCategoria] = $"#{corHsv.Red:X2}{corHsv.Green:X2}{corHsv.Blue:X2}";
+                var corHsv = SkiaSharp.SKColor.FromHsv(hue, sat, val);
+                estilo.CoresCategorizadas[nomeCategoria] = $"#{corHsv.Red:X2}{corHsv.Green:X2}{corHsv.Blue:X2}";
 
-                    corIndex++;
-                }
+                corIndex++;
             }
         }
 
@@ -5167,9 +5217,14 @@
         estilo.Opacidade = (float)opacidadePreenchimento / 100f;
         estilo.CorPreenchimento = corPreenchimento;
         estilo.CorBorda = corBorda;
-        estilo.EspessuraBorda = (float)espessuraLinha;
+        estilo.EspessuraLinha = (float)espessuraLinha;
+        estilo.EspessuraBorda = (float)espessuraBorda;
+        estilo.Tamanho = (float)tamanhoPonto;
+        estilo.TipoLinha = tipoLinha;
 
         SolicitarNovoFrame();
+        
+        _ = JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento, tamanhoPonto, tipoLinha);
     }
     // NOVO MÉTODO: Carrega o estado real da camada para a interface não sobrescrever dados
     private void AbrirPropriedadesSincronizadas(string nomeCamada)
@@ -5185,7 +5240,10 @@
         tipoSimbologia = string.IsNullOrEmpty(estilo.TipoSimbologia) ? "UNICA" : estilo.TipoSimbologia;
         colunaSimbologiaCategorizada = estilo.ColunaSimbologia ?? "";
         opacidadePreenchimento = (int)(estilo.Opacidade * 100f);
-        espessuraLinha = estilo.EspessuraBorda;
+        espessuraLinha = estilo.EspessuraLinha;
+        espessuraBorda = estilo.EspessuraBorda;
+        tipoLinha = estilo.TipoLinha ?? "Solid";
+        tamanhoPonto = estilo.Tamanho;
 
         // O SEGREDO: Força a interface a ler as cores exatas da camada que acabou de clicar!
         // Se a cor for vazia (camada nova), assume o Ciano Padrão do GeoNex
@@ -5351,7 +5409,7 @@
 
             CamadasAtivas.Insert(0, new Camada { Nome = camadaAlvo, Tipo = "Vetor", Visivel = true });
             MapService.EstilosPorCamada[camadaAlvo] = new GeoNex.Services.EstiloCamada
-            { CorPreenchimento = "#10b981", CorBorda = "#047857", EspessuraBorda = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
+            { CorPreenchimento = "#10b981", CorBorda = "#047857", Tamanho = 2, TipoSimbologia = "UNICA", Opacidade = 0.5f };
             SincronizarHierarquia();
         }
 
@@ -5532,4 +5590,19 @@
         _hudY = novoY;
         // Não usamos StateHasChanged() para evitar que o ecrã pisque!
     }
+
+    // ==========================================
+    // COMPOSITOR DE IMPRESSÃO
+    // ==========================================
+    private bool _mostrarCompositor = false;
+
+    private void AbrirCompositorImpressao()
+    {
+        _mostrarCompositor = true;
     }
+
+    private void FecharCompositorImpressao()
+    {
+        _mostrarCompositor = false;
+    }
+}

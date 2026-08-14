@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Threading.Tasks;
 using SkiaSharp;
@@ -227,13 +227,42 @@ namespace GeoNex.Services
 
                         byte alphaCalculado = (byte)(estiloCamada.Opacidade * 255);
 
+                        // O SEGREDO DO QGIS: Opacidade ao nível da Camada (Layer Compositing)
+                        // Em vez de desenhar cada feição semi-transparente (o que causa misturas sujas),
+                        // criamos um 'canvas virtual' onde desenhamos tudo 100% opaco, 
+                        // e no fim fundimos o canvas inteiro com a opacidade desejada!
+                        canvas.SaveLayer(new SKPaint { Color = SKColors.White.WithAlpha(alphaCalculado) });
+
                         SKColor corBorda = estiloCamada.CorBorda == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorBorda);
                         SKColor corFill = estiloCamada.CorPreenchimento == "transparent" ? SKColors.Transparent : SKColor.Parse(estiloCamada.CorPreenchimento);
 
-                        pincelDinamicoFill.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill.WithAlpha(alphaCalculado);
+                        pincelDinamicoFill.Color = corFill;
                         pincelDinamicoBorda.Color = corBorda;
-                        pincelDinamicoBorda.StrokeWidth = estiloCamada.EspessuraBorda / zoomReal;
-                        pincelDinamicoPonto.Color = corFill == SKColors.Transparent ? SKColors.Transparent : corFill;
+                        float espessuraCalculadaLinha = estiloCamada.EspessuraLinha / zoomReal;
+                        float espessuraCalculadaBorda = estiloCamada.EspessuraBorda / zoomReal;
+                        pincelDinamicoBorda.StrokeWidth = espessuraCalculadaBorda;
+
+                        if (estiloCamada.TipoLinha != "Solid")
+                        {
+                            float e = espessuraCalculadaLinha;
+                            if (e < 0.0001f) e = 0.0001f; // Prevenir divisão por zero ou padrão vazio
+                            
+                            float[] dashPattern = estiloCamada.TipoLinha switch
+                            {
+                                "Dash" => new float[] { e * 4, e * 4 },
+                                "Dot" => new float[] { e, e * 2 },
+                                "DashDot" => new float[] { e * 4, e * 2, e, e * 2 },
+                                _ => null
+                            };
+                            
+                            pincelDinamicoBorda.PathEffect = dashPattern != null ? SkiaSharp.SKPathEffect.CreateDash(dashPattern, 0) : null;
+                        }
+                        else
+                        {
+                            pincelDinamicoBorda.PathEffect = null;
+                        }
+
+                        pincelDinamicoPonto.Color = corFill;
 
                         // 4. DESENHA POLÍGONOS
                         if (estiloCamada.TipoSimbologia == "UNICA")
@@ -268,7 +297,7 @@ namespace GeoNex.Services
                                             : "#808080";
 
                                         SKColor corBase = SKColor.Parse(corHex);
-                                        pincelDinamicoFill.Color = corBase.WithAlpha(alphaCalculado);
+                                        pincelDinamicoFill.Color = corBase;
 
                                         canvas.SetMatrix(matriz);
 
@@ -283,13 +312,100 @@ namespace GeoNex.Services
                         }
 
                         // 5. DESENHA LINHAS (Redes, arruamentos)
-                        if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
+                        if (estiloCamada.TipoSimbologia == "UNICA")
                         {
-                            if (viewportMundo.IntersectsWith(linePath.Bounds))
+                            if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
                             {
-                                canvas.SetMatrix(matriz);
-                                if (!estiloCamada.BordaTransparente)
-                                    canvas.DrawPath(linePath, pincelDinamicoBorda);
+                                if (viewportMundo.IntersectsWith(linePath.Bounds))
+                                {
+                                    canvas.SetMatrix(matriz);
+                                    
+                                    if (!estiloCamada.BordaTransparente)
+                                    {
+                                        using var lineOuter = new SKPaint
+                                        {
+                                            Style = SKPaintStyle.Stroke,
+                                            StrokeJoin = SKStrokeJoin.Round,
+                                            StrokeCap = SKStrokeCap.Round,
+                                            IsAntialias = true,
+                                            Color = pincelDinamicoBorda.Color,
+                                            StrokeWidth = espessuraCalculadaBorda,
+                                            PathEffect = pincelDinamicoBorda.PathEffect
+                                        };
+                                        canvas.DrawPath(linePath, lineOuter);
+                                    }
+
+                                    if (!estiloCamada.PreenchimentoTransparente)
+                                    {
+                                        using var lineInner = new SKPaint
+                                        {
+                                            Style = SKPaintStyle.Stroke,
+                                            StrokeJoin = SKStrokeJoin.Round,
+                                            StrokeCap = SKStrokeCap.Round,
+                                            IsAntialias = true,
+                                            Color = pincelDinamicoFill.Color,
+                                            BlendMode = SKBlendMode.SrcOver,
+                                            StrokeWidth = espessuraCalculadaLinha,
+                                            PathEffect = pincelDinamicoBorda.PathEffect
+                                        };
+                                        canvas.DrawPath(linePath, lineInner);
+                                    }
+                                }
+                            }
+                        }
+                        else if (estiloCamada.TipoSimbologia == "CATEGORIZADA")
+                        {
+                            if (_mapService.LinhasCategorizadas.TryGetValue(camadaAtual, out var fragmentosDaLinha))
+                            {
+                                foreach (var categoria in fragmentosDaLinha)
+                                {
+                                    string nomeCategoria = categoria.Key;
+                                    var linePathFragmento = categoria.Value;
+
+                                    if (viewportMundo.IntersectsWith(linePathFragmento.Bounds))
+                                    {
+                                        string corHex = estiloCamada.CoresCategorizadas.ContainsKey(nomeCategoria)
+                                            ? estiloCamada.CoresCategorizadas[nomeCategoria]
+                                            : "#808080";
+
+                                        SKColor corBase = SKColor.Parse(corHex);
+                                        // A cor categorizada assume o "Miolo" da linha
+                                        pincelDinamicoFill.Color = corBase;
+
+                                        canvas.SetMatrix(matriz);
+
+                                        if (!estiloCamada.BordaTransparente)
+                                        {
+                                            using var lineOuter = new SKPaint
+                                            {
+                                                Style = SKPaintStyle.Stroke,
+                                                StrokeJoin = SKStrokeJoin.Round,
+                                                StrokeCap = SKStrokeCap.Round,
+                                                IsAntialias = true,
+                                                Color = pincelDinamicoBorda.Color,
+                                                StrokeWidth = espessuraCalculadaBorda,
+                                                PathEffect = pincelDinamicoBorda.PathEffect
+                                            };
+                                            canvas.DrawPath(linePathFragmento, lineOuter);
+                                        }
+
+                                        if (!estiloCamada.PreenchimentoTransparente)
+                                        {
+                                            using var lineInner = new SKPaint
+                                            {
+                                                Style = SKPaintStyle.Stroke,
+                                                StrokeJoin = SKStrokeJoin.Round,
+                                                StrokeCap = SKStrokeCap.Round,
+                                                IsAntialias = true,
+                                                Color = pincelDinamicoFill.Color,
+                                                BlendMode = SKBlendMode.SrcOver,
+                                                StrokeWidth = espessuraCalculadaLinha,
+                                                PathEffect = pincelDinamicoBorda.PathEffect
+                                            };
+                                            canvas.DrawPath(linePathFragmento, lineInner);
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -299,12 +415,37 @@ namespace GeoNex.Services
                             if (viewportMundo.IntersectsWith(pointPath.Bounds))
                             {
                                 canvas.SetMatrix(matriz);
-                                if (!estiloCamada.PreenchimentoTransparente)
-                                    canvas.DrawPath(pointPath, pincelDinamicoPonto);
+
+                                // 1. Borda (raio * 2 + espessura * 2)
+                                using var pBorda = new SKPaint
+                                {
+                                    Style = SKPaintStyle.Stroke,
+                                    StrokeCap = SKStrokeCap.Round,
+                                    IsAntialias = true,
+                                    Color = pincelDinamicoBorda.Color,
+                                    StrokeWidth = (estiloCamada.Tamanho * 2 + estiloCamada.EspessuraBorda * 2) / zoomReal
+                                };
+
+                                // 2. Núcleo (raio * 2)
+                                using var pFill = new SKPaint
+                                {
+                                    Style = SKPaintStyle.Stroke,
+                                    StrokeCap = SKStrokeCap.Round,
+                                    IsAntialias = true,
+                                    Color = pincelDinamicoPonto.Color,
+                                    StrokeWidth = (estiloCamada.Tamanho * 2) / zoomReal
+                                };
+
                                 if (!estiloCamada.BordaTransparente)
-                                    canvas.DrawPath(pointPath, pincelDinamicoBorda);
+                                    canvas.DrawPath(pointPath, pBorda);
+
+                                if (!estiloCamada.PreenchimentoTransparente)
+                                    canvas.DrawPath(pointPath, pFill);
                             }
                         }
+
+                        // FECHA O COMPOSITING DA CAMADA (Aplica a opacidade de uma só vez a tudo!)
+                        canvas.Restore();
                         
                         // 7. MOTOR DE RÓTULOS DINÂMICOS
                         if (estiloCamada.ExibirRotulos && !string.IsNullOrEmpty(estiloCamada.ColunaRotulo))

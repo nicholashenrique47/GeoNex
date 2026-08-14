@@ -1,0 +1,22 @@
+1. CreateMauiApp Started
+2. CreateMauiApp Build
+3. CreateMauiApp Finished
+4. App Constructor Started
+5. InitializeComponent Finished
+6. App Constructor Finished
+7. CreateWindow Called
+8. Window Instantiated
+1. CreateMauiApp Started
+2. CreateMauiApp Build
+3. CreateMauiApp Finished
+4. App Constructor Started
+5. InitializeComponent Finished
+6. App Constructor Finished
+7. CreateWindow Called
+8. Window Instantiated
+1. CreateMauiApp Started
+2. CreateMauiApp Build
+3. CreateMauiApp Finished
+4. App Constructor Started
+5. InitializeComponent Finished
+6. App Constructor Finished
