@@ -20,3 +20,9 @@
 4. App Constructor Started
 5. InitializeComponent Finished
 6. App Constructor Finished
+1. CreateMauiApp Started
+2. CreateMauiApp Build
+3. CreateMauiApp Finished
+4. App Constructor Started
+5. InitializeComponent Finished
+6. App Constructor Finished

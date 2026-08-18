@@ -87,83 +87,59 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
 
     composerPaper.appendChild(item);
 
-    // Inicialização do Leaflet se for um Mapa
+    // Inicialização se for um Mapa
     if (type === 'Map') {
-        console.log("GEONEX COMPOSER STARTING...");
-        console.log("Is geonexMap present?", !!window.geonexMap);
+        content.style.backgroundColor = '#fff';
+        content.style.border = '2px solid #000';
+        content.style.overflow = 'hidden';
+        content.style.position = 'relative';
+        content.id = 'composer-map-container';
 
-        let center = [39.3999, -8.2245];
-        let zoom = 6;
-        if (window.geonexMap) {
-            center = window.geonexMap.getCenter();
-            zoom = window.geonexMap.getZoom();
-            console.log("Copied center/zoom: ", center, zoom);
-        }
-
-        // Inicializa mapa sem controlos de zoom nativos para não poluir
-        composerLeafletMap = L.map('composer-map-container', {
-            zoomControl: false,
-            attributionControl: false
-        }).setView(center, zoom);
-
-        // CLONAGEM EXPLÍCITA DAS CAMADAS DO GEONEX
-        let hasBaseLayer = false;
-
-        if (window.geonexMap) {
-            // 1. Clonar Camada OSM (se estiver ativa no mapa principal)
-            if (window.osmLayer && window.geonexMap.hasLayer(window.osmLayer)) {
-                L.tileLayer(window.osmLayer._url, window.osmLayer.options).addTo(composerLeafletMap);
-                hasBaseLayer = true;
-            }
-
-            // 2. Clonar Ortofoto / SkiaSharp WMS (Mesmo se o hasLayer falhar, forçamos se houver dados)
-            if (window.camadaDinamicaWMS) {
-                let imgUrl = window.camadaDinamicaWMS._url || (window.camadaDinamicaWMS._image ? window.camadaDinamicaWMS._image.src : null);
-                let bounds = window.camadaDinamicaWMS._bounds;
-                
-                console.log("Ortho data check: URL Length = " + (imgUrl ? imgUrl.length : 0), "Bounds = ", bounds);
-
-                // Se tivermos um base64 real (maior que 100 chars) e bounds válidos
-                if (imgUrl && imgUrl.length > 100 && bounds) {
-                    L.imageOverlay(imgUrl, bounds, window.camadaDinamicaWMS.options).addTo(composerLeafletMap);
-                    hasBaseLayer = true;
-                    console.log("Ortofoto injetada no compositor com sucesso!");
-                }
-            }
-
-            // 3. Clonar Vetores
-            if (window.camadasGeoNex) {
-                for (let nomeCamada in window.camadasGeoNex) {
-                    let layer = window.camadasGeoNex[nomeCamada];
-                    if (layer && typeof layer.toGeoJSON === 'function') {
-                        try {
-                            let cloneOptions = {
-                                opacity: 1,
-                                fillOpacity: 0.4,
-                                color: '#0ea5e9',
-                                fillColor: '#0ea5e9',
-                                weight: 2
-                            };
-                            
-                            L.geoJSON(layer.toGeoJSON(), {
-                                style: function(feature) { return cloneOptions; },
-                                pointToLayer: function(feature, latlng) {
-                                    return L.circleMarker(latlng, cloneOptions);
-                                }
-                            }).addTo(composerLeafletMap);
-                            hasBaseLayer = true;
-                        } catch(e) { console.error("Erro a clonar vetor: " + nomeCamada, e); }
-                    }
-                }
-            }
-        }
+        // Container interno que vai sofrer o Pan/Zoom
+        let innerContainer = document.createElement('div');
+        innerContainer.id = 'composer-map-inner';
+        innerContainer.style.position = 'absolute';
+        innerContainer.style.width = '100%';
+        innerContainer.style.height = '100%';
+        innerContainer.style.left = '0px';
+        innerContainer.style.top = '0px';
+        innerContainer.style.transformOrigin = 'center center';
+        innerContainer.style.transition = 'transform 0.1s ease-out';
         
-        if (!hasBaseLayer) {
-            console.warn("NENHUMA CAMADA FOI COPIADA PARA O COMPOSITOR. CAINDO PARA FALLBACK VOYAGER.");
-            composerBasemapLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(composerLeafletMap);
+        // 1. Clonar Skia-Layer (Raster Background)
+        let skiaLayer = document.getElementById('skia-layer');
+        if (skiaLayer && skiaLayer.src) {
+            let img1 = document.createElement('img');
+            img1.src = skiaLayer.src;
+            img1.style.position = 'absolute';
+            img1.style.width = '100%';
+            img1.style.height = '100%';
+            img1.style.objectFit = 'contain'; // Mantém proporção da tela
+            img1.style.pointerEvents = 'none';
+            innerContainer.appendChild(img1);
         }
+
+        // 2. Clonar Overlay Canvas (Vetores)
+        let overlayCanvas = document.getElementById('overlayCanvas');
+        if (overlayCanvas) {
+            let img2 = document.createElement('img');
+            img2.src = overlayCanvas.toDataURL('image/png');
+            img2.style.position = 'absolute';
+            img2.style.width = '100%';
+            img2.style.height = '100%';
+            img2.style.objectFit = 'contain';
+            img2.style.pointerEvents = 'none';
+            innerContainer.appendChild(img2);
+        }
+
+        content.appendChild(innerContainer);
+        
+        // Estado inicial de Pan/Zoom
+        content.dataset.panX = 0;
+        content.dataset.panY = 0;
+        content.dataset.zoom = 1;
+        
+        console.log("GEONEX COMPOSER: Mapa renderizado nativamente (SkiaSharp) sem Leaflet!");
 
         // Por predefinição, quando criamos, estamos com a ferramenta "Selecionar/Mover Item"
         // Logo, o mapa Leaflet não pode intercetar os cliques do rato para Pan/Zoom, 
@@ -172,20 +148,32 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         composerLeafletMap.touchZoom.disable();
         composerLeafletMap.doubleClickZoom.disable();
         composerLeafletMap.scrollWheelZoom.disable();
-        composerLeafletMap.boxZoom.disable();
-        composerLeafletMap.keyboard.disable();
     }
 };
 
 function startDrag(e) {
-    if (e.target.classList.contains('resize-handle')) return; // Se clicou num handle, não arrasta.
-
+    if (e.button !== 0) return;
+    
+    // Se o clique foi no handle de resize, não fazemos drag
+    if (e.target.classList.contains('resize-handle')) return;
+    
     isDragging = true;
     activeItem = e.currentTarget;
-    
-    // Seleciona
+
+    // Seleciona o item atual (remove seleção dos outros)
     document.querySelectorAll('.composer-item').forEach(i => i.classList.remove('selected'));
     activeItem.classList.add('selected');
+
+    // Se estivermos no modo "Mover Conteúdo", NÃO arrastamos o frame, apenas o mapa interior
+    if (isMapContentInteractionActive && activeItem.dataset.type === 'Map') {
+        isDragging = false;
+        isPanningMapContent = true;
+        startMapPanX = e.clientX;
+        startMapPanY = e.clientY;
+        activeItem.style.cursor = 'grabbing';
+        e.stopPropagation();
+        return;
+    }
 
     startX = e.clientX;
     startY = e.clientY;
@@ -194,6 +182,11 @@ function startDrag(e) {
     
     e.stopPropagation();
 }
+
+let isMapContentInteractionActive = false;
+let isPanningMapContent = false;
+let startMapPanX = 0;
+let startMapPanY = 0;
 
 function startResize(e) {
     isResizing = true;
@@ -216,22 +209,37 @@ function startResize(e) {
 }
 
 function handleMouseMove(e) {
+    if (isPanningMapContent && activeItem && activeItem.dataset.type === 'Map') {
+        let dx = e.clientX - startMapPanX;
+        let dy = e.clientY - startMapPanY;
+        
+        // Pega as coordenadas base gravadas no DOM (ou 0)
+        let currentPanX = parseFloat(activeItem.dataset.panX) || 0;
+        let currentPanY = parseFloat(activeItem.dataset.panY) || 0;
+        let currentZoom = parseFloat(activeItem.dataset.zoom) || 1;
+        
+        let newPanX = currentPanX + dx;
+        let newPanY = currentPanY + dy;
+        
+        let innerMap = activeItem.querySelector('#composer-map-inner');
+        if (innerMap) {
+            // Removemos a transição temporariamente para não "lagar" ao arrastar
+            innerMap.style.transition = 'none';
+            innerMap.style.transform = `translate(${newPanX}px, ${newPanY}px) scale(${currentZoom})`;
+        }
+        return;
+    }
+
     if (isDragging && activeItem) {
         let dx = e.clientX - startX;
         let dy = e.clientY - startY;
         
-        let zoom = 1; // Pode ser implementado mais tarde se fizermos zoom na folha
-        
-        activeItem.style.left = (initialX + dx/zoom) + 'px';
-        activeItem.style.top = (initialY + dy/zoom) + 'px';
+        activeItem.style.left = (initialX + dx) + 'px';
+        activeItem.style.top = (initialY + dy) + 'px';
     } 
     else if (isResizing && activeItem) {
         let dx = e.clientX - startX;
         let dy = e.clientY - startY;
-        let zoom = 1;
-
-        dx = dx / zoom;
-        dy = dy / zoom;
 
         if (resizeDir.includes('e') || resizeDir.includes('r')) {
             activeItem.style.width = Math.max(20, initialW + dx) + 'px';
@@ -253,42 +261,71 @@ function handleMouseMove(e) {
                 activeItem.style.height = newH + 'px';
             }
         }
-
-        // Se o item que estamos a redimensionar é o mapa, atualizamos o Leaflet
-        if (activeItem.dataset.type === 'Map' && composerLeafletMap) {
-            composerLeafletMap.invalidateSize();
-        }
     }
 }
 
 function handleMouseUp(e) {
+    if (isPanningMapContent && activeItem && activeItem.dataset.type === 'Map') {
+        let dx = e.clientX - startMapPanX;
+        let dy = e.clientY - startMapPanY;
+        
+        // Grava a nova posição de Pan
+        activeItem.dataset.panX = (parseFloat(activeItem.dataset.panX) || 0) + dx;
+        activeItem.dataset.panY = (parseFloat(activeItem.dataset.panY) || 0) + dy;
+        
+        isPanningMapContent = false;
+        activeItem.style.cursor = 'grab';
+        
+        let innerMap = activeItem.querySelector('#composer-map-inner');
+        if (innerMap) {
+            innerMap.style.transition = 'transform 0.1s ease-out';
+        }
+    }
+
     isDragging = false;
     isResizing = false;
 }
 
+// Escutar Zoom (Scroll) dentro do mapa
+document.addEventListener('wheel', function(e) {
+    if (isMapContentInteractionActive && activeItem && activeItem.dataset.type === 'Map') {
+        if (e.target.closest('.composer-item') === activeItem) {
+            e.preventDefault();
+            let currentZoom = parseFloat(activeItem.dataset.zoom) || 1;
+            
+            // Fator de zoom (10%)
+            let zoomFactor = 1.1;
+            if (e.deltaY < 0) {
+                currentZoom *= zoomFactor; // Zoom in
+            } else {
+                currentZoom /= zoomFactor; // Zoom out
+            }
+            
+            activeItem.dataset.zoom = currentZoom;
+            
+            let innerMap = activeItem.querySelector('#composer-map-inner');
+            if (innerMap) {
+                let panX = parseFloat(activeItem.dataset.panX) || 0;
+                let panY = parseFloat(activeItem.dataset.panY) || 0;
+                innerMap.style.transition = 'transform 0.1s ease-out';
+                innerMap.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+            }
+        }
+    }
+}, {passive: false});
+
 // Funções para ativar/desativar a interação DENTRO do Mapa (Mover Conteúdo vs Mover Item)
 window.composerSetMapInteractionModeV3 = function (isActive) {
-    if (!composerLeafletMap) return;
-
-    if (isActive) {
-        composerLeafletMap.dragging.enable();
-        composerLeafletMap.touchZoom.enable();
-        composerLeafletMap.doubleClickZoom.enable();
-        composerLeafletMap.scrollWheelZoom.enable();
-        
-        // Remove a classe que bloqueia eventos para o conteúdo do mapa
-        let mapItem = document.querySelector('.composer-item[data-type="Map"] .item-content');
-        if (mapItem) mapItem.style.pointerEvents = 'auto';
-    } else {
-        composerLeafletMap.dragging.disable();
-        composerLeafletMap.touchZoom.disable();
-        composerLeafletMap.doubleClickZoom.disable();
-        composerLeafletMap.scrollWheelZoom.disable();
-        
-        // Restaura o bloqueio para permitir arrastar a moldura inteira
-        let mapItem = document.querySelector('.composer-item[data-type="Map"] .item-content');
-        if (mapItem) mapItem.style.pointerEvents = 'none';
-    }
+    isMapContentInteractionActive = isActive;
+    
+    let mapItems = document.querySelectorAll('.composer-item[data-type="Map"]');
+    mapItems.forEach(item => {
+        if (isActive) {
+            item.style.cursor = 'grab';
+        } else {
+            item.style.cursor = 'move';
+        }
+    });
 };
 
 // Injeção de CSS Dinâmico para Handles de Resize
