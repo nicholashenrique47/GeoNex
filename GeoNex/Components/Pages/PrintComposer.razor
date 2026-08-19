@@ -1,5 +1,6 @@
 @using GeoNex.Services
 @using Microsoft.JSInterop
+@implements IDisposable
 @inject IJSRuntime JSRuntime
 
 @if (IsVisible)
@@ -122,12 +123,55 @@
                     
                     <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
                     
-                    <!-- Abaixo disto entrariam as Propriedades do Item Selecionado -->
+                    <!-- Propriedades do Item Selecionado -->
                     <div class="props-header">
                         <h3>Propriedades do Item</h3>
-                        <span style="font-size: 0.75rem; color: #64748b; font-style: italic; display: block; margin-top: 5px;">Selecione um item no papel...</span>
+                        @if (_itemSelecionado == null)
+                        {
+                            <span style="font-size: 0.75rem; color: #64748b; font-style: italic; display: block; margin-top: 5px;">Selecione um item no papel...</span>
+                        }
                     </div>
 
+                    @if (_itemSelecionado != null)
+                    {
+                        <div class="props-content" style="margin-top: 15px;">
+                            <div class="form-group-vertical">
+                                <label class="gis-label">Tipo de Item</label>
+                                <input type="text" class="gis-input" value="@_itemSelecionado.Type" disabled style="background: rgba(255,255,255,0.05);" />
+                            </div>
+
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">X (px)</label>
+                                    <input type="number" class="gis-input" @bind="_itemSelecionado.X" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("X", _itemSelecionado.X))' @onchange='@(e => AtualizarPropriedadeItem("X", _itemSelecionado.X))' />
+                                </div>
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Y (px)</label>
+                                    <input type="number" class="gis-input" @bind="_itemSelecionado.Y" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado.Y))' @onchange='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado.Y))' />
+                                </div>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Largura (px)</label>
+                                    <input type="number" class="gis-input" @bind="_itemSelecionado.Width" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado.Width))' @onchange='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado.Width))' />
+                                </div>
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Altura (px)</label>
+                                    <input type="number" class="gis-input" @bind="_itemSelecionado.Height" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' @onchange='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' />
+                                </div>
+                            </div>
+
+                            @if (_itemSelecionado.Type == "Text" || _itemSelecionado.Type == "Legend")
+                            {
+                                <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;" />
+                                <div class="form-group-vertical">
+                                    <label class="gis-label">Conteúdo do Texto</label>
+                                    <textarea class="gis-input custom-scrollbar" style="height: 100px; resize: vertical;" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))'></textarea>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
             </aside>
             
@@ -324,21 +368,51 @@
 </style>
 
 @code {
-    [Parameter] public bool IsVisible { get; set; } = false;
-    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter]
+    public bool IsVisible { get; set; }
 
-    private string TamanhoPagina { get; set; } = "A4";
-    private string Orientacao { get; set; } = "Landscape";
+    [Parameter]
+    public EventCallback OnClose { get; set; }
 
-    // O browser assume tipicamente 96 DPI.
-    // 1 milímetro = 3.779527559 pixels a 96 DPI
-    private const double PixelsPerMm = 3.779527559;
+    private bool _isInitialized = false;
+    private DotNetObjectReference<PrintComposer> _objRef;
 
-    private int LarguraPapelPx { get; set; } = 1123; // A4 Landscape
-    private int AlturaPapelPx { get; set; } = 794;
+    // Propriedades da Página
+    public string TamanhoPagina { get; set; } = "A4";
+    public string Orientacao { get; set; } = "Landscape";
 
-    private bool _foiInicializado = false;
+    public int LarguraPapelPx { get; set; } = 1123;
+    public int AlturaPapelPx { get; set; } = 794;
+    
+    private const double PixelsPerMm = 3.7795275591; // 96 DPI padrão da web
+    
+    // Modo de Interação: false = Selecionar/Mover, true = Mover Conteúdo (Pan)
     private bool _modoInteracaoMapa = false;
+
+    // Modelo de Item do Compositor
+    public class ComposerItemModel
+    {
+        public string Id { get; set; }
+        public string Type { get; set; }
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public string TextContent { get; set; }
+    }
+
+    private ComposerItemModel _itemSelecionado = null;
+
+    protected override void OnInitialized()
+    {
+        _objRef = DotNetObjectReference.Create(this);
+        AtualizarDimensoesPapel();
+    }
+
+    public void Dispose()
+    {
+        _objRef?.Dispose();
+    }
 
     private void Fechar()
     {
@@ -346,21 +420,51 @@
         OnClose.InvokeAsync();
     }
 
-    protected override void OnInitialized()
-    {
-        AtualizarDimensoesPapel();
-    }
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (IsVisible && !_foiInicializado)
+        if (IsVisible && !_isInitialized)
         {
-            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet");
-            _foiInicializado = true;
+            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet", _objRef);
+            _isInitialized = true;
         }
         else if (!IsVisible)
         {
-            _foiInicializado = false;
+            _isInitialized = false;
+        }
+    }
+
+    [JSInvokable]
+    public void OnItemSelected(ComposerItemModel item)
+    {
+        _itemSelecionado = item;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnItemDeselected()
+    {
+        _itemSelecionado = null;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnItemMoved(ComposerItemModel item)
+    {
+        if (_itemSelecionado != null && _itemSelecionado.Id == item.Id)
+        {
+            _itemSelecionado.X = Math.Round(item.X, 1);
+            _itemSelecionado.Y = Math.Round(item.Y, 1);
+            _itemSelecionado.Width = Math.Round(item.Width, 1);
+            _itemSelecionado.Height = Math.Round(item.Height, 1);
+            StateHasChanged();
+        }
+    }
+
+    private async Task AtualizarPropriedadeItem(string propName, object valor)
+    {
+        if (_itemSelecionado != null)
+        {
+            await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", _itemSelecionado.Id, propName, valor);
         }
     }
 

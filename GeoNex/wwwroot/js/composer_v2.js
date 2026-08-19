@@ -11,13 +11,19 @@ let resizeDir = "";
 let composerLeafletMap = null;
 let composerBasemapLayer = null;
 
-window.composerInitV3 = function (paperId) {
+let dotnetHelper = null;
+
+window.composerInitV3 = function (paperId, helper) {
     composerPaper = document.getElementById(paperId);
+    dotnetHelper = helper;
     
     // Deselecionar item se clicar fora
     composerPaper.addEventListener('mousedown', function (e) {
         if (e.target === composerPaper) {
             document.querySelectorAll('.composer-item').forEach(i => i.classList.remove('selected'));
+            if (dotnetHelper) {
+                dotnetHelper.invokeMethodAsync('OnItemDeselected');
+            }
         }
     });
 
@@ -31,12 +37,14 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
 
     let item = document.createElement('div');
     item.className = 'composer-item selected';
+    item.id = 'item_' + new Date().getTime() + '_' + Math.floor(Math.random() * 1000);
     item.style.position = 'absolute';
     item.style.left = x + 'px';
     item.style.top = y + 'px';
     item.style.width = w + 'px';
     item.style.height = h + 'px';
     item.dataset.type = type;
+    item.dataset.text = text || "";
 
     // Deseleciona todos os outros
     document.querySelectorAll('.composer-item').forEach(i => i.classList.remove('selected'));
@@ -177,6 +185,19 @@ function startDrag(e) {
     initialX = parseFloat(activeItem.style.left) || 0;
     initialY = parseFloat(activeItem.style.top) || 0;
     
+    // Notifica Blazor sobre seleção
+    if (dotnetHelper) {
+        dotnetHelper.invokeMethodAsync('OnItemSelected', {
+            Id: activeItem.id,
+            Type: activeItem.dataset.type,
+            X: initialX,
+            Y: initialY,
+            Width: parseFloat(activeItem.style.width) || 0,
+            Height: parseFloat(activeItem.style.height) || 0,
+            TextContent: activeItem.dataset.text || ""
+        });
+    }
+
     e.stopPropagation();
 }
 
@@ -200,6 +221,19 @@ function startResize(e) {
     initialY = parseFloat(activeItem.style.top) || 0;
     initialW = parseFloat(activeItem.style.width) || 0;
     initialH = parseFloat(activeItem.style.height) || 0;
+
+    // Notifica Blazor sobre seleção
+    if (dotnetHelper) {
+        dotnetHelper.invokeMethodAsync('OnItemSelected', {
+            Id: activeItem.id,
+            Type: activeItem.dataset.type,
+            X: initialX,
+            Y: initialY,
+            Width: initialW,
+            Height: initialH,
+            TextContent: activeItem.dataset.text || ""
+        });
+    }
 
     e.stopPropagation();
     e.preventDefault(); // Prevenir seleção de texto acidental
@@ -279,6 +313,20 @@ function handleMouseUp(e) {
         }
     }
 
+    if (isDragging || isResizing) {
+        if (dotnetHelper && activeItem) {
+            dotnetHelper.invokeMethodAsync('OnItemMoved', {
+                Id: activeItem.id,
+                Type: activeItem.dataset.type,
+                X: parseFloat(activeItem.style.left) || 0,
+                Y: parseFloat(activeItem.style.top) || 0,
+                Width: parseFloat(activeItem.style.width) || 0,
+                Height: parseFloat(activeItem.style.height) || 0,
+                TextContent: activeItem.dataset.text || ""
+            });
+        }
+    }
+
     isDragging = false;
     isResizing = false;
 }
@@ -323,6 +371,33 @@ window.composerSetMapInteractionModeV3 = function (isActive) {
             item.style.cursor = 'move';
         }
     });
+};
+
+window.composerUpdateItemProperty = function (id, propName, propValue) {
+    let item = document.getElementById(id);
+    if (!item) return;
+
+    if (propName === 'X') {
+        item.style.left = propValue + 'px';
+    } else if (propName === 'Y') {
+        item.style.top = propValue + 'px';
+    } else if (propName === 'Width') {
+        item.style.width = propValue + 'px';
+    } else if (propName === 'Height') {
+        item.style.height = propValue + 'px';
+    } else if (propName === 'Text') {
+        item.dataset.text = propValue;
+        let content = item.querySelector('.item-content');
+        if (content) {
+            if (item.dataset.type === 'Text') {
+                content.innerText = propValue;
+            } else if (item.dataset.type === 'Legend') {
+                content.innerHTML = `<strong style="color:#000;">${propValue}</strong><br><br>
+                                     <div style="display:flex; align-items:center; margin-bottom:5px;"><div style="width:20px;height:20px;background:red;margin-right:8px;"></div> Zona A</div>
+                                     <div style="display:flex; align-items:center;"><div style="width:20px;height:20px;background:blue;margin-right:8px;"></div> Zona B</div>`;
+            }
+        }
+    }
 };
 
 // Injeção de CSS Dinâmico para Handles de Resize
