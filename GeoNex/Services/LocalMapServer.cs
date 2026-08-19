@@ -69,6 +69,9 @@ namespace GeoNex.Services
                 int cssHeight = int.Parse(req.QueryString["h"] ?? "1080");
                 float dpi = float.Parse(req.QueryString["dpi"] ?? "1.0", System.Globalization.CultureInfo.InvariantCulture);
                 float faseSelecao = float.Parse(req.QueryString["phase"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                float offsetX = float.Parse(req.QueryString["ox"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                float offsetY = float.Parse(req.QueryString["oy"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                
                 int physicalWidth = (int)(cssWidth * dpi);
                 int physicalHeight = (int)(cssHeight * dpi);
 
@@ -118,7 +121,7 @@ namespace GeoNex.Services
 
                 var matriz = SKMatrix.CreateTranslation(-midX, -midY);
                 matriz = matriz.PostConcat(SKMatrix.CreateScale(zoomReal, zoomReal));
-                matriz = matriz.PostConcat(SKMatrix.CreateTranslation(width / 2f + _mapService.CameraPanX, height / 2f + _mapService.CameraPanY));
+                matriz = matriz.PostConcat(SKMatrix.CreateTranslation(width / 2f + _mapService.CameraPanX + offsetX, height / 2f + _mapService.CameraPanY + offsetY));
 
                 // === CORREÇÃO BUG 1 (Parte A): ESCALA DE DPI NA MATRIZ GLOBAL ===
                 matriz = matriz.PostConcat(SKMatrix.CreateScale(dpi, dpi));

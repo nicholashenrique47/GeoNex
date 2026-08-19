@@ -995,22 +995,22 @@
 
     private async Task AdicionarMapa()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", "Mapa 1", 50, 50, 800, 500);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", "Mapa 1", -1, -1, 800, 500);
     }
 
     private async Task AdicionarTexto()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Text", "Título Principal", 50, 20, 400, 60);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Text", "Título Principal", -1, -1, 400, 60);
     }
 
     private async Task AdicionarLegenda()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Legend", "Legenda", 50, 600, 250, 150);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Legend", "Legenda", -1, -1, 250, 150);
     }
 
     private async Task AdicionarNorte()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Image", "Seta de Norte", 1000, 50, 80, 80);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Image", "Seta de Norte", -1, -1, 80, 80);
     }
 
     private async Task ExportarPNG()

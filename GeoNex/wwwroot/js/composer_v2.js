@@ -37,6 +37,20 @@ window.composerInitV3 = function (paperId, helper, mapServerUrl) {
 window.composerAddItemV3 = function (type, text, x, y, w, h) {
     if (!composerPaper) return;
 
+    if (x === -1 || y === -1) {
+        let canvasArea = document.querySelector('.composer-canvas-area');
+        if (canvasArea) {
+            let rect = composerPaper.getBoundingClientRect();
+            let areaRect = canvasArea.getBoundingClientRect();
+            x = ((areaRect.width / 2) - rect.left) / workspaceZoom - (w / 2);
+            y = ((areaRect.height / 2) - rect.top) / workspaceZoom - (h / 2);
+            if (x < 0) x = 50;
+            if (y < 0) y = 50;
+        } else {
+            x = 50; y = 50;
+        }
+    }
+
     let item = document.createElement('div');
     item.className = 'composer-item selected';
     item.id = 'item_' + new Date().getTime() + '_' + Math.floor(Math.random() * 1000);
@@ -133,9 +147,9 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         
         // Se a janela souber a URL do servidor local de imagens, busca o mapa mais recente
         if (window.geonexMapServerUrl) {
-            let reqW = Math.round(width) || 1920;
-            let reqH = Math.round(height) || 1080;
-            img1.src = window.geonexMapServerUrl + `mapa/?w=${reqW}&h=${reqH}&t=` + new Date().getTime();
+            let reqW = Math.round(w) || 1920;
+            let reqH = Math.round(h) || 1080;
+            img1.src = window.geonexMapServerUrl + `mapa/?w=${reqW}&h=${reqH}&ox=0&oy=0&t=` + new Date().getTime();
         } else {
             // Fallback para caso ainda esteja operando na mesma janela (Modo Antigo)
             let skiaLayer = document.getElementById('skia-layer');
@@ -247,16 +261,10 @@ function handleMouseMove(e) {
         let dx = (e.clientX - startMapPanX) / workspaceZoom;
         let dy = (e.clientY - startMapPanY) / workspaceZoom;
         
-        let currentPanX = parseFloat(activeItem.dataset.panX) || 0;
-        let currentPanY = parseFloat(activeItem.dataset.panY) || 0;
-        
-        let newPanX = currentPanX + dx;
-        let newPanY = currentPanY + dy;
-        
         let innerMap = activeItem.querySelector('#composer-map-inner');
         if (innerMap) {
-            innerMap.style.left = newPanX + 'px';
-            innerMap.style.top = newPanY + 'px';
+            innerMap.style.left = dx + 'px';
+            innerMap.style.top = dy + 'px';
         }
         return;
     }
@@ -300,9 +308,26 @@ function handleMouseUp(e) {
         let dx = (e.clientX - startMapPanX) / workspaceZoom;
         let dy = (e.clientY - startMapPanY) / workspaceZoom;
         
-        // Grava a nova posição de Pan
-        activeItem.dataset.panX = (parseFloat(activeItem.dataset.panX) || 0) + dx;
-        activeItem.dataset.panY = (parseFloat(activeItem.dataset.panY) || 0) + dy;
+        let newPanX = (parseFloat(activeItem.dataset.panX) || 0) + dx;
+        let newPanY = (parseFloat(activeItem.dataset.panY) || 0) + dy;
+        activeItem.dataset.panX = newPanX;
+        activeItem.dataset.panY = newPanY;
+        
+        // Pede a nova imagem com o Pan nativo incorporado no servidor!
+        if (window.geonexMapServerUrl) {
+            let img1 = activeItem.querySelector('img');
+            let wBox = Math.round(parseFloat(activeItem.style.width));
+            let hBox = Math.round(parseFloat(activeItem.style.height));
+            if (img1 && wBox > 0 && hBox > 0) {
+                // Retorna a DIV à origem (porque o offset agora já vem renderizado na imagem base)
+                let innerMap = activeItem.querySelector('#composer-map-inner');
+                if (innerMap) {
+                    innerMap.style.left = '0px';
+                    innerMap.style.top = '0px';
+                }
+                img1.src = window.geonexMapServerUrl + `mapa/?w=${wBox}&h=${hBox}&ox=${newPanX}&oy=${newPanY}&t=` + new Date().getTime();
+            }
+        }
         
         isPanningMapContent = false;
         activeItem.style.cursor = 'grab';
@@ -315,8 +340,10 @@ function handleMouseUp(e) {
                 let img1 = activeItem.querySelector('img');
                 let newW = Math.round(parseFloat(activeItem.style.width));
                 let newH = Math.round(parseFloat(activeItem.style.height));
+                let px = activeItem.dataset.panX || 0;
+                let py = activeItem.dataset.panY || 0;
                 if (img1 && newW > 0 && newH > 0) {
-                    img1.src = window.geonexMapServerUrl + `mapa/?w=${newW}&h=${newH}&t=` + new Date().getTime();
+                    img1.src = window.geonexMapServerUrl + `mapa/?w=${newW}&h=${newH}&ox=${px}&oy=${py}&t=` + new Date().getTime();
                 }
             }
         }
