@@ -753,7 +753,19 @@
     [JSInvokable]
     public void OnItemSelected(ComposerItemModel item)
     {
-        _itemSelecionado = item;
+        if (!_itensDoCompositor.ContainsKey(item.Id))
+        {
+            _itensDoCompositor[item.Id] = item;
+        }
+        else
+        {
+            var existing = _itensDoCompositor[item.Id];
+            existing.X = item.X;
+            existing.Y = item.Y;
+            existing.Width = item.Width;
+            existing.Height = item.Height;
+        }
+        _itemSelecionado = _itensDoCompositor[item.Id];
         StateHasChanged();
     }
 
@@ -842,6 +854,15 @@
     [JSInvokable]
     public void OnItemMoved(ComposerItemModel item)
     {
+        if (_itensDoCompositor.ContainsKey(item.Id))
+        {
+            var existing = _itensDoCompositor[item.Id];
+            existing.X = Math.Round(item.X, 1);
+            existing.Y = Math.Round(item.Y, 1);
+            existing.Width = Math.Round(item.Width, 1);
+            existing.Height = Math.Round(item.Height, 1);
+        }
+
         if (_itemSelecionado != null && _itemSelecionado.Id == item.Id)
         {
             _itemSelecionado.X = Math.Round(item.X, 1);

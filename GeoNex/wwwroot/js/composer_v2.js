@@ -73,7 +73,7 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         
         // Vamos inicializar o Leaflet logo a seguir a anexar ao DOM
     } else if (type === 'Text') {
-        content.style.fontSize = '24px';
+        content.style.fontSize = '14px';
         content.style.fontWeight = 'bold';
         content.style.fontFamily = 'Arial, sans-serif';
         content.style.color = '#000';
@@ -392,9 +392,19 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
     if (propName === 'Width') item.style.width = propValue + 'px';
     if (propName === 'Height') item.style.height = propValue + 'px';
     if (propName === 'ZIndex') item.style.zIndex = propValue;
-    if (propName === 'BgColor') item.style.backgroundColor = propValue;
+    if (propName === 'BgColor') {
+        item.dataset.bgColor = propValue;
+        if (item.dataset.hasBg === 'true') {
+            item.style.backgroundColor = propValue;
+        }
+    }
     if (propName === 'HasBg') {
-        if (!propValue) item.style.backgroundColor = 'transparent';
+        item.dataset.hasBg = propValue;
+        if (propValue) {
+            item.style.backgroundColor = item.dataset.bgColor || '#ffffff';
+        } else {
+            item.style.backgroundColor = 'transparent';
+        }
     }
     
     if (propName === 'Rotation') item.style.transform = `rotate(${propValue}deg)`;
@@ -446,20 +456,28 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
     }
     
     if (propName === 'TextAlignH') {
-        if (propValue === 'left') item.style.justifyContent = 'flex-start';
-        if (propValue === 'center') item.style.justifyContent = 'center';
-        if (propValue === 'right') item.style.justifyContent = 'flex-end';
         item.dataset.textAlignH = propValue;
-        
         let content = item.querySelector('.item-content');
-        if (content) content.style.textAlign = propValue;
+        if (content && item.dataset.type === 'Text') {
+            content.style.display = 'flex';
+            content.style.flexDirection = 'column';
+            if (propValue === 'left') content.style.alignItems = 'flex-start';
+            if (propValue === 'center') content.style.alignItems = 'center';
+            if (propValue === 'right') content.style.alignItems = 'flex-end';
+            content.style.textAlign = propValue;
+        }
     }
     
     if (propName === 'TextAlignV') {
-        if (propValue === 'top') item.style.alignItems = 'flex-start';
-        if (propValue === 'center') item.style.alignItems = 'center';
-        if (propValue === 'bottom') item.style.alignItems = 'flex-end';
         item.dataset.textAlignV = propValue;
+        let content = item.querySelector('.item-content');
+        if (content && item.dataset.type === 'Text') {
+            content.style.display = 'flex';
+            content.style.flexDirection = 'column';
+            if (propValue === 'top') content.style.justifyContent = 'flex-start';
+            if (propValue === 'center') content.style.justifyContent = 'center';
+            if (propValue === 'bottom') content.style.justifyContent = 'flex-end';
+        }
     }
     
     if (propName === 'MapScale' && item.dataset.type === 'Map') {
