@@ -152,7 +152,7 @@
                                         </div>
                                         <div class="form-group-horizontal" style="margin-top: 8px;">
                                             <label class="gis-label" style="width: 80px;">Rotação</label>
-                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapRotation" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("MapRotation", _itemSelecionado.MapRotation))' @onchange='@(e => AtualizarPropriedadeItem("MapRotation", _itemSelecionado.MapRotation))' />
+                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapRotation" @bind:event="oninput" @onkeyup='AtualizarRotacaoMapa' @onchange='AtualizarRotacaoMapa' />
                                             <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
                                         </div>
                                         <div class="form-group-horizontal" style="margin-top: 8px;">
@@ -176,10 +176,35 @@
                                         @if (_itemSelecionado.Type == "Text")
                                         {
                                             <div style="display: flex; gap: 5px; margin-top: 10px;">
-                                                <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;">Inserir/Editar Expressão...</button>
-                                                <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;">Texto Dinâmico ▼</button>
+                                                <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;" @onclick="AbrirConstrutorExpressao">Inserir/Editar Expressão...</button>
+                                                <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;" @onclick="AbrirConstrutorExpressao">Texto Dinâmico ▼</button>
                                             </div>
                                         }
+                                    }
+                                    else if (_itemSelecionado.Type == "Image")
+                                    {
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Estilo</label>
+                                            <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.SvgStyle" @bind:after='() => AtualizarPropriedadeItem("SvgStyle", _itemSelecionado.SvgStyle)'>
+                                                <option value="Estilo 1">Clássica</option>
+                                                <option value="Estilo 2">Bússola</option>
+                                                <option value="Estilo 3">Seta Simples</option>
+                                                <option value="Estilo 4">Rosa dos Ventos (Profissional)</option>
+                                                <option value="Estilo 5">Minimalista N</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Cor Fundo</label>
+                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgFill" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("SvgFill", _itemSelecionado.SvgFill))' />
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Contorno</label>
+                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgStroke" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("SvgStroke", _itemSelecionado.SvgStroke))' />
+                                        </div>
+                                        <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="sync_rot" @bind="_itemSelecionado.SyncWithMap" @bind:after="VerificarSincronizacaoNorte" />
+                                            <label for="sync_rot" class="gis-label" style="margin:0;">Sincronizar rotação com o Mapa</label>
+                                        </div>
                                     }
                                 </div>
                             </details>
@@ -316,11 +341,29 @@
                                 <div class="accordion-content">
                                     <div class="form-group-horizontal" style="margin-bottom: 8px;">
                                         <label class="gis-label" style="width: 80px;">Modo Mescl.</label>
-                                        <select class="gis-select" style="flex:1;" disabled><option>Normal</option></select>
+                                        <select class="gis-select" style="flex:1;" @bind="_itemSelecionado.BlendMode" @bind:after='() => AtualizarPropriedadeItem("BlendMode", _itemSelecionado.BlendMode)'>
+                                            <option value="normal">Normal</option>
+                                            <option value="multiply">Multiplicar</option>
+                                            <option value="screen">Divisão (Screen)</option>
+                                            <option value="overlay">Sobreposição</option>
+                                            <option value="darken">Escurecer</option>
+                                            <option value="lighten">Clarear</option>
+                                            <option value="color-dodge">Subexposição de cores</option>
+                                            <option value="color-burn">Superxposição de cores</option>
+                                            <option value="hard-light">Luz Direta</option>
+                                            <option value="soft-light">Luz Suave</option>
+                                            <option value="difference">Diferença</option>
+                                            <option value="exclusion">Exclusão</option>
+                                            <option value="hue">Matiz</option>
+                                            <option value="saturation">Saturação</option>
+                                            <option value="color">Cor</option>
+                                            <option value="luminosity">Luminosidade</option>
+                                        </select>
                                     </div>
                                     <div class="form-group-horizontal">
                                         <label class="gis-label" style="width: 80px;">Opacidade</label>
-                                        <input type="range" min="0" max="1" step="0.1" style="flex:1;" value="1" disabled />
+                                        <input type="range" min="0" max="1" step="0.05" style="flex:1;" value="@_itemSelecionado.Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange='@(e => { _itemSelecionado.Opacity = double.Parse(e.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture); AtualizarPropriedadeItem("Opacity", _itemSelecionado.Opacity); })' />
+                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px; min-width: 35px;">@(Math.Round(_itemSelecionado.Opacity * 100))%</span>
                                     </div>
                                 </div>
                             </details>
@@ -808,6 +851,12 @@
         public double MapRotation { get; set; } = 0;
         public bool MapDrawExtents { get; set; } = false;
 
+        // --- Imagem / SVG ---
+        public string SvgStyle { get; set; } = "Estilo 2";
+        public string SvgFill { get; set; } = "#333333";
+        public string SvgStroke { get; set; } = "#ffffff";
+        public bool SyncWithMap { get; set; } = false;
+
         // Propriedades antigas (remover depois)
         public double MapZoom { get; set; } = 1.0;
     }
@@ -968,6 +1017,34 @@
         }
     }
 
+    private async Task AtualizarRotacaoMapa()
+    {
+        if (_itemSelecionado == null) return;
+        await AtualizarPropriedadeItem("MapRotation", _itemSelecionado.MapRotation);
+
+        foreach (var item in _itensDoCompositor.Values)
+        {
+            if (item.Type == "Image" && item.SyncWithMap)
+            {
+                item.Rotation = _itemSelecionado.MapRotation;
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", item.Id, "Rotation", item.Rotation);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task VerificarSincronizacaoNorte()
+    {
+        if (_itemSelecionado == null || _itemSelecionado.Type != "Image" || !_itemSelecionado.SyncWithMap) return;
+        
+        var mapa = _itensDoCompositor.Values.FirstOrDefault(i => i.Type == "Map");
+        if (mapa != null)
+        {
+            _itemSelecionado.Rotation = mapa.MapRotation;
+            await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", _itemSelecionado.Id, "Rotation", _itemSelecionado.Rotation);
+        }
+    }
+
     private void AtualizarDimensoesPapel()
     {
         double widthMm = 297;
@@ -995,22 +1072,22 @@
 
     private async Task AdicionarMapa()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", "Mapa 1", -1, -1, 800, 500);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", "Mapa 1", 50, 50, 800, 500);
     }
 
     private async Task AdicionarTexto()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Text", "Título Principal", -1, -1, 400, 60);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Text", "Título Principal", 50, 20, 400, 60);
     }
 
     private async Task AdicionarLegenda()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Legend", "Legenda", -1, -1, 250, 150);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Legend", "Legenda", 50, 600, 250, 150);
     }
 
     private async Task AdicionarNorte()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Image", "Seta de Norte", -1, -1, 80, 80);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Image", "Seta de Norte", 1000, 50, 80, 80);
     }
 
     private async Task ExportarPNG()
@@ -1027,5 +1104,10 @@
     {
         _modoInteracaoMapa = ativarPanZoom;
         await JSRuntime.InvokeVoidAsync("composerSetMapInteractionModeV3", ativarPanZoom);
+    }
+
+    private async Task AbrirConstrutorExpressao()
+    {
+        await JSRuntime.InvokeVoidAsync("alert", "GeoNex Core: O Interpretador de Expressões Python/SQL está a ser otimizado para a próxima release. Temporariamente desativado por questões de segurança de execução. Utilize a formatação de Texto Estático/HTML.");
     }
 }

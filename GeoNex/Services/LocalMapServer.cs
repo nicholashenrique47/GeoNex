@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Threading.Tasks;
 using SkiaSharp;
+using System.Linq;
 using OSGeo.GDAL;
 
 namespace GeoNex.Services
@@ -69,8 +70,9 @@ namespace GeoNex.Services
                 int cssHeight = int.Parse(req.QueryString["h"] ?? "1080");
                 float dpi = float.Parse(req.QueryString["dpi"] ?? "1.0", System.Globalization.CultureInfo.InvariantCulture);
                 float faseSelecao = float.Parse(req.QueryString["phase"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
-                float offsetX = float.Parse(req.QueryString["ox"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
-                float offsetY = float.Parse(req.QueryString["oy"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                float panOffsetX = float.Parse(req.QueryString["ox"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                float panOffsetY = float.Parse(req.QueryString["oy"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                float rotation = float.Parse(req.QueryString["rot"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
                 
                 int physicalWidth = (int)(cssWidth * dpi);
                 int physicalHeight = (int)(cssHeight * dpi);
@@ -93,15 +95,20 @@ namespace GeoNex.Services
 
                 if (_mapService.TemRaster) { limitesTotais = _mapService.LimitesRasterGlobal; primeiro = false; }
 
-                foreach (var path in _mapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-                foreach (var path in _mapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+                foreach (var chunkList in _mapService.VetoresPorCamada.Values) { foreach(var path in chunkList) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } } }
+                foreach (var chunkList in _mapService.LinhasPorCamada.Values) { foreach(var path in chunkList) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } } }
                 foreach (var path in _mapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
 
                 float escalaAutoFit; float midX, midY;
 
                 // === CORREÇÃO BUG 3: FALLBACK ANTI-EXPLOSÃO ===
-                // Removemos o "if (!limitesTotais.IsEmpty) {" que trancava o mapa inteiro
-                if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
+                // Se for pedido pelo Compositor de Impressão (c=1), herda o zoom/pan exato do projeto sem tentar espremer o mapa na caixa!
+                if (req.QueryString["c"] == "1")
+                {
+                    escalaAutoFit = _ultimaEscalaAutoFit > 0 ? _ultimaEscalaAutoFit : 1f;
+                    midX = _ultimoMidX; midY = _ultimoMidY;
+                }
+                else if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
                 {
                     escalaAutoFit = _ultimaEscalaAutoFit > 0 ? _ultimaEscalaAutoFit : 1f;
                     midX = _ultimoMidX; midY = _ultimoMidY;
@@ -119,23 +126,47 @@ namespace GeoNex.Services
 
                 float zoomReal = escalaAutoFit * _mapService.CameraZoom;
 
-                var matriz = SKMatrix.CreateTranslation(-midX, -midY);
+                // 1. O Centro base do Mapa no Mundo (incluindo o pan original do Main Map sem rotação)
+                float baseMidX = midX - (float)(_mapService.CameraPanX / zoomReal);
+                float baseMidY = midY - (float)(_mapService.CameraPanY / zoomReal);
+
+                // 2. Aplicar o pan do Print Composer (este sim, ajusta-se à rotação)
+                double rad = rotation * Math.PI / 180.0;
+                double cos = Math.Cos(rad);
+                double sin = Math.Sin(rad);
+
+                // Converter apenas o pan do Composer (panOffsetX, panOffsetY) de Ecrã para Mundo
+                double panComposerMundoX = (panOffsetX * cos - panOffsetY * sin) / zoomReal;
+                double panComposerMundoY = (panOffsetX * sin + panOffsetY * cos) / zoomReal;
+
+                // Movemos a câmara base pelo offset rotacionado do composer
+                float currentMidX = baseMidX - (float)panComposerMundoX;
+                float currentMidY = baseMidY - (float)panComposerMundoY;
+
+                var matriz = SKMatrix.CreateTranslation(-currentMidX, -currentMidY);
                 matriz = matriz.PostConcat(SKMatrix.CreateScale(zoomReal, zoomReal));
-                matriz = matriz.PostConcat(SKMatrix.CreateTranslation(width / 2f + _mapService.CameraPanX + offsetX, height / 2f + _mapService.CameraPanY + offsetY));
+                matriz = matriz.PostConcat(SKMatrix.CreateRotationDegrees(-rotation));
+                matriz = matriz.PostConcat(SKMatrix.CreateTranslation(width / 2f, height / 2f));
 
                 // === CORREÇÃO BUG 1 (Parte A): ESCALA DE DPI NA MATRIZ GLOBAL ===
-                matriz = matriz.PostConcat(SKMatrix.CreateScale(dpi, dpi));
+                if (dpi != 1.0f)
+                {
+                    matriz = matriz.PostConcat(SKMatrix.CreateScale(dpi, dpi));
+                }
 
-                // CALCULA O VIEWPORT UMA ÚNICA VEZ
+                // CALCULA O VIEWPORT UMA ÚNICA VEZ (Com proteção para rotação)
                 SKRect viewportMundo = new SKRect();
                 if (matriz.TryInvert(out SKMatrix matrizInversaMundo))
                 {
-                    SKPoint c1 = matrizInversaMundo.MapPoint(new SKPoint(0, 0));
-                    SKPoint c2 = matrizInversaMundo.MapPoint(new SKPoint(physicalWidth, physicalHeight)); // Usa pixeis físicos por causa do DPI
-
+                    SKPoint[] pts = new SKPoint[] {
+                        matrizInversaMundo.MapPoint(new SKPoint(0, 0)),
+                        matrizInversaMundo.MapPoint(new SKPoint(physicalWidth, 0)),
+                        matrizInversaMundo.MapPoint(new SKPoint(physicalWidth, physicalHeight)),
+                        matrizInversaMundo.MapPoint(new SKPoint(0, physicalHeight))
+                    };
                     viewportMundo = new SKRect(
-                        Math.Min(c1.X, c2.X), Math.Min(c1.Y, c2.Y),
-                        Math.Max(c1.X, c2.X), Math.Max(c1.Y, c2.Y)
+                        pts.Min(p => p.X), pts.Min(p => p.Y),
+                        pts.Max(p => p.X), pts.Max(p => p.Y)
                     );
                 }
 
@@ -156,38 +187,57 @@ namespace GeoNex.Services
                     {
                         if (_mapService.TemRaster && camadaAtual == _mapService.NomeRasterAtivo && _mapService.DatasetRaster != null && matriz.TryInvert(out SKMatrix inverse))
                         {
-                            canvas.ResetMatrix();
-                            // === CORREÇÃO BUG 1 (Parte B): ALINHAR O DPI DO RASTER ===
-                            canvas.Scale(dpi);
-
-                            string targetCacheKey = $"{width}_{height}_{_mapService.CameraPanX}_{_mapService.CameraPanY}_{_mapService.CameraZoom}_{_mapService.NomeRasterAtivo}_{midX}_{midY}_{escalaAutoFit}";
-
-                            if (_mapService.RasterCache != null && _mapService.CacheKey == targetCacheKey)
+                            bool hasRotation = Math.Abs(rotation) > 0.001f;
+                            string targetCacheKey = $"{width}_{height}_{_mapService.CameraPanX}_{_mapService.CameraPanY}_{_mapService.CameraZoom}_{_mapService.NomeRasterAtivo}_{currentMidX}_{currentMidY}_{escalaAutoFit}_{panOffsetX}_{panOffsetY}_{rotation}";
+                            
+                            if (!hasRotation && _mapService.RasterCache != null && _mapService.CacheKey == targetCacheKey)
                             {
+                                canvas.ResetMatrix();
+                                canvas.Scale(dpi);
                                 canvas.DrawBitmap(_mapService.RasterCache, 0, 0);
                             }
-                            else if (_mapService.IsPanning && _mapService.RasterCache != null)
+                            else if (!hasRotation && _mapService.IsPanning && _mapService.RasterCache != null)
                             {
+                                canvas.ResetMatrix();
+                                canvas.Scale(dpi);
                                 float offsetX = (float)_mapService.CameraPanX - _mapService.CachePanX;
                                 float offsetY = (float)_mapService.CameraPanY - _mapService.CachePanY;
                                 canvas.DrawBitmap(_mapService.RasterCache, offsetX, offsetY);
                             }
                             else
                             {
-                                SKPoint topLeft = inverse.MapPoint(new SKPoint(0, 0));
-                                SKPoint bottomRight = inverse.MapPoint(new SKPoint(physicalWidth, physicalHeight));
+                                SKPoint[] corners = new SKPoint[] {
+                                    inverse.MapPoint(new SKPoint(0, 0)),
+                                    inverse.MapPoint(new SKPoint(physicalWidth, 0)),
+                                    inverse.MapPoint(new SKPoint(physicalWidth, physicalHeight)),
+                                    inverse.MapPoint(new SKPoint(0, physicalHeight))
+                                };
+                                
+                                float minX = corners.Min(c => c.X);
+                                float maxX = corners.Max(c => c.X);
+                                float minY = corners.Min(c => c.Y);
+                                float maxY = corners.Max(c => c.Y);
 
-                                double minLng = Math.Min(topLeft.X, bottomRight.X) + _mapService.OffsetMundoX;
-                                double maxLng = Math.Max(topLeft.X, bottomRight.X) + _mapService.OffsetMundoX;
-                                double minLat = Math.Min(-topLeft.Y, -bottomRight.Y) + _mapService.OffsetMundoY;
-                                double maxLat = Math.Max(-topLeft.Y, -bottomRight.Y) + _mapService.OffsetMundoY;
+                                double minLng = minX + _mapService.OffsetMundoX;
+                                double maxLng = maxX + _mapService.OffsetMundoX;
+                                double minLat = -maxY + _mapService.OffsetMundoY;
+                                double maxLat = -minY + _mapService.OffsetMundoY;
+
+                                int warpW = hasRotation ? (int)Math.Ceiling((maxX - minX) * zoomReal * dpi) : width;
+                                int warpH = hasRotation ? (int)Math.Ceiling((maxY - minY) * zoomReal * dpi) : height;
+                                
+                                // Proteção contra imagens colossais devido a limites infinitos acidentais
+                                if (warpW > 8192) warpW = 8192;
+                                if (warpH > 8192) warpH = 8192;
+                                if (warpW < 1) warpW = 1;
+                                if (warpH < 1) warpH = 1;
 
                                 string[] warpArgs = {
                                     "-te", minLng.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                            minLat.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                            maxLng.ToString(System.Globalization.CultureInfo.InvariantCulture),
                                            maxLat.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                                    "-ts", width.ToString(), height.ToString(),
+                                    "-ts", warpW.ToString(), warpH.ToString(),
                                     "-r", "bilinear", "-dstalpha", "-wm", "2048", "-multi", "-wo", "NUM_THREADS=ALL_CPUS", "-of", "MEM"
                                 };
 
@@ -200,21 +250,31 @@ namespace GeoNex.Services
                                     int[] listaBandas = new int[numBandas];
                                     for (int b = 0; b < numBandas; b++) listaBandas[b] = b + 1;
 
-                                    using var rasterBitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+                                    using var rasterBitmap = new SKBitmap(warpW, warpH, SKColorType.Rgba8888, SKAlphaType.Premul);
                                     using (var tmpCanvas = new SKCanvas(rasterBitmap)) { tmpCanvas.Clear(new SKColor(0, 0, 0, 0)); }
 
                                     IntPtr ptr = rasterBitmap.GetPixels();
                                     if (ptr != IntPtr.Zero)
                                     {
-                                        memDs.ReadRaster(0, 0, width, height, ptr, width, height, DataType.GDT_Byte, numBandas, listaBandas, 4, width * 4, 1);
+                                        memDs.ReadRaster(0, 0, warpW, warpH, ptr, warpW, warpH, DataType.GDT_Byte, numBandas, listaBandas, 4, warpW * 4, 1);
 
-                                        _mapService.RasterCache?.Dispose();
-                                        _mapService.RasterCache = rasterBitmap.Copy();
-                                        _mapService.CacheKey = targetCacheKey;
-                                        _mapService.CachePanX = (float)_mapService.CameraPanX;
-                                        _mapService.CachePanY = (float)_mapService.CameraPanY;
+                                        if (!hasRotation)
+                                        {
+                                            _mapService.RasterCache?.Dispose();
+                                            _mapService.RasterCache = rasterBitmap.Copy();
+                                            _mapService.CacheKey = targetCacheKey;
+                                            _mapService.CachePanX = (float)_mapService.CameraPanX;
+                                            _mapService.CachePanY = (float)_mapService.CameraPanY;
 
-                                        canvas.DrawBitmap(rasterBitmap, 0, 0);
+                                            canvas.ResetMatrix();
+                                            canvas.Scale(dpi);
+                                            canvas.DrawBitmap(rasterBitmap, 0, 0);
+                                        }
+                                        else
+                                        {
+                                            canvas.SetMatrix(matriz);
+                                            canvas.DrawBitmap(rasterBitmap, new SKRect(minX, minY, maxX, maxY));
+                                        }
                                     }
                                 }
                             }
@@ -271,17 +331,20 @@ namespace GeoNex.Services
                         // 4. DESENHA POLÍGONOS
                         if (estiloCamada.TipoSimbologia == "UNICA")
                         {
-                            if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var polyPath))
+                            if (_mapService.VetoresPorCamada.TryGetValue(camadaAtual, out var chunksPoly))
                             {
-                                if (viewportMundo.IntersectsWith(polyPath.Bounds))
+                                foreach (var polyPath in chunksPoly)
                                 {
-                                    canvas.SetMatrix(matriz);
+                                    if (viewportMundo.IntersectsWith(polyPath.Bounds))
+                                    {
+                                        canvas.SetMatrix(matriz);
 
-                                    if (!estiloCamada.PreenchimentoTransparente)
-                                        canvas.DrawPath(polyPath, pincelDinamicoFill);
+                                        if (!estiloCamada.PreenchimentoTransparente)
+                                            canvas.DrawPath(polyPath, pincelDinamicoFill);
 
-                                    if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
-                                        canvas.DrawPath(polyPath, pincelDinamicoBorda);
+                                        if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
+                                            canvas.DrawPath(polyPath, pincelDinamicoBorda);
+                                    }
                                 }
                             }
                         }
@@ -292,24 +355,25 @@ namespace GeoNex.Services
                                 foreach (var categoria in fragmentosDaCamada)
                                 {
                                     string nomeCategoria = categoria.Key;
-                                    var polyPathFragmento = categoria.Value;
+                                    
+                                    string corHex = estiloCamada.CoresCategorizadas.ContainsKey(nomeCategoria)
+                                        ? estiloCamada.CoresCategorizadas[nomeCategoria]
+                                        : "#808080";
+                                    SKColor corBase = SKColor.Parse(corHex);
+                                    pincelDinamicoFill.Color = corBase;
 
-                                    if (viewportMundo.IntersectsWith(polyPathFragmento.Bounds))
+                                    foreach (var polyPathFragmento in categoria.Value)
                                     {
-                                        string corHex = estiloCamada.CoresCategorizadas.ContainsKey(nomeCategoria)
-                                            ? estiloCamada.CoresCategorizadas[nomeCategoria]
-                                            : "#808080";
+                                        if (viewportMundo.IntersectsWith(polyPathFragmento.Bounds))
+                                        {
+                                            canvas.SetMatrix(matriz);
 
-                                        SKColor corBase = SKColor.Parse(corHex);
-                                        pincelDinamicoFill.Color = corBase;
+                                            if (!estiloCamada.PreenchimentoTransparente)
+                                                canvas.DrawPath(polyPathFragmento, pincelDinamicoFill);
 
-                                        canvas.SetMatrix(matriz);
-
-                                        if (!estiloCamada.PreenchimentoTransparente)
-                                            canvas.DrawPath(polyPathFragmento, pincelDinamicoFill);
-
-                                        if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
-                                            canvas.DrawPath(polyPathFragmento, pincelDinamicoBorda);
+                                            if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
+                                                canvas.DrawPath(polyPathFragmento, pincelDinamicoBorda);
+                                        }
                                     }
                                 }
                             }
@@ -318,66 +382,14 @@ namespace GeoNex.Services
                         // 5. DESENHA LINHAS (Redes, arruamentos)
                         if (estiloCamada.TipoSimbologia == "UNICA")
                         {
-                            if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var linePath))
+                            if (_mapService.LinhasPorCamada.TryGetValue(camadaAtual, out var chunksLine))
                             {
-                                if (viewportMundo.IntersectsWith(linePath.Bounds))
+                                foreach (var linePath in chunksLine)
                                 {
-                                    canvas.SetMatrix(matriz);
-                                    
-                                    if (!estiloCamada.BordaTransparente)
+                                    if (viewportMundo.IntersectsWith(linePath.Bounds))
                                     {
-                                        using var lineOuter = new SKPaint
-                                        {
-                                            Style = SKPaintStyle.Stroke,
-                                            StrokeJoin = SKStrokeJoin.Round,
-                                            StrokeCap = SKStrokeCap.Round,
-                                            IsAntialias = true,
-                                            Color = pincelDinamicoBorda.Color,
-                                            StrokeWidth = espessuraCalculadaBorda,
-                                            PathEffect = pincelDinamicoBorda.PathEffect
-                                        };
-                                        canvas.DrawPath(linePath, lineOuter);
-                                    }
-
-                                    if (!estiloCamada.PreenchimentoTransparente)
-                                    {
-                                        using var lineInner = new SKPaint
-                                        {
-                                            Style = SKPaintStyle.Stroke,
-                                            StrokeJoin = SKStrokeJoin.Round,
-                                            StrokeCap = SKStrokeCap.Round,
-                                            IsAntialias = true,
-                                            Color = pincelDinamicoFill.Color,
-                                            BlendMode = SKBlendMode.SrcOver,
-                                            StrokeWidth = espessuraCalculadaLinha,
-                                            PathEffect = pincelDinamicoBorda.PathEffect
-                                        };
-                                        canvas.DrawPath(linePath, lineInner);
-                                    }
-                                }
-                            }
-                        }
-                        else if (estiloCamada.TipoSimbologia == "CATEGORIZADA")
-                        {
-                            if (_mapService.LinhasCategorizadas.TryGetValue(camadaAtual, out var fragmentosDaLinha))
-                            {
-                                foreach (var categoria in fragmentosDaLinha)
-                                {
-                                    string nomeCategoria = categoria.Key;
-                                    var linePathFragmento = categoria.Value;
-
-                                    if (viewportMundo.IntersectsWith(linePathFragmento.Bounds))
-                                    {
-                                        string corHex = estiloCamada.CoresCategorizadas.ContainsKey(nomeCategoria)
-                                            ? estiloCamada.CoresCategorizadas[nomeCategoria]
-                                            : "#808080";
-
-                                        SKColor corBase = SKColor.Parse(corHex);
-                                        // A cor categorizada assume o "Miolo" da linha
-                                        pincelDinamicoFill.Color = corBase;
-
                                         canvas.SetMatrix(matriz);
-
+                                        
                                         if (!estiloCamada.BordaTransparente)
                                         {
                                             using var lineOuter = new SKPaint
@@ -390,7 +402,7 @@ namespace GeoNex.Services
                                                 StrokeWidth = espessuraCalculadaBorda,
                                                 PathEffect = pincelDinamicoBorda.PathEffect
                                             };
-                                            canvas.DrawPath(linePathFragmento, lineOuter);
+                                            canvas.DrawPath(linePath, lineOuter);
                                         }
 
                                         if (!estiloCamada.PreenchimentoTransparente)
@@ -406,7 +418,62 @@ namespace GeoNex.Services
                                                 StrokeWidth = espessuraCalculadaLinha,
                                                 PathEffect = pincelDinamicoBorda.PathEffect
                                             };
-                                            canvas.DrawPath(linePathFragmento, lineInner);
+                                            canvas.DrawPath(linePath, lineInner);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        else if (estiloCamada.TipoSimbologia == "CATEGORIZADA")
+                        {
+                            if (_mapService.LinhasCategorizadas.TryGetValue(camadaAtual, out var fragmentosDaLinha))
+                            {
+                                foreach (var categoria in fragmentosDaLinha)
+                                {
+                                    string nomeCategoria = categoria.Key;
+                                    
+                                    string corHex = estiloCamada.CoresCategorizadas.ContainsKey(nomeCategoria)
+                                        ? estiloCamada.CoresCategorizadas[nomeCategoria]
+                                        : "#808080";
+                                    SKColor corBase = SKColor.Parse(corHex);
+                                    pincelDinamicoFill.Color = corBase;
+
+                                    foreach (var linePathFragmento in categoria.Value)
+                                    {
+                                        if (viewportMundo.IntersectsWith(linePathFragmento.Bounds))
+                                        {
+                                            canvas.SetMatrix(matriz);
+
+                                            if (!estiloCamada.BordaTransparente)
+                                            {
+                                                using var lineOuter = new SKPaint
+                                                {
+                                                    Style = SKPaintStyle.Stroke,
+                                                    StrokeJoin = SKStrokeJoin.Round,
+                                                    StrokeCap = SKStrokeCap.Round,
+                                                    IsAntialias = true,
+                                                    Color = pincelDinamicoBorda.Color,
+                                                    StrokeWidth = espessuraCalculadaBorda,
+                                                    PathEffect = pincelDinamicoBorda.PathEffect
+                                                };
+                                                canvas.DrawPath(linePathFragmento, lineOuter);
+                                            }
+
+                                            if (!estiloCamada.PreenchimentoTransparente)
+                                            {
+                                                using var lineInner = new SKPaint
+                                                {
+                                                    Style = SKPaintStyle.Stroke,
+                                                    StrokeJoin = SKStrokeJoin.Round,
+                                                    StrokeCap = SKStrokeCap.Round,
+                                                    IsAntialias = true,
+                                                    Color = pincelDinamicoFill.Color,
+                                                    BlendMode = SKBlendMode.SrcOver,
+                                                    StrokeWidth = espessuraCalculadaLinha,
+                                                    PathEffect = pincelDinamicoBorda.PathEffect
+                                                };
+                                                canvas.DrawPath(linePathFragmento, lineInner);
+                                            }
                                         }
                                     }
                                 }

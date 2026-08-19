@@ -4,6 +4,7 @@
 @inject GeoNex.Services.ProjetoService ProjetoService
 @inject GeoNex.Services.RasterService RasterService
 @inject GeoNex.Services.MapRenderingService MapService
+@inject GeoNex.Services.ExportService ExportService
 @using SkiaSharp
 @using SkiaSharp.Views.Blazor
 @using ProjNet.CoordinateSystems
@@ -138,7 +139,7 @@
                         Compositor de Impressão
                     </button>
                     <div class="drop-divider"></div>
-                    <button class="drop-item">Exportar Vetor (Shapefile)</button>
+                    <button class="drop-item" @onclick="AbrirModalExportacao">Exportar Vetor (Shapefile/GeoJSON)</button>
                     <button class="drop-item">Exportar Tabela (CSV)</button>
                 </div>
             </div>
@@ -529,6 +530,52 @@
                             </div>
                         }
 
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ========================================== -->
+    <!-- JANELA MODAL DE EXPORTAÇÃO (VETOR)         -->
+    <!-- ========================================== -->
+    @if (exibirModalExportacao)
+    {
+        <div class="modal-overlay">
+            <div class="glass-panel import-modal">
+                <div class="modal-header">
+                    <h2>EXPORTAR CAMADA VETORIAL (OGR)</h2>
+                    <button class="close-modal-btn" @onclick="FecharModalExportacao">✕</button>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <div class="form-group mb-15">
+                        <label>Camada a Exportar</label>
+                        <select class="glass-input editable" @bind="exportCamadaOrigem">
+                            <option value="">-- Selecione uma camada --</option>
+                            @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
+                            {
+                                <option value="@camada.Nome">@camada.Nome</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="form-group mb-15">
+                        <label>Formato de Saída (Driver OGR)</label>
+                        <select class="glass-input editable" @bind="exportFormatoDriver">
+                            <option value="ESRI Shapefile">ESRI Shapefile (.shp)</option>
+                            <option value="GeoJSON">GeoJSON (.geojson)</option>
+                            <option value="KML">Google Earth KML (.kml)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group mb-15">
+                        <label>Sistema de Referência de Coordenadas (EPSG Destino)</label>
+                        <input type="number" class="glass-input editable" @bind="exportEPSG" placeholder="Ex: 31982 ou 4326" />
+                    </div>
+
+                    <div class="import-actions" style="margin-top: 30px;">
+                        <button class="btn-save add-layer-btn" @onclick="ExecutarExportacao" style="background-color: #facc15; color: #0f172a; font-weight: bold;">PROCESSAR EXPORTAÇÃO</button>
+                        <button class="btn-cancel" @onclick="FecharModalExportacao">CANCELAR</button>
                     </div>
                 </div>
             </div>
@@ -3533,6 +3580,13 @@
     private string latitude = "-25.882800";
     private string longitude = "-48.574700";
     private bool exibirModalImportacao = false;
+    private bool exibirModalExportacao = false;
+    
+    // Variáveis Exportação
+    private string exportCamadaOrigem = "";
+    private string exportFormatoDriver = "ESRI Shapefile";
+    private int exportEPSG = 4326;
+
     private string AbaModalAtiva = "Raster";
     private DotNetObjectReference<Home>? objRef;
     private List<Camada> CamadasAtivas = new List<Camada>();
@@ -4022,6 +4076,46 @@
     private void AbrirModalImportacao() { exibirModalImportacao = true; }
     private void FecharModalImportacao() { exibirModalImportacao = false; }
     private void TrocarAbaModal(string nomeAba) { AbaModalAtiva = nomeAba; }
+
+    private void AbrirModalExportacao() { exibirModalExportacao = true; }
+    private void FecharModalExportacao() { exibirModalExportacao = false; }
+
+    private async Task ExecutarExportacao()
+    {
+        if (string.IsNullOrWhiteSpace(exportCamadaOrigem))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Selecione a camada de origem.");
+            return;
+        }
+
+        var camadaOrig = CamadasAtivas.FirstOrDefault(c => c.Nome == exportCamadaOrigem);
+        if (camadaOrig == null || string.IsNullOrWhiteSpace(camadaOrig.CaminhoArquivo))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Caminho do ficheiro original não encontrado.");
+            return;
+        }
+
+        string extensao = exportFormatoDriver == "GeoJSON" ? ".geojson" : (exportFormatoDriver == "KML" ? ".kml" : ".shp");
+        var opcoes = new PickOptions { PickerTitle = "Exportar Vetor" };
+        
+        // Simulação de SaveFileDialog nativo - MAUI não tem SavePicker bom, então usaremos um Pick genérico de diretório se estivéssemos num desktop puro
+        // Para simplificar, vou exportar diretamente para Meus Documentos e alertar.
+        
+        string pasta = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        string caminhoDestino = System.IO.Path.Combine(pasta, $"Exportacao_{exportCamadaOrigem}{extensao}");
+
+        bool sucesso = ExportService.ExportarVetor(exportCamadaOrigem, camadaOrig.CaminhoArquivo, caminhoDestino, exportFormatoDriver, exportEPSG);
+
+        if (sucesso)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Exportação concluída!\nO ficheiro foi gerado em:\n{caminhoDestino}");
+            FecharModalExportacao();
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Erro ao exportar camada. Verifique o console ou a integridade do GDAL.");
+        }
+    }
 
     private async Task SelecionarArquivoRaster()
     {
@@ -5274,8 +5368,8 @@
     bool primeiro = true;
 
     if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
-    foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-    foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+    foreach (var chunkList in MapService.VetoresPorCamada.Values) { foreach (var path in chunkList) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } } }
+    foreach (var chunkList in MapService.LinhasPorCamada.Values) { foreach (var path in chunkList) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } } }
     foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
 
     float escalaAutoFit; float midX, midY;
@@ -5338,7 +5432,7 @@
         SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
         bool primeiro = true;
         if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
-        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var chunkList in MapService.VetoresPorCamada.Values) { foreach (var path in chunkList) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } } }
 
         float escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;
         var matriz = SkiaSharp.SKMatrix.CreateTranslation(-_ultimoMidXUI, -_ultimoMidYUI);
@@ -5378,8 +5472,8 @@
         SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
         bool primeiro = true;
         if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
-        foreach (var path in MapService.VetoresPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
-        foreach (var path in MapService.LinhasPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
+        foreach (var chunkList in MapService.VetoresPorCamada.Values) { foreach (var path in chunkList) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } } }
+        foreach (var chunkList in MapService.LinhasPorCamada.Values) { foreach (var path in chunkList) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } } }
         foreach (var path in MapService.PontosPorCamada.Values) { if (primeiro) { limitesTotais = path.Bounds; primeiro = false; } else { limitesTotais.Union(path.Bounds); } }
 
         float escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;

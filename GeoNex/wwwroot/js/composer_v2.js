@@ -115,8 +115,13 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
                              <div style="display:flex; align-items:center; margin-bottom:5px;"><div style="width:20px;height:20px;background:red;margin-right:8px;"></div> Zona A</div>
                              <div style="display:flex; align-items:center;"><div style="width:20px;height:20px;background:blue;margin-right:8px;"></div> Zona B</div>`;
     } else if (type === 'Image') {
-        content.style.backgroundColor = '#fff';
-        content.innerHTML = `<div style="width:100%;height:100%;border:2px dashed #ccc; display:flex; justify-content:center; align-items:center; color:#000;">N</div>`;
+        content.style.backgroundColor = 'transparent';
+        item.dataset.svgStyle = 'Estilo 2';
+        item.dataset.svgFill = '#333333';
+        item.dataset.svgStroke = '#ffffff';
+        item.dataset.hasBg = 'false';
+        item.dataset.hasBorder = 'false';
+        updateImageItem(item, content);
     }
 
     item.appendChild(content);
@@ -149,7 +154,7 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         if (window.geonexMapServerUrl) {
             let reqW = Math.round(w) || 1920;
             let reqH = Math.round(h) || 1080;
-            img1.src = window.geonexMapServerUrl + `mapa/?w=${reqW}&h=${reqH}&ox=0&oy=0&t=` + new Date().getTime();
+            img1.src = window.geonexMapServerUrl + `mapa/?w=${reqW}&h=${reqH}&ox=0&oy=0&rot=0&dpi=2.0&c=1&t=` + new Date().getTime();
         } else {
             // Fallback para caso ainda esteja operando na mesma janela (Modo Antigo)
             let skiaLayer = document.getElementById('skia-layer');
@@ -222,6 +227,24 @@ let isMapContentInteractionActive = false;
 let isPanningMapContent = false;
 let startMapPanX = 0;
 let startMapPanY = 0;
+
+const compassSVGs = {
+    'Estilo 1': (fill, stroke) => `<svg viewBox="-50 -50 100 100" style="width:100%;height:100%;"><polygon points="0,-40 15,40 0,25" fill="${fill}" stroke="${stroke}" stroke-width="2"/><polygon points="0,-40 -15,40 0,25" fill="rgba(255,255,255,0.3)" stroke="${stroke}" stroke-width="2"/></svg>`,
+    'Estilo 2': (fill, stroke) => `<svg viewBox="-50 -50 100 100" style="width:100%;height:100%;"><circle cx="0" cy="0" r="45" fill="none" stroke="${stroke}" stroke-width="2"/><polygon points="0,-45 10,-10 45,0 10,10 0,45 -10,10 -45,0 -10,-10" fill="${fill}" stroke="${stroke}" stroke-width="1"/><polygon points="0,-45 0,45 -10,10 -45,0 -10,-10" fill="rgba(255,255,255,0.3)"/></svg>`,
+    'Estilo 3': (fill, stroke) => `<svg viewBox="-50 -50 100 100" style="width:100%;height:100%;"><path d="M0,-40 L20,30 L0,20 L-20,30 Z" fill="${fill}" stroke="${stroke}" stroke-width="2" /></svg>`,
+    'Estilo 4': (fill, stroke) => `<svg viewBox="-120 -120 240 240" style="width:100%;height:100%;"><circle cx="0" cy="0" r="55" fill="none" stroke="${stroke}" stroke-width="3"/><circle cx="0" cy="0" r="48" fill="none" stroke="${stroke}" stroke-width="1"/><g transform="rotate(45)"><polygon points="0,-45 7,-7 45,0 7,7 0,45 -7,7 -45,0 -7,-7" fill="rgba(255,255,255,0.2)" stroke="${stroke}" stroke-width="1"/></g><polygon points="0,-70 14,-14 0,0" fill="${fill}" stroke="${stroke}" stroke-width="1"/><polygon points="0,-70 -14,-14 0,0" fill="rgba(255,255,255,0.9)" stroke="${stroke}" stroke-width="1"/><polygon points="0,70 14,14 0,0" fill="rgba(255,255,255,0.9)" stroke="${stroke}" stroke-width="1"/><polygon points="0,70 -14,14 0,0" fill="${fill}" stroke="${stroke}" stroke-width="1"/><polygon points="70,0 14,-14 0,0" fill="${fill}" stroke="${stroke}" stroke-width="1"/><polygon points="70,0 14,14 0,0" fill="rgba(255,255,255,0.9)" stroke="${stroke}" stroke-width="1"/><polygon points="-70,0 -14,14 0,0" fill="${fill}" stroke="${stroke}" stroke-width="1"/><polygon points="-70,0 -14,-14 0,0" fill="rgba(255,255,255,0.9)" stroke="${stroke}" stroke-width="1"/><text x="0" y="-92" fill="${stroke}" font-size="38" font-family="'Arial Black', Impact, sans-serif" font-weight="900" text-anchor="middle" dominant-baseline="central">N</text><text x="0" y="92" fill="${stroke}" font-size="32" font-family="'Arial Black', Impact, sans-serif" font-weight="900" text-anchor="middle" dominant-baseline="central">S</text><text x="92" y="2" fill="${stroke}" font-size="32" font-family="'Arial Black', Impact, sans-serif" font-weight="900" text-anchor="middle" dominant-baseline="central">E</text><text x="-92" y="2" fill="${stroke}" font-size="32" font-family="'Arial Black', Impact, sans-serif" font-weight="900" text-anchor="middle" dominant-baseline="central">O</text></svg>`,
+    'Estilo 5': (fill, stroke) => `<svg viewBox="-60 -120 120 240" style="width:100%;height:100%;"><polygon points="0,-60 25,45 0,20" fill="${fill}" stroke="${stroke}" stroke-width="2"/><polygon points="0,-60 -25,45 0,20" fill="rgba(255,255,255,0.9)" stroke="${stroke}" stroke-width="2"/><text x="0" y="-95" fill="${stroke}" font-size="48" font-family="'Arial Black', Impact, sans-serif" font-weight="900" text-anchor="middle" dominant-baseline="central">N</text></svg>`
+};
+
+function updateImageItem(item, content) {
+    if (item.dataset.type !== 'Image') return;
+    let style = item.dataset.svgStyle || 'Estilo 2';
+    let fill = item.dataset.svgFill || '#333333';
+    let stroke = item.dataset.svgStroke || '#ffffff';
+    if (compassSVGs[style]) {
+        content.innerHTML = compassSVGs[style](fill, stroke);
+    }
+}
 
 function startResize(e) {
     isResizing = true;
@@ -325,7 +348,8 @@ function handleMouseUp(e) {
                     innerMap.style.left = '0px';
                     innerMap.style.top = '0px';
                 }
-                img1.src = window.geonexMapServerUrl + `mapa/?w=${wBox}&h=${hBox}&ox=${newPanX}&oy=${newPanY}&t=` + new Date().getTime();
+                let rot = activeItem.dataset.mapRotation || 0;
+                img1.src = window.geonexMapServerUrl + `mapa/?w=${wBox}&h=${hBox}&ox=${newPanX}&oy=${newPanY}&rot=${rot}&dpi=2.0&c=1&t=` + new Date().getTime();
             }
         }
         
@@ -342,8 +366,9 @@ function handleMouseUp(e) {
                 let newH = Math.round(parseFloat(activeItem.style.height));
                 let px = activeItem.dataset.panX || 0;
                 let py = activeItem.dataset.panY || 0;
+                let rot = activeItem.dataset.mapRotation || 0;
                 if (img1 && newW > 0 && newH > 0) {
-                    img1.src = window.geonexMapServerUrl + `mapa/?w=${newW}&h=${newH}&ox=${px}&oy=${py}&t=` + new Date().getTime();
+                    img1.src = window.geonexMapServerUrl + `mapa/?w=${newW}&h=${newH}&ox=${px}&oy=${py}&rot=${rot}&dpi=2.0&c=1&t=` + new Date().getTime();
                 }
             }
         }
@@ -448,6 +473,9 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
         }
     }
     
+    if (propName === 'Opacity') item.style.opacity = propValue;
+    if (propName === 'BlendMode') item.style.mixBlendMode = propValue;
+    
     if (propName === 'Rotation') item.style.transform = `rotate(${propValue}deg)`;
     
     if (propName === 'BorderColor' || propName === 'BorderWidth' || propName === 'HasBorder') {
@@ -539,10 +567,36 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
     }
     
     if (propName === 'MapRotation' && item.dataset.type === 'Map') {
-        let innerMap = item.querySelector('#composer-map-inner');
-        if (innerMap) {
-            innerMap.style.transform = `rotate(${propValue}deg)`;
+        let oldRot = parseFloat(item.dataset.mapRotation) || 0;
+        let newRot = parseFloat(propValue) || 0;
+        
+        let delta = (oldRot - newRot) * Math.PI / 180.0;
+        let px = parseFloat(item.dataset.panX) || 0;
+        let py = parseFloat(item.dataset.panY) || 0;
+        
+        let newPx = px * Math.cos(delta) - py * Math.sin(delta);
+        let newPy = px * Math.sin(delta) + py * Math.cos(delta);
+        
+        item.dataset.panX = newPx;
+        item.dataset.panY = newPy;
+        item.dataset.mapRotation = newRot;
+        
+        if (window.geonexMapServerUrl) {
+            let img1 = item.querySelector('img');
+            let w = Math.round(parseFloat(item.style.width));
+            let h = Math.round(parseFloat(item.style.height));
+            if (img1 && w > 0 && h > 0) {
+                img1.src = window.geonexMapServerUrl + `mapa/?w=${w}&h=${h}&ox=${newPx}&oy=${newPy}&rot=${newRot}&dpi=2.0&c=1&t=` + new Date().getTime();
+            }
         }
+    }
+    
+    if (propName === 'SvgStyle') item.dataset.svgStyle = propValue;
+    if (propName === 'SvgFill') item.dataset.svgFill = propValue;
+    if (propName === 'SvgStroke') item.dataset.svgStroke = propValue;
+    if (['SvgStyle', 'SvgFill', 'SvgStroke'].includes(propName) && item.dataset.type === 'Image') {
+        let content = item.querySelector('.item-content');
+        if (content) updateImageItem(item, content);
     }
 };
 
@@ -618,16 +672,43 @@ window.composerExportPNG = function(filename) {
     }
 };
 
-function execExportPNG(filename) {
+async function prepareMapsForExport(highDpi) {
+    let maps = document.querySelectorAll('.composer-item[data-type="Map"] img');
+    let promises = [];
+    maps.forEach(img => {
+        let currentSrc = img.src;
+        if(currentSrc.includes('dpi=')) {
+            let newSrc = currentSrc.replace(/dpi=[0-9\.]+/, `dpi=${highDpi}`);
+            if (newSrc !== currentSrc) {
+                let p = new Promise(resolve => {
+                    let done = false;
+                    const finish = () => { if(!done){ done=true; resolve(); } };
+                    img.onload = finish;
+                    img.onerror = finish;
+                    img.src = newSrc;
+                    setTimeout(finish, 15000); // 15s max
+                });
+                promises.push(p);
+            }
+        }
+    });
+    await Promise.all(promises);
+}
+
+async function execExportPNG(filename) {
     let paper = document.getElementById('paper-sheet');
     document.querySelectorAll('.composer-item').forEach(i => i.classList.remove('selected'));
     if (dotnetHelper) dotnetHelper.invokeMethodAsync('OnItemDeselected');
     
-    html2canvas(paper, { scale: 2, useCORS: true }).then(canvas => {
+    await prepareMapsForExport("4.0");
+    
+    html2canvas(paper, { scale: 4, useCORS: true }).then(async canvas => {
         let link = document.createElement('a');
         link.download = filename;
         link.href = canvas.toDataURL('image/png');
         link.click();
+        
+        await prepareMapsForExport("2.0");
     });
 }
 
@@ -647,12 +728,14 @@ window.composerExportPDF = function(filename) {
     }
 };
 
-function execExportPDF(filename) {
+async function execExportPDF(filename) {
     let paper = document.getElementById('paper-sheet');
     document.querySelectorAll('.composer-item').forEach(i => i.classList.remove('selected'));
     if (dotnetHelper) dotnetHelper.invokeMethodAsync('OnItemDeselected');
     
-    html2canvas(paper, { scale: 2, useCORS: true }).then(canvas => {
+    await prepareMapsForExport("4.0");
+    
+    html2canvas(paper, { scale: 4, useCORS: true }).then(async canvas => {
         let imgData = canvas.toDataURL('image/png');
         const { jsPDF } = window.jspdf;
         let orientation = paper.offsetWidth > paper.offsetHeight ? 'l' : 'p';
@@ -661,6 +744,8 @@ function execExportPDF(filename) {
         let pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
         pdf.save(filename);
+        
+        await prepareMapsForExport("2.0");
     });
 }
 

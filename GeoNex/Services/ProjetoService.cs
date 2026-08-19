@@ -1,4 +1,4 @@
-﻿using GeoNex.Data;
+using GeoNex.Data;
 using GeoNex.Models;
 using Microsoft.Data.Sqlite;
 using OSGeo.OGR;
@@ -108,24 +108,48 @@ public class ProjetoService
     {
         try
         {
-            var factory = new NetTopologySuite.Geometries.GeometryFactory();
-            using var reader = new NetTopologySuite.IO.ShapefileDataReader(caminhoShp, factory);
-
             var feicoesCompletas = new NetTopologySuite.Features.FeatureCollection();
+            var wkbReader = new NetTopologySuite.IO.WKBReader();
 
-            while (reader.Read())
+            Ogr.RegisterAll();
+            using var dsOrigem = Ogr.Open(caminhoShp, 0);
+            if (dsOrigem == null) throw new Exception("Falha ao abrir a fonte via OGR.");
+
+            using var layer = dsOrigem.GetLayerByIndex(0);
+            using var defn = layer.GetLayerDefn();
+            int fieldCount = defn.GetFieldCount();
+            var fieldNames = new string[fieldCount];
+            for (int i = 0; i < fieldCount; i++)
+            {
+                using var fDefn = defn.GetFieldDefn(i);
+                fieldNames[i] = fDefn.GetName();
+            }
+
+            layer.ResetReading();
+            OSGeo.OGR.Feature feat;
+
+            while ((feat = layer.GetNextFeature()) != null)
             {
                 var atributos = new NetTopologySuite.Features.AttributesTable();
-                for (int i = 0; i < reader.FieldCount; i++)
+                for (int i = 0; i < fieldCount; i++)
                 {
-                    atributos.Add(reader.GetName(i), reader.GetValue(i));
+                    // Ler como string é mais seguro e rápido para o UI
+                    atributos.Add(fieldNames[i], feat.GetFieldAsString(i));
                 }
 
-                if (reader.Geometry != null)
+                using var geom = feat.GetGeometryRef();
+                if (geom != null)
                 {
-                    var feature = new NetTopologySuite.Features.Feature(reader.Geometry, atributos);
+                    int size = (int)geom.WkbSize();
+                    byte[] wkb = new byte[size];
+                    geom.ExportToWkb(wkb, wkbByteOrder.wkbNDR);
+                    
+                    var ntsGeom = wkbReader.Read(wkb);
+                    var feature = new NetTopologySuite.Features.Feature(ntsGeom, atributos);
                     feicoesCompletas.Add(feature);
                 }
+                
+                feat.Dispose();
             }
 
             // A INJEÇÃO DUPLA ESTRUTURADA
@@ -140,11 +164,11 @@ public class ProjetoService
                 mapService.OrdemCamadas.Add(nomeCamada);
             }
 
-            Console.WriteLine($"[GEONEX] Camada {nomeCamada} carregada. Feições: {feicoesCompletas.Count}");
+            Console.WriteLine($"[GEONEX] Camada {nomeCamada} carregada via OGR. Feições: {feicoesCompletas.Count}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[GEONEX] Erro crítico ao carregar Shapefile: {ex.Message}");
+            Console.WriteLine($"[GEONEX] Erro crítico ao carregar via OGR: {ex.Message}");
         }
     }
 }
