@@ -175,37 +175,60 @@
                                             <input type="checkbox" id="render_html" />
                                             <label for="render_html" class="gis-label" style="margin:0;">Renderizar como HTML</label>
                                         </div>
+                                        @if (_itemSelecionado.Type == "Text")
+                                        {
+                                            <div style="display: flex; gap: 5px; margin-top: 10px;">
+                                                <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;">Inserir/Editar Expressão...</button>
+                                                <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;">Texto Dinâmico ▼</button>
+                                            </div>
+                                        }
                                     }
                                 </div>
                             </details>
 
-                            <!-- ACCORDION: APARÊNCIA / MOLDURA / FUNDO -->
-                            <details class="gis-accordion">
+                            <!-- ACCORDION: APARÊNCIA -->
+                            <details class="gis-accordion" open>
                                 <summary>Aparência</summary>
                                 <div class="accordion-content">
                                     @if (_itemSelecionado.Type == "Text")
                                     {
                                         <div class="form-group-vertical" style="margin-bottom: 15px;">
-                                            <label class="gis-label">Fonte do Texto</label>
+                                            <label class="gis-label">Fonte</label>
                                             <div style="display: flex; gap: 5px;">
-                                                <input type="number" class="gis-input" style="width: 60px;" @bind="_itemSelecionado.FontSize" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' @onchange='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' />
-                                                <input type="color" class="gis-input" style="padding:0; height: 32px; width: 40px;" @bind="_itemSelecionado.TextColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("TextColor", _itemSelecionado.TextColor))' />
+                                                <select class="gis-select" style="flex: 1;"><option>Arial</option><option>Inter</option><option>Times New Roman</option></select>
+                                                <input type="number" class="gis-input" style="width: 50px;" @bind="_itemSelecionado.FontSize" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' @onchange='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' />
+                                                <input type="color" class="gis-input" style="padding:0; height: 32px; width: 32px;" @bind="_itemSelecionado.TextColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("TextColor", _itemSelecionado.TextColor))' />
                                             </div>
                                         </div>
+                                        
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 120px;">Margem horizontal</label>
+                                            <input type="number" class="gis-input" style="flex:1;" value="0.00" step="0.1" />
+                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-bottom: 15px;">
+                                            <label class="gis-label" style="width: 120px;">Margem vertical</label>
+                                            <input type="number" class="gis-input" style="flex:1;" value="0.00" step="0.1" />
+                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
+                                        </div>
+                                        
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 120px;">Alinhamento horizontal</label>
+                                            <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.TextAlignH" @bind:after='() => AtualizarPropriedadeItem("TextAlignH", _itemSelecionado.TextAlignH)'>
+                                                <option value="left">Esquerda</option>
+                                                <option value="center">Centro</option>
+                                                <option value="right">Direita</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group-horizontal">
+                                            <label class="gis-label" style="width: 120px;">Alinhamento vertical</label>
+                                            <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.TextAlignV" @bind:after='() => AtualizarPropriedadeItem("TextAlignV", _itemSelecionado.TextAlignV)'>
+                                                <option value="top">Topo</option>
+                                                <option value="center">Meio</option>
+                                                <option value="bottom">Base</option>
+                                            </select>
+                                        </div>
                                     }
-                                    
-                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
-                                        <input type="checkbox" id="has_bg" @bind="_itemSelecionado.HasBg" @bind:after='() => AtualizarPropriedadeItem("HasBg", _itemSelecionado.HasBg)' />
-                                        <label for="has_bg" class="gis-label" style="margin:0; width: 80px;">Fundo</label>
-                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BgColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BgColor", _itemSelecionado.BgColor))' disabled="@(!_itemSelecionado.HasBg)" />
-                                    </div>
-                                    
-                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
-                                        <input type="checkbox" id="has_border" @bind="_itemSelecionado.HasBorder" @bind:after='() => AtualizarPropriedadeItem("HasBorder", _itemSelecionado.HasBorder)' />
-                                        <label for="has_border" class="gis-label" style="margin:0; width: 80px;">Moldura</label>
-                                        <input type="color" class="gis-input" style="padding:0; height: 32px; width:40px;" @bind="_itemSelecionado.BorderColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BorderColor", _itemSelecionado.BorderColor))' disabled="@(!_itemSelecionado.HasBorder)" />
-                                        <input type="number" class="gis-input" style="width: 50px; margin-left: 5px;" min="0" max="20" @bind="_itemSelecionado.BorderWidth" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' @onchange='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' disabled="@(!_itemSelecionado.HasBorder)" />
-                                    </div>
                                 </div>
                             </details>
 
@@ -233,8 +256,14 @@
                                             <input type="number" class="gis-input" @bind="_itemSelecionado.Height" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' @onchange='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' />
                                         </div>
                                     </div>
-                                    
-                                    <div class="form-group-horizontal" style="margin-top: 15px;">
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: ROTAÇÃO -->
+                            <details class="gis-accordion">
+                                <summary>Rotação</summary>
+                                <div class="accordion-content">
+                                    <div class="form-group-horizontal">
                                         <label class="gis-label" style="width: 80px;">Rotação</label>
                                         <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.Rotation" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado.Rotation))' @onchange='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado.Rotation))' />
                                         <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
@@ -242,23 +271,69 @@
                                 </div>
                             </details>
                             
-                            @if (_itemSelecionado.Type == "Map")
-                            {
-                                <details class="gis-accordion">
-                                    <summary>Extensões</summary>
-                                    <div class="accordion-content">
-                                        <div class="form-group-vertical"><label class="gis-label">X Mínimo</label><input type="text" class="gis-input" value="0.000" disabled /></div>
-                                        <div class="form-group-vertical" style="margin-top:5px;"><label class="gis-label">Y Mínimo</label><input type="text" class="gis-input" value="0.000" disabled /></div>
-                                        <button class="tool-btn" style="width:100%; margin-top: 10px; justify-content: center; background: rgba(255,255,255,0.05);">Ajustar à extensão da tela</button>
+                            <!-- ACCORDION: MOLDURA -->
+                            <details class="gis-accordion">
+                                <summary>
+                                    <input type="checkbox" style="margin-right: 8px;" @bind="_itemSelecionado.HasBorder" @bind:after='() => AtualizarPropriedadeItem("HasBorder", _itemSelecionado.HasBorder)' @onclick:stopPropagation="true" />
+                                    Moldura
+                                </summary>
+                                <div class="accordion-content" style="@(!_itemSelecionado.HasBorder ? "opacity: 0.5; pointer-events: none;" : "")">
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <label class="gis-label" style="width: 80px;">Cor</label>
+                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BorderColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BorderColor", _itemSelecionado.BorderColor))' />
                                     </div>
-                                </details>
-                                <details class="gis-accordion">
-                                    <summary>Grades</summary>
-                                    <div class="accordion-content">
-                                        <button class="tool-btn" style="width:100%; justify-content: center; background: rgba(56, 189, 248, 0.1); color: #38bdf8;">+ Adicionar Grade</button>
+                                    <div class="form-group-horizontal">
+                                        <label class="gis-label" style="width: 80px;">Espessura</label>
+                                        <input type="number" class="gis-input" style="flex: 1;" min="0" max="20" step="0.1" @bind="_itemSelecionado.BorderWidth" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' @onchange='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' />
+                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
                                     </div>
-                                </details>
-                            }
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: PLANO DE FUNDO -->
+                            <details class="gis-accordion">
+                                <summary>
+                                    <input type="checkbox" style="margin-right: 8px;" @bind="_itemSelecionado.HasBg" @bind:after='() => AtualizarPropriedadeItem("HasBg", _itemSelecionado.HasBg)' @onclick:stopPropagation="true" />
+                                    Plano de Fundo
+                                </summary>
+                                <div class="accordion-content" style="@(!_itemSelecionado.HasBg ? "opacity: 0.5; pointer-events: none;" : "")">
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <label class="gis-label" style="width: 80px;">Cor</label>
+                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BgColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BgColor", _itemSelecionado.BgColor))' />
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: ID DO ITEM -->
+                            <details class="gis-accordion">
+                                <summary>ID do item</summary>
+                                <div class="accordion-content">
+                                    <input type="text" class="gis-input" @bind="_itemSelecionado.Id" disabled />
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: RENDERIZAÇÃO -->
+                            <details class="gis-accordion">
+                                <summary>Renderização</summary>
+                                <div class="accordion-content">
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <label class="gis-label" style="width: 80px;">Modo Mescl.</label>
+                                        <select class="gis-select" style="flex:1;" disabled><option>Normal</option></select>
+                                    </div>
+                                    <div class="form-group-horizontal">
+                                        <label class="gis-label" style="width: 80px;">Opacidade</label>
+                                        <input type="range" min="0" max="1" step="0.1" style="flex:1;" value="1" disabled />
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: VARIÁVEIS -->
+                            <details class="gis-accordion">
+                                <summary>Variáveis</summary>
+                                <div class="accordion-content">
+                                    <span style="font-size: 0.75rem; color: #94a3b8;">Nenhuma variável de projeto disponível.</span>
+                                </div>
+                            </details>
                         </div>
                     }
                 </div>

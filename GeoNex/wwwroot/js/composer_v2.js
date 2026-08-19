@@ -76,13 +76,25 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         content.style.fontWeight = 'bold';
         content.style.fontFamily = 'Arial, sans-serif';
         content.style.color = '#000';
-        content.style.backgroundColor = 'rgba(255,255,255,0.8)';
-        content.style.border = '1px dashed #666';
+        content.style.backgroundColor = 'transparent';
+        content.style.border = 'none';
         content.style.padding = '5px';
         content.innerText = text;
+        
+        item.dataset.hasBg = 'false';
+        item.dataset.hasBorder = 'false';
+        item.dataset.bgColor = '#ffffff';
+        item.dataset.borderColor = '#000000';
+        item.dataset.borderWidth = '1';
+        item.dataset.textAlignH = 'left';
+        item.dataset.textAlignV = 'top';
+        item.style.display = 'flex';
+        item.style.alignItems = 'flex-start';
+        item.style.justifyContent = 'flex-start';
+        
     } else if (type === 'Legend') {
-        content.style.backgroundColor = '#fff';
-        content.style.border = '1px solid #000';
+        content.style.backgroundColor = 'transparent';
+        content.style.border = 'none';
         content.style.padding = '10px';
         content.innerHTML = `<strong style="color:#000;">${text}</strong><br><br>
                              <div style="display:flex; align-items:center; margin-bottom:5px;"><div style="width:20px;height:20px;background:red;margin-right:8px;"></div> Zona A</div>
@@ -107,7 +119,6 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         content.style.position = 'relative';
         content.id = 'composer-map-container';
 
-        // Container interno que vai sofrer o Pan/Zoom
         let innerContainer = document.createElement('div');
         innerContainer.id = 'composer-map-inner';
         innerContainer.style.position = 'absolute';
@@ -115,22 +126,27 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         innerContainer.style.height = '100%';
         innerContainer.style.left = '0px';
         innerContainer.style.top = '0px';
-        innerContainer.style.transformOrigin = 'center center';
-        innerContainer.style.transition = 'transform 0.1s ease-out';
         
-        // 1. Clonar Skia-Layer (Raster Background)
+        let img1 = document.createElement('img');
+        img1.src = '/images/orthophoto.jpg'; // Dummy base map for now
         let skiaLayer = document.getElementById('skia-layer');
-        if (skiaLayer && skiaLayer.src) {
-            let img1 = document.createElement('img');
-            img1.src = skiaLayer.src;
-            img1.style.position = 'absolute';
-            img1.style.width = '100%';
-            img1.style.height = '100%';
-            img1.style.objectFit = 'cover'; // Cover preenche a moldura sem deixar bordas brancas
-            img1.style.pointerEvents = 'none';
-            innerContainer.appendChild(img1);
-        }
+        if (skiaLayer && skiaLayer.src) img1.src = skiaLayer.src;
+        
+        img1.style.position = 'absolute';
+        img1.style.width = '100%';
+        img1.style.height = '100%';
+        img1.style.objectFit = 'cover';
+        img1.style.pointerEvents = 'none';
+        innerContainer.appendChild(img1);
+        
+        content.appendChild(innerContainer);
 
+        item.dataset.panX = 0;
+        item.dataset.panY = 0;
+        item.dataset.scale = 1000;
+        
+        console.log("GEONEX COMPOSER: Mapa renderizado nativamente (SkiaSharp) sem Leaflet!");
+    }
 };
 
 function startDrag(e) {
@@ -419,6 +435,23 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
     if (propName === 'FontSize') {
         let content = item.querySelector('.item-content');
         if (content) content.style.fontSize = propValue + 'px';
+    }
+    
+    if (propName === 'TextAlignH') {
+        if (propValue === 'left') item.style.justifyContent = 'flex-start';
+        if (propValue === 'center') item.style.justifyContent = 'center';
+        if (propValue === 'right') item.style.justifyContent = 'flex-end';
+        item.dataset.textAlignH = propValue;
+        
+        let content = item.querySelector('.item-content');
+        if (content) content.style.textAlign = propValue;
+    }
+    
+    if (propName === 'TextAlignV') {
+        if (propValue === 'top') item.style.alignItems = 'flex-start';
+        if (propValue === 'center') item.style.alignItems = 'center';
+        if (propValue === 'bottom') item.style.alignItems = 'flex-end';
+        item.dataset.textAlignV = propValue;
     }
     
     if (propName === 'MapScale' && item.dataset.type === 'Map') {
