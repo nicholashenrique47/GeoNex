@@ -114,7 +114,7 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
 
     // Inicialização se for um Mapa
     if (type === 'Map') {
-        content.style.backgroundColor = '#fff';
+        content.style.backgroundColor = 'transparent';
         content.style.border = '2px solid #000';
         content.style.overflow = 'hidden';
         content.style.position = 'relative';
@@ -133,7 +133,9 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         
         // Se a janela souber a URL do servidor local de imagens, busca o mapa mais recente
         if (window.geonexMapServerUrl) {
-            img1.src = window.geonexMapServerUrl + "mapa/?w=1920&h=1080&t=" + new Date().getTime();
+            let reqW = Math.round(width) || 1920;
+            let reqH = Math.round(height) || 1080;
+            img1.src = window.geonexMapServerUrl + `mapa/?w=${reqW}&h=${reqH}&t=` + new Date().getTime();
         } else {
             // Fallback para caso ainda esteja operando na mesma janela (Modo Antigo)
             let skiaLayer = document.getElementById('skia-layer');
@@ -143,7 +145,7 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         img1.style.position = 'absolute';
         img1.style.width = '100%';
         img1.style.height = '100%';
-        img1.style.objectFit = 'contain';
+        img1.style.objectFit = 'fill'; // Estica para preencher durante o redimensionamento. Ao largar, busca a resolução exata.
         img1.style.pointerEvents = 'none';
         innerContainer.appendChild(img1);
         
@@ -307,6 +309,18 @@ function handleMouseUp(e) {
     }
 
     if (isDragging || isResizing) {
+        if (isResizing && activeItem && activeItem.dataset.type === 'Map') {
+            // Quando termina de redimensionar o mapa, pede ao motor gráfico uma nova imagem com as dimensões exatas da caixa!
+            if (window.geonexMapServerUrl) {
+                let img1 = activeItem.querySelector('img');
+                let newW = Math.round(parseFloat(activeItem.style.width));
+                let newH = Math.round(parseFloat(activeItem.style.height));
+                if (img1 && newW > 0 && newH > 0) {
+                    img1.src = window.geonexMapServerUrl + `mapa/?w=${newW}&h=${newH}&t=` + new Date().getTime();
+                }
+            }
+        }
+
         if (dotnetHelper && activeItem) {
             dotnetHelper.invokeMethodAsync('OnItemMoved', {
                 Id: activeItem.id,

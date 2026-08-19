@@ -589,31 +589,116 @@
         transition: transform 0.1s ease-out;
     }
 
-    /* PAINEL DIREITO */
+    /* CSS PREMIUM PARA PROPRIEDADES */
     .composer-properties {
-        width: 320px;
-        border-left: 1px solid rgba(255,255,255,0.05);
-        background: rgba(22, 25, 33, 0.95);
+        width: 340px;
+        border-left: 1px solid rgba(255,255,255,0.08);
+        background: #111827; /* Tailwind Gray 900 */
         z-index: 10;
         display: flex;
         flex-direction: column;
+        box-shadow: -4px 0 15px rgba(0,0,0,0.2);
     }
 
     .props-header {
-        padding: 15px 20px 5px 20px;
+        padding: 20px 20px 10px 20px;
+        background: #1f2937; /* Tailwind Gray 800 */
+        border-bottom: 1px solid rgba(255,255,255,0.05);
     }
     .props-header h3 {
         font-size: 0.85rem;
-        color: #e2e8f0;
+        color: #f8fafc;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 1.2px;
         margin: 0;
+        font-weight: 700;
     }
 
     .props-content {
-        padding: 15px 20px;
+        padding: 15px;
         overflow-y: auto;
         flex: 1;
+    }
+
+    /* Accordions Premium */
+    .gis-accordion {
+        margin-bottom: 10px;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #1f2937;
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+    .gis-accordion summary {
+        background-color: #1f2937;
+        padding: 12px 15px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        color: #e2e8f0;
+        transition: background 0.2s;
+    }
+    .gis-accordion summary:hover {
+        background-color: #334155;
+    }
+    .gis-accordion[open] summary {
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        background-color: #334155;
+    }
+    .accordion-content {
+        background-color: #111827;
+        padding: 15px;
+    }
+
+    /* Inputs Premium */
+    .gis-input, .gis-select {
+        background-color: #0f172a;
+        border: 1px solid rgba(255,255,255,0.15);
+        color: #f8fafc;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        outline: none;
+        transition: all 0.2s;
+    }
+    .gis-input:focus, .gis-select:focus {
+        border-color: #38bdf8;
+        box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+    
+    /* Checkboxes */
+    input[type="checkbox"] {
+        accent-color: #38bdf8;
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        margin-right: 8px;
+    }
+    
+    /* Labels */
+    .gis-label {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-bottom: 5px;
+        display: block;
+        font-weight: 500;
+    }
+
+    /* Grupos de Formulário */
+    .form-group-vertical {
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 10px;
+    }
+    .form-group-horizontal {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .form-group-horizontal .gis-label {
+        margin-bottom: 0;
+        margin-right: 10px;
     }
 
     /* ITEM LIST LAYER */
@@ -625,21 +710,23 @@
     .item-layer {
         display: flex;
         align-items: center;
-        padding: 8px 12px;
+        padding: 10px 12px;
         border-radius: 6px;
         font-size: 0.85rem;
         color: #cbd5e1;
         cursor: pointer;
-        border: 1px solid transparent;
+        border: 1px solid rgba(255,255,255,0.05);
+        background: rgba(255,255,255,0.02);
         transition: all 0.2s ease;
     }
     .item-layer:hover {
-        background: rgba(255,255,255,0.05);
+        background: rgba(255,255,255,0.08);
     }
     .item-layer.active {
-        background: rgba(56, 189, 248, 0.1);
-        border-color: rgba(56, 189, 248, 0.2);
+        background: rgba(56, 189, 248, 0.15);
+        border-color: rgba(56, 189, 248, 0.3);
         color: #38bdf8;
+        font-weight: 600;
     }
 </style>
 
