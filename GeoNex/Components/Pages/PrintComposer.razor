@@ -14,6 +14,13 @@
             </div>
             
             <div class="composer-actions">
+                <div class="zoom-controls" style="display:flex; align-items:center; background: rgba(0,0,0,0.2); border-radius: 4px; overflow: hidden; margin-right: 15px;">
+                    <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom - 0.1)" title="Zoom Out">-</button>
+                    <span class="zoom-level" style="font-size: 0.8rem; padding: 0 10px; min-width: 50px; text-align: center;">@(Math.Round(WorkspaceZoom * 100))%</span>
+                    <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom + 0.1)" title="Zoom In">+</button>
+                    <button class="zoom-btn" @onclick="() => DefinirZoom(1.0)" title="100%" style="border-left: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">1:1</button>
+                </div>
+
                 <button class="tool-btn" @onclick="ExportarPNG" title="Exportar como Imagem (PNG 300 DPI)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
                     Exportar Imagem
@@ -169,7 +176,47 @@
                                     <label class="gis-label">Conteúdo do Texto</label>
                                     <textarea class="gis-input custom-scrollbar" style="height: 100px; resize: vertical;" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))'></textarea>
                                 </div>
+                                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                    <div class="form-group-vertical" style="flex: 1;">
+                                        <label class="gis-label">Tamanho Fonte</label>
+                                        <input type="number" class="gis-input" @bind="_itemSelecionado.FontSize" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' @onchange='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' />
+                                    </div>
+                                    <div class="form-group-vertical" style="flex: 1;">
+                                        <label class="gis-label">Cor do Texto</label>
+                                        <input type="color" class="gis-input" style="padding:0; height: 32px;" @bind="_itemSelecionado.TextColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("TextColor", _itemSelecionado.TextColor))' />
+                                    </div>
+                                </div>
                             }
+
+                            @if (_itemSelecionado.Type == "Map")
+                            {
+                                <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;" />
+                                <div class="form-group-vertical">
+                                    <label class="gis-label">Escala / Zoom do Mapa</label>
+                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                        <input type="range" min="0.1" max="5" step="0.1" style="flex: 1;" @bind="_itemSelecionado.MapZoom" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("MapZoom", _itemSelecionado.MapZoom))' />
+                                        <input type="number" class="gis-input" style="width: 60px;" step="0.1" @bind="_itemSelecionado.MapZoom" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("MapZoom", _itemSelecionado.MapZoom))' @onchange='@(e => AtualizarPropriedadeItem("MapZoom", _itemSelecionado.MapZoom))' />
+                                    </div>
+                                </div>
+                            }
+
+                            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;" />
+                            <div class="form-group-vertical">
+                                <label class="gis-label">Cor de Fundo</label>
+                                <input type="color" class="gis-input" style="padding:0; height: 32px;" @bind="_itemSelecionado.BgColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BgColor", _itemSelecionado.BgColor))' />
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Espessura Borda</label>
+                                    <input type="number" class="gis-input" min="0" max="20" @bind="_itemSelecionado.BorderWidth" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' @onchange='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' />
+                                </div>
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Cor Borda</label>
+                                    <input type="color" class="gis-input" style="padding:0; height: 32px;" @bind="_itemSelecionado.BorderColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BorderColor", _itemSelecionado.BorderColor))' />
+                                </div>
+                            </div>
+
                         </div>
                     }
                 </div>
@@ -177,9 +224,77 @@
             
         </div>
     </div>
+    
+    @if (ShowContextMenu)
+    {
+        <div class="context-menu" style="left: @(ContextMenuX)px; top: @(ContextMenuY)px;">
+            @if (!string.IsNullOrEmpty(ContextMenuItemId))
+            {
+                <div class="context-menu-item" @onclick="ContextPropriedades">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                    Propriedades...
+                </div>
+                <div class="context-menu-divider"></div>
+                <div class="context-menu-item" @onclick="ContextTrazerFrente">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                    Trazer para a Frente
+                </div>
+                <div class="context-menu-item" @onclick="ContextEnviarTras">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    Enviar para Trás
+                </div>
+                <div class="context-menu-divider"></div>
+                <div class="context-menu-item text-danger" @onclick="ContextEliminar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    Eliminar Item
+                </div>
+            }
+            else
+            {
+                <div class="context-menu-item" @onclick="() => { AdicionarMapa(); CloseContextMenu(); }">Adicionar Mapa</div>
+                <div class="context-menu-item" @onclick="() => { AdicionarTexto(); CloseContextMenu(); }">Adicionar Texto</div>
+                <div class="context-menu-item" @onclick="() => { AdicionarLegenda(); CloseContextMenu(); }">Adicionar Legenda</div>
+            }
+        </div>
+    }
 }
 
 <style>
+    /* CONTEXT MENU */
+    .context-menu {
+        position: fixed;
+        background-color: #1e293b;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        padding: 5px 0;
+        min-width: 180px;
+        z-index: 100000; /* Acima do overlay inteiro */
+        font-family: 'Inter', sans-serif;
+    }
+    .context-menu-item {
+        padding: 8px 15px;
+        font-size: 0.85rem;
+        color: #e2e8f0;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        transition: background 0.2s ease;
+    }
+    .context-menu-item:hover {
+        background-color: rgba(56, 189, 248, 0.2);
+        color: #fff;
+    }
+    .context-menu-item.text-danger:hover {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+    .context-menu-divider {
+        height: 1px;
+        background-color: rgba(255,255,255,0.1);
+        margin: 5px 0;
+    }
+
     /* COMPOSER OVERLAY BASE */
     .composer-overlay {
         position: fixed;
@@ -240,6 +355,21 @@
         overflow: hidden;
     }
 
+    /* ZOOM CONTROLS */
+    .zoom-btn {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-weight: bold;
+    }
+    .zoom-btn:hover {
+        background: rgba(255,255,255,0.1);
+        color: #fff;
+    }
+
     /* TOOLBAR ESQUERDA */
     .composer-toolbar {
         width: 50px;
@@ -294,9 +424,7 @@
         background-color: #1e222d;
         position: relative;
         overflow: auto;
-        display: flex;
-        justify-content: center;
-        align-items: center;
+        padding: 50px; /* Para dar espaço de manobra */
         background-image: 
             linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
             linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
@@ -307,10 +435,10 @@
     .paper-sheet {
         background-color: #ffffff;
         position: relative;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-        transition: width 0.3s ease, height 0.3s ease;
-        /* Inicialmente um A4 Paisagem para teste visual */
-        overflow: hidden;
+        box-shadow: 0 0 40px rgba(0,0,0,0.5);
+        margin: auto; /* Centraliza se couber, senão alinha ao topo-esq com padding */
+        transform-origin: top left;
+        transition: transform 0.1s ease-out;
     }
 
     /* PAINEL DIREITO */
@@ -389,6 +517,15 @@
     // Modo de Interação: false = Selecionar/Mover, true = Mover Conteúdo (Pan)
     private bool _modoInteracaoMapa = false;
 
+    // Zoom da Página (Workspace)
+    public double WorkspaceZoom { get; set; } = 1.0;
+
+    // Context Menu
+    public bool ShowContextMenu { get; set; } = false;
+    public double ContextMenuX { get; set; } = 0;
+    public double ContextMenuY { get; set; } = 0;
+    public string ContextMenuItemId { get; set; } = null;
+
     // Modelo de Item do Compositor
     public class ComposerItemModel
     {
@@ -399,6 +536,14 @@
         public double Width { get; set; }
         public double Height { get; set; }
         public string TextContent { get; set; }
+        
+        public int ZIndex { get; set; } = 10;
+        public string BgColor { get; set; } = "transparent";
+        public string TextColor { get; set; } = "#000000";
+        public int FontSize { get; set; } = 14;
+        public string BorderColor { get; set; } = "transparent";
+        public int BorderWidth { get; set; } = 1;
+        public double MapZoom { get; set; } = 1.0;
     }
 
     private ComposerItemModel _itemSelecionado = null;
@@ -445,6 +590,81 @@
     {
         _itemSelecionado = null;
         StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnContextMenu(string itemId, double x, double y)
+    {
+        ContextMenuItemId = itemId;
+        ContextMenuX = x;
+        ContextMenuY = y;
+        ShowContextMenu = true;
+        
+        // Se clicar com botão direito num item, também o seleciona
+        if (!string.IsNullOrEmpty(itemId))
+        {
+            JSRuntime.InvokeVoidAsync("composerSelectItem", itemId);
+        }
+        
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void CloseContextMenu()
+    {
+        ShowContextMenu = false;
+        StateHasChanged();
+    }
+
+    private void ContextPropriedades()
+    {
+        CloseContextMenu();
+    }
+
+    private async Task ContextTrazerFrente()
+    {
+        if (_itemSelecionado != null)
+        {
+            _itemSelecionado.ZIndex += 1;
+            await AtualizarPropriedadeItem("ZIndex", _itemSelecionado.ZIndex);
+        }
+        CloseContextMenu();
+    }
+
+    private async Task ContextEnviarTras()
+    {
+        if (_itemSelecionado != null)
+        {
+            _itemSelecionado.ZIndex -= 1;
+            if (_itemSelecionado.ZIndex < 0) _itemSelecionado.ZIndex = 0;
+            await AtualizarPropriedadeItem("ZIndex", _itemSelecionado.ZIndex);
+        }
+        CloseContextMenu();
+    }
+
+    private async Task ContextEliminar()
+    {
+        if (_itemSelecionado != null)
+        {
+            await JSRuntime.InvokeVoidAsync("composerDeleteItem", _itemSelecionado.Id);
+            _itemSelecionado = null;
+        }
+        CloseContextMenu();
+    }
+
+    [JSInvokable]
+    public void OnWorkspaceZoomChanged(double newZoom)
+    {
+        WorkspaceZoom = newZoom;
+        StateHasChanged();
+    }
+
+    private async Task DefinirZoom(double novoZoom)
+    {
+        if (novoZoom < 0.2) novoZoom = 0.2;
+        if (novoZoom > 5.0) novoZoom = 5.0;
+        WorkspaceZoom = Math.Round(novoZoom, 2);
+        await JSRuntime.InvokeVoidAsync("composerSetWorkspaceZoom", WorkspaceZoom);
     }
 
     [JSInvokable]

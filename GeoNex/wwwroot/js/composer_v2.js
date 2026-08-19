@@ -12,6 +12,7 @@ let composerLeafletMap = null;
 let composerBasemapLayer = null;
 
 let dotnetHelper = null;
+let workspaceZoom = 1.0;
 
 window.composerInitV3 = function (paperId, helper) {
     composerPaper = document.getElementById(paperId);
@@ -241,8 +242,8 @@ function startResize(e) {
 
 function handleMouseMove(e) {
     if (isPanningMapContent && activeItem && activeItem.dataset.type === 'Map') {
-        let dx = e.clientX - startMapPanX;
-        let dy = e.clientY - startMapPanY;
+        let dx = (e.clientX - startMapPanX) / workspaceZoom;
+        let dy = (e.clientY - startMapPanY) / workspaceZoom;
         
         // Pega as coordenadas base gravadas no DOM (ou 0)
         let currentPanX = parseFloat(activeItem.dataset.panX) || 0;
@@ -262,15 +263,15 @@ function handleMouseMove(e) {
     }
 
     if (isDragging && activeItem) {
-        let dx = e.clientX - startX;
-        let dy = e.clientY - startY;
+        let dx = (e.clientX - startX) / workspaceZoom;
+        let dy = (e.clientY - startY) / workspaceZoom;
         
         activeItem.style.left = (initialX + dx) + 'px';
         activeItem.style.top = (initialY + dy) + 'px';
     } 
     else if (isResizing && activeItem) {
-        let dx = e.clientX - startX;
-        let dy = e.clientY - startY;
+        let dx = (e.clientX - startX) / workspaceZoom;
+        let dy = (e.clientY - startY) / workspaceZoom;
 
         if (resizeDir.includes('e') || resizeDir.includes('r')) {
             activeItem.style.width = Math.max(20, initialW + dx) + 'px';
@@ -297,8 +298,8 @@ function handleMouseMove(e) {
 
 function handleMouseUp(e) {
     if (isPanningMapContent && activeItem && activeItem.dataset.type === 'Map') {
-        let dx = e.clientX - startMapPanX;
-        let dy = e.clientY - startMapPanY;
+        let dx = (e.clientX - startMapPanX) / workspaceZoom;
+        let dy = (e.clientY - startMapPanY) / workspaceZoom;
         
         // Grava a nova posição de Pan
         activeItem.dataset.panX = (parseFloat(activeItem.dataset.panX) || 0) + dx;
@@ -331,29 +332,55 @@ function handleMouseUp(e) {
     isResizing = false;
 }
 
-// Escutar Zoom (Scroll) dentro do mapa
+// Escutar Zoom (Scroll) dentro do mapa ou da página
 document.addEventListener('wheel', function(e) {
+    // 1. Zoom do MAPA (Pan/Zoom Interativo do Item Mapa)
     if (isMapContentInteractionActive && activeItem && activeItem.dataset.type === 'Map') {
         if (e.target.closest('.composer-item') === activeItem) {
             e.preventDefault();
-            let currentZoom = parseFloat(activeItem.dataset.zoom) || 1;
             
-            // Fator de zoom (10%)
+            let currentZoom = parseFloat(activeItem.dataset.zoom) || 1;
             let zoomFactor = 1.1;
             if (e.deltaY < 0) {
-                currentZoom *= zoomFactor; // Zoom in
+                currentZoom *= zoomFactor;
             } else {
-                currentZoom /= zoomFactor; // Zoom out
+                currentZoom /= zoomFactor;
             }
-            
             activeItem.dataset.zoom = currentZoom;
+            
+            let currentPanX = parseFloat(activeItem.dataset.panX) || 0;
+            let currentPanY = parseFloat(activeItem.dataset.panY) || 0;
             
             let innerMap = activeItem.querySelector('#composer-map-inner');
             if (innerMap) {
-                let panX = parseFloat(activeItem.dataset.panX) || 0;
-                let panY = parseFloat(activeItem.dataset.panY) || 0;
-                innerMap.style.transition = 'transform 0.1s ease-out';
-                innerMap.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+                innerMap.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${currentZoom})`;
+            }
+            return;
+        }
+    }
+
+    // 2. Zoom da ÁREA DE TRABALHO (Papel) via Ctrl + Roda do Rato
+    if (e.ctrlKey) {
+        let isComposerArea = e.target.closest('.composer-canvas-area');
+        if (isComposerArea || e.target.closest('.composer-overlay')) {
+            e.preventDefault();
+            
+            let newZoom = workspaceZoom;
+            if (e.deltaY < 0) {
+                newZoom += 0.1; // Zoom In
+            } else {
+                newZoom -= 0.1; // Zoom Out
+            }
+
+            // Limites de Zoom
+            if (newZoom < 0.2) newZoom = 0.2;
+            if (newZoom > 5.0) newZoom = 5.0;
+
+            window.composerSetWorkspaceZoom(newZoom);
+            
+            // Avisar o C# para atualizar a UI do Zoom
+            if (dotnetHelper) {
+                dotnetHelper.invokeMethodAsync('OnWorkspaceZoomChanged', newZoom);
             }
         }
     }
@@ -373,19 +400,37 @@ window.composerSetMapInteractionModeV3 = function (isActive) {
     });
 };
 
+window.composerSetWorkspaceZoom = function(zoom) {
+    workspaceZoom = zoom;
+    let sheet = document.getElementById('paper-sheet');
+    if (sheet) {
+        sheet.style.transform = `scale(${workspaceZoom})`;
+        sheet.style.transformOrigin = 'top left';
+    }
+};
+
 window.composerUpdateItemProperty = function (id, propName, propValue) {
     let item = document.getElementById(id);
     if (!item) return;
 
-    if (propName === 'X') {
-        item.style.left = propValue + 'px';
-    } else if (propName === 'Y') {
-        item.style.top = propValue + 'px';
-    } else if (propName === 'Width') {
-        item.style.width = propValue + 'px';
-    } else if (propName === 'Height') {
-        item.style.height = propValue + 'px';
-    } else if (propName === 'Text') {
+    if (propName === 'X') item.style.left = propValue + 'px';
+    if (propName === 'Y') item.style.top = propValue + 'px';
+    if (propName === 'Width') item.style.width = propValue + 'px';
+    if (propName === 'Height') item.style.height = propValue + 'px';
+    
+    if (propName === 'ZIndex') item.style.zIndex = propValue;
+    if (propName === 'BgColor') item.style.backgroundColor = propValue;
+    if (propName === 'BorderColor' || propName === 'BorderWidth') {
+        let bw = item.dataset.borderWidth || '1px';
+        let bc = item.dataset.borderColor || 'transparent';
+        if (propName === 'BorderWidth') bw = propValue + 'px';
+        if (propName === 'BorderColor') bc = propValue;
+        item.dataset.borderWidth = bw.replace('px','');
+        item.dataset.borderColor = bc;
+        item.style.border = `${bw} solid ${bc}`;
+    }
+
+    if (propName === 'Text') {
         item.dataset.text = propValue;
         let content = item.querySelector('.item-content');
         if (content) {
@@ -398,7 +443,47 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
             }
         }
     }
+    if (propName === 'FontSize') {
+        let contentDiv = item.querySelector('.item-content');
+        if (contentDiv) contentDiv.style.fontSize = propValue + 'px';
+    }
+    if (propName === 'TextColor') {
+        let contentDiv = item.querySelector('.item-content');
+        if (contentDiv) contentDiv.style.color = propValue;
+    }
+    
+    // Para mapas
+    if (propName === 'MapZoom' && item.dataset.type === 'Map') {
+        let currentPanX = parseFloat(item.dataset.panX) || 0;
+        let currentPanY = parseFloat(item.dataset.panY) || 0;
+        let innerMap = item.querySelector('#composer-map-inner');
+        if (innerMap) {
+            innerMap.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${propValue})`;
+        }
+        item.dataset.zoom = propValue;
+    }
 };
+
+document.addEventListener('contextmenu', function(e) {
+    let composerArea = e.target.closest('.composer-canvas-area');
+    if (composerArea) {
+        e.preventDefault();
+        let item = e.target.closest('.composer-item');
+        if (dotnetHelper) {
+            let itemId = item ? item.id : null;
+            dotnetHelper.invokeMethodAsync('OnContextMenu', itemId, e.clientX, e.clientY);
+        }
+    }
+});
+
+document.addEventListener('mousedown', function(e) {
+    if (e.button !== 2) { // Não é botão direito
+        if (!e.target.closest('.context-menu')) {
+            if (dotnetHelper) dotnetHelper.invokeMethodAsync('CloseContextMenu');
+        }
+    }
+});
+
 
 // Injeção de CSS Dinâmico para Handles de Resize
 const style = document.createElement('style');
@@ -438,3 +523,21 @@ style.textContent = `
     .resize-handle.r { right: -4px; top: calc(50% - 4px); cursor: ew-resize; }
 `;
 document.head.appendChild(style);
+
+window.composerDeleteItem = function(id) {
+    let item = document.getElementById(id);
+    if (item) {
+        item.remove();
+    }
+    if (activeItem && activeItem.id === id) {
+        activeItem = null;
+        hideAllResizeHandles();
+    }
+};
+
+window.composerSelectItem = function(id) {
+    let item = document.getElementById(id);
+    if (item) {
+        selectItem(item);
+    }
+};
