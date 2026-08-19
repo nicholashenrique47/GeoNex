@@ -135,7 +135,7 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         img1.style.position = 'absolute';
         img1.style.width = '100%';
         img1.style.height = '100%';
-        img1.style.objectFit = 'cover';
+        img1.style.objectFit = 'contain';
         img1.style.pointerEvents = 'none';
         innerContainer.appendChild(img1);
         

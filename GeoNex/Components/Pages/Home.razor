@@ -3190,7 +3190,7 @@
         }
 </style>
 
-<PrintComposer IsVisible="@_mostrarCompositor" OnClose="FecharCompositorImpressao" />
+
 
 @code {
     // =========================================================
@@ -5594,15 +5594,12 @@
     // ==========================================
     // COMPOSITOR DE IMPRESSÃO
     // ==========================================
-    private bool _mostrarCompositor = false;
-
     private void AbrirCompositorImpressao()
     {
-        _mostrarCompositor = true;
-    }
-
-    private void FecharCompositorImpressao()
-    {
-        _mostrarCompositor = false;
+#if WINDOWS || MACCATALYST
+        Application.Current?.OpenWindow(new Window(new ComposerPage()));
+#else
+        Application.Current?.MainPage?.DisplayAlert("Erro", "O Compositor de Impressão requer múltiplas janelas, que só estão disponíveis no Desktop.", "OK");
+#endif
     }
 }
