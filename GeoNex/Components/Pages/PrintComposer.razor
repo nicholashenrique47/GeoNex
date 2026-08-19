@@ -131,92 +131,134 @@
                     <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
                     
                     <!-- Propriedades do Item Selecionado -->
-                    <div class="props-header">
-                        <h3>Propriedades do Item</h3>
+                    <div class="props-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <h3 style="margin-bottom: 0;">Propriedades do Item</h3>
                         @if (_itemSelecionado == null)
                         {
-                            <span style="font-size: 0.75rem; color: #64748b; font-style: italic; display: block; margin-top: 5px;">Selecione um item no papel...</span>
+                            <span style="font-size: 0.75rem; color: #64748b; font-style: italic; display: block; margin-top: 5px; padding-bottom: 10px;">Selecione um item no papel...</span>
                         }
                     </div>
 
                     @if (_itemSelecionado != null)
                     {
-                        <div class="props-content" style="margin-top: 15px;">
-                            <div class="form-group-vertical">
-                                <label class="gis-label">Tipo de Item</label>
-                                <input type="text" class="gis-input" value="@_itemSelecionado.Type" disabled style="background: rgba(255,255,255,0.05);" />
-                            </div>
+                        <div class="props-content" style="padding: 0;">
+                            <!-- ACCORDION: PROPRIEDADES PRINCIPAIS -->
+                            <details class="gis-accordion" open>
+                                <summary>Propriedades Principais</summary>
+                                <div class="accordion-content">
+                                    @if (_itemSelecionado.Type == "Map")
+                                    {
+                                        <div class="form-group-horizontal">
+                                            <label class="gis-label" style="width: 80px;">Escala</label>
+                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapScale" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("MapScale", _itemSelecionado.MapScale))' @onchange='@(e => AtualizarPropriedadeItem("MapScale", _itemSelecionado.MapScale))' />
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-top: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Rotação</label>
+                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapRotation" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("MapRotation", _itemSelecionado.MapRotation))' @onchange='@(e => AtualizarPropriedadeItem("MapRotation", _itemSelecionado.MapRotation))' />
+                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-top: 8px;">
+                                            <label class="gis-label" style="width: 80px;">SRC</label>
+                                            <select class="gis-select" style="flex:1;" disabled><option>Use Project CRS</option></select>
+                                        </div>
+                                        <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="draw_extents" checked />
+                                            <label for="draw_extents" class="gis-label" style="margin:0;">Desenhar itens da tela do mapa</label>
+                                        </div>
+                                    }
+                                    else if (_itemSelecionado.Type == "Text" || _itemSelecionado.Type == "Legend")
+                                    {
+                                        <div class="form-group-vertical">
+                                            <textarea class="gis-input custom-scrollbar" style="height: 100px; resize: vertical;" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))'></textarea>
+                                        </div>
+                                        <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="render_html" />
+                                            <label for="render_html" class="gis-label" style="margin:0;">Renderizar como HTML</label>
+                                        </div>
+                                    }
+                                </div>
+                            </details>
 
-                            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                <div class="form-group-vertical" style="flex: 1;">
-                                    <label class="gis-label">X (px)</label>
-                                    <input type="number" class="gis-input" @bind="_itemSelecionado.X" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("X", _itemSelecionado.X))' @onchange='@(e => AtualizarPropriedadeItem("X", _itemSelecionado.X))' />
+                            <!-- ACCORDION: APARÊNCIA / MOLDURA / FUNDO -->
+                            <details class="gis-accordion">
+                                <summary>Aparência</summary>
+                                <div class="accordion-content">
+                                    @if (_itemSelecionado.Type == "Text")
+                                    {
+                                        <div class="form-group-vertical" style="margin-bottom: 15px;">
+                                            <label class="gis-label">Fonte do Texto</label>
+                                            <div style="display: flex; gap: 5px;">
+                                                <input type="number" class="gis-input" style="width: 60px;" @bind="_itemSelecionado.FontSize" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' @onchange='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' />
+                                                <input type="color" class="gis-input" style="padding:0; height: 32px; width: 40px;" @bind="_itemSelecionado.TextColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("TextColor", _itemSelecionado.TextColor))' />
+                                            </div>
+                                        </div>
+                                    }
+                                    
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <input type="checkbox" id="has_bg" @bind="_itemSelecionado.HasBg" @bind:after='() => AtualizarPropriedadeItem("HasBg", _itemSelecionado.HasBg)' />
+                                        <label for="has_bg" class="gis-label" style="margin:0; width: 80px;">Fundo</label>
+                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BgColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BgColor", _itemSelecionado.BgColor))' disabled="@(!_itemSelecionado.HasBg)" />
+                                    </div>
+                                    
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <input type="checkbox" id="has_border" @bind="_itemSelecionado.HasBorder" @bind:after='() => AtualizarPropriedadeItem("HasBorder", _itemSelecionado.HasBorder)' />
+                                        <label for="has_border" class="gis-label" style="margin:0; width: 80px;">Moldura</label>
+                                        <input type="color" class="gis-input" style="padding:0; height: 32px; width:40px;" @bind="_itemSelecionado.BorderColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BorderColor", _itemSelecionado.BorderColor))' disabled="@(!_itemSelecionado.HasBorder)" />
+                                        <input type="number" class="gis-input" style="width: 50px; margin-left: 5px;" min="0" max="20" @bind="_itemSelecionado.BorderWidth" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' @onchange='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' disabled="@(!_itemSelecionado.HasBorder)" />
+                                    </div>
                                 </div>
-                                <div class="form-group-vertical" style="flex: 1;">
-                                    <label class="gis-label">Y (px)</label>
-                                    <input type="number" class="gis-input" @bind="_itemSelecionado.Y" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado.Y))' @onchange='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado.Y))' />
+                            </details>
+
+                            <!-- ACCORDION: POSIÇÃO E TAMANHO -->
+                            <details class="gis-accordion">
+                                <summary>Posição e Tamanho</summary>
+                                <div class="accordion-content">
+                                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">X</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.X" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("X", _itemSelecionado.X))' @onchange='@(e => AtualizarPropriedadeItem("X", _itemSelecionado.X))' />
+                                        </div>
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">Y</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Y" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado.Y))' @onchange='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado.Y))' />
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 10px;">
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">Largura</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Width" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado.Width))' @onchange='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado.Width))' />
+                                        </div>
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">Altura</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Height" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' @onchange='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' />
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-group-horizontal" style="margin-top: 15px;">
+                                        <label class="gis-label" style="width: 80px;">Rotação</label>
+                                        <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.Rotation" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado.Rotation))' @onchange='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado.Rotation))' />
+                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
+                                    </div>
                                 </div>
-                            </div>
+                            </details>
                             
-                            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                <div class="form-group-vertical" style="flex: 1;">
-                                    <label class="gis-label">Largura (px)</label>
-                                    <input type="number" class="gis-input" @bind="_itemSelecionado.Width" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado.Width))' @onchange='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado.Width))' />
-                                </div>
-                                <div class="form-group-vertical" style="flex: 1;">
-                                    <label class="gis-label">Altura (px)</label>
-                                    <input type="number" class="gis-input" @bind="_itemSelecionado.Height" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' @onchange='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado.Height))' />
-                                </div>
-                            </div>
-
-                            @if (_itemSelecionado.Type == "Text" || _itemSelecionado.Type == "Legend")
-                            {
-                                <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;" />
-                                <div class="form-group-vertical">
-                                    <label class="gis-label">Conteúdo do Texto</label>
-                                    <textarea class="gis-input custom-scrollbar" style="height: 100px; resize: vertical;" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent))'></textarea>
-                                </div>
-                                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                    <div class="form-group-vertical" style="flex: 1;">
-                                        <label class="gis-label">Tamanho Fonte</label>
-                                        <input type="number" class="gis-input" @bind="_itemSelecionado.FontSize" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' @onchange='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize))' />
-                                    </div>
-                                    <div class="form-group-vertical" style="flex: 1;">
-                                        <label class="gis-label">Cor do Texto</label>
-                                        <input type="color" class="gis-input" style="padding:0; height: 32px;" @bind="_itemSelecionado.TextColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("TextColor", _itemSelecionado.TextColor))' />
-                                    </div>
-                                </div>
-                            }
-
                             @if (_itemSelecionado.Type == "Map")
                             {
-                                <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;" />
-                                <div class="form-group-vertical">
-                                    <label class="gis-label">Escala / Zoom do Mapa</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <input type="range" min="0.1" max="5" step="0.1" style="flex: 1;" @bind="_itemSelecionado.MapZoom" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("MapZoom", _itemSelecionado.MapZoom))' />
-                                        <input type="number" class="gis-input" style="width: 60px;" step="0.1" @bind="_itemSelecionado.MapZoom" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("MapZoom", _itemSelecionado.MapZoom))' @onchange='@(e => AtualizarPropriedadeItem("MapZoom", _itemSelecionado.MapZoom))' />
+                                <details class="gis-accordion">
+                                    <summary>Extensões</summary>
+                                    <div class="accordion-content">
+                                        <div class="form-group-vertical"><label class="gis-label">X Mínimo</label><input type="text" class="gis-input" value="0.000" disabled /></div>
+                                        <div class="form-group-vertical" style="margin-top:5px;"><label class="gis-label">Y Mínimo</label><input type="text" class="gis-input" value="0.000" disabled /></div>
+                                        <button class="tool-btn" style="width:100%; margin-top: 10px; justify-content: center; background: rgba(255,255,255,0.05);">Ajustar à extensão da tela</button>
                                     </div>
-                                </div>
+                                </details>
+                                <details class="gis-accordion">
+                                    <summary>Grades</summary>
+                                    <div class="accordion-content">
+                                        <button class="tool-btn" style="width:100%; justify-content: center; background: rgba(56, 189, 248, 0.1); color: #38bdf8;">+ Adicionar Grade</button>
+                                    </div>
+                                </details>
                             }
-
-                            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;" />
-                            <div class="form-group-vertical">
-                                <label class="gis-label">Cor de Fundo</label>
-                                <input type="color" class="gis-input" style="padding:0; height: 32px;" @bind="_itemSelecionado.BgColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BgColor", _itemSelecionado.BgColor))' />
-                            </div>
-                            
-                            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                <div class="form-group-vertical" style="flex: 1;">
-                                    <label class="gis-label">Espessura Borda</label>
-                                    <input type="number" class="gis-input" min="0" max="20" @bind="_itemSelecionado.BorderWidth" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' @onchange='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth))' />
-                                </div>
-                                <div class="form-group-vertical" style="flex: 1;">
-                                    <label class="gis-label">Cor Borda</label>
-                                    <input type="color" class="gis-input" style="padding:0; height: 32px;" @bind="_itemSelecionado.BorderColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BorderColor", _itemSelecionado.BorderColor))' />
-                                </div>
-                            </div>
-
                         </div>
                     }
                 </div>
@@ -227,7 +269,7 @@
     
     @if (ShowContextMenu)
     {
-        <div class="context-menu" style="left: @(ContextMenuX)px; top: @(ContextMenuY)px;">
+        <div class="context-menu" style="left: @(ContextMenuX.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top: @(ContextMenuY.ToString(System.Globalization.CultureInfo.InvariantCulture))px;">
             @if (!string.IsNullOrEmpty(ContextMenuItemId))
             {
                 <div class="context-menu-item" @onclick="ContextPropriedades">
@@ -293,6 +335,40 @@
         height: 1px;
         background-color: rgba(255,255,255,0.1);
         margin: 5px 0;
+    }
+
+    /* ACCORDIONS DO TIPO QGIS */
+    .gis-accordion {
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .gis-accordion summary {
+        padding: 10px 15px;
+        background: rgba(255,255,255,0.02);
+        color: #e2e8f0;
+        font-weight: 600;
+        font-size: 0.8rem;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        display: flex;
+        align-items: center;
+    }
+    .gis-accordion summary::-webkit-details-marker {
+        display: none;
+    }
+    .gis-accordion summary::before {
+        content: '▶';
+        font-size: 0.6rem;
+        margin-right: 8px;
+        transition: transform 0.2s;
+        color: #94a3b8;
+    }
+    .gis-accordion[open] summary::before {
+        transform: rotate(90deg);
+    }
+    .gis-accordion .accordion-content {
+        padding: 15px;
+        background: rgba(0,0,0,0.1);
     }
 
     /* COMPOSER OVERLAY BASE */
@@ -526,23 +602,58 @@
     public double ContextMenuY { get; set; } = 0;
     public string ContextMenuItemId { get; set; } = null;
 
+    // Lista de todos os itens do papel
+    private Dictionary<string, ComposerItemModel> _itensDoCompositor = new Dictionary<string, ComposerItemModel>();
+
     // Modelo de Item do Compositor
     public class ComposerItemModel
     {
         public string Id { get; set; }
         public string Type { get; set; }
+        
+        // --- Opções Gerais ---
         public double X { get; set; }
         public double Y { get; set; }
         public double Width { get; set; }
         public double Height { get; set; }
-        public string TextContent { get; set; }
-        
+        public double Rotation { get; set; } = 0;
         public int ZIndex { get; set; } = 10;
-        public string BgColor { get; set; } = "transparent";
+        
+        public bool HasBg { get; set; } = false;
+        public string BgColor { get; set; } = "#ffffff";
+        
+        public bool HasBorder { get; set; } = false;
+        public string BorderColor { get; set; } = "#000000";
+        public int BorderWidth { get; set; } = 1;
+        public string BorderStyle { get; set; } = "solid";
+        public int BorderRadius { get; set; } = 0;
+        
+        public bool HasShadow { get; set; } = false;
+        public string ShadowColor { get; set; } = "#000000";
+        public int ShadowOffsetX { get; set; } = 5;
+        public int ShadowOffsetY { get; set; } = 5;
+        public int ShadowBlur { get; set; } = 10;
+        
+        public double Opacity { get; set; } = 1.0;
+        public string BlendMode { get; set; } = "normal";
+
+        // --- Texto / Rótulo ---
+        public string TextContent { get; set; }
         public string TextColor { get; set; } = "#000000";
         public int FontSize { get; set; } = 14;
-        public string BorderColor { get; set; } = "transparent";
-        public int BorderWidth { get; set; } = 1;
+        public string FontFamily { get; set; } = "Arial";
+        public string FontWeight { get; set; } = "normal";
+        public string FontStyle { get; set; } = "normal";
+        public string TextAlignH { get; set; } = "left";
+        public string TextAlignV { get; set; } = "top";
+        public int Padding { get; set; } = 0;
+
+        // --- Mapa ---
+        public double MapScale { get; set; } = 1000.0;
+        public double MapRotation { get; set; } = 0;
+        public bool MapDrawExtents { get; set; } = false;
+
+        // Propriedades antigas (remover depois)
         public double MapZoom { get; set; } = 1.0;
     }
 

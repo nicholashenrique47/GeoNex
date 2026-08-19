@@ -131,30 +131,6 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
             innerContainer.appendChild(img1);
         }
 
-        // 2. Clonar Overlay Canvas (Vetores)
-        let overlayCanvas = document.getElementById('overlayCanvas');
-        if (overlayCanvas) {
-            let img2 = document.createElement('img');
-            img2.src = overlayCanvas.toDataURL('image/png');
-            img2.style.position = 'absolute';
-            img2.style.width = '100%';
-            img2.style.height = '100%';
-            img2.style.objectFit = 'cover';
-            img2.style.pointerEvents = 'none';
-            innerContainer.appendChild(img2);
-        }
-
-        content.appendChild(innerContainer);
-        
-        // Estado inicial de Pan/Zoom (gravado no ITEM principal para o handleMouseMove aceder)
-        item.dataset.panX = 0;
-        item.dataset.panY = 0;
-        item.dataset.zoom = 1;
-        
-        console.log("GEONEX COMPOSER: Mapa renderizado nativamente (SkiaSharp) sem Leaflet!");
-
-        // Não precisamos mais desativar eventos nativos do Leaflet pois não usamos Leaflet!
-    }
 };
 
 function startDrag(e) {
@@ -245,19 +221,16 @@ function handleMouseMove(e) {
         let dx = (e.clientX - startMapPanX) / workspaceZoom;
         let dy = (e.clientY - startMapPanY) / workspaceZoom;
         
-        // Pega as coordenadas base gravadas no DOM (ou 0)
         let currentPanX = parseFloat(activeItem.dataset.panX) || 0;
         let currentPanY = parseFloat(activeItem.dataset.panY) || 0;
-        let currentZoom = parseFloat(activeItem.dataset.zoom) || 1;
         
         let newPanX = currentPanX + dx;
         let newPanY = currentPanY + dy;
         
         let innerMap = activeItem.querySelector('#composer-map-inner');
         if (innerMap) {
-            // Removemos a transição temporariamente para não "lagar" ao arrastar
-            innerMap.style.transition = 'none';
-            innerMap.style.transform = `translate(${newPanX}px, ${newPanY}px) scale(${currentZoom})`;
+            innerMap.style.left = newPanX + 'px';
+            innerMap.style.top = newPanY + 'px';
         }
         return;
     }
@@ -307,11 +280,6 @@ function handleMouseUp(e) {
         
         isPanningMapContent = false;
         activeItem.style.cursor = 'grab';
-        
-        let innerMap = activeItem.querySelector('#composer-map-inner');
-        if (innerMap) {
-            innerMap.style.transition = 'transform 0.1s ease-out';
-        }
     }
 
     if (isDragging || isResizing) {
@@ -336,29 +304,11 @@ function handleMouseUp(e) {
 document.addEventListener('wheel', function(e) {
     // 1. Zoom do MAPA (Pan/Zoom Interativo do Item Mapa)
     if (isMapContentInteractionActive && activeItem && activeItem.dataset.type === 'Map') {
-        if (e.target.closest('.composer-item') === activeItem) {
-            e.preventDefault();
-            
-            let currentZoom = parseFloat(activeItem.dataset.zoom) || 1;
-            let zoomFactor = 1.1;
-            if (e.deltaY < 0) {
-                currentZoom *= zoomFactor;
-            } else {
-                currentZoom /= zoomFactor;
-            }
-            activeItem.dataset.zoom = currentZoom;
-            
-            let currentPanX = parseFloat(activeItem.dataset.panX) || 0;
-            let currentPanY = parseFloat(activeItem.dataset.panY) || 0;
-            
-            let innerMap = activeItem.querySelector('#composer-map-inner');
-            if (innerMap) {
-                innerMap.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${currentZoom})`;
-            }
-            return;
+        if (e.target.closest('.composer-item')) {
+            // Removido o Zoom de scroll no mapa internamente conforme requisito
         }
     }
-
+    
     // 2. Zoom da ÁREA DE TRABALHO (Papel) via Ctrl + Roda do Rato
     if (e.ctrlKey) {
         let isComposerArea = e.target.closest('.composer-canvas-area');
@@ -417,17 +367,34 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
     if (propName === 'Y') item.style.top = propValue + 'px';
     if (propName === 'Width') item.style.width = propValue + 'px';
     if (propName === 'Height') item.style.height = propValue + 'px';
-    
     if (propName === 'ZIndex') item.style.zIndex = propValue;
     if (propName === 'BgColor') item.style.backgroundColor = propValue;
-    if (propName === 'BorderColor' || propName === 'BorderWidth') {
+    if (propName === 'HasBg') {
+        if (!propValue) item.style.backgroundColor = 'transparent';
+    }
+    
+    if (propName === 'Rotation') item.style.transform = `rotate(${propValue}deg)`;
+    
+    if (propName === 'BorderColor' || propName === 'BorderWidth' || propName === 'HasBorder') {
+        let hw = item.dataset.hasBorder === 'true';
+        if (propName === 'HasBorder') {
+            hw = propValue;
+            item.dataset.hasBorder = propValue;
+        }
+        
         let bw = item.dataset.borderWidth || '1px';
         let bc = item.dataset.borderColor || 'transparent';
         if (propName === 'BorderWidth') bw = propValue + 'px';
         if (propName === 'BorderColor') bc = propValue;
+        
         item.dataset.borderWidth = bw.replace('px','');
         item.dataset.borderColor = bc;
-        item.style.border = `${bw} solid ${bc}`;
+        
+        if (hw) {
+            item.style.border = `${bw} solid ${bc}`;
+        } else {
+            item.style.border = 'none';
+        }
     }
 
     if (propName === 'Text') {
@@ -443,24 +410,39 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
             }
         }
     }
-    if (propName === 'FontSize') {
-        let contentDiv = item.querySelector('.item-content');
-        if (contentDiv) contentDiv.style.fontSize = propValue + 'px';
-    }
+
     if (propName === 'TextColor') {
-        let contentDiv = item.querySelector('.item-content');
-        if (contentDiv) contentDiv.style.color = propValue;
+        let content = item.querySelector('.item-content');
+        if (content) content.style.color = propValue;
+    }
+
+    if (propName === 'FontSize') {
+        let content = item.querySelector('.item-content');
+        if (content) content.style.fontSize = propValue + 'px';
     }
     
-    // Para mapas
-    if (propName === 'MapZoom' && item.dataset.type === 'Map') {
-        let currentPanX = parseFloat(item.dataset.panX) || 0;
-        let currentPanY = parseFloat(item.dataset.panY) || 0;
+    if (propName === 'MapScale' && item.dataset.type === 'Map') {
+        let numValue = parseFloat(propValue);
+        if (isNaN(numValue) || numValue <= 0) numValue = 1000;
+        
+        // Ex: 1000 = 100%. 500 = 200% (zoom in). Limit to max scale of 1000 (100%) to prevent white border.
+        let mapScaleFactor = 1000 / numValue;
+        if (mapScaleFactor < 1.0) mapScaleFactor = 1.0;
+        
+        item.dataset.scale = numValue;
+        
         let innerMap = item.querySelector('#composer-map-inner');
         if (innerMap) {
-            innerMap.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${propValue})`;
+            innerMap.style.width = (mapScaleFactor * 100) + '%';
+            innerMap.style.height = (mapScaleFactor * 100) + '%';
         }
-        item.dataset.zoom = propValue;
+    }
+    
+    if (propName === 'MapRotation' && item.dataset.type === 'Map') {
+        let innerMap = item.querySelector('#composer-map-inner');
+        if (innerMap) {
+            innerMap.style.transform = `rotate(${propValue}deg)`;
+        }
     }
 };
 
