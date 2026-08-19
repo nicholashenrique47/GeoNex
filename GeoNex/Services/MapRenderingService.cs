@@ -10,6 +10,7 @@ namespace GeoNex.Services
 {
     public class MapRenderingService
     {
+        public string LocalServerBaseUrl { get; set; } = "";
         public string TipoGeometriaAtiva { get; set; } = "POLIGONO";
         public bool TravaDistanciaAtiva { get; set; } = false;
         public double TravaDistanciaValor { get; set; } = 50;

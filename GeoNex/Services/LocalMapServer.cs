@@ -37,6 +37,7 @@ namespace GeoNex.Services
             _listener = new HttpListener();
             _listener.Prefixes.Add(BaseUrl + "mapa/");
             _listener.Start();
+            _mapService.LocalServerBaseUrl = BaseUrl; // Guarda a URL gerada
             _isRunning = true;
             Task.Run(EscutarRequisicoes);
         }

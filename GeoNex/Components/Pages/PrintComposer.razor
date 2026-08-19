@@ -3,6 +3,7 @@
 @using Microsoft.JSInterop
 @implements IDisposable
 @inject IJSRuntime JSRuntime
+@inject GeoNex.Services.MapRenderingService MapService
 
 <div class="composer-overlay">
         <!-- BARRA SUPERIOR -->
@@ -743,7 +744,7 @@
     {
         if (!_isInitialized)
         {
-            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet", _objRef);
+            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet", _objRef, MapService.LocalServerBaseUrl);
             _isInitialized = true;
         }
 

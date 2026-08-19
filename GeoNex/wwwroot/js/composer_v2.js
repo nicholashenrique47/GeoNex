@@ -14,9 +14,10 @@ let composerBasemapLayer = null;
 let dotnetHelper = null;
 let workspaceZoom = 1.0;
 
-window.composerInitV3 = function (paperId, helper) {
+window.composerInitV3 = function (paperId, helper, mapServerUrl) {
     composerPaper = document.getElementById(paperId);
     dotnetHelper = helper;
+    window.geonexMapServerUrl = mapServerUrl;
     
     // Deselecionar item se clicar fora
     composerPaper.addEventListener('mousedown', function (e) {
@@ -129,8 +130,15 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         
         let img1 = document.createElement('img');
         img1.src = '/images/orthophoto.jpg'; // Dummy base map for now
-        let skiaLayer = document.getElementById('skia-layer');
-        if (skiaLayer && skiaLayer.src) img1.src = skiaLayer.src;
+        
+        // Se a janela souber a URL do servidor local de imagens, busca o mapa mais recente
+        if (window.geonexMapServerUrl) {
+            img1.src = window.geonexMapServerUrl + "mapa/?w=1920&h=1080&t=" + new Date().getTime();
+        } else {
+            // Fallback para caso ainda esteja operando na mesma janela (Modo Antigo)
+            let skiaLayer = document.getElementById('skia-layer');
+            if (skiaLayer && skiaLayer.src) img1.src = skiaLayer.src;
+        }
         
         img1.style.position = 'absolute';
         img1.style.width = '100%';
