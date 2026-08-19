@@ -67,6 +67,9 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
         content.style.fontWeight = 'bold';
         content.style.fontFamily = 'Arial, sans-serif';
         content.style.color = '#000';
+        content.style.backgroundColor = 'rgba(255,255,255,0.8)';
+        content.style.border = '1px dashed #666';
+        content.style.padding = '5px';
         content.innerText = text;
     } else if (type === 'Legend') {
         content.style.backgroundColor = '#fff';
@@ -114,7 +117,7 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
             img1.style.position = 'absolute';
             img1.style.width = '100%';
             img1.style.height = '100%';
-            img1.style.objectFit = 'contain'; // Mantém proporção da tela
+            img1.style.objectFit = 'cover'; // Cover preenche a moldura sem deixar bordas brancas
             img1.style.pointerEvents = 'none';
             innerContainer.appendChild(img1);
         }
@@ -127,27 +130,21 @@ window.composerAddItemV3 = function (type, text, x, y, w, h) {
             img2.style.position = 'absolute';
             img2.style.width = '100%';
             img2.style.height = '100%';
-            img2.style.objectFit = 'contain';
+            img2.style.objectFit = 'cover';
             img2.style.pointerEvents = 'none';
             innerContainer.appendChild(img2);
         }
 
         content.appendChild(innerContainer);
         
-        // Estado inicial de Pan/Zoom
-        content.dataset.panX = 0;
-        content.dataset.panY = 0;
-        content.dataset.zoom = 1;
+        // Estado inicial de Pan/Zoom (gravado no ITEM principal para o handleMouseMove aceder)
+        item.dataset.panX = 0;
+        item.dataset.panY = 0;
+        item.dataset.zoom = 1;
         
         console.log("GEONEX COMPOSER: Mapa renderizado nativamente (SkiaSharp) sem Leaflet!");
 
-        // Por predefinição, quando criamos, estamos com a ferramenta "Selecionar/Mover Item"
-        // Logo, o mapa Leaflet não pode intercetar os cliques do rato para Pan/Zoom, 
-        // senão não conseguimos arrastar a moldura. Desligamos a interação nativa do Leaflet:
-        composerLeafletMap.dragging.disable();
-        composerLeafletMap.touchZoom.disable();
-        composerLeafletMap.doubleClickZoom.disable();
-        composerLeafletMap.scrollWheelZoom.disable();
+        // Não precisamos mais desativar eventos nativos do Leaflet pois não usamos Leaflet!
     }
 };
 
