@@ -921,13 +921,12 @@
 
     private async Task ExportarPNG()
     {
-        // Aqui chamaremos a engine em C# futuramente
-        await JSRuntime.InvokeVoidAsync("alert", "O motor de exportação de alta resolução SkiaSharp (PNG) será processado no C#.");
+        await JSRuntime.InvokeVoidAsync("composerExportPNG", "mapa_exportado.png");
     }
 
     private async Task ExportarPDF()
     {
-        await JSRuntime.InvokeVoidAsync("alert", "O motor de exportação vetorial de alta resolução SkiaSharp (PDF) será processado no C#.");
+        await JSRuntime.InvokeVoidAsync("composerExportPDF", "mapa_exportado.pdf");
     }
 
     private async Task AlternarModoInteracao(bool ativarPanZoom)

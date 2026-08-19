@@ -398,16 +398,16 @@ window.composerUpdateItemProperty = function (id, propName, propValue) {
             item.dataset.hasBorder = propValue;
         }
         
-        let bw = item.dataset.borderWidth || '1px';
+        let bw = item.dataset.borderWidth || '1';
         let bc = item.dataset.borderColor || 'transparent';
-        if (propName === 'BorderWidth') bw = propValue + 'px';
+        if (propName === 'BorderWidth') bw = propValue;
         if (propName === 'BorderColor') bc = propValue;
         
-        item.dataset.borderWidth = bw.replace('px','');
+        item.dataset.borderWidth = bw;
         item.dataset.borderColor = bc;
         
         if (hw) {
-            item.style.border = `${bw} solid ${bc}`;
+            item.style.border = `${bw}px solid ${bc}`;
         } else {
             item.style.border = 'none';
         }
@@ -518,26 +518,84 @@ style.textContent = `
     }
     .resize-handle {
         position: absolute;
-        width: 8px;
-        height: 8px;
+        width: 10px;
+        height: 10px;
         background-color: #fff;
         border: 1px solid #38bdf8;
         display: none;
-        z-index: 100;
     }
     .composer-item.selected .resize-handle {
         display: block;
     }
-    .resize-handle.tl { top: -4px; left: -4px; cursor: nwse-resize; }
-    .resize-handle.tr { top: -4px; right: -4px; cursor: nesw-resize; }
-    .resize-handle.bl { bottom: -4px; left: -4px; cursor: nesw-resize; }
-    .resize-handle.br { bottom: -4px; right: -4px; cursor: nwse-resize; }
-    .resize-handle.t { top: -4px; left: calc(50% - 4px); cursor: ns-resize; }
-    .resize-handle.b { bottom: -4px; left: calc(50% - 4px); cursor: ns-resize; }
-    .resize-handle.l { left: -4px; top: calc(50% - 4px); cursor: ew-resize; }
-    .resize-handle.r { right: -4px; top: calc(50% - 4px); cursor: ew-resize; }
+    /* Posições dos Handles */
+    .resize-handle.tl { top: -5px; left: -5px; cursor: nwse-resize; }
+    .resize-handle.tr { top: -5px; right: -5px; cursor: nesw-resize; }
+    .resize-handle.bl { bottom: -5px; left: -5px; cursor: nesw-resize; }
+    .resize-handle.br { bottom: -5px; right: -5px; cursor: nwse-resize; }
+    .resize-handle.t { top: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .resize-handle.b { bottom: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .resize-handle.l { top: 50%; left: -5px; transform: translateY(-50%); cursor: ew-resize; }
+    .resize-handle.r { top: 50%; right: -5px; transform: translateY(-50%); cursor: ew-resize; }
 `;
 document.head.appendChild(style);
+
+// Exportação Dinâmica (Carrega bibliotecas apenas quando necessário)
+window.composerExportPNG = function(filename) {
+    if (typeof html2canvas === 'undefined') {
+        let script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        script.onload = () => execExportPNG(filename);
+        document.head.appendChild(script);
+    } else {
+        execExportPNG(filename);
+    }
+};
+
+function execExportPNG(filename) {
+    let paper = document.getElementById('paper-sheet');
+    document.querySelectorAll('.composer-item').forEach(i => i.classList.remove('selected'));
+    if (dotnetHelper) dotnetHelper.invokeMethodAsync('OnItemDeselected');
+    
+    html2canvas(paper, { scale: 2, useCORS: true }).then(canvas => {
+        let link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    });
+}
+
+window.composerExportPDF = function(filename) {
+    if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+        let script1 = document.createElement('script');
+        script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        script1.onload = function() {
+            let script2 = document.createElement('script');
+            script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            script2.onload = () => execExportPDF(filename);
+            document.head.appendChild(script2);
+        };
+        document.head.appendChild(script1);
+    } else {
+        execExportPDF(filename);
+    }
+};
+
+function execExportPDF(filename) {
+    let paper = document.getElementById('paper-sheet');
+    document.querySelectorAll('.composer-item').forEach(i => i.classList.remove('selected'));
+    if (dotnetHelper) dotnetHelper.invokeMethodAsync('OnItemDeselected');
+    
+    html2canvas(paper, { scale: 2, useCORS: true }).then(canvas => {
+        let imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        let orientation = paper.offsetWidth > paper.offsetHeight ? 'l' : 'p';
+        let pdf = new jsPDF(orientation, 'mm', 'a4');
+        let pdfWidth = pdf.internal.pageSize.getWidth();
+        let pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save(filename);
+    });
+}
 
 window.composerDeleteItem = function(id) {
     let item = document.getElementById(id);
