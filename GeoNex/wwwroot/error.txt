@@ -1,0 +1,6 @@
+System.EntryPointNotFoundException: Unable to find an entry point named 'CreateShapeSpatialIndex' in DLL 'GeoNexNative.dll'.
+   at GeoNex.Services.NativeMethods.CreateShapeSpatialIndex(Byte* basePtr, Int64 fileLength, Int64* offsets, Double* bounds, Byte* kinds, Int32 count, Int32 workerCount)
+   at GeoNex.Services.NativeShapeSpatialIndex..ctor(MemoryMappedShapefile shapefile, List`1 features) in c:\Users\Windows 10\source\repos\GeoNex\GeoNex\Services\NativeShapeSpatialIndex.cs:line 62
+   at GeoNex.Services.MapRenderingService.ConstruirIndiceEspacial(String nomeCamada, List`1 feicoes) in c:\Users\Windows 10\source\repos\GeoNex\GeoNex\Services\MapRenderingService.cs:line 764
+   at GeoNex.Services.MapRenderingService.PreCompilarPoligonos(String nomeCamada, List`1 feicoes) in c:\Users\Windows 10\source\repos\GeoNex\GeoNex\Services\MapRenderingService.cs:line 744
+   at GeoNex.Services.ProjetoService.CarregarShapefileParaMotorMapas(String caminhoShp, String nomeCamada, MapRenderingService mapService) in c:\Users\Windows 10\source\repos\GeoNex\GeoNex\Services\ProjetoService.cs:line 264

@@ -1,0 +1,1267 @@
+@page "/printcomposer"
+@using GeoNex.Services
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject IJSRuntime JSRuntime
+@inject GeoNex.Services.MapRenderingService MapService
+
+<div class="composer-overlay">
+        <!-- BARRA SUPERIOR -->
+        <header class="composer-header glass-panel">
+            <div class="brand-group">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 10px; color: #38bdf8;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <h2>Compositor de Impressão</h2>
+            </div>
+            
+            <div class="composer-actions">
+                <div class="zoom-controls" style="display:flex; align-items:center; background: rgba(0,0,0,0.2); border-radius: 4px; overflow: hidden; margin-right: 15px;">
+                    <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom - 0.1)" title="Zoom Out">-</button>
+                    <span class="zoom-level" style="font-size: 0.8rem; padding: 0 10px; min-width: 50px; text-align: center;">@(Math.Round(WorkspaceZoom * 100))%</span>
+                    <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom + 0.1)" title="Zoom In">+</button>
+                    <button class="zoom-btn" @onclick="() => DefinirZoom(1.0)" title="100%" style="border-left: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">1:1</button>
+                </div>
+
+                <button class="tool-btn" @onclick="ExportarPNG" title="Exportar como Imagem (PNG 300 DPI)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    Exportar Imagem
+                </button>
+                <button class="tool-btn" @onclick="ExportarPDF" title="Exportar como Documento (PDF vetorial)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    Exportar PDF
+                </button>
+            </div>
+        </header>
+
+        <div class="composer-workspace">
+            
+            <!-- TOOLBAR ESQUERDA (FERRAMENTAS) -->
+            <aside class="composer-toolbar glass-panel">
+                <div class="tool-group">
+                    <button class="composer-tool @(_modoInteracaoMapa ? "" : "active")" title="Selecionar/Mover Item" @onclick="() => AlternarModoInteracao(false)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path><path d="M13 13l6 6"></path></svg>
+                    </button>
+                    <button class="composer-tool @(_modoInteracaoMapa ? "active" : "")" title="Mover Conteúdo do Item (Pan Mapa)" @onclick="() => AlternarModoInteracao(true)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M19 9l3 3-3 3M9 19l3 3 3-3M2 12h20M12 2v20"></path></svg>
+                    </button>
+                </div>
+                
+                <div class="tool-divider"></div>
+                
+                <div class="tool-group">
+                    <button class="composer-tool" @onclick="AdicionarMapa" title="Adicionar Novo Mapa">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+                    </button>
+                    <button class="composer-tool" @onclick="AdicionarTexto" title="Adicionar Rótulo (Texto)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                    </button>
+                    <button class="composer-tool" @onclick="AdicionarLegenda" title="Adicionar Legenda">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                    </button>
+                    <button class="composer-tool" @onclick="AdicionarNorte" title="Adicionar Seta de Norte">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 19 21 12 17 5 21 12 2"></polygon></svg>
+                    </button>
+                    <button class="composer-tool" title="Adicionar Barra de Escala">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6" y2="10"></line><line x1="10" y1="6" x2="10" y2="10"></line><line x1="14" y1="6" x2="14" y2="10"></line><line x1="18" y1="6" x2="18" y2="10"></line></svg>
+                    </button>
+                    <button class="composer-tool" title="Adicionar Imagem">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- ÁREA DO PAPEL (CANVAS) -->
+            <main class="composer-canvas-area" id="composer-canvas-area">
+                <div class="canvas-ruler horizontal"></div>
+                <div class="canvas-ruler vertical"></div>
+                
+                <div class="paper-sheet shadow-2xl" id="paper-sheet" style="width: @(LarguraPapelPx)px; height: @(AlturaPapelPx)px;">
+                    <!-- Elementos do Layout serão renderizados aqui pelo Javascript -->
+                </div>
+            </main>
+
+            <!-- PAINEL DIREITO (PROPRIEDADES) -->
+            <aside class="composer-properties glass-panel custom-scrollbar">
+                <div class="props-header">
+                    <h3>Propriedades da Página</h3>
+                </div>
+                
+                <div class="props-content">
+                    <div class="form-group-vertical">
+                        <label class="gis-label">Tamanho da Página</label>
+                        <select class="gis-select" @bind="TamanhoPagina" @bind:after="AtualizarDimensoesPapel">
+                            <option value="A0">A0 (841 x 1189 mm)</option>
+                            <option value="A1">A1 (594 x 841 mm)</option>
+                            <option value="A2">A2 (420 x 594 mm)</option>
+                            <option value="A3">A3 (297 x 420 mm)</option>
+                            <option value="A4">A4 (210 x 297 mm)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group-vertical" style="margin-top: 15px;">
+                        <label class="gis-label">Orientação</label>
+                        <select class="gis-select" @bind="Orientacao" @bind:after="AtualizarDimensoesPapel">
+                            <option value="Landscape">Paisagem (Horizontal)</option>
+                            <option value="Portrait">Retrato (Vertical)</option>
+                        </select>
+                    </div>
+                    
+                    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
+                    
+                    <div class="props-header">
+                        <h3>Itens do Layout</h3>
+                    </div>
+                    
+                    <div class="items-list">
+                        <div class="item-layer active">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon></svg>
+                            Mapa 1
+                        </div>
+                        <div class="item-layer">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                            Título do Mapa
+                        </div>
+                        <div class="item-layer">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                            Legenda
+                        </div>
+                    </div>
+                    
+                    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
+                    
+                    <!-- Propriedades do Item Selecionado -->
+                    <div class="props-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <h3 style="margin-bottom: 0;">Propriedades do Item</h3>
+                        @if (_itemSelecionado == null)
+                        {
+                            <span style="font-size: 0.75rem; color: #64748b; font-style: italic; display: block; margin-top: 5px; padding-bottom: 10px;">Selecione um item no papel...</span>
+                        }
+                    </div>
+
+                    @if (_itemSelecionado != null)
+                    {
+                        <div class="props-content" style="padding: 0;">
+                            <!-- ACCORDION: PROPRIEDADES PRINCIPAIS -->
+                            <details class="gis-accordion" open>
+                                <summary>Propriedades Principais</summary>
+                                <div class="accordion-content">
+                                    @if (_itemSelecionado.Type == "Map")
+                                    {
+                                        <div class="form-group-horizontal">
+                                            <label class="gis-label" style="width: 80px;">Escala</label>
+                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapScale" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("MapScale", _itemSelecionado?.MapScale))' @onchange='@(e => AtualizarPropriedadeItem("MapScale", _itemSelecionado?.MapScale))' />
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-top: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Rotação</label>
+                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapRotation" @bind:event="oninput" @onkeyup='AtualizarRotacaoMapa' @onchange='AtualizarRotacaoMapa' />
+                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-top: 8px;">
+                                            <label class="gis-label" style="width: 80px;">SRC</label>
+                                            <select class="gis-select" style="flex:1;" disabled><option>Use Project CRS</option></select>
+                                        </div>
+                                        <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="draw_extents" checked />
+                                            <label for="draw_extents" class="gis-label" style="margin:0;">Desenhar itens da tela do mapa</label>
+                                        </div>
+                                    }
+                                    else if (_itemSelecionado.Type == "Text")
+                                    {
+                                        <div class="form-group-vertical">
+                                            <textarea class="gis-input custom-scrollbar" style="height: 100px; resize: vertical;" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))'></textarea>
+                                        </div>
+                                        <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="render_html" />
+                                            <label for="render_html" class="gis-label" style="margin:0;">Renderizar como HTML</label>
+                                        </div>
+                                        <div style="display: flex; gap: 5px; margin-top: 10px;">
+                                            <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;" @onclick="AbrirConstrutorExpressao">Inserir/Editar Expressão...</button>
+                                            <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;" @onclick="AbrirConstrutorExpressao">Texto Dinâmico ▼</button>
+                                        </div>
+                                    }
+                                    else if (_itemSelecionado.Type == "Legend")
+                                    {
+                                        <div class="form-group-vertical">
+                                            <label class="gis-label">Título da Legenda</label>
+                                            <input type="text" class="gis-input" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))' />
+                                        </div>
+                                        
+                                        <div style="margin-top: 15px;">
+                                            <label class="gis-label">Itens da Legenda (Arraste não suportado nesta versão)</label>
+                                            <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); padding: 5px; max-height: 250px; overflow-y: auto; border-radius: 4px;">
+                                                @if (_itemSelecionado.LegendItems != null)
+                                                {
+                                                    @foreach (var lItem in _itemSelecionado.LegendItems)
+                                                    {
+                                                        <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 5px;">
+                                                            <input type="checkbox" title="Visível" @bind="lItem.IsVisible" @bind:after="NotificarLegendaAlterada" />
+                                                            <div style="width: 15px; height: 15px; background-color: @(lItem.Color); border: 1px solid @(lItem.BorderColor); min-width: 15px;"></div>
+                                                            <input type="text" class="gis-input" style="flex: 1; padding: 4px; font-size: 0.8rem;" @bind="lItem.Name" @bind:event="oninput" @onkeyup="NotificarLegendaAlterada" @onchange="NotificarLegendaAlterada" />
+                                                        </div>
+                                                    }
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                    else if (_itemSelecionado.Type == "Image")
+                                    {
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Estilo</label>
+                                            <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.SvgStyle" @bind:after='() => AtualizarPropriedadeItem("SvgStyle", _itemSelecionado.SvgStyle)'>
+                                                <option value="Estilo 1">Clássica</option>
+                                                <option value="Estilo 2">Bússola</option>
+                                                <option value="Estilo 3">Seta Simples</option>
+                                                <option value="Estilo 4">Rosa dos Ventos (Profissional)</option>
+                                                <option value="Estilo 5">Minimalista N</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Cor Fundo</label>
+                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgFill" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("SvgFill", _itemSelecionado?.SvgFill))' />
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 80px;">Contorno</label>
+                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgStroke" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("SvgStroke", _itemSelecionado?.SvgStroke))' />
+                                        </div>
+                                        <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="sync_rot" @bind="_itemSelecionado.SyncWithMap" @bind:after="VerificarSincronizacaoNorte" />
+                                            <label for="sync_rot" class="gis-label" style="margin:0;">Sincronizar rotação com o Mapa</label>
+                                        </div>
+                                    }
+                                </div>
+                            </details>
+
+                            <!-- ACCORDION: APARÊNCIA -->
+                            <details class="gis-accordion" open>
+                                <summary>Aparência</summary>
+                                <div class="accordion-content">
+                                    @if (_itemSelecionado.Type == "Text")
+                                    {
+                                        <div class="form-group-vertical" style="margin-bottom: 15px;">
+                                            <label class="gis-label">Fonte</label>
+                                            <div style="display: flex; gap: 5px;">
+                                                <select class="gis-select" style="flex: 1;"><option>Arial</option><option>Inter</option><option>Times New Roman</option></select>
+                                                <input type="number" class="gis-input" style="width: 50px;" @bind="_itemSelecionado.FontSize" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado?.FontSize))' @onchange='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado?.FontSize))' />
+                                                <input type="color" class="gis-input" style="padding:0; height: 32px; width: 32px;" @bind="_itemSelecionado.TextColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("TextColor", _itemSelecionado?.TextColor))' />
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 120px;">Margem horizontal</label>
+                                            <input type="number" class="gis-input" style="flex:1;" value="0.00" step="0.1" />
+                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
+                                        </div>
+                                        <div class="form-group-horizontal" style="margin-bottom: 15px;">
+                                            <label class="gis-label" style="width: 120px;">Margem vertical</label>
+                                            <input type="number" class="gis-input" style="flex:1;" value="0.00" step="0.1" />
+                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
+                                        </div>
+                                        
+                                        <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                            <label class="gis-label" style="width: 120px;">Alinhamento horizontal</label>
+                                            <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.TextAlignH" @bind:after='() => AtualizarPropriedadeItem("TextAlignH", _itemSelecionado.TextAlignH)'>
+                                                <option value="left">Esquerda</option>
+                                                <option value="center">Centro</option>
+                                                <option value="right">Direita</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group-horizontal">
+                                            <label class="gis-label" style="width: 120px;">Alinhamento vertical</label>
+                                            <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.TextAlignV" @bind:after='() => AtualizarPropriedadeItem("TextAlignV", _itemSelecionado.TextAlignV)'>
+                                                <option value="top">Topo</option>
+                                                <option value="center">Meio</option>
+                                                <option value="bottom">Base</option>
+                                            </select>
+                                        </div>
+                                    }
+                                </div>
+                            </details>
+
+                            <!-- ACCORDION: POSIÇÃO E TAMANHO -->
+                            <details class="gis-accordion">
+                                <summary>Posição e Tamanho</summary>
+                                <div class="accordion-content">
+                                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">X</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.X" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("X", _itemSelecionado?.X))' @onchange='@(e => AtualizarPropriedadeItem("X", _itemSelecionado?.X))' />
+                                        </div>
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">Y</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Y" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado?.Y))' @onchange='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado?.Y))' />
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 10px;">
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">Largura</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Width" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado?.Width))' @onchange='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado?.Width))' />
+                                        </div>
+                                        <div class="form-group-vertical" style="flex: 1;">
+                                            <label class="gis-label">Altura</label>
+                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Height" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado?.Height))' @onchange='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado?.Height))' />
+                                        </div>
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: ROTAÇÃO -->
+                            <details class="gis-accordion">
+                                <summary>Rotação</summary>
+                                <div class="accordion-content">
+                                    <div class="form-group-horizontal">
+                                        <label class="gis-label" style="width: 80px;">Rotação</label>
+                                        <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.Rotation" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado?.Rotation))' @onchange='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado?.Rotation))' />
+                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: MOLDURA -->
+                            <details class="gis-accordion">
+                                <summary>
+                                    <input type="checkbox" style="margin-right: 8px;" @bind="_itemSelecionado.HasBorder" @bind:after='() => AtualizarPropriedadeItem("HasBorder", _itemSelecionado.HasBorder)' @onclick:stopPropagation="true" />
+                                    Moldura
+                                </summary>
+                                <div class="accordion-content" style="@(!_itemSelecionado.HasBorder ? "opacity: 0.5; pointer-events: none;" : "")">
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <label class="gis-label" style="width: 80px;">Cor</label>
+                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BorderColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BorderColor", _itemSelecionado?.BorderColor))' />
+                                    </div>
+                                    <div class="form-group-horizontal">
+                                        <label class="gis-label" style="width: 80px;">Espessura</label>
+                                        <input type="number" class="gis-input" style="flex: 1;" min="0" max="20" step="0.1" @bind="_itemSelecionado.BorderWidth" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado?.BorderWidth))' @onchange='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado?.BorderWidth))' />
+                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: PLANO DE FUNDO -->
+                            <details class="gis-accordion">
+                                <summary>
+                                    <input type="checkbox" style="margin-right: 8px;" @bind="_itemSelecionado.HasBg" @bind:after='() => AtualizarPropriedadeItem("HasBg", _itemSelecionado.HasBg)' @onclick:stopPropagation="true" />
+                                    Plano de Fundo
+                                </summary>
+                                <div class="accordion-content" style="@(!_itemSelecionado.HasBg ? "opacity: 0.5; pointer-events: none;" : "")">
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <label class="gis-label" style="width: 80px;">Cor</label>
+                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BgColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BgColor", _itemSelecionado?.BgColor))' />
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: ID DO ITEM -->
+                            <details class="gis-accordion">
+                                <summary>ID do item</summary>
+                                <div class="accordion-content">
+                                    <input type="text" class="gis-input" @bind="_itemSelecionado.Id" disabled />
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: RENDERIZAÇÃO -->
+                            <details class="gis-accordion">
+                                <summary>Renderização</summary>
+                                <div class="accordion-content">
+                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
+                                        <label class="gis-label" style="width: 80px;">Modo Mescl.</label>
+                                        <select class="gis-select" style="flex:1;" @bind="_itemSelecionado.BlendMode" @bind:after='() => AtualizarPropriedadeItem("BlendMode", _itemSelecionado.BlendMode)'>
+                                            <option value="normal">Normal</option>
+                                            <option value="multiply">Multiplicar</option>
+                                            <option value="screen">Divisão (Screen)</option>
+                                            <option value="overlay">Sobreposição</option>
+                                            <option value="darken">Escurecer</option>
+                                            <option value="lighten">Clarear</option>
+                                            <option value="color-dodge">Subexposição de cores</option>
+                                            <option value="color-burn">Superxposição de cores</option>
+                                            <option value="hard-light">Luz Direta</option>
+                                            <option value="soft-light">Luz Suave</option>
+                                            <option value="difference">Diferença</option>
+                                            <option value="exclusion">Exclusão</option>
+                                            <option value="hue">Matiz</option>
+                                            <option value="saturation">Saturação</option>
+                                            <option value="color">Cor</option>
+                                            <option value="luminosity">Luminosidade</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group-horizontal">
+                                        <label class="gis-label" style="width: 80px;">Opacidade</label>
+                                        <input type="range" min="0" max="1" step="0.05" style="flex:1;" value="@((_itemSelecionado.Opacity ?? 1.0).ToString(System.Globalization.CultureInfo.InvariantCulture))" @onchange='@(e => { if (_itemSelecionado != null) { _itemSelecionado.Opacity = double.Parse(e.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture); AtualizarPropriedadeItem("Opacity", _itemSelecionado.Opacity); } })' />
+                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px; min-width: 35px;">@(Math.Round((_itemSelecionado.Opacity ?? 1.0) * 100))%</span>
+                                    </div>
+                                </div>
+                            </details>
+                            
+                            <!-- ACCORDION: VARIÁVEIS -->
+                            <details class="gis-accordion">
+                                <summary>Variáveis</summary>
+                                <div class="accordion-content">
+                                    <span style="font-size: 0.75rem; color: #94a3b8;">Nenhuma variável de projeto disponível.</span>
+                                </div>
+                            </details>
+                        </div>
+                    }
+                </div>
+            </aside>
+            
+        </div>
+    </div>
+    
+    @if (ShowContextMenu)
+    {
+        <div class="context-menu" style="left: @(ContextMenuX.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top: @(ContextMenuY.ToString(System.Globalization.CultureInfo.InvariantCulture))px;">
+            @if (!string.IsNullOrEmpty(ContextMenuItemId))
+            {
+                <div class="context-menu-item" @onclick="ContextPropriedades">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                    Propriedades...
+                </div>
+                <div class="context-menu-divider"></div>
+                <div class="context-menu-item" @onclick="ContextTrazerFrente">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                    Trazer para a Frente
+                </div>
+                <div class="context-menu-item" @onclick="ContextEnviarTras">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    Enviar para Trás
+                </div>
+                <div class="context-menu-divider"></div>
+                <div class="context-menu-item text-danger" @onclick="ContextEliminar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    Eliminar Item
+                </div>
+            }
+            else
+            {
+                <div class="context-menu-item" @onclick="() => { AdicionarMapa(); CloseContextMenu(); }">Adicionar Mapa</div>
+                <div class="context-menu-item" @onclick="() => { AdicionarTexto(); CloseContextMenu(); }">Adicionar Texto</div>
+                <div class="context-menu-item" @onclick="() => { AdicionarLegenda(); CloseContextMenu(); }">Adicionar Legenda</div>
+            }
+        </div>
+    }
+
+<style>
+    /* CONTEXT MENU */
+    .context-menu {
+        position: fixed;
+        background-color: #1e293b;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        padding: 5px 0;
+        min-width: 180px;
+        z-index: 100000; /* Acima do overlay inteiro */
+        font-family: 'Inter', sans-serif;
+    }
+    .context-menu-item {
+        padding: 8px 15px;
+        font-size: 0.85rem;
+        color: #e2e8f0;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        transition: background 0.2s ease;
+    }
+    .context-menu-item:hover {
+        background-color: rgba(56, 189, 248, 0.2);
+        color: #fff;
+    }
+    .context-menu-item.text-danger:hover {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+    .context-menu-divider {
+        height: 1px;
+        background-color: rgba(255,255,255,0.1);
+        margin: 5px 0;
+    }
+
+    /* ACCORDIONS DO TIPO QGIS */
+    .gis-accordion {
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .gis-accordion summary {
+        padding: 10px 15px;
+        background: rgba(255,255,255,0.02);
+        color: #e2e8f0;
+        font-weight: 600;
+        font-size: 0.8rem;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        display: flex;
+        align-items: center;
+    }
+    .gis-accordion summary::-webkit-details-marker {
+        display: none;
+    }
+    .gis-accordion summary::before {
+        content: '▶';
+        font-size: 0.6rem;
+        margin-right: 8px;
+        transition: transform 0.2s;
+        color: #94a3b8;
+    }
+    .gis-accordion[open] summary::before {
+        transform: rotate(90deg);
+    }
+    .gis-accordion .accordion-content {
+        padding: 15px;
+        background: rgba(0,0,0,0.1);
+    }
+
+    /* COMPOSER OVERLAY BASE */
+    .composer-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: #0f111a;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* HEADER */
+    .composer-header {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        background: rgba(22, 25, 33, 0.95);
+    }
+
+    .composer-header h2 {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin: 0;
+        letter-spacing: 0.5px;
+    }
+
+    .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .btn-close {
+        background: transparent;
+        border: none;
+        color: #ef4444;
+        font-size: 1.2rem;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+    }
+    .btn-close:hover {
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* WORKSPACE */
+    .composer-workspace {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    /* ZOOM CONTROLS */
+    .zoom-btn {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-weight: bold;
+    }
+    .zoom-btn:hover {
+        background: rgba(255,255,255,0.1);
+        color: #fff;
+    }
+
+    /* TOOLBAR ESQUERDA */
+    .composer-toolbar {
+        width: 50px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 15px 0;
+        border-right: 1px solid rgba(255,255,255,0.05);
+        background: rgba(22, 25, 33, 0.95);
+        z-index: 10;
+    }
+
+    .tool-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .tool-divider {
+        width: 60%;
+        height: 1px;
+        background: rgba(255,255,255,0.1);
+        margin: 15px 0;
+    }
+
+    .composer-tool {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: transparent;
+        border: 1px solid transparent;
+        color: #94a3b8;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .composer-tool:hover {
+        background: rgba(255,255,255,0.05);
+        color: #f8fafc;
+    }
+    .composer-tool.active {
+        background: rgba(56, 189, 248, 0.15);
+        border-color: rgba(56, 189, 248, 0.3);
+        color: #38bdf8;
+    }
+
+    /* CANVAS AREA */
+    .composer-canvas-area {
+        flex: 1;
+        background-color: #1e222d;
+        position: relative;
+        overflow: auto;
+        padding: 50px; /* Para dar espaço de manobra */
+        background-image: 
+            linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+        background-size: 20px 20px;
+    }
+
+    /* O PAPEL */
+    .paper-sheet {
+        background-color: #ffffff;
+        position: relative;
+        box-shadow: 0 0 40px rgba(0,0,0,0.5);
+        margin: auto; /* Centraliza se couber, senão alinha ao topo-esq com padding */
+        transform-origin: top left;
+        transition: transform 0.1s ease-out;
+    }
+
+    /* CSS PREMIUM PARA PROPRIEDADES */
+    .composer-properties {
+        width: 340px;
+        border-left: 1px solid rgba(255,255,255,0.08);
+        background: #111827; /* Tailwind Gray 900 */
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -4px 0 15px rgba(0,0,0,0.2);
+    }
+
+    .props-header {
+        padding: 20px 20px 10px 20px;
+        background: #1f2937; /* Tailwind Gray 800 */
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .props-header h3 {
+        font-size: 0.85rem;
+        color: #f8fafc;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        margin: 0;
+        font-weight: 700;
+    }
+
+    .props-content {
+        padding: 15px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    /* Accordions Premium */
+    .gis-accordion {
+        margin-bottom: 10px;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #1f2937;
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+    .gis-accordion summary {
+        background-color: #1f2937;
+        padding: 12px 15px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        color: #e2e8f0;
+        transition: background 0.2s;
+    }
+    .gis-accordion summary:hover {
+        background-color: #334155;
+    }
+    .gis-accordion[open] summary {
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        background-color: #334155;
+    }
+    .accordion-content {
+        background-color: #111827;
+        padding: 15px;
+    }
+
+    /* Inputs Premium */
+    .gis-input, .gis-select {
+        background-color: #0f172a;
+        border: 1px solid rgba(255,255,255,0.15);
+        color: #f8fafc;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        outline: none;
+        transition: all 0.2s;
+    }
+    .gis-input:focus, .gis-select:focus {
+        border-color: #38bdf8;
+        box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+    
+    /* Checkboxes */
+    input[type="checkbox"] {
+        accent-color: #38bdf8;
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        margin-right: 8px;
+    }
+    
+    /* Labels */
+    .gis-label {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-bottom: 5px;
+        display: block;
+        font-weight: 500;
+    }
+
+    /* Grupos de Formulário */
+    .form-group-vertical {
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 10px;
+    }
+    .form-group-horizontal {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .form-group-horizontal .gis-label {
+        margin-bottom: 0;
+        margin-right: 10px;
+    }
+
+    /* ITEM LIST LAYER */
+    .items-list {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .item-layer {
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        color: #cbd5e1;
+        cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.05);
+        background: rgba(255,255,255,0.02);
+        transition: all 0.2s ease;
+    }
+    .item-layer:hover {
+        background: rgba(255,255,255,0.08);
+    }
+    .item-layer.active {
+        background: rgba(56, 189, 248, 0.15);
+        border-color: rgba(56, 189, 248, 0.3);
+        color: #38bdf8;
+        font-weight: 600;
+    }
+</style>
+
+@code {
+    /* Removed IsVisible and OnClose parameters as this is now a standalone page */
+
+    private bool _isInitialized = false;
+    private DotNetObjectReference<PrintComposer> _objRef;
+
+    // Propriedades da Página
+    public string TamanhoPagina { get; set; } = "A4";
+    public string Orientacao { get; set; } = "Landscape";
+
+    public int LarguraPapelPx { get; set; } = 1123;
+    public int AlturaPapelPx { get; set; } = 794;
+    
+    private const double PixelsPerMm = 3.7795275591; // 96 DPI padrão da web
+    
+    // Modo de Interação: false = Selecionar/Mover, true = Mover Conteúdo (Pan)
+    private bool _modoInteracaoMapa = false;
+
+    // Zoom da Página (Workspace)
+    public double WorkspaceZoom { get; set; } = 1.0;
+
+    // Context Menu
+    public bool ShowContextMenu { get; set; } = false;
+    public double ContextMenuX { get; set; } = 0;
+    public double ContextMenuY { get; set; } = 0;
+    public string ContextMenuItemId { get; set; } = null;
+
+    // Lista de todos os itens do papel
+    private Dictionary<string, ComposerItemModel> _itensDoCompositor = new Dictionary<string, ComposerItemModel>();
+
+    // Modelo de Item do Compositor
+    public class LegendItemModel
+    {
+        public string Name { get; set; }
+        public string Color { get; set; } // Can be HEX or 'transparent'
+        public string BorderColor { get; set; }
+        public bool IsVisible { get; set; } = true;
+    }
+
+    public class ComposerItemModel
+    {
+        public string Id { get; set; }
+        public string Type { get; set; }
+        
+        // --- Opções Gerais ---
+        public double? X { get; set; }
+        public double? Y { get; set; }
+        public double? Width { get; set; }
+        public double? Height { get; set; }
+        public double? Rotation { get; set; } = 0;
+        public int? ZIndex { get; set; } = 10;
+        
+        public bool HasBg { get; set; } = false;
+        public string BgColor { get; set; } = "#ffffff";
+        
+        public bool HasBorder { get; set; } = false;
+        public string BorderColor { get; set; } = "#000000";
+        public int? BorderWidth { get; set; } = 1;
+        public string BorderStyle { get; set; } = "solid";
+        public int? BorderRadius { get; set; } = 0;
+        
+        public bool HasShadow { get; set; } = false;
+        public string ShadowColor { get; set; } = "#000000";
+        public int? ShadowOffsetX { get; set; } = 5;
+        public int? ShadowOffsetY { get; set; } = 5;
+        public int? ShadowBlur { get; set; } = 10;
+        
+        public double? Opacity { get; set; } = 1.0;
+        public string BlendMode { get; set; } = "normal";
+
+        // --- Texto / Rótulo ---
+        public string TextContent { get; set; }
+        public string TextColor { get; set; } = "#000000";
+        public int? FontSize { get; set; } = 14;
+        public string FontFamily { get; set; } = "Arial";
+        public string FontWeight { get; set; } = "normal";
+        public string FontStyle { get; set; } = "normal";
+        public string TextAlignH { get; set; } = "left";
+        public string TextAlignV { get; set; } = "top";
+        public int? Padding { get; set; } = 0;
+
+        // --- Mapa ---
+        public double? MapScale { get; set; } = 1000.0;
+        public double? MapRotation { get; set; } = 0;
+        public bool MapDrawExtents { get; set; } = false;
+
+        // --- Imagem / SVG ---
+        public string SvgStyle { get; set; } = "Estilo 2";
+        public string SvgFill { get; set; } = "#333333";
+        public string SvgStroke { get; set; } = "#ffffff";
+        public bool SyncWithMap { get; set; } = false;
+
+        // Propriedades antigas (remover depois)
+        public double? MapZoom { get; set; } = 1.0;
+        
+        // --- Legenda ---
+        public List<LegendItemModel> LegendItems { get; set; } = new List<LegendItemModel>();
+    }
+
+    private ComposerItemModel _itemSelecionado = null;
+    private ComposerItemModel _itemCopiado = null;
+
+    [JSInvokable]
+    public void OnItemCopied(string itemId)
+    {
+        if (_itensDoCompositor.TryGetValue(itemId, out var item))
+        {
+            if (item.Type == "Text" || item.Type == "Image" || item.Type == "Legend")
+            {
+                _itemCopiado = item;
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnItemPasted()
+    {
+        if (_itemCopiado != null)
+        {
+            var nx = (_itemCopiado.X ?? 50) + 20;
+            var ny = (_itemCopiado.Y ?? 50) + 20;
+            
+            var id = await JSRuntime.InvokeAsync<string>("composerAddItemV3", _itemCopiado.Type, _itemCopiado.TextContent, nx, ny, _itemCopiado.Width ?? 100, _itemCopiado.Height ?? 50);
+            
+            if (!string.IsNullOrEmpty(id))
+            {
+                var clone = new ComposerItemModel
+                {
+                    Id = id,
+                    Type = _itemCopiado.Type,
+                    TextContent = _itemCopiado.TextContent,
+                    X = nx,
+                    Y = ny,
+                    Width = _itemCopiado.Width,
+                    Height = _itemCopiado.Height,
+                    BgColor = _itemCopiado.BgColor,
+                    HasBg = _itemCopiado.HasBg,
+                    BorderColor = _itemCopiado.BorderColor,
+                    BorderWidth = _itemCopiado.BorderWidth,
+                    HasBorder = _itemCopiado.HasBorder,
+                    TextColor = _itemCopiado.TextColor,
+                    FontSize = _itemCopiado.FontSize,
+                    TextAlignH = _itemCopiado.TextAlignH,
+                    TextAlignV = _itemCopiado.TextAlignV,
+                    Opacity = _itemCopiado.Opacity,
+                    LegendItems = _itemCopiado.LegendItems?.Select(l => new LegendItemModel { Name = l.Name, Color = l.Color, BorderColor = l.BorderColor, IsVisible = l.IsVisible }).ToList() ?? new List<LegendItemModel>()
+                };
+
+                _itensDoCompositor[id] = clone;
+                _itemSelecionado = clone;
+
+                // Sync UI to JS
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "BgColor", clone.BgColor);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "HasBg", clone.HasBg);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "BorderColor", clone.BorderColor);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "BorderWidth", clone.BorderWidth);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "HasBorder", clone.HasBorder);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "TextColor", clone.TextColor);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "FontSize", clone.FontSize);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "TextAlignH", clone.TextAlignH);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "TextAlignV", clone.TextAlignV);
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "Opacity", clone.Opacity);
+                if (clone.Type == "Legend")
+                    await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "LegendItems", System.Text.Json.JsonSerializer.Serialize(clone.LegendItems));
+                
+                StateHasChanged();
+            }
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        _objRef = DotNetObjectReference.Create(this);
+        AtualizarDimensoesPapel();
+    }
+
+    public void Dispose()
+    {
+        _objRef?.Dispose();
+    }
+
+    /* Removed Fechar() since we use OS window close */
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_isInitialized)
+        {
+            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet", _objRef, MapService.LocalServerBaseUrl);
+            _isInitialized = true;
+        }
+
+    }
+
+    [JSInvokable]
+    public void OnItemSelected(ComposerItemModel item)
+    {
+        if (!_itensDoCompositor.ContainsKey(item.Id))
+        {
+            if (item.Type == "Legend")
+            {
+                item.LegendItems = GerarLegendaDinamica();
+                _ = JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", item.Id, "LegendItems", System.Text.Json.JsonSerializer.Serialize(item.LegendItems));
+            }
+            _itensDoCompositor[item.Id] = item;
+        }
+        else
+        {
+            var existing = _itensDoCompositor[item.Id];
+            existing.X = item.X;
+            existing.Y = item.Y;
+            existing.Width = item.Width;
+            existing.Height = item.Height;
+        }
+        _itemSelecionado = _itensDoCompositor[item.Id];
+        StateHasChanged();
+    }
+
+    private List<LegendItemModel> GerarLegendaDinamica()
+    {
+        var legend = new List<LegendItemModel>();
+        foreach (var camadaNome in MapService.OrdemCamadas.AsEnumerable().Reverse())
+        {
+            if (MapService.CamadasInvisiveis.Contains(camadaNome)) continue;
+
+            if (MapService.EstilosPorCamada.TryGetValue(camadaNome, out var estilo))
+            {
+                if (estilo.TipoSimbologia == "CATEGORIZADA")
+                {
+                    legend.Add(new LegendItemModel { Name = camadaNome, Color = "transparent", BorderColor = "transparent" });
+                    foreach (var cat in estilo.CoresCategorizadas)
+                    {
+                        legend.Add(new LegendItemModel
+                        {
+                            Name = "  " + cat.Key,
+                            Color = cat.Value,
+                            BorderColor = estilo.CorBorda
+                        });
+                    }
+                }
+                else
+                {
+                    legend.Add(new LegendItemModel
+                    {
+                        Name = camadaNome,
+                        Color = estilo.PreenchimentoTransparente ? "transparent" : estilo.CorPreenchimento,
+                        BorderColor = estilo.BordaTransparente ? "transparent" : estilo.CorBorda
+                    });
+                }
+            }
+            else
+            {
+                legend.Add(new LegendItemModel { Name = camadaNome, Color = "#38bdf8", BorderColor = "#0ea5e9" });
+            }
+        }
+        return legend;
+    }
+
+    [JSInvokable]
+    public void OnItemDeselected()
+    {
+        _itemSelecionado = null;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnContextMenu(string itemId, double x, double y)
+    {
+        ContextMenuItemId = itemId;
+        ContextMenuX = x;
+        ContextMenuY = y;
+        ShowContextMenu = true;
+        
+        // Se clicar com botão direito num item, também o seleciona
+        if (!string.IsNullOrEmpty(itemId))
+        {
+            JSRuntime.InvokeVoidAsync("composerSelectItem", itemId);
+        }
+        
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void CloseContextMenu()
+    {
+        ShowContextMenu = false;
+        StateHasChanged();
+    }
+
+    private void ContextPropriedades()
+    {
+        CloseContextMenu();
+    }
+
+    private async Task ContextTrazerFrente()
+    {
+        if (_itemSelecionado != null)
+        {
+            _itemSelecionado.ZIndex += 1;
+            await AtualizarPropriedadeItem("ZIndex", _itemSelecionado.ZIndex);
+        }
+        CloseContextMenu();
+    }
+
+    private async Task ContextEnviarTras()
+    {
+        if (_itemSelecionado != null)
+        {
+            _itemSelecionado.ZIndex -= 1;
+            if (_itemSelecionado.ZIndex < 0) _itemSelecionado.ZIndex = 0;
+            await AtualizarPropriedadeItem("ZIndex", _itemSelecionado.ZIndex);
+        }
+        CloseContextMenu();
+    }
+
+    private async Task ContextEliminar()
+    {
+        if (_itemSelecionado != null)
+        {
+            await JSRuntime.InvokeVoidAsync("composerDeleteItem", _itemSelecionado.Id);
+            _itemSelecionado = null;
+        }
+        CloseContextMenu();
+    }
+
+    [JSInvokable]
+    public void OnWorkspaceZoomChanged(double newZoom)
+    {
+        WorkspaceZoom = newZoom;
+        StateHasChanged();
+    }
+
+    private async Task DefinirZoom(double novoZoom)
+    {
+        if (novoZoom < 0.2) novoZoom = 0.2;
+        if (novoZoom > 5.0) novoZoom = 5.0;
+        WorkspaceZoom = Math.Round(novoZoom, 2);
+        await JSRuntime.InvokeVoidAsync("composerSetWorkspaceZoom", WorkspaceZoom);
+    }
+
+    [JSInvokable]
+    public void OnItemMoved(ComposerItemModel item)
+    {
+        if (_itensDoCompositor.ContainsKey(item.Id))
+        {
+            var existing = _itensDoCompositor[item.Id];
+            existing.X = Math.Round(item.X ?? 0, 1);
+            existing.Y = Math.Round(item.Y ?? 0, 1);
+            existing.Width = Math.Round(item.Width ?? 0, 1);
+            existing.Height = Math.Round(item.Height ?? 0, 1);
+        }
+
+        if (_itemSelecionado != null && _itemSelecionado.Id == item.Id)
+        {
+            _itemSelecionado.X = Math.Round(item.X ?? 0, 1);
+            _itemSelecionado.Y = Math.Round(item.Y ?? 0, 1);
+            _itemSelecionado.Width = Math.Round(item.Width ?? 0, 1);
+            _itemSelecionado.Height = Math.Round(item.Height ?? 0, 1);
+            StateHasChanged();
+        }
+    }
+
+    private async Task AtualizarPropriedadeItem(string propName, object valor)
+    {
+        if (_itemSelecionado != null)
+        {
+            await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", _itemSelecionado.Id, propName, valor);
+        }
+    }
+
+    private async Task AtualizarRotacaoMapa()
+    {
+        if (_itemSelecionado == null) return;
+        await AtualizarPropriedadeItem("MapRotation", _itemSelecionado.MapRotation);
+
+        foreach (var item in _itensDoCompositor.Values)
+        {
+            if (item.Type == "Image" && item.SyncWithMap)
+            {
+                item.Rotation = _itemSelecionado.MapRotation;
+                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", item.Id, "Rotation", item.Rotation);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task NotificarLegendaAlterada()
+    {
+        if (_itemSelecionado == null || _itemSelecionado.Type != "Legend") return;
+        await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", _itemSelecionado.Id, "LegendItems", System.Text.Json.JsonSerializer.Serialize(_itemSelecionado.LegendItems));
+    }
+
+    private async Task VerificarSincronizacaoNorte()
+    {
+        if (_itemSelecionado == null || _itemSelecionado.Type != "Image" || !_itemSelecionado.SyncWithMap) return;
+        
+        var mapa = _itensDoCompositor.Values.FirstOrDefault(i => i.Type == "Map");
+        if (mapa != null)
+        {
+            _itemSelecionado.Rotation = mapa.MapRotation;
+            await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", _itemSelecionado.Id, "Rotation", _itemSelecionado.Rotation);
+        }
+    }
+
+    private void AtualizarDimensoesPapel()
+    {
+        double widthMm = 297;
+        double heightMm = 210;
+
+        switch (TamanhoPagina)
+        {
+            case "A0": widthMm = 1189; heightMm = 841; break;
+            case "A1": widthMm = 841; heightMm = 594; break;
+            case "A2": widthMm = 594; heightMm = 420; break;
+            case "A3": widthMm = 420; heightMm = 297; break;
+            case "A4": widthMm = 297; heightMm = 210; break;
+        }
+
+        if (Orientacao == "Portrait")
+        {
+            var temp = widthMm;
+            widthMm = heightMm;
+            heightMm = temp;
+        }
+
+        LarguraPapelPx = (int)Math.Round(widthMm * PixelsPerMm);
+        AlturaPapelPx = (int)Math.Round(heightMm * PixelsPerMm);
+    }
+
+    private async Task AdicionarMapa()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", "Mapa 1", 50, 50, 800, 500);
+    }
+
+    private async Task AdicionarTexto()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Text", "Título Principal", 50, 20, 400, 60);
+    }
+
+    private async Task AdicionarLegenda()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Legend", "Legenda", 50, 600, 250, 150);
+    }
+
+    private async Task AdicionarNorte()
+    {
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Image", "Seta de Norte", 1000, 50, 80, 80);
+    }
+
+    private async Task ExportarPNG()
+    {
+        await JSRuntime.InvokeVoidAsync("composerExportPNG", "mapa_exportado.png");
+    }
+
+    private async Task ExportarPDF()
+    {
+        await JSRuntime.InvokeVoidAsync("composerExportPDF", "mapa_exportado.pdf");
+    }
+
+    private async Task AlternarModoInteracao(bool ativarPanZoom)
+    {
+        _modoInteracaoMapa = ativarPanZoom;
+        await JSRuntime.InvokeVoidAsync("composerSetMapInteractionModeV3", ativarPanZoom);
+    }
+
+    private async Task AbrirConstrutorExpressao()
+    {
+        await JSRuntime.InvokeVoidAsync("alert", "GeoNex Core: O Interpretador de Expressões Python/SQL está a ser otimizado para a próxima release. Temporariamente desativado por questões de segurança de execução. Utilize a formatação de Texto Estático/HTML.");
+    }
+}
+
+

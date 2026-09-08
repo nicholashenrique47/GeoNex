@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="GeoNex.Core/GeoNex.Core.vcxproj" Id="3dec64a6-ca50-4084-8402-3890d0e9f1a1" />
+  <Project Path="GeoNex/GeoNex.csproj">
+    <BuildDependency Project="GeoNex.Core/GeoNex.Core.vcxproj" />
+  </Project>
+</Solution>

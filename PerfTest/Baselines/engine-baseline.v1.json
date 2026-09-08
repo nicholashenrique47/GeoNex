@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "name": "geonex-engine-baseline-v1",
+  "seed": 20260907,
+  "corpus": {
+    "kind": "synthetic-shp-polygons",
+    "featureCount": 78000,
+    "pointsPerFeature": 9,
+    "columns": 300,
+    "recordBytes": 200
+  },
+  "presentation": {
+    "cssWidth": 1920,
+    "cssHeight": 1080,
+    "dpiScales": [ 1.0, 1.25, 1.5, 2.0, 4.0 ],
+    "encoding": "png-100",
+    "interactionModes": [ "settled", "interactive" ]
+  },
+  "cacheStates": [ "cold", "warm" ],
+  "scenarios": [
+    { "name": "detail", "zoom": 6.0, "tolerancePixels": 0.30, "microLodPixels": 0.65 },
+    { "name": "overview", "zoom": 0.10, "tolerancePixels": 0.85, "microLodPixels": 1.25 },
+    { "name": "exact", "zoom": 6.0, "tolerancePixels": 0.0, "microLodPixels": 0.0 }
+  ],
+  "cameraReplay": [
+    { "deltaX": 0.0, "deltaY": 0.0, "scaleMultiplier": 1.0 },
+    { "deltaX": 48.5, "deltaY": -21.25, "scaleMultiplier": 1.15 },
+    { "deltaX": -13.0, "deltaY": 8.75, "scaleMultiplier": 0.92 },
+    { "deltaX": 240.0, "deltaY": 120.0, "scaleMultiplier": 1.8 },
+    { "deltaX": -180.0, "deltaY": -95.0, "scaleMultiplier": 0.55 },
+    { "deltaX": 4.25, "deltaY": 3.5, "scaleMultiplier": 1.01 }
+  ]
+}

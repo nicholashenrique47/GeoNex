@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GeoNexBuildNative Condition="'$(GeoNexBuildNative)' == ''">true</GeoNexBuildNative>
+    <GeoNexNativeConfiguration Condition="'$(Configuration)' == 'Debug'">Debug</GeoNexNativeConfiguration>
+    <GeoNexNativeConfiguration Condition="'$(GeoNexNativeConfiguration)' == ''">Release</GeoNexNativeConfiguration>
+    <GeoNexNativeProjectDir>$(MSBuildProjectDirectory)\..\GeoNexNative</GeoNexNativeProjectDir>
+    <GeoNexNativeBuildScript>$(GeoNexNativeProjectDir)\build.bat</GeoNexNativeBuildScript>
+    <GeoNexNativeOutputDir>$(MSBuildProjectDirectory)\..\x64\$(GeoNexNativeConfiguration)</GeoNexNativeOutputDir>
+    <GeoNexNativeBinary>$(GeoNexNativeOutputDir)\GeoNexNative.dll</GeoNexNativeBinary>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <GeoNexNativeSource Include="$(GeoNexNativeProjectDir)\GeoNexNative.cpp;$(GeoNexNativeProjectDir)\NativeCpu.cpp;$(GeoNexNativeProjectDir)\NativeCpu.h;$(GeoNexNativeProjectDir)\ParseAvx2.cpp;$(GeoNexNativeBuildScript);$(MSBuildProjectDirectory)\..\GeoNex.Core\GeoEngine.cpp" />
+    <Compile Include="..\GeoNex\Services\DebugLogger.cs" Link="ManagedInterop\DebugLogger.cs" />
+    <Compile Include="..\GeoNex\Services\NativeMethods.cs" Link="ManagedInterop\NativeMethods.cs" />
+    <Compile Include="..\GeoNex\Services\ResourceBudgetPolicy.cs" Link="ManagedInterop\ResourceBudgetPolicy.cs" />
+    <Compile Include="..\GeoNex\Services\RasterGeometry.cs" Link="Raster\RasterGeometry.cs" />
+    <Compile Include="..\GeoNex\Services\RasterRenderingPolicy.cs" Link="Raster\RasterRenderingPolicy.cs" />
+    <Compile Include="..\GeoNex\Services\RasterDatasetPolicy.cs" Link="Raster\RasterDatasetPolicy.cs" />
+    <Compile Include="..\GeoNex\Services\RasterOverviewBuilder.cs" Link="Raster\RasterOverviewBuilder.cs" />
+    <Compile Include="..\GeoNex\Services\GdalRuntimeConfiguration.cs" Link="Raster\GdalRuntimeConfiguration.cs" />
+    <Compile Include="..\GeoNex\Services\GdalRuntimeBootstrap.cs" Link="Raster\GdalRuntimeBootstrap.cs" />
+    <Compile Include="..\GeoNex\Services\OnlineBasemapPolicy.cs" Link="Raster\OnlineBasemapPolicy.cs" />
+    <Compile Include="..\GeoNex\Services\MapCoordinateSpace.cs" Link="Rendering\MapCoordinateSpace.cs" />
+    <Compile Include="..\GeoNex\Services\RenderTelemetry.cs" Link="Rendering\RenderTelemetry.cs" />
+    <Compile Include="..\GeoNex\Services\LeasedResourceRegistry.cs" Link="Resources\LeasedResourceRegistry.cs" />
+    <Compile Include="..\GeoNex\Services\ExportPublicationTransaction.cs" Link="Export\ExportPublicationTransaction.cs" />
+    <Compile Include="..\GeoNex\Services\ExportService.cs" Link="Export\ExportService.cs" />
+    <None Include="$(GeoNexNativeBinary)" Link="GeoNexNative.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Baselines\engine-baseline.v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
+    <PackageReference Include="GDAL" Version="3.12.1" />
+    <PackageReference Include="GDAL.Native" Version="3.12.1" />
+    <PackageReference Include="GDAL.Plugins" Version="3.12.1" />
+  </ItemGroup>
+
+  <Target Name="BuildGeoNexNative"
+          BeforeTargets="PrepareForBuild"
+          Inputs="@(GeoNexNativeSource)"
+          Outputs="$(GeoNexNativeBinary);$(GeoNexNativeOutputDir)\GeoNex.Core.dll"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true' and '$(GeoNexBuildNative)' == 'true'">
+    <Exec Command="&quot;$(GeoNexNativeBuildScript)&quot; $(GeoNexNativeConfiguration)" WorkingDirectory="$(MSBuildProjectDirectory)\.." />
+    <Error Condition="!Exists('$(GeoNexNativeBinary)')" Text="GeoNexNative.dll was not produced at $(GeoNexNativeBinary)." />
+  </Target>
+
+</Project>

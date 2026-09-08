@@ -1,0 +1,148 @@
+                var canvas = surface.Canvas;
+
+                canvasMaster.Scale(dpi);
+
+                int width = cssWidth;
+                int height = cssHeight;
+
+                canvasMaster.Clear(new SKColor(22, 25, 33));
+                canvasMaster.Save();
+
+                // 2. LIMITES TOTAIS
+                SKRect limitesTotais = new SKRect();
+                bool primeiro = true;
+
+                // THREAD-SAFE SNAPSHOTS
+                List<SKPoint> ptsMedicao;
+                try { ptsMedicao = _mapService.PontosMedicao.ToList(); } catch { ptsMedicao = new List<SKPoint>(); }
+                List<SKPoint> ptsAquisicao;
+                try { ptsAquisicao = _mapService.PontosAquisicao.ToList(); } catch { ptsAquisicao = new List<SKPoint>(); }
+
+                if (_mapService.TemRaster) { limitesTotais = _mapService.LimitesRasterGlobal; primeiro = false; }
+
+                if (!_mapService.LimitesGlobaisVetor.IsEmpty) { if (primeiro) limitesTotais = _mapService.LimitesGlobaisVetor; else limitesTotais.Union(_mapService.LimitesGlobaisVetor); }
+
+                bool isInteracting = faseSelecao > 0 || _mapService.IsPanning;
+
+                float escalaAutoFit; float midX, midY;
+
+                // === CORREÇÃO BUG 3: FALLBACK ANTI-EXPLOSÃO ===
+                // Se for pedido pelo Compositor de Impressão (c=1), herda o zoom/pan exato do projeto sem tentar espremer o mapa na caixa!
+                if (req.QueryString["c"] == "1")
+                {
+                    escalaAutoFit = _ultimaEscalaAutoFit > 0 ? _ultimaEscalaAutoFit : 1f;
+                    midX = _ultimoMidX; midY = _ultimoMidY;
+                }
+                else if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
+                {
+                    escalaAutoFit = _ultimaEscalaAutoFit > 0 ? _ultimaEscalaAutoFit : 1f;
+                    midX = _ultimoMidX; midY = _ultimoMidY;
+                }
+                else
+                {
+                    float escalaX = width / limitesTotais.Width;
+                    float escalaY = height / limitesTotais.Height;
+                    escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+                    midX = limitesTotais.MidX; midY = limitesTotais.MidY;
+
+                    _ultimaEscalaAutoFit = escalaAutoFit;
+                    _ultimoMidX = midX; _ultimoMidY = midY;
+                }
+                
+                // Sincronizar com o MapService para que ele conheça a janela atual
+                _mapService.ViewportEscalaAutoFit = escalaAutoFit;
+                _mapService.ViewportMidX = midX;
+                _mapService.ViewportMidY = midY;
+                _mapService.ViewportWidth = width;
+                _mapService.ViewportHeight = height;
+
+                float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+
+                // 1. O Centro base do Mapa no Mundo (incluindo o pan original do Main Map sem rotação)
+                float baseMidX = midX - (float)(_mapService.CameraPanX / zoomReal);
+                float baseMidY = midY - (float)(_mapService.CameraPanY / zoomReal);
+
+                // 2. Aplicar o pan do Print Composer (este sim, ajusta-se à rotação)
+                double rad = rotation * Math.PI / 180.0;
+                double cos = Math.Cos(rad);
+                double sin = Math.Sin(rad);
+
+                // Converter apenas o pan do Composer (panOffsetX, panOffsetY) de Ecrã para Mundo
+                double panComposerMundoX = (panOffsetX * cos - panOffsetY * sin) / zoomReal;
+                double panComposerMundoY = (panOffsetX * sin + panOffsetY * cos) / zoomReal;
+
+                // Movemos a câmara base pelo offset rotacionado do composer
+                float currentMidX = baseMidX - (float)panComposerMundoX;
+                float currentMidY = baseMidY - (float)panComposerMundoY;
+
+                var matriz = SKMatrix.CreateTranslation(-currentMidX, -currentMidY);
+                matriz = matriz.PostConcat(SKMatrix.CreateScale(zoomReal, zoomReal));
+                matriz = matriz.PostConcat(SKMatrix.CreateRotationDegrees(-rotation));
+                matriz = matriz.PostConcat(SKMatrix.CreateTranslation(width / 2f, height / 2f));
+
+                // === CORREÇÃO BUG 1 (Parte A): ESCALA DE DPI NA MATRIZ GLOBAL ===
+                if (dpi != 1.0f)
+                {
+                    matriz = matriz.PostConcat(SKMatrix.CreateScale(dpi, dpi));
+                }
+
+                // CALCULA O VIEWPORT UMA ÚNICA VEZ (Com proteção para rotação)
+                SKRect viewportMundo = new SKRect();
+                if (matriz.TryInvert(out SKMatrix matrizInversaMundo))
+                {
+                    SKPoint[] pts = new SKPoint[] {
+                        matrizInversaMundo.MapPoint(new SKPoint(0, 0)),
+                        matrizInversaMundo.MapPoint(new SKPoint(physicalWidth, 0)),
+                        matrizInversaMundo.MapPoint(new SKPoint(physicalWidth, physicalHeight)),
+                        matrizInversaMundo.MapPoint(new SKPoint(0, physicalHeight))
+                    };
+                    viewportMundo = new SKRect(
+                        pts.Min(p => p.X), pts.Min(p => p.Y),
+                        pts.Max(p => p.X), pts.Max(p => p.Y)
+                    );
+                }
+
+                // =========================================================================
+                // FAST-PATH: GLOBAL INTERACTION CACHE
+                // =========================================================================
+                if (isInteracting && _mapService.GlobalCache != null)
+                {
+                    canvasMaster.ResetMatrix();
+                    float globalScale = zoomReal / _mapService.CacheGlobalZoom;
+                    float globalCx = width / 2f;
+                    float globalCy = height / 2f;
+                    
+                    var globalMatrix = SKMatrix.CreateTranslation(-globalCx, -globalCy);
+                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateScale(globalScale, globalScale));
+                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateTranslation(globalCx, globalCy));
+                    
+                    float globalOffsetX = (float)_mapService.CameraPanX - _mapService.CacheGlobalPanX;
+                    float globalOffsetY = (float)_mapService.CameraPanY - _mapService.CacheGlobalPanY;
+                    
+                    // Aplicar Panning
+                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateTranslation(globalOffsetX, globalOffsetY));
+                    
+                    // Lidar com rotação interativa (se houver)
+                    if (Math.Abs(rotation) > 0.001f)
+                    {
+                        // Aqui seria necessário girar, mas para arrasto/zoom rápido sem rotação, isto serve
+                        // Por simplicidade, a transformação baseada no centro cobre 99% dos casos
+                    }
+                    
+                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateScale(dpi, dpi));
+                    canvasMaster.SetMatrix(globalMatrix);
+                    
+                    // Desenha o Cache Global Instantaneamente!
+                    canvasMaster.DrawBitmap(_mapService.GlobalCache, 0, 0);
+                    
+                    // Salvar e responder
+                    using var fastImage = surface.Snapshot();
+                    using var fastData = fastImage.Encode(SKEncodedImageFormat.Webp, 85);
+                    res.ContentType = "image/webp";
+                    res.ContentLength64 = fastData.Size;
+                    fastData.SaveTo(res.OutputStream);
+                    res.OutputStream.Close();
+                    return;
+                }
+                // =========================================================================
+
