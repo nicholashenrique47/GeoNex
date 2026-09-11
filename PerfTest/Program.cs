@@ -28,6 +28,12 @@ if (args.Contains("--online-basemap-smoke")) { OnlineBasemapSmoke.Run(); return;
 if (args.Contains("--export-contracts")) { ExportContracts.Run(); return; }
 if (args.Contains("--coordinate-contracts")) { CoordinateContracts.Run(); return; }
 if (args.Contains("--telemetry-contracts")) { TelemetryContracts.Run(); return; }
+if (args.Contains("--large-shp-contracts")) { LargeShapefileContracts.Run(); return; }
+if (Array.IndexOf(args, "--large-shp-metrics") is int realIndex && realIndex >= 0)
+{
+    LargeShapefileContracts.Measure(args[realIndex + 1]);
+    return;
+}
 
 const int FeatureCount = 78_000;
 const int PointsPerFeature = 9;

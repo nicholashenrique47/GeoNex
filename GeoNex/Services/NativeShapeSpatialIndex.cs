@@ -35,8 +35,13 @@ namespace GeoNex.Services
         public int GridCells { get; }
         public int GridEntries { get; }
         public int OversizedFeatures { get; }
+        public NativeShapeSpatialIndex? UniformRenderIndex { get; private set; }
+        public IList<CompiledFeature> AllFeatures => _features.AsReadOnly();
 
         public NativeShapeSpatialIndex(MemoryMappedShapefile shapefile, List<CompiledFeature> features)
+            : this(shapefile, features, buildCatalog: true) { }
+
+        private NativeShapeSpatialIndex(MemoryMappedShapefile shapefile, List<CompiledFeature> features, bool buildCatalog)
         {
             ArgumentNullException.ThrowIfNull(shapefile);
             ArgumentNullException.ThrowIfNull(features);
@@ -95,6 +100,18 @@ namespace GeoNex.Services
                 GridEntries = entries;
                 OversizedFeatures = oversized;
                 _handle = nativeHandle;
+                if (buildCatalog && !useProjectedBounds && features.Count >= ShapefileRenderCatalog.MinimumFeatures)
+                {
+                    int[]? representatives = ShapefileRenderCatalog.Build(
+                        shapefile.ShpPointer, shapefile.FileLength, offsets.AsSpan(0, features.Count));
+                    if (representatives != null)
+                    {
+                        var renderFeatures = new List<CompiledFeature>(representatives.Length);
+                        foreach (int index in representatives) renderFeatures.Add(features[index]);
+                        UniformRenderIndex = new NativeShapeSpatialIndex(shapefile, renderFeatures, buildCatalog: false);
+                        Console.WriteLine($"[GEONEX PERF] Geometria compartilhada: {features.Count:N0} registros / {renderFeatures.Count:N0} geometrias para prévia (quadro final preserva todos os registros).");
+                    }
+                }
             }
             catch
             {
@@ -166,6 +183,7 @@ namespace GeoNex.Services
 
         public void Dispose()
         {
+            UniformRenderIndex?.Dispose();
             Interlocked.Exchange(ref _handle, null)?.Dispose();
         }
     }

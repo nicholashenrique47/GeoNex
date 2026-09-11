@@ -18,6 +18,7 @@ namespace GeoNex.Services
         private bool _isRunning;
         private int _port;
         private readonly SemaphoreSlim _renderGate = new(1, 1);
+        private readonly SemaphoreSlim _previewGate = new(1, 1);
         private CancellationTokenSource? _activeRender;
         private long _latestRenderGeneration;
         private readonly RenderTelemetryCollector _telemetry;
@@ -123,6 +124,9 @@ namespace GeoNex.Services
             bool entered = false;
             try
             {
+                // Read-only cached previews do not queue behind an uninterruptible
+                // GDAL/Skia call. The resource lease pins the immutable source bitmap.
+                if (TryServeCachedPreview(context, owner.Token, generation, trace)) return;
                 await _renderGate.WaitAsync(owner.Token).ConfigureAwait(false);
                 entered = true;
                 trace?.MarkDequeued();
@@ -138,6 +142,12 @@ namespace GeoNex.Services
                 _telemetry.CompleteResponse(trace, "canceled", 0);
                 try { context.Response.StatusCode = 204; context.Response.Close(); } catch { }
             }
+            catch (Exception error)
+            {
+                _telemetry.CompleteResponse(trace, "failed", 0);
+                Console.Error.WriteLine($"Preview/render error: {error}");
+                try { context.Response.StatusCode = 500; context.Response.Close(); } catch { }
+            }
             finally
             {
                 if (trace is { IsResponseCompleted: false })
@@ -146,6 +156,53 @@ namespace GeoNex.Services
                 Interlocked.CompareExchange(ref _activeRender, null, owner);
                 owner.Dispose();
             }
+        }
+
+        private bool TryServeCachedPreview(HttpListenerContext context, CancellationToken token,
+            long generation, RenderFrameTrace? trace)
+        {
+            if (!_previewGate.Wait(0)) return false;
+            try { return TryServeCachedPreviewCore(context, token, generation, trace); }
+            finally { _previewGate.Release(); }
+        }
+
+        private bool TryServeCachedPreviewCore(HttpListenerContext context, CancellationToken token,
+            long generation, RenderFrameTrace? trace)
+        {
+            var q = context.Request.QueryString;
+            if (q["nav"] != "1" || q["i"] != "1" || q["c"] == "1" || q["rot"] != null ||
+                q["ox"] != null || q["oy"] != null) return false;
+            if (!int.TryParse(q["w"], out int width) || !int.TryParse(q["h"], out int height) ||
+                !float.TryParse(q["dpi"], NumberStyles.Float, CultureInfo.InvariantCulture, out float dpi) ||
+                !MapViewportMetrics.TryCreate(width, height, dpi, out _)) return false;
+            if (!float.TryParse(q["panx"], NumberStyles.Float, CultureInfo.InvariantCulture, out float panX) ||
+                !float.TryParse(q["pany"], NumberStyles.Float, CultureInfo.InvariantCulture, out float panY) ||
+                !float.TryParse(q["zoom"], NumberStyles.Float, CultureInfo.InvariantCulture, out float zoom) ||
+                !float.IsFinite(panX) || !float.IsFinite(panY) || !float.IsFinite(zoom) || zoom <= 0) return false;
+            int padding = NavigationFramePolicy.Padding(width, height, dpi);
+            var viewport = MapViewportMetrics.Create(width + padding * 2, height + padding * 2, dpi);
+            using var lease = _mapService.AcquireGlobalCache(out var metadata);
+            if (lease == null || !metadata.Matches(viewport) || !viewport.MatchesBitmap(lease.Resource) ||
+                metadata.Zoom <= 0 || metadata.CameraZoom <= 0) return false;
+            var target = NavigationFramePolicy.Rebase(metadata.Frame, metadata.Zoom,
+                new MapCameraState(metadata.PanX, metadata.PanY, metadata.CameraZoom),
+                new MapCameraState(panX, panY, zoom));
+            if (!NavigationFramePolicy.TryReuse(metadata.Frame, target, width, height, out var matrix)) return false;
+            token.ThrowIfCancellationRequested();
+            trace?.MarkDequeued();
+            trace?.Configure(width, height, dpi, true, 0);
+            using var surface = SKSurface.Create(new SKImageInfo(viewport.PhysicalWidth, viewport.PhysicalHeight,
+                SKColorType.Rgba8888, SKAlphaType.Premul));
+            if (surface == null) return false;
+            surface.Canvas.Clear(SKColors.Transparent);
+            surface.Canvas.SetMatrix(matrix);
+            using (trace?.Measure("draw", "__global_cache__")) surface.Canvas.DrawBitmap(lease.Resource, 0, 0);
+            using var image = surface.Snapshot();
+            context.Response.AppendHeader("Access-Control-Allow-Origin", "*");
+            context.Response.AppendHeader("Cache-Control", "no-store");
+            trace?.MarkRenderReady();
+            WriteEncodedFrame(image, context.Response, true, token, generation, trace);
+            return true;
         }
 
         private void ProcessarRequisicao(
@@ -161,10 +218,26 @@ namespace GeoNex.Services
                 cancellationToken.ThrowIfCancellationRequested();
                 var req = context.Request;
                 var res = context.Response;
+                long sceneRevision = _mapService.SceneRevision;
                 res.AppendHeader("Access-Control-Allow-Origin", "*");
                 res.AppendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 
                 bool isPrint = req.QueryString["c"] == "1";
+                // Freeze camera values per HTTP request; a newer JS gesture can
+                // update MapService while this render is still inside GDAL/Skia.
+                float cameraPanX = _mapService.CameraPanX;
+                float cameraPanY = _mapService.CameraPanY;
+                float cameraZoom = _mapService.CameraZoom;
+                if (!isPrint && req.QueryString["nav"] == "1")
+                {
+                    if (!float.TryParse(req.QueryString["panx"], NumberStyles.Float, CultureInfo.InvariantCulture, out cameraPanX) ||
+                        !float.TryParse(req.QueryString["pany"], NumberStyles.Float, CultureInfo.InvariantCulture, out cameraPanY) ||
+                        !float.TryParse(req.QueryString["zoom"], NumberStyles.Float, CultureInfo.InvariantCulture, out cameraZoom) ||
+                        !float.IsFinite(cameraPanX) || !float.IsFinite(cameraPanY) || !float.IsFinite(cameraZoom) || cameraZoom <= 0)
+                    {
+                        res.StatusCode = 400; res.Close(); return;
+                    }
+                }
                 bool hasPrintScale = isPrint && req.QueryString["cs"] != null;
                 SKPoint printCenter = default;
                 float printZoom = 0;
@@ -202,6 +275,12 @@ namespace GeoNex.Services
                     _telemetry.CompleteResponse(trace, "rejected", 0);
                     return;
                 }
+                int visibleWidth = cssWidth, visibleHeight = cssHeight;
+                int navigationPadding = !isPrint && req.QueryString["nav"] == "1"
+                    ? NavigationFramePolicy.Padding(cssWidth, cssHeight, dpi) : 0;
+                cssWidth += navigationPadding * 2;
+                cssHeight += navigationPadding * 2;
+                viewport = MapViewportMetrics.Create(cssWidth, cssHeight, dpi);
                 float faseSelecao = float.Parse(req.QueryString["phase"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
                 float panOffsetX = float.Parse(req.QueryString["ox"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
                 float panOffsetY = float.Parse(req.QueryString["oy"] ?? "0", System.Globalization.CultureInfo.InvariantCulture);
@@ -275,8 +354,8 @@ namespace GeoNex.Services
                 }
                 else
                 {
-                    float escalaX = width / limitesTotais.Width;
-                    float escalaY = height / limitesTotais.Height;
+                    float escalaX = visibleWidth / limitesTotais.Width;
+                    float escalaY = visibleHeight / limitesTotais.Height;
                     escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
                     midX = limitesTotais.MidX; midY = limitesTotais.MidY;
 
@@ -290,19 +369,19 @@ namespace GeoNex.Services
                     _mapService.ViewportEscalaAutoFit = escalaAutoFit;
                     _mapService.ViewportMidX = midX;
                     _mapService.ViewportMidY = midY;
-                    _mapService.ViewportWidth = width;
-                    _mapService.ViewportHeight = height;
+                    _mapService.ViewportWidth = visibleWidth;
+                    _mapService.ViewportHeight = visibleHeight;
                 }
 
-                float zoomReal = escalaAutoFit * _mapService.CameraZoom;
+                float zoomReal = escalaAutoFit * cameraZoom;
 
                 // O pan da câmara principal mantém a semântica histórica sem rotação;
                 // o pan do compositor permanece alinhado aos eixos CSS após a rotação.
                 SKPoint baseCenter = MapCoordinateSpace.ApplyCssPanToLocalCenter(
                     new SKPoint(midX, midY),
                     zoomReal,
-                    _mapService.CameraPanX,
-                    _mapService.CameraPanY);
+                    cameraPanX,
+                    cameraPanY);
                 SKPoint currentCenter = MapCoordinateSpace.ApplyCssPanToLocalCenter(
                     baseCenter,
                     zoomReal,
@@ -337,50 +416,29 @@ namespace GeoNex.Services
                 // FAST-PATH: GLOBAL INTERACTION CACHE
                 // =========================================================================
                 GlobalCacheMetadata globalCacheMetadata = default;
-                using ResourceLease<SKBitmap>? globalCacheLease = isInteracting
+                using ResourceLease<SKBitmap>? globalCacheLease = !isPrint && rotation == 0 && panOffsetX == 0 && panOffsetY == 0
                     ? _mapService.AcquireGlobalCache(out globalCacheMetadata)
                     : null;
                 if (globalCacheLease != null &&
+                    (isInteracting || zoomReal == globalCacheMetadata.Zoom) &&
                     globalCacheMetadata.Matches(viewport) &&
-                    viewport.MatchesBitmap(globalCacheLease.Resource))
+                    viewport.MatchesBitmap(globalCacheLease.Resource) &&
+                    NavigationFramePolicy.TryReuse(globalCacheMetadata.Frame, coordinateFrame,
+                        visibleWidth, visibleHeight, out var globalMatrix))
                 {
                     SKBitmap globalCache = globalCacheLease.Resource;
                     canvas.ResetMatrix();
-                    float globalScale = zoomReal / globalCacheMetadata.Zoom;
-                    float globalCx = width / 2f;
-                    float globalCy = height / 2f;
-                    
-                    var globalMatrix = SKMatrix.CreateTranslation(-globalCx, -globalCy);
-                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateScale(globalScale, globalScale));
-                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateTranslation(globalCx, globalCy));
-                    
-                    float globalOffsetX = (float)_mapService.CameraPanX - globalCacheMetadata.PanX;
-                    float globalOffsetY = (float)_mapService.CameraPanY - globalCacheMetadata.PanY;
-                    
-                    // Aplicar Panning
-                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateTranslation(globalOffsetX, globalOffsetY));
-                    
-                    // Lidar com rotação interativa (se houver)
-                    if (Math.Abs(rotation) > 0.001f)
-                    {
-                        // Aqui seria necessário girar, mas para arrasto/zoom rápido sem rotação, isto serve
-                        // Por simplicidade, a transformação baseada no centro cobre 99% dos casos
-                    }
-                    
-                    globalMatrix = globalMatrix.PostConcat(SKMatrix.CreateScale(
-                        viewport.PhysicalScaleX,
-                        viewport.PhysicalScaleY));
                     canvas.SetMatrix(globalMatrix);
                      
                     // Desenha o Cache Global Instantaneamente!
                     using (trace?.Measure("draw", "__global_cache__"))
-                        canvas.DrawBitmap(globalCache, new SKRect(0, 0, width, height));
+                        canvas.DrawBitmap(globalCache, 0, 0);
                     
                     // Salvar e responder (Interativo = Máxima fluidez)
                     using var fastImage = surface.Snapshot();
                     trace?.MarkRenderReady();
                     WriteEncodedFrame(
-                        fastImage, res, isInteracting: true, cancellationToken,
+                        fastImage, res, isInteracting, cancellationToken,
                         generation, trace);
                     return;
                 }
@@ -408,7 +466,7 @@ namespace GeoNex.Services
                     if (datasetRaster != null)
                     {
                         bool hasRotation = Math.Abs(rotation) > 0.001f;
-                        string targetCacheKey = $"{width}_{height}_{physicalWidth}_{physicalHeight}_{_mapService.CameraPanX}_{_mapService.CameraPanY}_{_mapService.CameraZoom}_{camadaAtual}_{currentCenter.X}_{currentCenter.Y}_{escalaAutoFit}_{panOffsetX}_{panOffsetY}_{rotation}";
+                        string targetCacheKey = $"{width}_{height}_{physicalWidth}_{physicalHeight}_{cameraPanX}_{cameraPanY}_{cameraZoom}_{camadaAtual}_{currentCenter.X}_{currentCenter.Y}_{escalaAutoFit}_{panOffsetX}_{panOffsetY}_{rotation}";
                         
                         using ResourceLease<SKBitmap>? rasterCacheLease =
                             _mapService.AcquireRasterCache(camadaAtual, out RasterCacheMetadata rasterCacheMetadata);
@@ -421,42 +479,6 @@ namespace GeoNex.Services
                                 canvas.Scale(viewport.PhysicalScaleX, viewport.PhysicalScaleY);
                                 using (trace?.Measure("draw", camadaAtual))
                                     canvas.DrawBitmap(rasterCacheImg, new SKRect(0, 0, width, height));
-                            }
-                            else if (!hasRotation && isInteracting && rasterCacheImg != null)
-                            {
-                                canvas.ResetMatrix();
-                                
-                                // Escala a partir do centro do Ecrã
-                                float scale = zoomReal / rasterCacheMetadata.Zoom;
-                                float cx = width / 2f;
-                                float cy = height / 2f;
-                                
-                                var stretchMatrix = SKMatrix.CreateTranslation(-cx, -cy);
-                                stretchMatrix = stretchMatrix.PostConcat(SKMatrix.CreateScale(scale, scale));
-                                stretchMatrix = stretchMatrix.PostConcat(SKMatrix.CreateTranslation(cx, cy));
-                                
-                                // Aplica o Panning Delta
-                                float offsetX = (float)_mapService.CameraPanX - rasterCacheMetadata.PanX;
-                                float offsetY = (float)_mapService.CameraPanY - rasterCacheMetadata.PanY;
-                                stretchMatrix = stretchMatrix.PostConcat(SKMatrix.CreateTranslation(offsetX, offsetY));
-                                
-                                stretchMatrix = stretchMatrix.PostConcat(SKMatrix.CreateScale(
-                                    viewport.PhysicalScaleX,
-                                    viewport.PhysicalScaleY));
-                                canvas.SetMatrix(stretchMatrix);
-                                
-                                // OTIMIZAÇÃO NÍVEL OURO: Suavização Visual Intermédia
-                                // Em vez de pixelizar durante o Pan (Nearest-Neighbor padrão), usa filtro Medium
-                                // para criar uma transição suave do cache esticado
-                                using var stretchPaint = new SKPaint { FilterQuality = SKFilterQuality.Medium, IsAntialias = true };
-                                using (trace?.Measure("draw", camadaAtual))
-                                    canvas.DrawBitmap(rasterCacheImg, new SKRect(0, 0, width, height), stretchPaint);
-                            }
-                            else if (isInteracting && rasterCacheImg == null)
-                            {
-                                // FAST-PATH: Interação sem cache — pular GDAL Warp pesado.
-                                // O GlobalCache esticado já fornece feedback visual suficiente.
-                                // O Warp será feito no próximo frame estático (moveend).
                             }
                             else
                             {
@@ -698,8 +720,8 @@ namespace GeoNex.Services
                                                             datasetRaster,
                                                             rasterBitmap.Copy(),
                                                             targetCacheKey,
-                                                            (float)_mapService.CameraPanX,
-                                                            (float)_mapService.CameraPanY,
+                                                            (float)cameraPanX,
+                                                            (float)cameraPanY,
                                                             zoomReal);
 
                                                         canvas.ResetMatrix();
@@ -792,8 +814,8 @@ namespace GeoNex.Services
                                                         datasetRaster,
                                                         rasterBitmap.Copy(),
                                                         targetCacheKey,
-                                                        (float)_mapService.CameraPanX,
-                                                        (float)_mapService.CameraPanY,
+                                                        (float)cameraPanX,
+                                                        (float)cameraPanY,
                                                         zoomReal);
 
                                                     canvas.ResetMatrix();
@@ -902,6 +924,10 @@ namespace GeoNex.Services
                             using ResourceLease<MemoryMappedShapefile>? shapefileLease =
                                 _mapService.AcquireShapefile(camadaAtual);
                             MemoryMappedShapefile? shp = shapefileLease?.Resource;
+                            using ResourceLease<NativeShapeSpatialIndex>? spatialIndexLease =
+                                _mapService.AcquireSpatialIndex(camadaAtual);
+                            bool compactPolygons = isInteracting && !isPrint && estiloCamada.TipoLinha == "Solid" &&
+                                shp?.TransformLocal == null && spatialIndexLease?.Resource.UniformRenderIndex != null;
 
                             // O cache de geometria deve ser consultado antes do índice.
                             // No dataset de 7,8 milhões de lotes, consultar a STRtree só
@@ -909,7 +935,7 @@ namespace GeoNex.Services
                             if (shp != null &&
                                 _mapService.FeaturesPorCamada.TryGetValue(camadaAtual, out var layerFeatures) &&
                                 layerFeatures.Count > 0 && layerFeatures[0].Kind == GeometryKind.Polygon &&
-                                shp.TryGetRenderPath(viewportMundo, zoomReal, isInteracting, out var cachedPolygonPath))
+                                shp.TryGetRenderPath(viewportMundo, zoomReal, isInteracting, out var cachedPolygonPath, compactPolygons))
                             {
                                 try
                                 {
@@ -930,11 +956,10 @@ namespace GeoNex.Services
                                 continue;
                             }
                             
-                            using ResourceLease<NativeShapeSpatialIndex>? spatialIndexLease =
-                                _mapService.AcquireSpatialIndex(camadaAtual);
                             if (spatialIndexLease != null)
                             {
-                                NativeShapeSpatialIndex arvores = spatialIndexLease.Resource;
+                                NativeShapeSpatialIndex arvores = compactPolygons
+                                    ? spatialIndexLease.Resource.UniformRenderIndex! : spatialIndexLease.Resource;
                                 NativeFeatureQuery? queryLease = null;
                                 try
                                 {
@@ -946,7 +971,7 @@ namespace GeoNex.Services
                                 {
                                     // Visão geral: a lista original já contém todas as feições em
                                     // ordem. Não materializar outra lista com milhões de referências.
-                                    feicoesVisiveis = allLayerFeatures;
+                                    feicoesVisiveis = compactPolygons ? arvores.AllFeatures : allLayerFeatures;
                                 }
                                 else
                                 {
@@ -992,7 +1017,7 @@ namespace GeoNex.Services
                                     try
                                     {
                                         bool cacheHit = shp != null && shp.TryGetRenderPath(
-                                            viewportMundo, zoomReal, isInteracting, out batchPath);
+                                            viewportMundo, zoomReal, isInteracting, out batchPath, compactPolygons);
 
                                         using (trace?.Measure("geometry", camadaAtual))
                                         {
@@ -1030,7 +1055,7 @@ namespace GeoNex.Services
                                                         );
                                                     }
 
-                                                    shp.StoreRenderPath(batchPath, renderViewport, zoomReal, isInteracting);
+                                                    shp.StoreRenderPath(batchPath, renderViewport, zoomReal, isInteracting, compactPolygons);
                                                 }
                                             }
                                         }
@@ -1518,14 +1543,14 @@ namespace GeoNex.Services
                 using var image = surface.Snapshot();
 
                 // Gravar o Cache Global se o mapa está "estático"
-                if (!isInteracting)
+                if (!isInteracting && !isPrint && rotation == 0 && panOffsetX == 0 && panOffsetY == 0)
                 {
                     _mapService.PublishGlobalCache(
                         SKBitmap.FromImage(image),
                         zoomReal,
-                        (float)_mapService.CameraPanX,
-                        (float)_mapService.CameraPanY,
-                        viewport);
+                        (float)cameraPanX,
+                        (float)cameraPanY,
+                        viewport, coordinateFrame, sceneRevision, cameraZoom);
                 }
 
                 trace?.MarkRenderReady();
@@ -1567,7 +1592,7 @@ namespace GeoNex.Services
             trace?.SetEncoding(encoding);
 
             long encodeStarted = Stopwatch.GetTimestamp();
-            using SKData? data = image.Encode(format, quality);
+            using SKData? data = UseWebpEncoding ? image.Encode(format, quality) : MapFrameEncoding.EncodePng(image);
             long encodeCompleted = Stopwatch.GetTimestamp();
             trace?.AddSpan("encode", null, encodeStarted, encodeCompleted);
             double encodeMilliseconds = (encodeCompleted - encodeStarted) * 1000.0 / Stopwatch.Frequency;

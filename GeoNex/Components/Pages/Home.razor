@@ -68,9 +68,10 @@
      @oncontextmenu:preventDefault="true"
      style="cursor: @EstiloCursor; width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; contain: strict;">
     <!-- A área de entrada fica imóvel; somente esta superfície vai para a GPU. -->
-    <div id="map-render-surface" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; transform-origin: 50% 50%; will-change: transform; contain: strict;">
+    <div id="map-render-surface" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; transform-origin: 50% 50%; will-change: transform; contain: layout style;">
         <!-- TIER 0: RENDERING EM CANVAS (Zero-Blink) -->
         <canvas id="skia-canvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1;"></canvas>
+        <canvas id="skia-canvas-back" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; visibility: hidden;"></canvas>
 
         <canvas id="overlayCanvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
     </div>
@@ -4066,12 +4067,18 @@
         if (_server == null) return;
         long frameId = System.Threading.Interlocked.Increment(ref _sequenciaFrame);
         // O C# não precisa de enviar fases de animação. O URL regressa à sua forma pura e leve.
-        string dpi = _dpiTela.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-        string url = $"{_server.BaseUrl}mapa/?w={_larguraTela}&h={_alturaTela}&dpi={dpi}&i={(interacaoRapida ? 1 : 0)}&fid={frameId}&t={DateTime.Now.Ticks}";
+        int frameWidth = _larguraTela, frameHeight = _alturaTela;
+        float frameDpi = _dpiTela;
+        string dpi = frameDpi.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        var camera = new MapCameraState(MapService.CameraPanX, MapService.CameraPanY, MapService.CameraZoom);
+        string cameraQuery = FormattableString.Invariant($"&panx={camera.PanX:R}&pany={camera.PanY:R}&zoom={camera.Zoom:R}");
+        string url = $"{_server.BaseUrl}mapa/?w={frameWidth}&h={frameHeight}&dpi={dpi}&nav=1&i={(interacaoRapida ? 1 : 0)}&fid={frameId}&t={DateTime.Now.Ticks}{cameraQuery}";
 
         // Pede ao JS para trocar a imagem sem o Blazor piscar a tela
         InvokeAsync(() => JSRuntime.InvokeVoidAsync(
-            "mapEngine.carregarNovoFrame", url, frameId, requisicaoCamera, _server.IsTelemetryEnabled));
+            "mapEngine.carregarNovoFrame", url, frameId, requisicaoCamera, _server.IsTelemetryEnabled,
+            NavigationFramePolicy.Padding(frameWidth, frameHeight, frameDpi), frameWidth, frameHeight,
+            camera.PanX, camera.PanY, camera.Zoom));
     }
 
     private async Task AdicionarCamadaAoMapa()
@@ -5666,22 +5673,35 @@
             transferBytes);
     }
 
+    private long _ultimaRequisicaoCamera;
+
     [JSInvokable]
     public void AtualizarCameraJS(
         double deltaX,
         double deltaY,
         double scaleMultiplier,
         bool interacaoRapida = false,
-        long requisicaoCamera = 0)
+        long requisicaoCamera = 0,
+        double basePanX = double.NaN,
+        double basePanY = double.NaN,
+        double baseZoom = double.NaN)
     {
         if (!double.IsFinite(deltaX) || !double.IsFinite(deltaY) ||
             !double.IsFinite(scaleMultiplier) || scaleMultiplier <= 0)
             return;
 
-        var cameraAtual = new MapCameraState(
-            MapService.CameraPanX,
-            MapService.CameraPanY,
-            MapService.CameraZoom);
+        if (requisicaoCamera > 0 && requisicaoCamera <= _ultimaRequisicaoCamera)
+        {
+            if (requisicaoCamera == _ultimaRequisicaoCamera)
+                SolicitarNovoFrame(interacaoRapida, requisicaoCamera);
+            return;
+        }
+        // Every request is based on the image actually presented in the browser,
+        // not on a previously submitted camera whose render may be canceled.
+        var cameraAtual = double.IsFinite(basePanX) && double.IsFinite(basePanY) &&
+            double.IsFinite(baseZoom) && baseZoom > 0
+            ? new MapCameraState(basePanX, basePanY, baseZoom)
+            : new MapCameraState(MapService.CameraPanX, MapService.CameraPanY, MapService.CameraZoom);
         if (!MapCoordinateSpace.TryApplyCssCameraDelta(
             cameraAtual,
             deltaX,
@@ -5690,6 +5710,7 @@
             out MapCameraState novaCamera))
             return;
 
+        _ultimaRequisicaoCamera = requisicaoCamera;
         MapService.CameraPanX = (float)novaCamera.PanX;
         MapService.CameraPanY = (float)novaCamera.PanY;
         MapService.CameraZoom = (float)novaCamera.Zoom;

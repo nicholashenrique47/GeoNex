@@ -961,11 +961,14 @@ window.mapEngine = {
     isPinching: false, touchGestureMoved: false,
     lastPinchDistance: 0, lastPinchCenterX: 0, lastPinchCenterY: 0,
     initialized: false,
+    cameraEpoch: 0, retryCount: 0,
+    committedCamera: { panX: 0, panY: 0, zoom: 1 },
 
     init: function (dotNetRef) {
         this.container = document.getElementById('map-container');
         this.renderSurface = document.getElementById('map-render-surface') || this.container;
-        this.skiaCanvas = document.getElementById('skia-canvas');
+        this.skiaCanvas = this.skiaCanvas || document.getElementById('skia-canvas');
+        this.backCanvas = this.backCanvas || document.getElementById('skia-canvas-back');
         if (this.skiaCanvas) this.skiaCtx = this.skiaCanvas.getContext('2d', { alpha: true });
         this.dotNetHelper = dotNetRef;
 
@@ -987,6 +990,8 @@ window.mapEngine = {
     },
 
     resetarCamera: function () {
+        this.cameraEpoch++;
+        this.committedCamera = { panX: 0, panY: 0, zoom: 1 };
         if (this.rafId !== null) cancelAnimationFrame(this.rafId);
         clearTimeout(this.renderTimeout);
         clearTimeout(this.previewTimeout);
@@ -1010,6 +1015,8 @@ window.mapEngine = {
     },
 
     sincronizarCameraComBlazor: function (panX, panY, zoomBase) {
+        this.cameraEpoch++;
+        this.committedCamera = { panX, panY, zoom: zoomBase };
         clearTimeout(this.fetchWatchdog);
         this.fetchWatchdog = null;
         this.isFetching = false;
@@ -1403,17 +1410,13 @@ window.mapEngine = {
 
     obterAtrasoAssentamento: function () {
         const latencia = Number.isFinite(this.currentLatency) ? this.currentLatency : 16;
-        return Math.max(90, Math.min(220, latencia * 0.45));
+        return Math.max(60, Math.min(120, latencia * 0.3));
     },
 
     scheduleRender: function () {
         this.lastInteractionTime = performance.now();
         clearTimeout(this.renderTimeout);
         let delayAdaptativo = this.obterAtrasoAssentamento();
-        const restanteGestoRoda = this.wheelGestureUntil - performance.now();
-        if (restanteGestoRoda > 0)
-            delayAdaptativo = Math.max(delayAdaptativo, restanteGestoRoda + 20);
-
         this.renderTimeout = setTimeout(() => {
             this.renderTimeout = null;
             if (this.previewTimeout !== null) clearTimeout(this.previewTimeout);
@@ -1434,6 +1437,16 @@ window.mapEngine = {
     solicitarFrame: function (interacaoRapida) {
         if (!this.dotNetHelper) return;
         if (this.isFetching) {
+            // Supersede slow frames. The next request uses the same presented
+            // camera basis, so canceling a pending frame never doubles pan/zoom.
+            if (performance.now() - this.lastRequestStart >= 150) {
+                this.executarRequisicao(interacaoRapida);
+                return;
+            }
+            if (this.fetchWatchdog === null && this.retryCount > 2) {
+                this.retryCount = 0;
+                this.falharRequisicao(this.activeRequestId);
+            }
             if (!this.hasPendingRequest) this.pendingInteractive = interacaoRapida;
             else this.pendingInteractive = this.pendingInteractive && interacaoRapida;
             this.hasPendingRequest = true;
@@ -1447,9 +1460,12 @@ window.mapEngine = {
         this.hasPendingRequest = false;
         this.pendingInteractive = false;
 
+        this.retryCount = 0;
+        this.requestInteractive = !!interacaoRapida;
         this.pendingX = this.targetX;
         this.pendingY = this.targetY;
         this.pendingScale = this.targetScale;
+        this.pendingCameraBasis = { ...this.committedCamera };
 
         const requestId = ++this.requestSerial;
         this.activeRequestId = requestId;
@@ -1464,7 +1480,7 @@ window.mapEngine = {
             this.pendingY,
             this.pendingScale,
             !!interacaoRapida,
-            requestId)
+            requestId, this.pendingCameraBasis.panX, this.pendingCameraBasis.panY, this.pendingCameraBasis.zoom)
             .catch((erro) => {
                 console.warn('[GEONEX] Falha ao enviar a câmera:', erro);
                 this.falharRequisicao(requestId);
@@ -1474,25 +1490,38 @@ window.mapEngine = {
     falharRequisicao: function (requestId) {
         if (!this.isFetching || this.activeRequestId !== requestId) return;
         clearTimeout(this.fetchWatchdog);
-        this.fetchWatchdog = null;
-        this.isFetching = false;
-        this.activeRequestId = 0;
-        this.lastRequestStart = null;
-        this.hasPendingRequest = false;
-        this.pendingInteractive = false;
-        setTimeout(() => this.solicitarFrame(false), 80);
+        if (++this.retryCount > 2) {
+            // Preserve the last complete image. A later user gesture may retry the
+            // same transaction; never reapply the relative camera with a new ID.
+            this.fetchWatchdog = null;
+            console.warn('[GEONEX] Render interrompido após três tentativas.');
+            return;
+        }
+        this.fetchWatchdog = setTimeout(() => this.falharRequisicao(requestId), 10000);
+        this.dotNetHelper.invokeMethodAsync('AtualizarCameraJS',
+            this.pendingX, this.pendingY, this.pendingScale, this.requestInteractive, requestId,
+            this.pendingCameraBasis.panX, this.pendingCameraBasis.panY, this.pendingCameraBasis.zoom)
+            .catch(() => this.falharRequisicao(requestId));
     },
 
-    carregarNovoFrame: function (url, frameId, requestIdCamera, telemetryEnabled) {
+    carregarNovoFrame: function (url, frameId, requestIdCamera, telemetryEnabled, padding = 0, visibleWidth = 0, visibleHeight = 0, cameraPanX = 0, cameraPanY = 0, cameraZoom = 1) {
         frameId = Number(frameId) || 0;
         requestIdCamera = Number(requestIdCamera) || 0;
         telemetryEnabled = telemetryEnabled === true;
+        if (requestIdCamera > 0 && requestIdCamera !== this.activeRequestId) return;
+        if (frameId > 0 && frameId <= this.latestFramePresented) return;
+        if (requestIdCamera === 0 && this.isFetching) {
+            this.hasPendingRequest = true;
+            this.pendingInteractive = false;
+            return;
+        }
+        const cameraEpoch = this.cameraEpoch;
         if (frameId > 0) {
             if (frameId < this.latestFrameRequested) return;
             this.latestFrameRequested = frameId;
         }
 
-        var canvas = document.getElementById('skia-canvas');
+        var canvas = this.backCanvas;
         if (!canvas) {
             if (requestIdCamera === this.activeRequestId) this.falharRequisicao(requestIdCamera);
             return;
@@ -1507,12 +1536,14 @@ window.mapEngine = {
         const requestStartedAt = this.lastRequestStart || frameLoadStarted;
         tempImg.src = url;
 
-        tempImg.decode().then(() => {
+        tempImg.decode().then(() => new Promise(resolve => requestAnimationFrame(resolve))).then(() => {
             const decodedAt = performance.now();
+            if (cameraEpoch !== this.cameraEpoch) return;
+            if (frameId > 0 && frameId <= this.latestFramePresented) return;
             if (frameId > 0 && frameId < this.latestFrameRequested) return;
             if (requestIdCamera > 0) {
                 if (this.isFetching && requestIdCamera !== this.activeRequestId) return;
-                if (!this.isFetching && requestIdCamera > this.lastCommittedRequestId) return;
+                if (!this.isFetching) return;
             }
 
             let networkMilliseconds = 0;
@@ -1541,10 +1572,21 @@ window.mapEngine = {
                 canvas.width = tempImg.width;
                 canvas.height = tempImg.height;
             }
-            var ctx = this.skiaCtx || canvas.getContext('2d');
+            var ctx = canvas.getContext('2d');
             const drawStarted = performance.now();
+            // Only the hidden canvas is cleared/resized. Commit image and camera
+            // before the browser paints; the visible canvas always stays complete.
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(tempImg, 0, 0);
+            canvas.style.width = visibleWidth > 0 ? `${visibleWidth + padding * 2}px` : '100%';
+            canvas.style.height = visibleHeight > 0 ? `${visibleHeight + padding * 2}px` : '100%';
+            canvas.style.left = `${-padding}px`;
+            canvas.style.top = `${-padding}px`;
+            canvas.style.visibility = 'visible';
+            this.skiaCanvas.style.visibility = 'hidden';
+            this.backCanvas = this.skiaCanvas;
+            this.skiaCanvas = canvas;
+            this.skiaCtx = ctx;
             const presentedAt = performance.now();
             const drawMilliseconds = Math.max(0, presentedAt - drawStarted);
             const endToEndMilliseconds = Math.max(0, presentedAt - requestStartedAt);
@@ -1586,6 +1628,8 @@ window.mapEngine = {
                 this.pendingY = 0;
             }
 
+            this.committedCamera = { panX: cameraPanX, panY: cameraPanY, zoom: cameraZoom };
+            this.absoluteZoom = cameraZoom * this.targetScale;
             this.latestFramePresented = Math.max(this.latestFramePresented, frameId);
             this.aplicarTransformacao();
             this.solicitarAnimacao();

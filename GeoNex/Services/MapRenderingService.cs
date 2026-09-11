@@ -22,7 +22,9 @@ namespace GeoNex.Services
         int CssWidth,
         int CssHeight,
         int PhysicalWidth,
-        int PhysicalHeight)
+        int PhysicalHeight,
+        MapCoordinateFrame Frame = default,
+        float CameraZoom = 1)
     {
         public bool Matches(MapViewportMetrics viewport) =>
             CssWidth == viewport.CssWidth &&
@@ -70,6 +72,7 @@ namespace GeoNex.Services
         private SKRect _renderPathCoverage = SKRect.Empty;
         private float _renderPathZoom;
         private bool _renderPathInteractive;
+        private bool _renderPathCompact;
 
         /// <summary>Ponteiro bruto do SHP — adquirido uma vez, zero syscalls depois.</summary>
         public byte* ShpPointer
@@ -94,7 +97,7 @@ namespace GeoNex.Services
             }
         }
 
-        public bool TryGetRenderPath(SKRect viewport, float zoom, bool interactive, out SKPath? path)
+        public bool TryGetRenderPath(SKRect viewport, float zoom, bool interactive, out SKPath? path, bool compact = false)
         {
             lock (_renderPathCacheLock)
             {
@@ -104,7 +107,7 @@ namespace GeoNex.Services
                     viewport.Left >= _renderPathCoverage.Left && viewport.Top >= _renderPathCoverage.Top &&
                     viewport.Right <= _renderPathCoverage.Right && viewport.Bottom <= _renderPathCoverage.Bottom;
 
-                if (_renderPathCache != null && sameScale && interactive == _renderPathInteractive && contains)
+                if (_renderPathCache != null && sameScale && interactive == _renderPathInteractive && compact == _renderPathCompact && contains)
                 {
                     path = new SKPath(_renderPathCache);
                     return true;
@@ -115,7 +118,7 @@ namespace GeoNex.Services
             return false;
         }
 
-        public void StoreRenderPath(SKPath path, SKRect coverage, float zoom, bool interactive)
+        public void StoreRenderPath(SKPath path, SKRect coverage, float zoom, bool interactive, bool compact = false)
         {
             lock (_renderPathCacheLock)
             {
@@ -124,6 +127,7 @@ namespace GeoNex.Services
                 _renderPathCoverage = coverage;
                 _renderPathZoom = zoom;
                 _renderPathInteractive = interactive;
+                _renderPathCompact = compact;
             }
         }
 
@@ -208,6 +212,8 @@ namespace GeoNex.Services
     public class MapRenderingService : IDisposable
     {
         private int _disposeState;
+        private long _sceneRevision;
+        public long SceneRevision => System.Threading.Interlocked.Read(ref _sceneRevision);
         public string LocalServerBaseUrl { get; set; } = "";
         
         // Mestre das Projeções (Project CRS em WKT ou EPSG)
@@ -782,10 +788,11 @@ namespace GeoNex.Services
             float zoom,
             float panX,
             float panY,
-            MapViewportMetrics viewport)
+            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, float cameraZoom)
         {
             lock (_rasterResourceGate)
             {
+                if (sceneRevision != _sceneRevision) { bitmap.Dispose(); return; }
                 _globalCacheResources.Publish(GlobalCacheResourceKey, bitmap);
                 _globalCacheMetadata = new GlobalCacheMetadata(
                     zoom,
@@ -794,7 +801,7 @@ namespace GeoNex.Services
                     viewport.CssWidth,
                     viewport.CssHeight,
                     viewport.PhysicalWidth,
-                    viewport.PhysicalHeight);
+                    viewport.PhysicalHeight, frame, cameraZoom);
             }
         }
 
@@ -806,7 +813,11 @@ namespace GeoNex.Services
 
         public void InvalidateGlobalCache()
         {
-            lock (_rasterResourceGate) _globalCacheResources.Remove(GlobalCacheResourceKey);
+            lock (_rasterResourceGate)
+            {
+                System.Threading.Interlocked.Increment(ref _sceneRevision);
+                _globalCacheResources.Remove(GlobalCacheResourceKey);
+            }
         }
 
         public double OffsetMundoX { get; set; } = 0;
