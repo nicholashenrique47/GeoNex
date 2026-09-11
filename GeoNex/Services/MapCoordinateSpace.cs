@@ -134,7 +134,9 @@ public readonly struct MapCoordinateFrame
         SKPoint localCenter,
         float localToCssScale,
         float clockwiseRotationDegrees,
-        out MapCoordinateFrame frame)
+        out MapCoordinateFrame frame,
+        double layoutWidth = 0,
+        double layoutHeight = 0)
     {
         frame = default;
         if (viewport.CssWidth <= 0 || viewport.CssHeight <= 0 ||
@@ -146,6 +148,15 @@ public readonly struct MapCoordinateFrame
         SKMatrix localToCss = SKMatrix.CreateTranslation(-localCenter.X, -localCenter.Y);
         localToCss = localToCss.PostConcat(SKMatrix.CreateScale(localToCssScale, localToCssScale));
         localToCss = localToCss.PostConcat(SKMatrix.CreateRotationDegrees(-clockwiseRotationDegrees));
+        // Print frames may have fractional CSS dimensions (millimeters). Cancel integer request
+        // rounding before fitting the resulting image back into that exact physical frame.
+        if (layoutWidth != 0 || layoutHeight != 0)
+        {
+            if (!double.IsFinite(layoutWidth) || !double.IsFinite(layoutHeight) || layoutWidth <= 0 || layoutHeight <= 0)
+                return false;
+            localToCss = localToCss.PostConcat(SKMatrix.CreateScale(
+                (float)(viewport.CssWidth / layoutWidth), (float)(viewport.CssHeight / layoutHeight)));
+        }
         localToCss = localToCss.PostConcat(SKMatrix.CreateTranslation(
             viewport.CssWidth / 2f,
             viewport.CssHeight / 2f));

@@ -1,86 +1,126 @@
 @page "/printcomposer"
 @using GeoNex.Services
 @using Microsoft.JSInterop
-@implements IDisposable
+@using Microsoft.AspNetCore.Components.Forms
+@implements IAsyncDisposable
 @inject IJSRuntime JSRuntime
 @inject GeoNex.Services.MapRenderingService MapService
 
-<div class="composer-overlay">
+<div class="composer-overlay @(_exportando || _importando ? "is-exporting" : "")" aria-busy="@(_exportando || _importando)">
         <!-- BARRA SUPERIOR -->
         <header class="composer-header glass-panel">
-            <div class="brand-group">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 10px; color: #38bdf8;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                <h2>Compositor de Impressão</h2>
-            </div>
-            
-            <div class="composer-actions">
-                <div class="zoom-controls" style="display:flex; align-items:center; background: rgba(0,0,0,0.2); border-radius: 4px; overflow: hidden; margin-right: 15px;">
-                    <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom - 0.1)" title="Zoom Out">-</button>
-                    <span class="zoom-level" style="font-size: 0.8rem; padding: 0 10px; min-width: 50px; text-align: center;">@(Math.Round(WorkspaceZoom * 100))%</span>
-                    <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom + 0.1)" title="Zoom In">+</button>
-                    <button class="zoom-btn" @onclick="() => DefinirZoom(1.0)" title="100%" style="border-left: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">1:1</button>
-                </div>
-
-                <button class="tool-btn" @onclick="ExportarPNG" title="Exportar como Imagem (PNG 300 DPI)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                    Exportar Imagem
-                </button>
-                <button class="tool-btn" @onclick="ExportarPDF" title="Exportar como Documento (PDF vetorial)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                    Exportar PDF
-                </button>
-            </div>
+            <div class="brand-group"><div><span class="brand-eyebrow">GEONEX / LAYOUT</span><h2>Compositor de impressão</h2></div></div>
+            <nav class="composer-menubar" aria-label="Comandos do compositor" inert="@(_exportando || _importando ? "" : null)">
+                <details class="composer-menu"><summary>Arquivo</summary><div class="composer-menu-panel">
+                    <button @onclick="SalvarLayout">Salvar layout JSON <span>Editável</span></button>
+                    <button @onclick="SalvarHTML">Salvar modelo HTML <span>Portável</span></button>
+                    <hr />
+                    <label class="menu-field">Página do PDF <input type="number" min="1" max="10000" class="gis-input" @bind="_importPage" /></label>
+                    <label class="menu-check"><input type="checkbox" @bind="_importOcr" /> Reconstruir textos por OCR</label>
+                    <label class="file-picker menu-import">Importar arquivo…<InputFile @key="_filePickerKey" OnChange="AbrirLayout" accept=".json,.html,.htm,.png,.jpg,.jpeg,.pdf" /></label>
+                    <p>JSON / HTML / imagem / PDF. OCR local e aproximado; revise os textos.</p>
+                </div></details>
+                <details class="composer-menu"><summary>Editar</summary><div class="composer-menu-panel">
+                    <button disabled="@(!_canUndo)" @onclick="Desfazer">Desfazer <span>Ctrl+Z</span></button>
+                    <button disabled="@(!_canRedo)" @onclick="Refazer">Refazer <span>Ctrl+Y</span></button>
+                    <hr />
+                    <button disabled="@(_itemSelecionado == null)" @onclick="DuplicarSelecionado">Duplicar elemento</button>
+                    <button disabled="@(_itemSelecionado == null || _itemSelecionado.Locked)" @onclick="ContextTrazerFrente">Trazer à frente</button>
+                    <button disabled="@(_itemSelecionado == null || _itemSelecionado.Locked)" @onclick="ContextEnviarTras">Enviar ao fundo</button>
+                    <button class="danger" disabled="@(_itemSelecionado == null || _itemSelecionado.Locked)" @onclick="ContextEliminar">Excluir elemento</button>
+                </div></details>
+                <details class="composer-menu"><summary>Exibir</summary><div class="composer-menu-panel">
+                    <button @onclick="() => _panelOpen = !_panelOpen">@(_panelOpen ? "Ocultar propriedades" : "Mostrar propriedades")</button>
+                    <button @onclick="AjustarPagina">Ajustar página à tela</button>
+                    <button @onclick="() => DefinirZoom(1)">Zoom 100%</button>
+                    <hr />
+                    <label class="menu-check"><input type="checkbox" @bind="_guias" @bind:after="AtualizarGuias" /> Encaixar na grade do papel</label>
+                    <button @onclick="RevisarImpressao">Revisar impressão</button>
+                </div></details>
+                <details class="composer-menu"><summary>Exportar</summary><div class="composer-menu-panel">
+                    <label class="menu-field">Resolução <select class="gis-select" @bind="_exportDpi"><option value="96">96 DPI · tela</option><option value="150">150 DPI · equilibrado</option><option value="300">300 DPI · impressão</option></select></label>
+                    <button @onclick="ExportarPNG">Imagem PNG</button>
+                    <button @onclick="ExportarPDF">Documento PDF</button>
+                    <button @onclick="SalvarHTML">Modelo HTML editável no GeoNex</button>
+                    <p>O PDF é rasterizado. HTML preserva o modelo; mapas usam o projeto ao reabrir.</p>
+                </div></details>
+            </nav>
+            <button class="tool-btn" disabled="@(_exportando || _importando)" @onclick="ExportarPDF">Exportar PDF</button>
         </header>
-
-        <div class="composer-workspace">
+        <div class="composer-editbar composer-quickbar" inert="@(_exportando || _importando ? "" : null)">
+            <button class="tool-btn" disabled="@(!_canUndo)" @onclick="Desfazer" title="Desfazer">↶</button>
+            <button class="tool-btn" disabled="@(!_canRedo)" @onclick="Refazer" title="Refazer">↷</button>
+            <span class="composer-selection-info">@(_itemSelecionado == null ? "Selecione um elemento para editar" : string.IsNullOrWhiteSpace(_itemSelecionado.Name) ? _itemSelecionado.Type : _itemSelecionado.Name)</span>
+            <div class="composer-compact-zoom">
+                <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom - .1)" aria-label="Diminuir zoom">−</button>
+                <button class="zoom-btn" @onclick="() => DefinirZoom(1)" title="Restaurar 100%">@(Math.Round(WorkspaceZoom * 100))%</button>
+                <button class="zoom-btn" @onclick="() => DefinirZoom(WorkspaceZoom + .1)" aria-label="Aumentar zoom">+</button>
+                <button class="zoom-btn" @onclick="AjustarPagina">Ajustar</button>
+            </div>
+        </div>
+        @if (!string.IsNullOrEmpty(_mensagem))
+        {
+            <div class="composer-status" role="status">@_mensagem</div>
+        }
+        <div class="composer-workspace" inert="@(_exportando || _importando ? "" : null)">
             
             <!-- TOOLBAR ESQUERDA (FERRAMENTAS) -->
-            <aside class="composer-toolbar glass-panel">
+            <aside class="composer-toolbar glass-panel" aria-label="Ferramentas de layout">
+                <span class="tool-category">EDITAR</span>
                 <div class="tool-group">
                     <button class="composer-tool @(_modoInteracaoMapa ? "" : "active")" title="Selecionar/Mover Item" @onclick="() => AlternarModoInteracao(false)">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path><path d="M13 13l6 6"></path></svg>
-                    </button>
+                    <span>Selecionar</span></button>
                     <button class="composer-tool @(_modoInteracaoMapa ? "active" : "")" title="Mover Conteúdo do Item (Pan Mapa)" @onclick="() => AlternarModoInteracao(true)">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M19 9l3 3-3 3M9 19l3 3 3-3M2 12h20M12 2v20"></path></svg>
-                    </button>
+                    <span>Mover mapa</span></button>
                 </div>
                 
                 <div class="tool-divider"></div>
+                <span class="tool-category">INSERIR</span>
                 
                 <div class="tool-group">
                     <button class="composer-tool" @onclick="AdicionarMapa" title="Adicionar Novo Mapa">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
-                    </button>
+                    <span>Mapa</span></button>
                     <button class="composer-tool" @onclick="AdicionarTexto" title="Adicionar Rótulo (Texto)">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
-                    </button>
+                    <span>Texto</span></button>
                     <button class="composer-tool" @onclick="AdicionarLegenda" title="Adicionar Legenda">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                    </button>
+                    <span>Legenda</span></button>
                     <button class="composer-tool" @onclick="AdicionarNorte" title="Adicionar Seta de Norte">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 19 21 12 17 5 21 12 2"></polygon></svg>
-                    </button>
-                    <button class="composer-tool" title="Adicionar Barra de Escala">
+                    <span>Norte</span></button>
+                    <button class="composer-tool" @onclick="AdicionarEscala" title="Adicionar barra de escala vinculada a um mapa">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6" y2="10"></line><line x1="10" y1="6" x2="10" y2="10"></line><line x1="14" y1="6" x2="14" y2="10"></line><line x1="18" y1="6" x2="18" y2="10"></line></svg>
-                    </button>
-                    <button class="composer-tool" title="Adicionar Imagem">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                    </button>
+                    <span>Escala</span></button>
+                    <button class="composer-tool" @onclick='() => AdicionarForma("Rectangle")' title="Adicionar retângulo"><span class="shape-icon">▭</span><span>Retângulo</span></button>
+                    <button class="composer-tool" @onclick='() => AdicionarForma("Ellipse")' title="Adicionar elipse"><span class="shape-icon">○</span><span>Elipse</span></button>
+
                 </div>
             </aside>
 
             <!-- ÁREA DO PAPEL (CANVAS) -->
             <main class="composer-canvas-area" id="composer-canvas-area">
-                <div class="canvas-ruler horizontal"></div>
-                <div class="canvas-ruler vertical"></div>
                 
-                <div class="paper-sheet shadow-2xl" id="paper-sheet" style="width: @(LarguraPapelPx)px; height: @(AlturaPapelPx)px;">
+                
+                <div id="composer-paper-holder">
+                <div class="paper-sheet shadow-2xl" id="paper-sheet" data-width-mm="@LarguraPapelMm" data-height-mm="@AlturaPapelMm" style="@EstiloPapel">
                     <!-- Elementos do Layout serão renderizados aqui pelo Javascript -->
+                </div>
                 </div>
             </main>
 
             <!-- PAINEL DIREITO (PROPRIEDADES) -->
-            <aside class="composer-properties glass-panel custom-scrollbar">
+            <aside class="composer-properties glass-panel custom-scrollbar @(!_panelOpen ? "panel-hidden" : "")">
+                <nav class="property-tabs" aria-label="Painéis do compositor">
+                    <button class="@(_activePanel == "page" ? "active" : "")" @onclick='() => _activePanel = "page"'>Página</button>
+                    <button class="@(_activePanel == "layers" ? "active" : "")" @onclick='() => _activePanel = "layers"'>Itens <span>@_itensDoCompositor.Count</span></button>
+                    <button class="@(_activePanel == "item" ? "active" : "")" @onclick='() => _activePanel = "item"'>Propriedades</button>
+                    <button class="@(_activePanel == "review" ? "active" : "")" @onclick="RevisarImpressao">Revisão</button>
+                </nav>
+                <section hidden="@(_activePanel != "page")">
                 <div class="props-header">
                     <h3>Propriedades da Página</h3>
                 </div>
@@ -107,27 +147,38 @@
                     
                     <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
                     
+                    <div class="page-settings">
+                        <label class="gis-label">Modelos de composição</label>
+                        <div class="template-buttons"><button class="tool-btn" @onclick='() => AplicarModelo("technical")'>Técnico · legenda lateral</button><button class="tool-btn" @onclick='() => AplicarModelo("wide")'>Panorâmico · mapa amplo</button></div>
+                        <label class="gis-label">Espaçamento da grade (mm)</label>
+                        <input type="number" min="1" max="50" step="1" class="gis-input" @bind="_gridMm" @bind:after="ConfigurarGuias" />
+                        <label class="gis-label">Margem de alinhamento (mm)</label>
+                        <input type="number" min="0" max="50" step="1" class="gis-input" @bind="_marginMm" @bind:after="ConfigurarGuias" />
+                        <p class="composer-hint">Guias não são impressas. A escala do mapa é mantida ao redimensionar o quadro. Imprima em tamanho real, sem ajustar à folha.</p>
+                    </div>
+                </div>
+                </section>
+                <section hidden="@(_activePanel != "layers")">
                     <div class="props-header">
-                        <h3>Itens do Layout</h3>
+                        <h3>Itens do layout</h3>
                     </div>
                     
                     <div class="items-list">
-                        <div class="item-layer active">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon></svg>
-                            Mapa 1
-                        </div>
-                        <div class="item-layer">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
-                            Título do Mapa
-                        </div>
-                        <div class="item-layer">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                            Legenda
-                        </div>
+                        @if (_itensDoCompositor.Count == 0) { <p class="composer-hint">Adicione um mapa ou texto para começar.</p> }
+                        @foreach (var item in _itensDoCompositor.Values.OrderByDescending(i => i.ZIndex))
+                        {
+                            <div class="item-layer @(item.Id == _itemSelecionado?.Id ? "active" : "")" @key="item.Id">
+                                <button class="item-name" @onclick="() => SelecionarItem(item.Id)" title="@item.Type">@(!string.IsNullOrWhiteSpace(item.Name) ? item.Name : string.IsNullOrWhiteSpace(item.TextContent) ? item.Type : item.TextContent)</button>
+                                <button class="zoom-btn" title="Mostrar/ocultar" @onclick='() => DefinirEstadoItem(item, "Visible", !item.Visible)'>@(item.Visible ? "◉" : "○")</button>
+                                <button class="zoom-btn" title="Bloquear/desbloquear" @onclick='() => DefinirEstadoItem(item, "Locked", !item.Locked)'>@(item.Locked ? "🔒" : "🔓")</button>
+                            </div>
+                        }
                     </div>
-                    
+
                     <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;" />
                     
+                </section>
+                <section hidden="@(_activePanel != "item")">
                     <!-- Propriedades do Item Selecionado -->
                     <div class="props-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <h3 style="margin-bottom: 0;">Propriedades do Item</h3>
@@ -140,53 +191,198 @@
                     @if (_itemSelecionado != null)
                     {
                         <div class="props-content" style="padding: 0;">
+                            <div class="selection-heading"><span class="selection-badge">@_itemSelecionado.Type</span><span>@(_itemSelecionado.Locked ? "Bloqueado" : "Selecionado")</span></div>
+                            <label class="inspector-field inspector-name"><span>Nome no layout</span><input class="gis-input" maxlength="120" placeholder="Identifique este elemento" disabled="@_itemSelecionado.Locked" @bind="_itemSelecionado.Name" @bind:after='() => AtualizarPropriedadeItem("Name", _itemSelecionado.Name)' /></label>
+                            <nav class="inspector-tabs" aria-label="Configuração do elemento">
+                                <button class="@(_inspectorTab == "content" ? "active" : "")" @onclick='() => _inspectorTab = "content"'>Conteúdo</button>
+                                <button class="@(_inspectorTab == "geometry" ? "active" : "")" @onclick='() => _inspectorTab = "geometry"'>Dimensões</button>
+                                <button class="@(_inspectorTab == "style" ? "active" : "")" @onclick='() => _inspectorTab = "style"'>Visual</button>
+                            </nav>
+                            <fieldset disabled="@_itemSelecionado.Locked" style="border:0;padding:0;margin:0;min-width:0">
                             <!-- ACCORDION: PROPRIEDADES PRINCIPAIS -->
-                            <details class="gis-accordion" open>
-                                <summary>Propriedades Principais</summary>
-                                <div class="accordion-content">
-                                    @if (_itemSelecionado.Type == "Map")
+                            <section class="inspector-card" hidden="@(_inspectorTab != "content")">
+                                <h4>Conteúdo do elemento</h4>
+                                <div class="inspector-body">
+                                    @if (_itemSelecionado.Type == "Picture")
+                                    { <p class="composer-hint">Imagem de referência incorporada. Use a lista de itens para mostrar/ocultar o original, comparar com o OCR e desbloquear para redimensionar.</p> }
+                                    else if (_itemSelecionado.Type == "Rectangle" || _itemSelecionado.Type == "Ellipse")
+                                    { <p class="composer-hint">Use Dimensões para desenhar a forma e Visual para escolher preenchimento e contorno.</p> }
+                                    else if (_itemSelecionado.Type == "Map")
                                     {
                                         <div class="form-group-horizontal">
-                                            <label class="gis-label" style="width: 80px;">Escala</label>
-                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapScale" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("MapScale", _itemSelecionado?.MapScale))' @onchange='@(e => AtualizarPropriedadeItem("MapScale", _itemSelecionado?.MapScale))' />
+                                            <label class="gis-label" style="width: 80px;">Escala 1:</label>
+                                            <input type="number" class="gis-input" style="flex:1;" min="1" max="1000000000" step="100" list="print-scales" disabled="@(!_itemSelecionado.ScaleAvailable)" @bind="_itemSelecionado.MapScale" @bind:after="AplicarEscala" />
+                                            <datalist id="print-scales">@foreach (var scale in new[] { 500,1000,2000,5000,10000,25000,50000,100000,250000,1000000 }) { <option value="@scale"></option> }</datalist>
                                         </div>
                                         <div class="form-group-horizontal" style="margin-top: 8px;">
                                             <label class="gis-label" style="width: 80px;">Rotação</label>
-                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapRotation" @bind:event="oninput" @onkeyup='AtualizarRotacaoMapa' @onchange='AtualizarRotacaoMapa' />
+                                            <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.MapRotation" @bind:after="AtualizarRotacaoMapa" />
                                             <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
                                         </div>
                                         <div class="form-group-horizontal" style="margin-top: 8px;">
                                             <label class="gis-label" style="width: 80px;">SRC</label>
-                                            <select class="gis-select" style="flex:1;" disabled><option>Use Project CRS</option></select>
+                                            <select class="gis-select" style="flex:1;" disabled><option>@(_itemSelecionado.MapCrsName ?? _printContext?.CrsName ?? "SRC do projeto")</option></select>
                                         </div>
-                                        <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
-                                            <input type="checkbox" id="draw_extents" checked />
-                                            <label for="draw_extents" class="gis-label" style="margin:0;">Desenhar itens da tela do mapa</label>
+                                        <button class="tool-btn" @onclick="UsarVistaProjeto">Usar vista atual do projeto</button>
+                                        <div class="map-tool-section">
+                                            <h4>Escala e cobertura</h4>
+                                            <div class="inspector-actions">
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("factor", .5)'>Aproximar 2×</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("factor", 2)'>Afastar 2×</button>
+                                            </div>
+                                            <label class="inspector-field"><span>Fator do denominador · 0,1–10</span><input class="gis-input" type="number" min="0.1" max="10" step="0.1" @bind="_mapScaleFactor" /></label>
+                                            <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("factor", _mapScaleFactor)'>Multiplicar escala</button>
+                                            <p class="composer-hint">Fator menor que 1 aproxima; maior que 1 afasta.</p>
+                                            @if (_itemSelecionado.ScaleAvailable)
+                                            {
+                                                <div class="map-coverage"><span>Cobertura no SRC</span><strong>@(((_itemSelecionado.Width ?? 0) * .0254 / 96 * (_itemSelecionado.MapScale ?? 0)).ToString("N1")) × @(((_itemSelecionado.Height ?? 0) * .0254 / 96 * (_itemSelecionado.MapScale ?? 0)).ToString("N1")) m</strong></div>
+                                            }
+                                            <label class="inspector-field"><span>Distância representada · m</span><input type="number" class="gis-input" min="0.01" max="1000000000" @bind="_mapCoverageMeters" /></label>
+                                            <div class="inspector-actions">
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("width", _mapCoverageMeters)'>Na largura</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("height", _mapCoverageMeters)'>Na altura</button>
+                                            </div>
+                                            <p class="composer-hint">Dimensões ao longo dos lados do quadro; preserva o centro e ajusta a escala.</p>
                                         </div>
+                                        <div class="map-tool-section">
+                                            <h4>Navegação por distância</h4>
+                                            <label class="inspector-field"><span>Deslocar o centro · metros</span><input type="number" class="gis-input" min="0.01" max="10000000" @bind="_mapPanMeters" /></label>
+                                            <div class="map-direction-pad">
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("nw", _mapPanMeters)'>↖ NO</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("n", _mapPanMeters)'>↑ N</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("ne", _mapPanMeters)'>↗ NE</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("w", _mapPanMeters)'>← O</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("e", _mapPanMeters)'>L →</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("sw", _mapPanMeters)'>↙ SO</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("s", _mapPanMeters)'>↓ S</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("se", _mapPanMeters)'>↘ SE</button>
+                                            </div>
+                                            <p class="composer-hint">Direções de quadrícula, independentes da rotação. Diagonais percorrem a mesma distância total.</p>
+                                        </div>
+                                        <div class="map-tool-section">
+                                            <h4>Orientação do conteúdo</h4>
+                                            <div class="inspector-actions">
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("rotate", -90)'>-90°</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("rotate", -15)'>-15°</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("rotate", 15)'>+15°</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("rotate", 90)'>+90°</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("north")'>Norte para cima</button>
+                                            </div>
+                                            <p class="composer-hint">Gira o mapa dentro do quadro e atualiza o norte vinculado.</p>
+                                        </div>
+                                        <div class="map-tool-section">
+                                            <h4>Comparar enquadramentos</h4>
+                                            <label class="inspector-field"><span>Mapa de referência</span><select class="gis-select" @bind="_mapReferenceId">
+                                                <option value="">Selecione outro mapa</option>
+                                                @foreach (var reference in _itensDoCompositor.Values.Where(i => i.Type == "Map" && i.ScaleAvailable && i.Id != _itemSelecionado.Id))
+                                                { <option value="@reference.Id">@(string.IsNullOrWhiteSpace(reference.Name) ? reference.TextContent : reference.Name)</option> }
+                                            </select></label>
+                                            <div class="inspector-actions">
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable || string.IsNullOrEmpty(_mapReferenceId))" @onclick='() => FerramentaMapa("scale")'>Igualar escala</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable || string.IsNullOrEmpty(_mapReferenceId))" @onclick='() => FerramentaMapa("view")'>Copiar vista</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable || string.IsNullOrEmpty(_mapReferenceId))" @onclick='() => FerramentaMapa("extent")'>Conter área</button>
+                                            </div>
+                                            <p class="composer-hint">Copiar vista transfere centro, escala e rotação. Conter área ajusta a escala ao tamanho deste quadro. Não cria sincronização contínua.</p>
+                                        </div>
+                                        <div class="map-tool-section">
+                                            <h4>Vista de trabalho</h4>
+                                            <div class="inspector-actions">
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("remember")'>Memorizar vista</button>
+                                                <button class="tool-btn" disabled="@(!_itemSelecionado.ScaleAvailable)" @onclick='() => FerramentaMapa("restore")'>Restaurar vista</button>
+                                            </div>
+                                            <p class="composer-hint">Uma memória por mapa, somente nesta sessão. O layout salva a vista atual.</p>
+                                            <label class="inspector-field"><span>Qualidade da prévia</span><select class="gis-select" @bind="_itemSelecionado.MapPreviewDpi" @bind:after='() => AtualizarPropriedadeItem("MapPreviewDpi", _itemSelecionado.MapPreviewDpi)'>
+                                                <option value="0.5">Leve · 0,5×</option><option value="1">Equilibrada · 1×</option><option value="2">Detalhada · 2×</option>
+                                            </select></label>
+                                            <button class="tool-btn" @onclick='() => FerramentaMapa("refresh")'>Atualizar prévia</button>
+                                            <p class="composer-hint">Qualidade da prévia não altera o DPI da exportação.</p>
+                                        </div>
+                                        <div class="map-tool-section">
+                                            <h4>Grades do mapa</h4>
+                                            <label class="inspector-field"><span>Grade selecionada · @_itemSelecionado.Grids.Count/8</span><select class="gis-select" value="@_gradeSelecionada?.Id" @onchange="e => _gridSelectedId = e.Value?.ToString() ?? string.Empty">
+                                                @foreach (var grade in _itemSelecionado.Grids) { <option value="@grade.Id">@grade.Name @(grade.GridEnabled ? "" : "(oculta)")</option> }
+                                            </select></label>
+                                            <div class="inspector-actions">
+                                                <button class="tool-btn" disabled="@(_itemSelecionado.Grids.Count >= 8)" @onclick='() => AcaoGrade("add")'>Adicionar</button>
+                                                <button class="tool-btn" disabled="@(_gradeSelecionada == null || _itemSelecionado.Grids.Count >= 8)" @onclick='() => AcaoGrade("duplicate")'>Duplicar</button>
+                                                <button class="tool-btn" disabled="@(_gradeSelecionada == null)" @onclick='() => AcaoGrade("remove")'>Remover</button>
+                                                <button class="tool-btn" disabled="@(_gradeSelecionada == null || _itemSelecionado.Grids.IndexOf(_gradeSelecionada) <= 0)" @onclick='() => AcaoGrade("up")'>↑ Ordem</button>
+                                                <button class="tool-btn" disabled="@(_gradeSelecionada == null || _itemSelecionado.Grids.IndexOf(_gradeSelecionada) >= _itemSelecionado.Grids.Count - 1)" @onclick='() => AcaoGrade("down")'>↓ Ordem</button>
+                                            </div>
+                                            <p class="composer-hint">A última grade da lista é desenhada por cima e tem prioridade nos rótulos.</p>
+                                            @if (_gradeSelecionada != null) {
+                                            <label class="inspector-field"><span>Nome da grade</span><input class="gis-input" maxlength="100" @bind="_gradeSelecionada.Name" @bind:after='() => AtualizarGrade("Name", _gradeSelecionada.Name)' /></label>
+                                            <label class="inspector-field"><span><input type="checkbox" disabled="@(!_itemSelecionado.GridAvailable && !_gradeSelecionada.GridEnabled)" @bind="_gradeSelecionada.GridEnabled" @bind:after='() => AtualizarGrade("GridEnabled", _gradeSelecionada.GridEnabled)' /> Ativar grade cartográfica</span></label>
+                                            @if (!_itemSelecionado.GridAvailable) { <p class="composer-hint">Use um SRC projetado e clique em Usar vista atual do projeto para obter a origem das coordenadas.</p> }
+                                            <fieldset class="inspector-body" disabled="@(!_gradeSelecionada.GridEnabled)">
+                                                <label class="inspector-field"><span>Representação</span><select class="gis-select" @bind="_gradeSelecionada.GridMode" @bind:after='() => AtualizarGrade("GridMode", _gradeSelecionada.GridMode)'><option value="lines">Linhas</option><option value="cross">Cruzes</option><option value="frame">Somente bordas/coordenadas</option></select></label>
+                                                <label class="inspector-field"><span><input type="checkbox" @bind="_gradeSelecionada.GridAuto" @bind:after='() => AtualizarGrade("GridAuto", _gradeSelecionada.GridAuto)' /> Intervalo automático</span></label>
+                                                <div class="inspector-grid">
+                                                    <label class="inspector-field"><span>Intervalo X · unidade do SRC</span><input type="number" class="gis-input" min="0.000001" max="1000000000000" step="any" disabled="@_gradeSelecionada.GridAuto" @bind="_gradeSelecionada.GridIntervalX" @bind:after='() => AtualizarGrade("GridIntervalX", _gradeSelecionada.GridIntervalX)' /></label>
+                                                    <label class="inspector-field"><span>Intervalo Y · unidade do SRC</span><input type="number" class="gis-input" min="0.000001" max="1000000000000" step="any" disabled="@_gradeSelecionada.GridAuto" @bind="_gradeSelecionada.GridIntervalY" @bind:after='() => AtualizarGrade("GridIntervalY", _gradeSelecionada.GridIntervalY)' /></label>
+                                                    <label class="inspector-field"><span>Deslocamento X · SRC</span><input type="number" class="gis-input" min="-1000000000000" max="1000000000000" step="any" @bind="_gradeSelecionada.GridOffsetX" @bind:after='() => AtualizarGrade("GridOffsetX", _gradeSelecionada.GridOffsetX)' /></label>
+                                                    <label class="inspector-field"><span>Deslocamento Y · SRC</span><input type="number" class="gis-input" min="-1000000000000" max="1000000000000" step="any" @bind="_gradeSelecionada.GridOffsetY" @bind:after='() => AtualizarGrade("GridOffsetY", _gradeSelecionada.GridOffsetY)' /></label>
+                                                    <label class="inspector-field"><span>Fonte · px</span><input type="number" class="gis-input" min="8" max="24" step="any" @bind="_gradeSelecionada.GridFontSize" @bind:after='() => AtualizarGrade("GridFontSize", _gradeSelecionada.GridFontSize)' /></label>
+                                                    <label class="inspector-field"><span>Casas decimais</span><input type="number" class="gis-input" min="0" max="6" step="1" @bind="_gradeSelecionada.GridPrecision" @bind:after='() => AtualizarGrade("GridPrecision", _gradeSelecionada.GridPrecision)' /></label>
+                                                    <label class="inspector-field"><span>Linha · px</span><input type="number" class="gis-input" min="0.1" max="3" step="any" @bind="_gradeSelecionada.GridStroke" @bind:after='() => AtualizarGrade("GridStroke", _gradeSelecionada.GridStroke)' /></label>
+                                                    <label class="inspector-field"><span>Marca interna · px</span><input type="number" class="gis-input" min="2" max="15" step="any" @bind="_gradeSelecionada.GridTickLength" @bind:after='() => AtualizarGrade("GridTickLength", _gradeSelecionada.GridTickLength)' /></label>
+                                                </div>
+                                                <label class="inspector-field"><span>Cor das linhas e marcas</span><input type="color" class="gis-input color-field" @bind="_gradeSelecionada.GridColor" @bind:after='() => AtualizarGrade("GridColor", _gradeSelecionada.GridColor)' /></label>
+                                                <label class="inspector-field"><span><input type="checkbox" @bind="_gradeSelecionada.GridLabels" @bind:after='() => AtualizarGrade("GridLabels", _gradeSelecionada.GridLabels)' /> Desenhar coordenadas</span></label>
+                                                <label class="inspector-field"><span><input type="checkbox" @bind="_gradeSelecionada.GridTicks" @bind:after='() => AtualizarGrade("GridTicks", _gradeSelecionada.GridTicks)' /> Marcas internas</span></label>
+                                                <label class="inspector-field"><span><input type="checkbox" @bind="_gradeSelecionada.GridTop" @bind:after='() => AtualizarGrade("GridTop", _gradeSelecionada.GridTop)' /> Borda superior</span></label>
+                                                <label class="inspector-field"><span><input type="checkbox" @bind="_gradeSelecionada.GridBottom" @bind:after='() => AtualizarGrade("GridBottom", _gradeSelecionada.GridBottom)' /> Borda inferior</span></label>
+                                                <label class="inspector-field"><span><input type="checkbox" @bind="_gradeSelecionada.GridLeft" @bind:after='() => AtualizarGrade("GridLeft", _gradeSelecionada.GridLeft)' /> Borda esquerda</span></label>
+                                                <label class="inspector-field"><span><input type="checkbox" @bind="_gradeSelecionada.GridRight" @bind:after='() => AtualizarGrade("GridRight", _gradeSelecionada.GridRight)' /> Borda direita</span></label>
+                                            
+                                                <h4>Desenhar coordenadas</h4>
+                                                <label class="inspector-field"><span>Posição dos rótulos</span><select class="gis-select" @bind="_gradeSelecionada.GridLabelPosition" @bind:after='() => AtualizarGrade("GridLabelPosition", _gradeSelecionada.GridLabelPosition)'><option value="inside">Dentro do mapa</option><option value="outside">Fora do mapa</option></select></label>
+                                                <label class="inspector-field"><span>Orientação</span><select class="gis-select" @bind="_gradeSelecionada.GridLabelOrientation" @bind:after='() => AtualizarGrade("GridLabelOrientation", _gradeSelecionada.GridLabelOrientation)'><option value="horizontal">Horizontal</option><option value="border">Acompanhar borda</option></select></label>
+                                                <label class="inspector-field"><span>Formato</span><select class="gis-select" @bind="_gradeSelecionada.GridLabelFormat" @bind:after='() => AtualizarGrade("GridLabelFormat", _gradeSelecionada.GridLabelFormat)'><option value="axis">Eixo + número (X/Y)</option><option value="number">Somente número</option></select></label>
+                                                <label class="inspector-field"><span>Coordenadas exibidas</span><select class="gis-select" @bind="_gradeSelecionada.GridLabelAxes" @bind:after='() => AtualizarGrade("GridLabelAxes", _gradeSelecionada.GridLabelAxes)'><option value="both">X e Y</option><option value="x">Somente X</option><option value="y">Somente Y</option></select></label>
+                                                <label class="inspector-field"><span>Distância da borda · px</span><input type="number" class="gis-input" min="0" max="30" step="0.5" @bind="_gradeSelecionada.GridLabelDistance" @bind:after='() => AtualizarGrade("GridLabelDistance", _gradeSelecionada.GridLabelDistance)' /></label>
+                                                <label class="inspector-field"><span>Cor das coordenadas</span><input type="color" class="gis-input color-field" @bind="_gradeSelecionada.GridLabelColor" @bind:after='() => AtualizarGrade("GridLabelColor", _gradeSelecionada.GridLabelColor)' /></label>
+                                            </fieldset>
+                                            }
+                                            <p class="composer-hint">Coordenadas X/Y absolutas, em unidades do SRC do mapa. Colisões entre grades são omitidas. Reserve espaço no papel para coordenadas externas. Não é grade de latitude/longitude.</p>
+                                            @if (!string.IsNullOrEmpty(_itemSelecionado.GridWarning)) { <p class="composer-hint" role="alert">@_itemSelecionado.GridWarning</p> }
+                                        </div>
+                                        <p class="composer-hint" role="status">@_mapToolMessage</p>
+                                        <p class="composer-hint">@(_itemSelecionado.ScaleAvailable ? "Escala nas unidades da projeção. Não corrige distorções cartográficas do SRC." : "Para definir escala 1:N, use um SRC projetado no projeto (ex.: UTM) e atualize a vista.")</p>
                                     }
                                     else if (_itemSelecionado.Type == "Text")
                                     {
                                         <div class="form-group-vertical">
-                                            <textarea class="gis-input custom-scrollbar" style="height: 100px; resize: vertical;" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))'></textarea>
+                                            <textarea class="gis-input custom-scrollbar" style="height: 100px; resize: vertical;" @bind="_itemSelecionado.TextContent" @bind:after='() => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent)'></textarea>
                                         </div>
-                                        <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
-                                            <input type="checkbox" id="render_html" />
-                                            <label for="render_html" class="gis-label" style="margin:0;">Renderizar como HTML</label>
-                                        </div>
-                                        <div style="display: flex; gap: 5px; margin-top: 10px;">
-                                            <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;" @onclick="AbrirConstrutorExpressao">Inserir/Editar Expressão...</button>
-                                            <button class="tool-btn" style="flex:1; justify-content: center; background: rgba(255,255,255,0.05); font-size: 0.75rem;" @onclick="AbrirConstrutorExpressao">Texto Dinâmico ▼</button>
-                                        </div>
+                                        <button class="tool-btn" @onclick="InserirCreditos">Inserir campos de créditos</button>
                                     }
                                     else if (_itemSelecionado.Type == "Legend")
                                     {
+                                        <button class="tool-btn" @onclick="RecarregarLegenda">Recarregar camadas do projeto</button>
+                                        <div class="inspector-grid">
+<label class="inspector-field"><span>Colunas</span><input type="number" class="gis-input" min="1" max="4" @bind="_itemSelecionado.LegendColumns" @bind:after='() => AtualizarPropriedadeItem("LegendColumns", _itemSelecionado.LegendColumns)' /></label>
+<label class="inspector-field"><span>Texto · px</span><input type="number" class="gis-input" min="6" max="48" @bind="_itemSelecionado.LegendFontSize" @bind:after='() => AtualizarPropriedadeItem("LegendFontSize", _itemSelecionado.LegendFontSize)' /></label>
+<label class="inspector-field"><span>Título · px</span><input type="number" class="gis-input" min="6" max="72" @bind="_itemSelecionado.LegendTitleSize" @bind:after='() => AtualizarPropriedadeItem("LegendTitleSize", _itemSelecionado.LegendTitleSize)' /></label>
+<label class="inspector-field"><span>Entre linhas · px</span><input type="number" class="gis-input" min="0" max="30" @bind="_itemSelecionado.LegendRowGap" @bind:after='() => AtualizarPropriedadeItem("LegendRowGap", _itemSelecionado.LegendRowGap)' /></label>
+<label class="inspector-field"><span>Entre colunas · px</span><input type="number" class="gis-input" min="0" max="50" @bind="_itemSelecionado.LegendColumnGap" @bind:after='() => AtualizarPropriedadeItem("LegendColumnGap", _itemSelecionado.LegendColumnGap)' /></label>
+<label class="inspector-field"><span>Símbolo: largura · px</span><input type="number" class="gis-input" min="2" max="80" @bind="_itemSelecionado.LegendSymbolWidth" @bind:after='() => AtualizarPropriedadeItem("LegendSymbolWidth", _itemSelecionado.LegendSymbolWidth)' /></label>
+<label class="inspector-field"><span>Símbolo: altura · px</span><input type="number" class="gis-input" min="2" max="80" @bind="_itemSelecionado.LegendSymbolHeight" @bind:after='() => AtualizarPropriedadeItem("LegendSymbolHeight", _itemSelecionado.LegendSymbolHeight)' /></label>
+                                        </div>
+                                        <label class="inspector-field"><span><input type="checkbox" @bind="_itemSelecionado.LegendHideTitle" @bind:after='() => AtualizarPropriedadeItem("LegendHideTitle", _itemSelecionado.LegendHideTitle)' /> Ocultar título</span></label>
+                                        <div class="inspector-actions">
+                                            <button class="tool-btn" @onclick='() => AcaoLegenda("show")'>Mostrar todos</button>
+                                            <button class="tool-btn" @onclick='() => AcaoLegenda("hide")'>Ocultar todos</button>
+                                            <button class="tool-btn" @onclick='() => AcaoLegenda("sort")'>Ordenar A–Z</button>
+                                            <button class="tool-btn" @onclick='() => AcaoLegenda("reverse")'>Inverter ordem</button>
+                                        </div>
                                         <div class="form-group-vertical">
                                             <label class="gis-label">Título da Legenda</label>
-                                            <input type="text" class="gis-input" @bind="_itemSelecionado.TextContent" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))' @onchange='@(e => AtualizarPropriedadeItem("Text", _itemSelecionado?.TextContent))' />
+                                            <input type="text" class="gis-input" @bind="_itemSelecionado.TextContent" @bind:after='() => AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent)' />
                                         </div>
                                         
                                         <div style="margin-top: 15px;">
-                                            <label class="gis-label">Itens da Legenda (Arraste não suportado nesta versão)</label>
+                                            <label class="gis-label">Símbolos e ordem da legenda</label>
                                             <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); padding: 5px; max-height: 250px; overflow-y: auto; border-radius: 4px;">
                                                 @if (_itemSelecionado.LegendItems != null)
                                                 {
@@ -194,13 +390,28 @@
                                                     {
                                                         <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 5px;">
                                                             <input type="checkbox" title="Visível" @bind="lItem.IsVisible" @bind:after="NotificarLegendaAlterada" />
-                                                            <div style="width: 15px; height: 15px; background-color: @(lItem.Color); border: 1px solid @(lItem.BorderColor); min-width: 15px;"></div>
-                                                            <input type="text" class="gis-input" style="flex: 1; padding: 4px; font-size: 0.8rem;" @bind="lItem.Name" @bind:event="oninput" @onkeyup="NotificarLegendaAlterada" @onchange="NotificarLegendaAlterada" />
+                                                            <input type="color" title="Cor do símbolo" style="width:24px;min-width:24px;padding:0;border:0;" @bind="lItem.Color" @bind:after="NotificarLegendaAlterada" />
+                                                            <input type="color" title="Contorno do símbolo" style="width:24px;min-width:24px;padding:0;border:0;" @bind="lItem.BorderColor" @bind:after="NotificarLegendaAlterada" />
+                                                            <input type="text" class="gis-input" style="flex: 1; padding: 4px; font-size: 0.8rem;" @bind="lItem.Name" @bind:after="NotificarLegendaAlterada" />
+                                                            <button class="legend-order-btn" title="Mover para cima" disabled="@(_itemSelecionado.LegendItems.IndexOf(lItem) == 0)" @onclick='() => AcaoLegenda("up", _itemSelecionado.LegendItems.IndexOf(lItem))'>↑</button>
+                                                            <button class="legend-order-btn" title="Mover para baixo" disabled="@(_itemSelecionado.LegendItems.IndexOf(lItem) == _itemSelecionado.LegendItems.Count - 1)" @onclick='() => AcaoLegenda("down", _itemSelecionado.LegendItems.IndexOf(lItem))'>↓</button>
                                                         </div>
                                                     }
                                                 }
                                             </div>
                                         </div>
+                                    }
+                                    else if (_itemSelecionado.Type == "ScaleBar")
+                                    {
+                                        <label class="gis-label">Mapa vinculado</label>
+                                        <select class="gis-select" @bind="_itemSelecionado.ScaleBarMapId" @bind:after='() => AtualizarPropriedadeItem("ScaleBarMapId", _itemSelecionado.ScaleBarMapId)'>
+                                            <option value="">Escolha um mapa</option>
+                                            @foreach (var map in _itensDoCompositor.Values.Where(i => i.Type == "Map" && i.ScaleAvailable))
+                                            { <option value="@map.Id">@map.TextContent — 1:@Math.Round(map.MapScale ?? 0)</option> }
+                                        </select>
+                                        <label class="gis-label">Distância total (metros)</label>
+                                        <input type="number" min="0.01" step="10" class="gis-input" @bind="_itemSelecionado.ScaleBarMeters" @bind:after='() => AtualizarPropriedadeItem("ScaleBarMeters", _itemSelecionado.ScaleBarMeters)' />
+                                        <p class="composer-hint">A barra acompanha a escala do mapa; ajuste a distância para caber no quadro.</p>
                                     }
                                     else if (_itemSelecionado.Type == "Image")
                                     {
@@ -216,46 +427,125 @@
                                         </div>
                                         <div class="form-group-horizontal" style="margin-bottom: 8px;">
                                             <label class="gis-label" style="width: 80px;">Cor Fundo</label>
-                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgFill" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("SvgFill", _itemSelecionado?.SvgFill))' />
+                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgFill" @bind:after='() => AtualizarPropriedadeItem("SvgFill", _itemSelecionado.SvgFill)' />
                                         </div>
                                         <div class="form-group-horizontal" style="margin-bottom: 8px;">
                                             <label class="gis-label" style="width: 80px;">Contorno</label>
-                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgStroke" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("SvgStroke", _itemSelecionado?.SvgStroke))' />
+                                            <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.SvgStroke" @bind:after='() => AtualizarPropriedadeItem("SvgStroke", _itemSelecionado.SvgStroke)' />
                                         </div>
                                         <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
                                             <input type="checkbox" id="sync_rot" @bind="_itemSelecionado.SyncWithMap" @bind:after="VerificarSincronizacaoNorte" />
-                                            <label for="sync_rot" class="gis-label" style="margin:0;">Sincronizar rotação com o Mapa</label>
+                                            <label for="sync_rot" class="gis-label" style="margin:0;">Norte de quadrícula vinculado ao mapa</label>
                                         </div>
+                                        <select class="gis-select" aria-label="Mapa vinculado ao norte" @bind="_itemSelecionado.LinkedMapId" @bind:after="VerificarSincronizacaoNorte">
+                                            <option value="">Selecione o mapa</option>
+                                            @foreach (var map in _itensDoCompositor.Values.Where(i => i.Type == "Map"))
+                                            { <option value="@map.Id">@map.TextContent (@map.Id.Substring(Math.Max(0, map.Id.Length - 6)))</option> }
+                                        </select>
                                     }
                                 </div>
-                            </details>
+                            </section>
 
+
+<section class="inspector-card" hidden="@(_inspectorTab != "geometry")">
+    <h4>Enquadramento <span>mm</span></h4>
+    <div class="inspector-body">
+        <div class="inspector-grid"><label class="inspector-field"><span>X · mm</span><input type="number" class="gis-input" step="0.1"  @bind="_itemSelecionado.XMm" @bind:after='() => AtualizarPropriedadeItem("X", _itemSelecionado.X)' /></label>
+<label class="inspector-field"><span>Y · mm</span><input type="number" class="gis-input" step="0.1"  @bind="_itemSelecionado.YMm" @bind:after='() => AtualizarPropriedadeItem("Y", _itemSelecionado.Y)' /></label>
+<label class="inspector-field"><span>Largura · mm</span><input type="number" class="gis-input" step="0.1" min="0.3" @bind="_itemSelecionado.WidthMm" @bind:after='() => AtualizarPropriedadeItem("Width", _itemSelecionado.Width)' /></label>
+<label class="inspector-field"><span>Altura · mm</span><input type="number" class="gis-input" step="0.1" min="0.3" @bind="_itemSelecionado.HeightMm" @bind:after='() => AtualizarPropriedadeItem("Height", _itemSelecionado.Height)' /></label></div>
+        <label class="inspector-field"><span>Rotação do elemento · graus</span><input type="number" class="gis-input" min="-360" max="360" @bind="_itemSelecionado.Rotation" @bind:after='() => AtualizarPropriedadeItem("Rotation", _itemSelecionado.Rotation)' /></label>
+        <div class="inspector-actions"><button class="tool-btn" @onclick="() => GirarElemento(-90)">↶ 90°</button><button class="tool-btn" @onclick="() => GirarElemento(90)">↷ 90°</button><button class="tool-btn" @onclick="ZerarRotacao">Zerar</button></div>
+        <p class="composer-hint">Alinhar ao papel e às margens</p>
+        <div class="composer-align">
+            @foreach (var alignment in new[] { ("left", "Esquerda"), ("center", "Centro H"), ("right", "Direita"), ("top", "Topo"), ("middle", "Centro V"), ("bottom", "Base") })
+            { <button class="tool-btn" @onclick="() => AlinharItem(alignment.Item1)">@alignment.Item2</button> }
+        </div>
+    </div>
+</section>
+<section class="inspector-card" hidden="@(_inspectorTab != "geometry")">
+    <h4>Dimensionamento inteligente</h4>
+    <div class="inspector-body">
+        <p class="composer-hint">Preserva proporções. Encaixar centraliza e zera a rotação do elemento; a escala cartográfica permanece igual.</p>
+        <div class="inspector-actions">
+            <button class="tool-btn" @onclick='() => Dimensionar("fit")'>Caber nas margens</button>
+            <button class="tool-btn" @onclick='() => Dimensionar("width")'>Pela largura</button>
+            <button class="tool-btn" @onclick='() => Dimensionar("height")'>Pela altura</button>
+        </div>
+        <p class="composer-hint">Por largura/altura, a outra dimensão pode ultrapassar o papel.</p>
+        <label class="inspector-field"><span>Tamanho relativo · %</span><input type="number" class="gis-input" min="10" max="400" @bind="_resizePercent" /></label>
+        <button class="tool-btn" @onclick='() => Dimensionar("percent")'>Aplicar pelo centro</button>
+        @if (!string.IsNullOrEmpty(_resizeMessage)) { <p class="composer-hint" role="status">@_resizeMessage</p> }
+    </div>
+</section>
+<section class="inspector-card" hidden="@(_inspectorTab != "geometry")">
+    <h4>Repetir em matriz</h4>
+    <div class="inspector-body">
+        <p class="composer-hint">Cria cópias independentes à direita e abaixo. A contagem inclui o original; vínculos de norte e escala continuam no mapa original.</p>
+        <div class="inspector-grid">
+            <label class="inspector-field"><span>Linhas · 1–5</span><input type="number" class="gis-input" min="1" max="5" @bind="_repeatRows" /></label>
+            <label class="inspector-field"><span>Colunas · 1–5</span><input type="number" class="gis-input" min="1" max="5" @bind="_repeatColumns" /></label>
+            <label class="inspector-field"><span>Intervalo X · mm</span><input type="number" class="gis-input" min="0" max="100" step="0.5" @bind="_repeatGapX" /></label>
+            <label class="inspector-field"><span>Intervalo Y · mm</span><input type="number" class="gis-input" min="0" max="100" step="0.5" @bind="_repeatGapY" /></label>
+        </div>
+        <button class="tool-btn" @onclick="RepetirElemento">Criar matriz</button>
+        <p class="composer-hint" role="status">@_repeatMessage</p>
+        <p class="composer-hint">Pode ultrapassar a página. Confira a aba Revisão antes de exportar.</p>
+    </div>
+</section>
+<div hidden="@(_inspectorTab != "style")">
+    @if (_itemSelecionado.Type == "Text")
+    {
+        <section class="inspector-card">
+            <h4>Tipografia avançada</h4>
+            <div class="inspector-body inspector-grid">
+                <label class="inspector-field"><span>Entrelinhas · fator</span><input type="number" class="gis-input" min="0.8" max="3" step="0.1" @bind="_itemSelecionado.LineHeight" @bind:after='() => AtualizarPropriedadeItem("LineHeight", _itemSelecionado.LineHeight)' /></label>
+                <label class="inspector-field"><span>Entre letras · px</span><input type="number" class="gis-input" min="-2" max="20" step="0.1" @bind="_itemSelecionado.LetterSpacing" @bind:after='() => AtualizarPropriedadeItem("LetterSpacing", _itemSelecionado.LetterSpacing)' /></label>
+                <label class="inspector-field"><span>Decoração</span><select class="gis-select" @bind="_itemSelecionado.TextDecoration" @bind:after='() => AtualizarPropriedadeItem("TextDecoration", _itemSelecionado.TextDecoration)'><option value="none">Nenhuma</option><option value="underline">Sublinhado</option><option value="line-through">Tachado</option></select></label>
+                <label class="inspector-field"><span>Caixa do texto</span><select class="gis-select" @bind="_itemSelecionado.TextTransform" @bind:after='() => AtualizarPropriedadeItem("TextTransform", _itemSelecionado.TextTransform)'><option value="none">Original</option><option value="uppercase">MAIÚSCULAS</option><option value="lowercase">minúsculas</option><option value="capitalize">Iniciais</option></select></label>
+            </div>
+        </section>
+    }
+    <section class="inspector-card">
+        <h4>Transferir aparência</h4>
+        <div class="inspector-body">
+            <p class="composer-hint">Transfere fundo, contorno e opacidade sem alterar conteúdo, posição ou escala.</p>
+            <div class="inspector-actions"><button class="tool-btn" @onclick="CopiarAparencia">Copiar visual</button><button class="tool-btn" disabled="@(!_hasCopiedAppearance)" @onclick="ColarAparencia">Colar visual</button></div>
+            @if (!string.IsNullOrEmpty(_appearanceMessage)) { <p class="composer-hint" role="status">@_appearanceMessage</p> }
+        </div>
+    </section>
+    <section class="inspector-card">
+        <h4>Estilos rápidos</h4>
+        <div class="inspector-body inspector-presets">
+            <button @onclick='() => AplicarVisual("clean")'><span class="preset-sample clean"></span>Limpo</button>
+            <button @onclick='() => AplicarVisual("paper")'><span class="preset-sample paper"></span>Papel</button>
+            <button @onclick='() => AplicarVisual("accent")'><span class="preset-sample accent"></span>Destaque</button>
+        </div>
+    </section>
+    @if (_itemSelecionado.Type == "Text") {
                             <!-- ACCORDION: APARÊNCIA -->
-                            <details class="gis-accordion" open>
-                                <summary>Aparência</summary>
-                                <div class="accordion-content">
+                            <section class="inspector-card">
+                                <h4>Tipografia</h4>
+                                <div class="inspector-body">
                                     @if (_itemSelecionado.Type == "Text")
                                     {
                                         <div class="form-group-vertical" style="margin-bottom: 15px;">
-                                            <label class="gis-label">Fonte</label>
+                                            <div class="font-controls">
+                                                <button class="tool-btn" @onclick='() => AlternarEstiloTexto("FontWeight")'><b>B</b></button>
+                                                <button class="tool-btn" @onclick='() => AlternarEstiloTexto("FontStyle")'><i>I</i></button>
+                                            </div>
+                                            <label class="gis-label">Fonte / tamanho (pt)</label>
                                             <div style="display: flex; gap: 5px;">
-                                                <select class="gis-select" style="flex: 1;"><option>Arial</option><option>Inter</option><option>Times New Roman</option></select>
-                                                <input type="number" class="gis-input" style="width: 50px;" @bind="_itemSelecionado.FontSize" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado?.FontSize))' @onchange='@(e => AtualizarPropriedadeItem("FontSize", _itemSelecionado?.FontSize))' />
-                                                <input type="color" class="gis-input" style="padding:0; height: 32px; width: 32px;" @bind="_itemSelecionado.TextColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("TextColor", _itemSelecionado?.TextColor))' />
+                                                <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.FontFamily" @bind:after='() => AtualizarPropriedadeItem("FontFamily", _itemSelecionado.FontFamily)'><option>Arial</option><option>Inter</option><option>Times New Roman</option></select>
+                                                <input type="number" min="1" step="0.5" class="gis-input" style="width: 60px;" @bind="_itemSelecionado.FontSizePt" @bind:after='() => AtualizarPropriedadeItem("FontSize", _itemSelecionado.FontSize)' />
+                                                <input type="color" class="gis-input" style="padding:0; height: 32px; width: 32px;" @bind="_itemSelecionado.TextColor" @bind:after='() => AtualizarPropriedadeItem("TextColor", _itemSelecionado.TextColor)' />
                                             </div>
                                         </div>
                                         
                                         <div class="form-group-horizontal" style="margin-bottom: 8px;">
-                                            <label class="gis-label" style="width: 120px;">Margem horizontal</label>
-                                            <input type="number" class="gis-input" style="flex:1;" value="0.00" step="0.1" />
-                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
+                                            <label class="gis-label">Margem interna (px)</label>
+                                            <input type="number" min="0" class="gis-input" @bind="_itemSelecionado.Padding" @bind:after='() => AtualizarPropriedadeItem("Padding", _itemSelecionado.Padding)' />
                                         </div>
-                                        <div class="form-group-horizontal" style="margin-bottom: 15px;">
-                                            <label class="gis-label" style="width: 120px;">Margem vertical</label>
-                                            <input type="number" class="gis-input" style="flex:1;" value="0.00" step="0.1" />
-                                            <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
-                                        </div>
-                                        
                                         <div class="form-group-horizontal" style="margin-bottom: 8px;">
                                             <label class="gis-label" style="width: 120px;">Alinhamento horizontal</label>
                                             <select class="gis-select" style="flex: 1;" @bind="_itemSelecionado.TextAlignH" @bind:after='() => AtualizarPropriedadeItem("TextAlignH", _itemSelecionado.TextAlignH)'>
@@ -274,134 +564,57 @@
                                         </div>
                                     }
                                 </div>
-                            </details>
+                            </section>
 
-                            <!-- ACCORDION: POSIÇÃO E TAMANHO -->
-                            <details class="gis-accordion">
-                                <summary>Posição e Tamanho</summary>
-                                <div class="accordion-content">
-                                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                                        <div class="form-group-vertical" style="flex: 1;">
-                                            <label class="gis-label">X</label>
-                                            <input type="number" class="gis-input" @bind="_itemSelecionado.X" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("X", _itemSelecionado?.X))' @onchange='@(e => AtualizarPropriedadeItem("X", _itemSelecionado?.X))' />
-                                        </div>
-                                        <div class="form-group-vertical" style="flex: 1;">
-                                            <label class="gis-label">Y</label>
-                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Y" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado?.Y))' @onchange='@(e => AtualizarPropriedadeItem("Y", _itemSelecionado?.Y))' />
-                                        </div>
-                                    </div>
-                                    <div style="display: flex; gap: 10px;">
-                                        <div class="form-group-vertical" style="flex: 1;">
-                                            <label class="gis-label">Largura</label>
-                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Width" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado?.Width))' @onchange='@(e => AtualizarPropriedadeItem("Width", _itemSelecionado?.Width))' />
-                                        </div>
-                                        <div class="form-group-vertical" style="flex: 1;">
-                                            <label class="gis-label">Altura</label>
-                                            <input type="number" class="gis-input" @bind="_itemSelecionado.Height" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado?.Height))' @onchange='@(e => AtualizarPropriedadeItem("Height", _itemSelecionado?.Height))' />
-                                        </div>
-                                    </div>
-                                </div>
-                            </details>
-                            
-                            <!-- ACCORDION: ROTAÇÃO -->
-                            <details class="gis-accordion">
-                                <summary>Rotação</summary>
-                                <div class="accordion-content">
-                                    <div class="form-group-horizontal">
-                                        <label class="gis-label" style="width: 80px;">Rotação</label>
-                                        <input type="number" class="gis-input" style="flex:1;" step="1" @bind="_itemSelecionado.Rotation" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado?.Rotation))' @onchange='@(e => AtualizarPropriedadeItem("Rotation", _itemSelecionado?.Rotation))' />
-                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">°</span>
-                                    </div>
-                                </div>
-                            </details>
-                            
-                            <!-- ACCORDION: MOLDURA -->
-                            <details class="gis-accordion">
-                                <summary>
-                                    <input type="checkbox" style="margin-right: 8px;" @bind="_itemSelecionado.HasBorder" @bind:after='() => AtualizarPropriedadeItem("HasBorder", _itemSelecionado.HasBorder)' @onclick:stopPropagation="true" />
-                                    Moldura
-                                </summary>
-                                <div class="accordion-content" style="@(!_itemSelecionado.HasBorder ? "opacity: 0.5; pointer-events: none;" : "")">
-                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
-                                        <label class="gis-label" style="width: 80px;">Cor</label>
-                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BorderColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BorderColor", _itemSelecionado?.BorderColor))' />
-                                    </div>
-                                    <div class="form-group-horizontal">
-                                        <label class="gis-label" style="width: 80px;">Espessura</label>
-                                        <input type="number" class="gis-input" style="flex: 1;" min="0" max="20" step="0.1" @bind="_itemSelecionado.BorderWidth" @bind:event="oninput" @onkeyup='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado?.BorderWidth))' @onchange='@(e => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado?.BorderWidth))' />
-                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px;">mm</span>
-                                    </div>
-                                </div>
-                            </details>
-                            
-                            <!-- ACCORDION: PLANO DE FUNDO -->
-                            <details class="gis-accordion">
-                                <summary>
-                                    <input type="checkbox" style="margin-right: 8px;" @bind="_itemSelecionado.HasBg" @bind:after='() => AtualizarPropriedadeItem("HasBg", _itemSelecionado.HasBg)' @onclick:stopPropagation="true" />
-                                    Plano de Fundo
-                                </summary>
-                                <div class="accordion-content" style="@(!_itemSelecionado.HasBg ? "opacity: 0.5; pointer-events: none;" : "")">
-                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
-                                        <label class="gis-label" style="width: 80px;">Cor</label>
-                                        <input type="color" class="gis-input" style="padding:0; height: 32px; flex:1;" @bind="_itemSelecionado.BgColor" @bind:event="oninput" @onchange='@(e => AtualizarPropriedadeItem("BgColor", _itemSelecionado?.BgColor))' />
-                                    </div>
-                                </div>
-                            </details>
-                            
-                            <!-- ACCORDION: ID DO ITEM -->
-                            <details class="gis-accordion">
-                                <summary>ID do item</summary>
-                                <div class="accordion-content">
-                                    <input type="text" class="gis-input" @bind="_itemSelecionado.Id" disabled />
-                                </div>
-                            </details>
-                            
-                            <!-- ACCORDION: RENDERIZAÇÃO -->
-                            <details class="gis-accordion">
-                                <summary>Renderização</summary>
-                                <div class="accordion-content">
-                                    <div class="form-group-horizontal" style="margin-bottom: 8px;">
-                                        <label class="gis-label" style="width: 80px;">Modo Mescl.</label>
-                                        <select class="gis-select" style="flex:1;" @bind="_itemSelecionado.BlendMode" @bind:after='() => AtualizarPropriedadeItem("BlendMode", _itemSelecionado.BlendMode)'>
-                                            <option value="normal">Normal</option>
-                                            <option value="multiply">Multiplicar</option>
-                                            <option value="screen">Divisão (Screen)</option>
-                                            <option value="overlay">Sobreposição</option>
-                                            <option value="darken">Escurecer</option>
-                                            <option value="lighten">Clarear</option>
-                                            <option value="color-dodge">Subexposição de cores</option>
-                                            <option value="color-burn">Superxposição de cores</option>
-                                            <option value="hard-light">Luz Direta</option>
-                                            <option value="soft-light">Luz Suave</option>
-                                            <option value="difference">Diferença</option>
-                                            <option value="exclusion">Exclusão</option>
-                                            <option value="hue">Matiz</option>
-                                            <option value="saturation">Saturação</option>
-                                            <option value="color">Cor</option>
-                                            <option value="luminosity">Luminosidade</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group-horizontal">
-                                        <label class="gis-label" style="width: 80px;">Opacidade</label>
-                                        <input type="range" min="0" max="1" step="0.05" style="flex:1;" value="@((_itemSelecionado.Opacity ?? 1.0).ToString(System.Globalization.CultureInfo.InvariantCulture))" @onchange='@(e => { if (_itemSelecionado != null) { _itemSelecionado.Opacity = double.Parse(e.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture); AtualizarPropriedadeItem("Opacity", _itemSelecionado.Opacity); } })' />
-                                        <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 5px; min-width: 35px;">@(Math.Round((_itemSelecionado.Opacity ?? 1.0) * 100))%</span>
-                                    </div>
-                                </div>
-                            </details>
-                            
-                            <!-- ACCORDION: VARIÁVEIS -->
-                            <details class="gis-accordion">
-                                <summary>Variáveis</summary>
-                                <div class="accordion-content">
-                                    <span style="font-size: 0.75rem; color: #94a3b8;">Nenhuma variável de projeto disponível.</span>
-                                </div>
-                            </details>
+
+}
+    <section class="inspector-card">
+        <div class="inspector-switch"><h4>Preenchimento</h4><label><input type="checkbox" aria-label="Ativar preenchimento" @bind="_itemSelecionado.HasBg" @bind:after='() => AtualizarPropriedadeItem("HasBg", _itemSelecionado.HasBg)' /><span>@(_itemSelecionado.HasBg ? "Ativo" : "Transparente")</span></label></div>
+        <fieldset class="inspector-body inspector-grid" disabled="@(!_itemSelecionado.HasBg)">
+            <label class="inspector-field"><span>Cor de fundo</span><input type="color" class="gis-input color-field" @bind="_itemSelecionado.BgColor" @bind:after='() => AtualizarPropriedadeItem("BgColor", _itemSelecionado.BgColor)' /></label>
+            <span class="color-value">@_itemSelecionado.BgColor</span>
+        </fieldset>
+    </section>
+    <section class="inspector-card">
+        <div class="inspector-switch"><h4>Contorno</h4><label><input type="checkbox" aria-label="Ativar contorno" @bind="_itemSelecionado.HasBorder" @bind:after='() => AtualizarPropriedadeItem("HasBorder", _itemSelecionado.HasBorder)' /><span>@(_itemSelecionado.HasBorder ? "Ativo" : "Sem linha")</span></label></div>
+        <fieldset class="inspector-body" disabled="@(!_itemSelecionado.HasBorder)">
+            <div class="inspector-grid">
+                <label class="inspector-field"><span>Cor</span><input type="color" class="gis-input color-field" @bind="_itemSelecionado.BorderColor" @bind:after='() => AtualizarPropriedadeItem("BorderColor", _itemSelecionado.BorderColor)' /></label>
+                <label class="inspector-field"><span>Espessura · mm</span><input type="number" class="gis-input" min="0" max="20" step="0.1" @bind="_itemSelecionado.BorderWidthMm" @bind:after='() => AtualizarPropriedadeItem("BorderWidth", _itemSelecionado.BorderWidth)' /></label>
+            </div>
+            <label class="inspector-field"><span>Traçado</span><select class="gis-select" @bind="_itemSelecionado.BorderStyle" @bind:after='() => AtualizarPropriedadeItem("BorderStyle", _itemSelecionado.BorderStyle)'><option value="solid">Contínuo</option><option value="dashed">Tracejado</option><option value="dotted">Pontilhado</option></select></label>
+        </fieldset>
+    </section>
+    <section class="inspector-card">
+        <h4>Intensidade <span>@Math.Round(_itemSelecionado.OpacityPercent)%</span></h4>
+        <div class="inspector-body"><input class="opacity-control" aria-label="Opacidade do elemento" type="range" min="0" max="100" step="1" @bind="_itemSelecionado.OpacityPercent" @bind:after='() => AtualizarPropriedadeItem("Opacity", _itemSelecionado.Opacity)' />
+        @if (_itemSelecionado.BlendMode != "normal")
+        { <p class="composer-hint">Este layout antigo contém mesclagem incompatível com a exportação.</p><button class="tool-btn" @onclick='() => AtualizarPropriedadeItem("BlendMode", "normal")'>Converter para impressão</button> }
+        </div>
+    </section>
+</div>
+                            </fieldset>
                         </div>
                     }
-                </div>
+                </section>
+                <section hidden="@(_activePanel != "review")" class="review-panel">
+                    <div class="props-header"><h3>Revisão antes de imprimir</h3></div>
+                    <div class="props-content">
+                        <p class="composer-hint">Verificação sob demanda. Avisos exigem revisão humana; não certificam a precisão dos dados.</p>
+                        <button class="tool-btn" @onclick="RevisarImpressao">Verificar novamente</button>
+                        @if (_audit.Count == 0) { <p class="audit-ok">Nenhum problema encontrado nesta verificação.</p> }
+                        @foreach (var issue in _audit)
+                        {
+                            <div class="audit-issue @issue.Severity"><strong>@(issue.Severity == "error" ? "Corrigir" : "Conferir")</strong><p>@issue.Message</p>
+                                @if (issue.Id != null) { <button class="tool-btn" @onclick="() => SelecionarItem(issue.Id)">Selecionar item</button> }
+                            </div>
+                        }
+                    </div>
+                </section>
             </aside>
             
         </div>
+        <footer class="composer-footer"><span>@TamanhoPagina · @LarguraPapelMm × @AlturaPapelMm mm</span><span>@_itensDoCompositor.Count itens · @(Math.Round(WorkspaceZoom * 100))%</span><span>Setas: 1 mm · Shift: 10 mm · Alt: livre</span></footer>
     </div>
     
     @if (ShowContextMenu)
@@ -437,362 +650,7 @@
         </div>
     }
 
-<style>
-    /* CONTEXT MENU */
-    .context-menu {
-        position: fixed;
-        background-color: #1e293b;
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 6px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-        padding: 5px 0;
-        min-width: 180px;
-        z-index: 100000; /* Acima do overlay inteiro */
-        font-family: 'Inter', sans-serif;
-    }
-    .context-menu-item {
-        padding: 8px 15px;
-        font-size: 0.85rem;
-        color: #e2e8f0;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        transition: background 0.2s ease;
-    }
-    .context-menu-item:hover {
-        background-color: rgba(56, 189, 248, 0.2);
-        color: #fff;
-    }
-    .context-menu-item.text-danger:hover {
-        background-color: rgba(239, 68, 68, 0.2);
-        color: #ef4444;
-    }
-    .context-menu-divider {
-        height: 1px;
-        background-color: rgba(255,255,255,0.1);
-        margin: 5px 0;
-    }
-
-    /* ACCORDIONS DO TIPO QGIS */
-    .gis-accordion {
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-    }
-    .gis-accordion summary {
-        padding: 10px 15px;
-        background: rgba(255,255,255,0.02);
-        color: #e2e8f0;
-        font-weight: 600;
-        font-size: 0.8rem;
-        cursor: pointer;
-        user-select: none;
-        list-style: none;
-        display: flex;
-        align-items: center;
-    }
-    .gis-accordion summary::-webkit-details-marker {
-        display: none;
-    }
-    .gis-accordion summary::before {
-        content: '▶';
-        font-size: 0.6rem;
-        margin-right: 8px;
-        transition: transform 0.2s;
-        color: #94a3b8;
-    }
-    .gis-accordion[open] summary::before {
-        transform: rotate(90deg);
-    }
-    .gis-accordion .accordion-content {
-        padding: 15px;
-        background: rgba(0,0,0,0.1);
-    }
-
-    /* COMPOSER OVERLAY BASE */
-    .composer-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background-color: #0f111a;
-        z-index: 10;
-        display: flex;
-        flex-direction: column;
-        font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-
-    /* HEADER */
-    .composer-header {
-        height: 50px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 20px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        background: rgba(22, 25, 33, 0.95);
-    }
-
-    .composer-header h2 {
-        font-size: 1rem;
-        font-weight: 600;
-        color: #f8fafc;
-        margin: 0;
-        letter-spacing: 0.5px;
-    }
-
-    .composer-actions {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .btn-close {
-        background: transparent;
-        border: none;
-        color: #ef4444;
-        font-size: 1.2rem;
-        cursor: pointer;
-        padding: 4px 8px;
-        border-radius: 4px;
-        transition: all 0.2s ease;
-    }
-    .btn-close:hover {
-        background: rgba(239, 68, 68, 0.1);
-    }
-
-    /* WORKSPACE */
-    .composer-workspace {
-        display: flex;
-        flex: 1;
-        overflow: hidden;
-    }
-
-    /* ZOOM CONTROLS */
-    .zoom-btn {
-        background: transparent;
-        border: none;
-        color: #94a3b8;
-        padding: 4px 10px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        font-weight: bold;
-    }
-    .zoom-btn:hover {
-        background: rgba(255,255,255,0.1);
-        color: #fff;
-    }
-
-    /* TOOLBAR ESQUERDA */
-    .composer-toolbar {
-        width: 50px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 15px 0;
-        border-right: 1px solid rgba(255,255,255,0.05);
-        background: rgba(22, 25, 33, 0.95);
-        z-index: 10;
-    }
-
-    .tool-group {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .tool-divider {
-        width: 60%;
-        height: 1px;
-        background: rgba(255,255,255,0.1);
-        margin: 15px 0;
-    }
-
-    .composer-tool {
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
-        background: transparent;
-        border: 1px solid transparent;
-        color: #94a3b8;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    .composer-tool:hover {
-        background: rgba(255,255,255,0.05);
-        color: #f8fafc;
-    }
-    .composer-tool.active {
-        background: rgba(56, 189, 248, 0.15);
-        border-color: rgba(56, 189, 248, 0.3);
-        color: #38bdf8;
-    }
-
-    /* CANVAS AREA */
-    .composer-canvas-area {
-        flex: 1;
-        background-color: #1e222d;
-        position: relative;
-        overflow: auto;
-        padding: 50px; /* Para dar espaço de manobra */
-        background-image: 
-            linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-        background-size: 20px 20px;
-    }
-
-    /* O PAPEL */
-    .paper-sheet {
-        background-color: #ffffff;
-        position: relative;
-        box-shadow: 0 0 40px rgba(0,0,0,0.5);
-        margin: auto; /* Centraliza se couber, senão alinha ao topo-esq com padding */
-        transform-origin: top left;
-        transition: transform 0.1s ease-out;
-    }
-
-    /* CSS PREMIUM PARA PROPRIEDADES */
-    .composer-properties {
-        width: 340px;
-        border-left: 1px solid rgba(255,255,255,0.08);
-        background: #111827; /* Tailwind Gray 900 */
-        z-index: 10;
-        display: flex;
-        flex-direction: column;
-        box-shadow: -4px 0 15px rgba(0,0,0,0.2);
-    }
-
-    .props-header {
-        padding: 20px 20px 10px 20px;
-        background: #1f2937; /* Tailwind Gray 800 */
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-    }
-    .props-header h3 {
-        font-size: 0.85rem;
-        color: #f8fafc;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
-        margin: 0;
-        font-weight: 700;
-    }
-
-    .props-content {
-        padding: 15px;
-        overflow-y: auto;
-        flex: 1;
-    }
-
-    /* Accordions Premium */
-    .gis-accordion {
-        margin-bottom: 10px;
-        border-radius: 6px;
-        overflow: hidden;
-        background: #1f2937;
-        border: 1px solid rgba(255,255,255,0.05);
-    }
-    .gis-accordion summary {
-        background-color: #1f2937;
-        padding: 12px 15px;
-        font-size: 0.85rem;
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        color: #e2e8f0;
-        transition: background 0.2s;
-    }
-    .gis-accordion summary:hover {
-        background-color: #334155;
-    }
-    .gis-accordion[open] summary {
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        background-color: #334155;
-    }
-    .accordion-content {
-        background-color: #111827;
-        padding: 15px;
-    }
-
-    /* Inputs Premium */
-    .gis-input, .gis-select {
-        background-color: #0f172a;
-        border: 1px solid rgba(255,255,255,0.15);
-        color: #f8fafc;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 0.85rem;
-        outline: none;
-        transition: all 0.2s;
-    }
-    .gis-input:focus, .gis-select:focus {
-        border-color: #38bdf8;
-        box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
-    }
-    
-    /* Checkboxes */
-    input[type="checkbox"] {
-        accent-color: #38bdf8;
-        width: 16px;
-        height: 16px;
-        cursor: pointer;
-        margin-right: 8px;
-    }
-    
-    /* Labels */
-    .gis-label {
-        font-size: 0.8rem;
-        color: #94a3b8;
-        margin-bottom: 5px;
-        display: block;
-        font-weight: 500;
-    }
-
-    /* Grupos de Formulário */
-    .form-group-vertical {
-        display: flex;
-        flex-direction: column;
-        margin-bottom: 10px;
-    }
-    .form-group-horizontal {
-        display: flex;
-        align-items: center;
-        margin-bottom: 10px;
-    }
-    .form-group-horizontal .gis-label {
-        margin-bottom: 0;
-        margin-right: 10px;
-    }
-
-    /* ITEM LIST LAYER */
-    .items-list {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-    }
-    .item-layer {
-        display: flex;
-        align-items: center;
-        padding: 10px 12px;
-        border-radius: 6px;
-        font-size: 0.85rem;
-        color: #cbd5e1;
-        cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.05);
-        background: rgba(255,255,255,0.02);
-        transition: all 0.2s ease;
-    }
-    .item-layer:hover {
-        background: rgba(255,255,255,0.08);
-    }
-    .item-layer.active {
-        background: rgba(56, 189, 248, 0.15);
-        border-color: rgba(56, 189, 248, 0.3);
-        color: #38bdf8;
-        font-weight: 600;
-    }
-</style>
+<link rel="stylesheet" href="css/composer.css" />
 
 @code {
     /* Removed IsVisible and OnClose parameters as this is now a standalone page */
@@ -804,11 +662,112 @@
     public string TamanhoPagina { get; set; } = "A4";
     public string Orientacao { get; set; } = "Landscape";
 
-    public int LarguraPapelPx { get; set; } = 1123;
-    public int AlturaPapelPx { get; set; } = 794;
+    public double LarguraPapelPx { get; set; } = 1123;
+    public double AlturaPapelPx { get; set; } = 794;
     
-    private const double PixelsPerMm = 3.7795275591; // 96 DPI padrão da web
+    private const double PixelsPerMm = 96.0 / 25.4; // 96 DPI padrão da web
     
+    private double LarguraPapelMm = 297, AlturaPapelMm = 210;
+    private string EstiloPapel => FormattableString.Invariant($"width:{LarguraPapelPx}px;height:{AlturaPapelPx}px;--composer-grid:{_gridMm}mm;--composer-margin:{_marginMm}mm;");
+    private bool _canUndo, _canRedo, _guias, _exportando, _pageChanged;
+    private int _exportDpi = 300;
+    private bool _panelOpen = true;
+    private string _activePanel = "page";
+    private string _inspectorTab = "content";
+    private double _resizePercent = 100;
+    private bool _importando, _importOcr = true;
+    private int _importPage = 1;
+    public sealed class HtmlImportResult { public string Json { get; set; } = ""; public string Warning { get; set; } = ""; }
+    private string _gridSelectedId = "";
+    private GridConfig? _gradeSelecionada => _itemSelecionado?.Grids.FirstOrDefault(g => g.Id == _gridSelectedId) ?? _itemSelecionado?.Grids.FirstOrDefault();
+    private Task AtualizarGrade(string key, object value) => AcaoGrade("update", key, value);
+    private async Task AcaoGrade(string action, string? key = null, object? value = null)
+    {
+        if (_itemSelecionado?.Type != "Map") return;
+        var selected = await JSRuntime.InvokeAsync<string?>("composerGridAction", _itemSelecionado.Id, action, _gradeSelecionada?.Id ?? "", key, value);
+        if (selected != null) _gridSelectedId = selected;
+    }
+    public sealed class GridConfig
+    {
+        public bool GridEnabled { get; set; } = false;
+        public bool GridAuto { get; set; } = true;
+        public bool GridLabels { get; set; } = true;
+        public bool GridTicks { get; set; } = true;
+        public bool GridTop { get; set; } = true;
+        public bool GridBottom { get; set; } = true;
+        public bool GridLeft { get; set; } = true;
+        public bool GridRight { get; set; } = true;
+        public double GridIntervalX { get; set; } = 100;
+        public double GridIntervalY { get; set; } = 100;
+        public double GridOffsetX { get; set; } = 0;
+        public double GridOffsetY { get; set; } = 0;
+        public double GridFontSize { get; set; } = 10;
+        public int GridPrecision { get; set; } = 0;
+        public double GridStroke { get; set; } = 0.5;
+        public double GridTickLength { get; set; } = 5;
+        public double GridLabelDistance { get; set; } = 2;
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "Grade";
+        public string GridMode { get; set; } = "lines";
+        public string GridColor { get; set; } = "#334155";
+        public string GridLabelColor { get; set; } = "#334155";
+        public string GridLabelPosition { get; set; } = "inside";
+        public string GridLabelOrientation { get; set; } = "horizontal";
+        public string GridLabelFormat { get; set; } = "axis";
+        public string GridLabelAxes { get; set; } = "both";
+    }
+    private double _mapPanMeters = 100, _mapCoverageMeters = 1000, _mapScaleFactor = 1.25;
+    private string _mapReferenceId = "", _mapToolMessage = "";
+    private async Task FerramentaMapa(string action, double value = 0)
+    {
+        if (_itemSelecionado?.Type != "Map") return;
+        var applied = await JSRuntime.InvokeAsync<bool>("composerMapAction", _itemSelecionado.Id, action, value, _mapReferenceId);
+        _mapToolMessage = applied
+            ? action == "remember" ? "Vista memorizada nesta sessão." : action == "refresh" ? "Atualização da prévia solicitada." : "Enquadramento aplicado. Desfazer disponível."
+            : "Não aplicado: confira bloqueio, SRC projetado, valores ou mapa/vista de referência.";
+    }
+    private int _repeatRows = 1, _repeatColumns = 2;
+    private double _repeatGapX = 5, _repeatGapY = 5;
+    private string _repeatMessage = "";
+    private Task AcaoLegenda(string action, int index = -1) => _itemSelecionado is null ? Task.CompletedTask : JSRuntime.InvokeVoidAsync("composerLegendAction", _itemSelecionado.Id, action, index).AsTask();
+    private async Task RepetirElemento()
+    {
+        if (_itemSelecionado is null) return;
+        var applied = await JSRuntime.InvokeAsync<bool>("composerRepeatItem", _itemSelecionado.Id, _repeatRows, _repeatColumns, _repeatGapX, _repeatGapY);
+        _repeatMessage = applied ? "Matriz criada. Um desfazer remove todas as cópias." : "Não aplicado: confira bloqueio, intervalos, contagem (2–25) e limite de 200 itens.";
+    }
+    private bool _hasCopiedAppearance;
+    private string _appearanceMessage = "", _resizeMessage = "";
+    private async Task Dimensionar(string mode)
+    {
+        if (_itemSelecionado is null) return;
+        var applied = await JSRuntime.InvokeAsync<bool>("composerResizeFrame", _itemSelecionado.Id, mode, _resizePercent);
+        _resizeMessage = applied ? "Dimensões aplicadas. Desfazer disponível." : "Não aplicado: confira bloqueio, dimensões e percentual (10–400%).";
+    }
+    private async Task CopiarAparencia()
+    {
+        if (_itemSelecionado is null) return;
+        _hasCopiedAppearance = await JSRuntime.InvokeAsync<bool>("composerCopyAppearance", _itemSelecionado.Id);
+        _appearanceMessage = _hasCopiedAppearance ? "Visual copiado. Selecione outro elemento para colar." : "Não foi possível copiar.";
+    }
+    private async Task ColarAparencia()
+    {
+        if (_itemSelecionado is null) return;
+        var applied = await JSRuntime.InvokeAsync<bool>("composerPasteAppearance", _itemSelecionado.Id);
+        _appearanceMessage = applied ? "Visual aplicado. Desfazer disponível." : "Não aplicado: confira se o elemento está bloqueado.";
+    }
+    private double _gridMm = 5, _marginMm = 10;
+    private PrintMapContext? _printContext;
+    private int _filePickerKey;
+    private List<PrintAuditIssue> _audit = new();
+    public sealed class PrintAuditIssue
+    {
+        public string Severity { get; set; } = "warning";
+        public string Message { get; set; } = "";
+        public string? Id { get; set; }
+    }
+    private string _mensagem = "";
+
     // Modo de Interação: false = Selecionar/Mover, true = Mover Conteúdo (Pan)
     private bool _modoInteracaoMapa = false;
 
@@ -835,6 +794,17 @@
 
     public class ComposerItemModel
     {
+        public bool Locked { get; set; }
+        public bool Visible { get; set; } = true;
+        public double? XMm { get => X / PixelsPerMm; set => X = value * PixelsPerMm; }
+        public double? YMm { get => Y / PixelsPerMm; set => Y = value * PixelsPerMm; }
+        public double? WidthMm { get => Width / PixelsPerMm; set => Width = value * PixelsPerMm; }
+        public double? HeightMm { get => Height / PixelsPerMm; set => Height = value * PixelsPerMm; }
+        public bool ScaleAvailable { get; set; }
+        public string? MapCrsName { get; set; }
+        public string? ScaleBarMapId { get; set; }
+        public double ScaleBarMeters { get; set; } = 100;
+        public string Name { get; set; } = "";
         public string Id { get; set; }
         public string Type { get; set; }
         
@@ -851,7 +821,8 @@
         
         public bool HasBorder { get; set; } = false;
         public string BorderColor { get; set; } = "#000000";
-        public int? BorderWidth { get; set; } = 1;
+        public double? BorderWidth { get; set; } = 1;
+        public double? BorderWidthMm { get => BorderWidth / PixelsPerMm; set => BorderWidth = value * PixelsPerMm; }
         public string BorderStyle { get; set; } = "solid";
         public int? BorderRadius { get; set; } = 0;
         
@@ -862,29 +833,66 @@
         public int? ShadowBlur { get; set; } = 10;
         
         public double? Opacity { get; set; } = 1.0;
+        public double OpacityPercent { get => (Opacity ?? 1) * 100; set => Opacity = Math.Clamp(value,0,100) / 100; }
         public string BlendMode { get; set; } = "normal";
 
         // --- Texto / Rótulo ---
         public string TextContent { get; set; }
         public string TextColor { get; set; } = "#000000";
-        public int? FontSize { get; set; } = 14;
+        public double? FontSize { get; set; } = 14;
+        public double? FontSizePt { get => FontSize * 72 / 96; set => FontSize = value * 96 / 72; }
         public string FontFamily { get; set; } = "Arial";
         public string FontWeight { get; set; } = "normal";
         public string FontStyle { get; set; } = "normal";
         public string TextAlignH { get; set; } = "left";
         public string TextAlignV { get; set; } = "top";
         public int? Padding { get; set; } = 0;
+        public double LineHeight { get; set; } = 1.2;
+        public double LetterSpacing { get; set; }
+        public string TextDecoration { get; set; } = "none";
+        public string TextTransform { get; set; } = "none";
+        public bool LegendHideTitle { get; set; }
+        public int LegendColumns { get; set; } = 1;
+        public double LegendFontSize { get; set; } = 12;
+        public double LegendTitleSize { get; set; } = 14;
+        public double LegendRowGap { get; set; } = 5;
+        public double LegendColumnGap { get; set; } = 8;
+        public double LegendSymbolWidth { get; set; } = 15;
+        public double LegendSymbolHeight { get; set; } = 15;
 
         // --- Mapa ---
         public double? MapScale { get; set; } = 1000.0;
         public double? MapRotation { get; set; } = 0;
+        public double MapPreviewDpi { get; set; } = 2;
+        public bool GridAvailable { get; set; }
+        public List<GridConfig> Grids { get; set; } = new();
+        public string GridWarning { get; set; } = "";
+        public bool GridEnabled { get; set; }
+        public bool GridAuto { get; set; } = true;
+        public bool GridLabels { get; set; } = true;
+        public bool GridTicks { get; set; } = true;
+        public bool GridTop { get; set; } = true;
+        public bool GridBottom { get; set; } = true;
+        public bool GridLeft { get; set; } = true;
+        public bool GridRight { get; set; } = true;
+        public string GridMode { get; set; } = "lines";
+        public string GridColor { get; set; } = "#334155";
+        public double GridIntervalX { get; set; } = 100;
+        public double GridIntervalY { get; set; } = 100;
+        public double GridOffsetX { get; set; } = 0;
+        public double GridOffsetY { get; set; } = 0;
+        public double GridFontSize { get; set; } = 10;
+        public int GridPrecision { get; set; } = 0;
+        public double GridStroke { get; set; } = 0.5;
+        public double GridTickLength { get; set; } = 5;
         public bool MapDrawExtents { get; set; } = false;
 
         // --- Imagem / SVG ---
-        public string SvgStyle { get; set; } = "Estilo 2";
+        public string SvgStyle { get; set; } = "Estilo 5";
         public string SvgFill { get; set; } = "#333333";
-        public string SvgStroke { get; set; } = "#ffffff";
+        public string SvgStroke { get; set; } = "#333333";
         public bool SyncWithMap { get; set; } = false;
+        public string? LinkedMapId { get; set; }
 
         // Propriedades antigas (remover depois)
         public double? MapZoom { get; set; } = 1.0;
@@ -894,74 +902,19 @@
     }
 
     private ComposerItemModel _itemSelecionado = null;
-    private ComposerItemModel _itemCopiado = null;
+    [JSInvokable]
+    public Task OnItemCopied(string itemId) => JSRuntime.InvokeVoidAsync("composerCopyItem", itemId).AsTask();
+    [JSInvokable]
+    public Task OnItemPasted() => JSRuntime.InvokeVoidAsync("composerPasteItem").AsTask();
 
     [JSInvokable]
-    public void OnItemCopied(string itemId)
+    public void OnLayoutChanged(List<ComposerItemModel> items, string? selectedId, bool canUndo, bool canRedo)
     {
-        if (_itensDoCompositor.TryGetValue(itemId, out var item))
-        {
-            if (item.Type == "Text" || item.Type == "Image" || item.Type == "Legend")
-            {
-                _itemCopiado = item;
-            }
-        }
-    }
-
-    [JSInvokable]
-    public async Task OnItemPasted()
-    {
-        if (_itemCopiado != null)
-        {
-            var nx = (_itemCopiado.X ?? 50) + 20;
-            var ny = (_itemCopiado.Y ?? 50) + 20;
-            
-            var id = await JSRuntime.InvokeAsync<string>("composerAddItemV3", _itemCopiado.Type, _itemCopiado.TextContent, nx, ny, _itemCopiado.Width ?? 100, _itemCopiado.Height ?? 50);
-            
-            if (!string.IsNullOrEmpty(id))
-            {
-                var clone = new ComposerItemModel
-                {
-                    Id = id,
-                    Type = _itemCopiado.Type,
-                    TextContent = _itemCopiado.TextContent,
-                    X = nx,
-                    Y = ny,
-                    Width = _itemCopiado.Width,
-                    Height = _itemCopiado.Height,
-                    BgColor = _itemCopiado.BgColor,
-                    HasBg = _itemCopiado.HasBg,
-                    BorderColor = _itemCopiado.BorderColor,
-                    BorderWidth = _itemCopiado.BorderWidth,
-                    HasBorder = _itemCopiado.HasBorder,
-                    TextColor = _itemCopiado.TextColor,
-                    FontSize = _itemCopiado.FontSize,
-                    TextAlignH = _itemCopiado.TextAlignH,
-                    TextAlignV = _itemCopiado.TextAlignV,
-                    Opacity = _itemCopiado.Opacity,
-                    LegendItems = _itemCopiado.LegendItems?.Select(l => new LegendItemModel { Name = l.Name, Color = l.Color, BorderColor = l.BorderColor, IsVisible = l.IsVisible }).ToList() ?? new List<LegendItemModel>()
-                };
-
-                _itensDoCompositor[id] = clone;
-                _itemSelecionado = clone;
-
-                // Sync UI to JS
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "BgColor", clone.BgColor);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "HasBg", clone.HasBg);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "BorderColor", clone.BorderColor);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "BorderWidth", clone.BorderWidth);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "HasBorder", clone.HasBorder);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "TextColor", clone.TextColor);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "FontSize", clone.FontSize);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "TextAlignH", clone.TextAlignH);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "TextAlignV", clone.TextAlignV);
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "Opacity", clone.Opacity);
-                if (clone.Type == "Legend")
-                    await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", id, "LegendItems", System.Text.Json.JsonSerializer.Serialize(clone.LegendItems));
-                
-                StateHasChanged();
-            }
-        }
+        if (selectedId != null && selectedId != _itemSelecionado?.Id) { _activePanel = "item"; _panelOpen = true; }
+        _itensDoCompositor = items.ToDictionary(i => i.Id);
+        _itemSelecionado = selectedId != null && _itensDoCompositor.TryGetValue(selectedId, out var item) ? item : null;
+        _canUndo = canUndo; _canRedo = canRedo;
+        StateHasChanged();
     }
 
     protected override void OnInitialized()
@@ -970,9 +923,11 @@
         AtualizarDimensoesPapel();
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _objRef?.Dispose();
+        try { if (_isInitialized) await JSRuntime.InvokeVoidAsync("composerDispose"); }
+        catch (JSDisconnectedException) { }
+        finally { _objRef?.Dispose(); }
     }
 
     /* Removed Fechar() since we use OS window close */
@@ -981,33 +936,30 @@
     {
         if (!_isInitialized)
         {
-            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet", _objRef, MapService.LocalServerBaseUrl);
+            _printContext = PrintMapContext.Capture(MapService);
+            await JSRuntime.InvokeVoidAsync("composerInitV3", "paper-sheet", _objRef, MapService.LocalServerBaseUrl, _printContext);
+            await JSRuntime.InvokeVoidAsync("import", "./js/composer_document.js");
+            await JSRuntime.InvokeVoidAsync("import", "./js/composer_exchange.js");
             _isInitialized = true;
         }
-
+        if (_pageChanged)
+        {
+            _pageChanged = false;
+            await JSRuntime.InvokeVoidAsync("composerPageChanged");
+        }
     }
 
     [JSInvokable]
-    public void OnItemSelected(ComposerItemModel item)
+    public async Task OnItemSelected(ComposerItemModel item)
     {
-        if (!_itensDoCompositor.ContainsKey(item.Id))
+        _activePanel = "item";
+        _itensDoCompositor[item.Id] = item;
+        _itemSelecionado = item;
+        if (item.Type == "Legend" && item.LegendItems.Count == 0)
         {
-            if (item.Type == "Legend")
-            {
-                item.LegendItems = GerarLegendaDinamica();
-                _ = JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", item.Id, "LegendItems", System.Text.Json.JsonSerializer.Serialize(item.LegendItems));
-            }
-            _itensDoCompositor[item.Id] = item;
+            item.LegendItems = GerarLegendaDinamica();
+            await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", item.Id, "LegendItems", System.Text.Json.JsonSerializer.Serialize(item.LegendItems));
         }
-        else
-        {
-            var existing = _itensDoCompositor[item.Id];
-            existing.X = item.X;
-            existing.Y = item.Y;
-            existing.Width = item.Width;
-            existing.Height = item.Height;
-        }
-        _itemSelecionado = _itensDoCompositor[item.Id];
         StateHasChanged();
     }
 
@@ -1091,7 +1043,7 @@
     {
         if (_itemSelecionado != null)
         {
-            _itemSelecionado.ZIndex += 1;
+            _itemSelecionado.ZIndex = (_itensDoCompositor.Values.Max(i => i.ZIndex) ?? 10) + 1;
             await AtualizarPropriedadeItem("ZIndex", _itemSelecionado.ZIndex);
         }
         CloseContextMenu();
@@ -1101,8 +1053,7 @@
     {
         if (_itemSelecionado != null)
         {
-            _itemSelecionado.ZIndex -= 1;
-            if (_itemSelecionado.ZIndex < 0) _itemSelecionado.ZIndex = 0;
+            _itemSelecionado.ZIndex = (_itensDoCompositor.Values.Min(i => i.ZIndex) ?? 10) - 1;
             await AtualizarPropriedadeItem("ZIndex", _itemSelecionado.ZIndex);
         }
         CloseContextMenu();
@@ -1163,22 +1114,8 @@
         }
     }
 
-    private async Task AtualizarRotacaoMapa()
-    {
-        if (_itemSelecionado == null) return;
-        await AtualizarPropriedadeItem("MapRotation", _itemSelecionado.MapRotation);
-
-        foreach (var item in _itensDoCompositor.Values)
-        {
-            if (item.Type == "Image" && item.SyncWithMap)
-            {
-                item.Rotation = _itemSelecionado.MapRotation;
-                await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", item.Id, "Rotation", item.Rotation);
-            }
-        }
-        StateHasChanged();
-    }
-
+    private Task AtualizarRotacaoMapa() => AtualizarPropriedadeItem("MapRotation", _itemSelecionado?.MapRotation);
+    
     private async Task NotificarLegendaAlterada()
     {
         if (_itemSelecionado == null || _itemSelecionado.Type != "Legend") return;
@@ -1187,14 +1124,11 @@
 
     private async Task VerificarSincronizacaoNorte()
     {
-        if (_itemSelecionado == null || _itemSelecionado.Type != "Image" || !_itemSelecionado.SyncWithMap) return;
-        
-        var mapa = _itensDoCompositor.Values.FirstOrDefault(i => i.Type == "Map");
-        if (mapa != null)
-        {
-            _itemSelecionado.Rotation = mapa.MapRotation;
-            await JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", _itemSelecionado.Id, "Rotation", _itemSelecionado.Rotation);
-        }
+        if (_itemSelecionado == null || _itemSelecionado.Type != "Image") return;
+        var item = _itemSelecionado;
+        if (string.IsNullOrEmpty(item.LinkedMapId))
+            item.LinkedMapId = _itensDoCompositor.Values.FirstOrDefault(i => i.Type == "Map")?.Id;
+        await JSRuntime.InvokeVoidAsync("composerLinkNorth", item.Id, item.LinkedMapId, item.SyncWithMap);
     }
 
     private void AtualizarDimensoesPapel()
@@ -1218,13 +1152,15 @@
             heightMm = temp;
         }
 
-        LarguraPapelPx = (int)Math.Round(widthMm * PixelsPerMm);
-        AlturaPapelPx = (int)Math.Round(heightMm * PixelsPerMm);
+        LarguraPapelMm = widthMm; AlturaPapelMm = heightMm;
+        LarguraPapelPx = widthMm * PixelsPerMm;
+        AlturaPapelPx = heightMm * PixelsPerMm;
+        _pageChanged = true;
     }
 
     private async Task AdicionarMapa()
     {
-        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", "Mapa 1", 50, 50, 800, 500);
+        await JSRuntime.InvokeVoidAsync("composerAddItemV3", "Map", $"Mapa {_itensDoCompositor.Values.Count(i => i.Type == "Map") + 1}", 50, 50, 800, 500);
     }
 
     private async Task AdicionarTexto()
@@ -1244,12 +1180,12 @@
 
     private async Task ExportarPNG()
     {
-        await JSRuntime.InvokeVoidAsync("composerExportPNG", "mapa_exportado.png");
+        await Exportar(false);
     }
 
     private async Task ExportarPDF()
     {
-        await JSRuntime.InvokeVoidAsync("composerExportPDF", "mapa_exportado.pdf");
+        await Exportar(true);
     }
 
     private async Task AlternarModoInteracao(bool ativarPanZoom)
@@ -1258,10 +1194,135 @@
         await JSRuntime.InvokeVoidAsync("composerSetMapInteractionModeV3", ativarPanZoom);
     }
 
-    private async Task AbrirConstrutorExpressao()
+    private async Task Exportar(bool pdf)
     {
-        await JSRuntime.InvokeVoidAsync("alert", "GeoNex Core: O Interpretador de Expressões Python/SQL está a ser otimizado para a próxima release. Temporariamente desativado por questões de segurança de execução. Utilize a formatação de Texto Estático/HTML.");
+        if (_exportando) return;
+        _exportando = true;
+        _mensagem = $"Preparando {(pdf ? "PDF rasterizado" : "PNG")} — {_exportDpi} DPI…";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(pdf ? "composerExportPDF" : "composerExportPNG",
+                pdf ? "mapa_exportado.pdf" : "mapa_exportado.png", _exportDpi);
+            _mensagem = "Exportação enviada para salvamento.";
+        }
+        catch (JSException ex) { _mensagem = $"Exportação não concluída: {ex.Message.Split('\n')[0]}"; }
+        finally { _exportando = false; }
     }
+    private Task AjustarPagina() => JSRuntime.InvokeVoidAsync("composerFitPage").AsTask();
+    private Task Desfazer() => JSRuntime.InvokeVoidAsync("composerUndo", false).AsTask();
+    private Task Refazer() => JSRuntime.InvokeVoidAsync("composerUndo", true).AsTask();
+    private Task AtualizarGuias() => ConfigurarGuias();
+    private Task SelecionarItem(string id) => JSRuntime.InvokeVoidAsync("composerSelectItem", id).AsTask();
+    private Task AlinharItem(string alignment) => JSRuntime.InvokeVoidAsync("composerAlignItem", alignment).AsTask();
+    private Task DefinirEstadoItem(ComposerItemModel item, string property, bool value) =>
+        JSRuntime.InvokeVoidAsync("composerUpdateItemProperty", item.Id, property, value).AsTask();
+    private async Task InserirCreditos()
+    {
+        if (_itemSelecionado == null) return;
+        _itemSelecionado.TextContent = $"Fonte: [informar] | Data: {DateTime.Today:dd/MM/yyyy}\nSRC: [informar código e projeção] | Autor: [informar]";
+        await AtualizarPropriedadeItem("Text", _itemSelecionado.TextContent);
+    }
+    private Task AdicionarForma(string type) => JSRuntime.InvokeVoidAsync("composerAddItemV3", type, type == "Rectangle" ? "Retângulo" : "Elipse", 60, 60, 180, 100).AsTask();
+    private Task AdicionarEscala() => JSRuntime.InvokeVoidAsync("composerAddItemV3", "ScaleBar", "Escala gráfica", 50, AlturaPapelPx - 100, 300, 50).AsTask();
+    private Task ConfigurarGuias()
+    {
+        _gridMm = double.IsFinite(_gridMm) ? Math.Clamp(_gridMm,1,50) : 5;
+        _marginMm = double.IsFinite(_marginMm) ? Math.Clamp(_marginMm,0,50) : 10;
+        return JSRuntime.InvokeVoidAsync("composerUpdateGuides", _gridMm, _marginMm, _guias).AsTask();
+    }
+    private async Task AplicarEscala()
+    {
+        if (_itemSelecionado?.ScaleAvailable != true) return;
+        _itemSelecionado.MapScale = Math.Clamp(_itemSelecionado.MapScale ?? 1000, 1, 1_000_000_000);
+        await AtualizarPropriedadeItem("MapScale", _itemSelecionado.MapScale);
+    }
+    private async Task UsarVistaProjeto()
+    {
+        if (_itemSelecionado?.Type != "Map") return;
+        _printContext = PrintMapContext.Capture(MapService);
+        await JSRuntime.InvokeVoidAsync("composerUseProjectView", _itemSelecionado.Id, _printContext);
+    }
+    private async Task DuplicarSelecionado()
+    {
+        if (_itemSelecionado == null) return;
+        await OnItemCopied(_itemSelecionado.Id);
+        await OnItemPasted();
+    }
+    private async Task AlternarEstiloTexto(string property)
+    {
+        if (_itemSelecionado == null) return;
+        var value = property == "FontWeight" ? (_itemSelecionado.FontWeight == "bold" ? "normal" : "bold") : (_itemSelecionado.FontStyle == "italic" ? "normal" : "italic");
+        await AtualizarPropriedadeItem(property, value);
+    }
+    private async Task RecarregarLegenda()
+    {
+        if (_itemSelecionado?.Type != "Legend") return;
+        _itemSelecionado.LegendItems = GerarLegendaDinamica();
+        await NotificarLegendaAlterada();
+    }
+    [JSInvokable]
+    public void OnPageRestored(double widthMm, double heightMm, double gridMm, double marginMm, bool snap)
+    {
+        TamanhoPagina = Math.Max(widthMm,heightMm) switch { 1189 => "A0", 841 => "A1", 594 => "A2", 420 => "A3", _ => "A4" };
+        Orientacao = widthMm > heightMm ? "Landscape" : "Portrait";
+        AtualizarDimensoesPapel(); _pageChanged = false;
+        _gridMm = gridMm; _marginMm = marginMm; _guias = snap;
+        StateHasChanged();
+    }
+    private async Task SalvarLayout()
+    {
+        try { await JSRuntime.InvokeVoidAsync("composerSaveLayout"); _mensagem = "Layout enviado para salvamento; os dados geográficos permanecem no projeto."; }
+        catch (JSException e) { _mensagem = e.Message.Split('\n')[0]; }
+    }
+    private async Task AbrirLayout(InputFileChangeEventArgs e)
+    {
+        if (_exportando || _importando) return;
+        _importando = true; _mensagem = "Preparando importação local…";
+        try
+        {
+            var extension = System.IO.Path.GetExtension(e.File.Name).ToLowerInvariant();
+            string json, warning;
+            if (extension is ".json" or ".html" or ".htm")
+            {
+                await using var stream = e.File.OpenReadStream(extension == ".json" ? 20_000_000 : 40_000_000);
+                using var reader = new System.IO.StreamReader(stream);
+                var text = await reader.ReadToEndAsync();
+                if (extension == ".json") { json = text; warning = "Layout JSON aberto. Confira a revisão de impressão."; }
+                else { var result = await JSRuntime.InvokeAsync<HtmlImportResult>("composerParseHTML", text); json = result.Json; warning = result.Warning; }
+            }
+            else if (extension is ".png" or ".jpg" or ".jpeg" or ".pdf")
+            {
+                await using var stream = e.File.OpenReadStream(LayoutReferenceImporter.MaxBytes);
+                using var buffer = new System.IO.MemoryStream(); await stream.CopyToAsync(buffer);
+                var result = await LayoutReferenceImporter.ReadAsync(buffer.ToArray(), extension == ".pdf", _importPage, _importOcr);
+                json = await JSRuntime.InvokeAsync<string>("composerReferenceLayout", result, e.File.Name);
+                warning = result.Warning + " Use Arquivo > Salvar modelo HTML para reutilizar.";
+            }
+            else throw new InvalidOperationException("Formato não suportado.");
+            _mensagem = await JSRuntime.InvokeAsync<bool>("composerImportLayout", json) ? warning : "Importação cancelada. Composição preservada.";
+        }
+        catch (Exception error) when (error is JSException or System.IO.IOException or InvalidOperationException or ArgumentException or System.Runtime.InteropServices.COMException)
+        { _mensagem = $"Não foi possível abrir: {error.Message.Split('\n')[0]}"; }
+        finally { _filePickerKey++; _importando = false; }
+    }
+    private async Task SalvarHTML()
+    {
+        try { await JSRuntime.InvokeVoidAsync("composerExportHTML"); _mensagem = "Modelo HTML salvo com dados editáveis; mapas dependem do projeto ao reabrir."; }
+        catch (JSException error) { _mensagem = error.Message.Split('\n')[0]; }
+    }
+    private async Task AplicarModelo(string style)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("composerApplyTemplate", style, GerarLegendaDinamica()))
+            _mensagem = "Modelo aplicado. Preencha título/créditos e revise a legenda antes de exportar.";
+    }
+    private async Task RevisarImpressao()
+    {
+        _audit = await JSRuntime.InvokeAsync<List<PrintAuditIssue>>("composerAudit", _exportDpi);
+        _activePanel = "review"; _panelOpen = true;
+    }
+
+    private Task AplicarVisual(string style) => JSRuntime.InvokeVoidAsync("composerApplyAppearance", _itemSelecionado?.Id, style).AsTask();
+    private Task GirarElemento(double angle) => AtualizarPropriedadeItem("Rotation", (((_itemSelecionado?.Rotation ?? 0) + angle + 180) % 360 + 360) % 360 - 180);
+    private Task ZerarRotacao() => AtualizarPropriedadeItem("Rotation", 0);
+
 }
-
-

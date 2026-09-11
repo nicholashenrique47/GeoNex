@@ -164,6 +164,20 @@ namespace GeoNex.Services
                 res.AppendHeader("Access-Control-Allow-Origin", "*");
                 res.AppendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 
+                bool isPrint = req.QueryString["c"] == "1";
+                bool hasPrintScale = isPrint && req.QueryString["cs"] != null;
+                SKPoint printCenter = default;
+                float printZoom = 0;
+                double printWidth = 0, printHeight = 0;
+                if (hasPrintScale && (!PrintMapContext.TryRead(req.QueryString, PrintMapContext.Capture(_mapService), out printCenter, out printZoom) ||
+                    !PrintMapContext.TryReadLayoutSize(req.QueryString, out printWidth, out printHeight)))
+                {
+                    res.StatusCode = (int)HttpStatusCode.BadRequest;
+                    res.Close();
+                    _telemetry.CompleteResponse(trace, "invalid-print-frame", 0);
+                    return;
+                }
+
                 // --- 1. APLICANDO DPI PARA ALTA RESOLUÇÃO ---
                 bool validWidth = int.TryParse(
                     req.QueryString["w"] ?? "1920",
@@ -236,8 +250,8 @@ namespace GeoNex.Services
 
                 if (!_mapService.LimitesGlobaisVetor.IsEmpty) { if (primeiro) limitesTotais = _mapService.LimitesGlobaisVetor; else limitesTotais.Union(_mapService.LimitesGlobaisVetor); }
 
-                bool isInteracting = req.QueryString["i"] == "1" ||
-                    faseSelecao > 0 || _mapService.IsPanning;
+                bool isInteracting = !isPrint && (req.QueryString["i"] == "1" ||
+                    faseSelecao > 0 || _mapService.IsPanning);
                 trace?.Configure(
                     cssWidth,
                     cssHeight,
@@ -271,11 +285,14 @@ namespace GeoNex.Services
                 }
                 
                 // Sincronizar com o MapService para que ele conheça a janela atual
-                _mapService.ViewportEscalaAutoFit = escalaAutoFit;
-                _mapService.ViewportMidX = midX;
-                _mapService.ViewportMidY = midY;
-                _mapService.ViewportWidth = width;
-                _mapService.ViewportHeight = height;
+                if (!isPrint)
+                {
+                    _mapService.ViewportEscalaAutoFit = escalaAutoFit;
+                    _mapService.ViewportMidX = midX;
+                    _mapService.ViewportMidY = midY;
+                    _mapService.ViewportWidth = width;
+                    _mapService.ViewportHeight = height;
+                }
 
                 float zoomReal = escalaAutoFit * _mapService.CameraZoom;
 
@@ -293,12 +310,20 @@ namespace GeoNex.Services
                     panOffsetY,
                     rotation);
 
+                if (hasPrintScale)
+                {
+                    zoomReal = printZoom;
+                    currentCenter = printCenter;
+                    // Existing render keys include auto-fit; preserve their differentiation without editing cache code.
+                    escalaAutoFit = printZoom;
+                }
+
                 if (!MapCoordinateFrame.TryCreate(
                     viewport,
                     currentCenter,
                     zoomReal,
                     rotation,
-                    out MapCoordinateFrame coordinateFrame))
+                    out MapCoordinateFrame coordinateFrame, printWidth, printHeight))
                 {
                     res.StatusCode = (int)HttpStatusCode.BadRequest;
                     res.Close();

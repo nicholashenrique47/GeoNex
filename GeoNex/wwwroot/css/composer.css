@@ -1,0 +1,165 @@
+/* Print editor only: no styles leak into the main map or its controls. */
+.composer-overlay {
+    --surface:#182231; --surface-raised:#202d3e; --line:#324154; --muted:#a8b6c8; --accent:#69c9eb;
+    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column;
+    background:#111a27; color:#e7edf5; font:13px/1.45 'Segoe UI',Arial,sans-serif;
+}
+.composer-overlay *, .context-menu { box-sizing:border-box; }
+.composer-overlay [hidden] { display:none !important; }
+.composer-header { flex-shrink:0; min-height:76px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:14px 22px; border-bottom:1px solid var(--line); }
+.brand-group { display:flex; align-items:center; min-width:230px; }
+.brand-eyebrow { display:block; color:var(--accent); font-size:10px; letter-spacing:2px; font-weight:700; }
+.composer-header h2 { font-size:18px; margin:2px 0 0; letter-spacing:-.3px; font-weight:600; }
+.composer-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.composer-overlay button { font:inherit; cursor:pointer; }
+.composer-overlay button:focus-visible, .composer-overlay input:focus-visible, .composer-overlay select:focus-visible, .composer-overlay textarea:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.composer-overlay button:disabled { opacity:.4; cursor:default; }
+.composer-overlay .tool-btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid var(--line); border-radius:5px; background:var(--surface-raised); color:#e7edf5; padding:7px 10px; min-height:32px; white-space:nowrap; font-size:12px; }
+.composer-overlay .tool-btn:hover:not(:disabled) { border-color:#66849d; background:#2b3b50; }
+.composer-actions .tool-btn:last-child { background:#75d3ed; color:#10202c; border-color:#75d3ed; font-weight:700; }
+.composer-overlay .danger { color:#ffb7ad; }
+.composer-editbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 18px; background:var(--surface); border-bottom:1px solid var(--line); }
+.composer-editbar label { display:flex; align-items:center; gap:6px; color:var(--muted); margin:0 8px; font-size:12px; }
+.editbar-divider { width:1px; height:24px; background:var(--line); margin:0 5px; }
+.composer-status { background:#24405b; border-bottom:1px solid #3c607e; padding:8px 20px; font-size:12px; }
+.composer-workspace { flex:1; min-height:0; display:flex; overflow:hidden; }
+.composer-toolbar { flex:0 0 126px; padding:18px 10px; background:var(--surface); border-right:1px solid var(--line); overflow-y:auto; }
+.tool-category { display:block; margin:0 7px 9px; font-size:10px; color:#8c9db1; letter-spacing:1.2px; font-weight:700; }
+.tool-group { display:flex; flex-direction:column; gap:5px; }
+.tool-divider { height:1px; margin:16px 4px; background:var(--line); }
+.composer-tool { display:flex; align-items:center; gap:10px; width:100%; min-height:37px; padding:8px; border:1px solid transparent; border-radius:5px; background:none; color:#bccbdd; text-align:left; }
+.composer-tool svg { flex-shrink:0; width:18px; height:18px; }
+.composer-tool span { font-size:12px; }
+.composer-tool .shape-icon { font-size:24px; width:18px; height:18px; line-height:16px; }
+.composer-tool:hover:not(:disabled) { background:var(--surface-raised); color:white; }
+.composer-tool.active { background:#203e52; border-color:#3d6c85; color:#8dddff; }
+.composer-canvas-area { flex:1; min-width:0; position:relative; overflow:auto; padding:48px; background:#354150; background-image:radial-gradient(#627083 0.6px,transparent .6px); background-size:12px 12px; }
+#composer-paper-holder { position:relative; margin:auto; }
+.paper-sheet { position:relative; background:white; color:#111; box-shadow:0 5px 22px #10192380; transform-origin:top left; transition:none; }
+.paper-sheet.show-guides { background-image:linear-gradient(#dbeafe 1px,transparent 1px),linear-gradient(90deg,#dbeafe 1px,transparent 1px); background-size:var(--composer-grid,5mm) var(--composer-grid,5mm); }
+.paper-sheet.show-guides::after { content:""; position:absolute; inset:var(--composer-margin,10mm); border:1px dashed #6292bd; pointer-events:none; }
+.composer-properties { flex:0 0 336px; min-width:0; overflow-y:auto; background:var(--surface); border-left:1px solid var(--line); padding-bottom:18px; }
+.composer-properties.panel-hidden { display:none; }
+.property-tabs { display:flex; position:sticky; top:0; z-index:2; background:#111c2b; border-bottom:1px solid var(--line); padding:0 9px; }
+.property-tabs button { flex:1; background:transparent; border:0; border-bottom:2px solid transparent; color:var(--muted); padding:16px 3px 12px; font-size:12px; }
+.property-tabs button.active { color:#8cdef9; border-bottom-color:#8cdef9; }
+.property-tabs button span { display:inline-block; padding:0 4px; margin-left:3px; background:#29394d; border-radius:3px; font-size:10px; }
+.props-header { padding:18px 18px 10px; }
+.props-header h3 { margin:0; font-weight:600; font-size:13px; color:#f0f5fb; }
+.props-content { padding:0 18px; }
+.composer-properties section > .items-list, .composer-properties section > .props-content { margin:0 16px; }
+.composer-properties section > .props-content { padding:0; }
+.composer-overlay .gis-label { display:block; color:#b5c5d9; font-size:12px; margin-bottom:5px; }
+.composer-overlay .gis-input, .composer-overlay .gis-select { display:block; width:100%; max-width:100%; min-width:0; border:1px solid #3b4b60; border-radius:4px; background:#111c2b; color:#e7edf5; padding:7px 9px; min-height:34px; font:12px/1.4 'Segoe UI',Arial,sans-serif; }
+.composer-overlay .gis-input:disabled, .composer-overlay .gis-select:disabled { color:#8798ad; opacity:.8; }
+.composer-overlay .gis-select { padding-right:4px; }
+.composer-overlay input[type=checkbox] { accent-color:#70cfea; width:14px; height:14px; }
+.composer-overlay input[type=range] { accent-color:#70cfea; }
+.form-group-horizontal { display:flex; align-items:center; gap:8px; }
+.form-group-horizontal .gis-label { margin:0; }
+.form-group-vertical { display:flex; flex-direction:column; min-width:0; }
+.composer-hint { color:#9eb1c8; font-size:11px; line-height:1.65; margin:10px 0; }
+.page-settings { display:grid; gap:7px; }
+.page-settings .gis-label:not(:first-child) { margin-top:10px; }
+.items-list { display:flex; flex-direction:column; gap:4px; }
+.item-layer { display:flex; align-items:center; border:1px solid var(--line); border-radius:5px; background:#1c293a; min-height:42px; }
+.item-layer.active { background:#203e52; border-color:#51849c; }
+.item-name { min-width:0; flex:1; padding:10px; border:0; background:none; color:#dfebf7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left; }
+.zoom-btn { background:none; color:#c5d3e2; border:0; padding:5px 8px; min-height:28px; }
+.zoom-btn:hover { color:white; background:#ffffff12; }
+.selection-heading { display:flex; justify-content:space-between; align-items:center; color:#a4b5c8; margin-bottom:8px; font-size:11px; }
+.selection-badge { color:#84d7f2; background:#244456; border-radius:4px; padding:3px 7px; font-weight:600; }
+.composer-align { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; padding-bottom:12px; }
+.composer-align .tool-btn { font-size:10px; padding:5px; background:transparent; }
+.gis-accordion { margin-bottom:8px; border:1px solid #344457; border-radius:5px; overflow:hidden; }
+.gis-accordion summary { display:flex; align-items:center; padding:11px 10px; background:#202e40; cursor:pointer; list-style:none; font-size:12px; font-weight:600; }
+.gis-accordion summary::before { content:'›'; font-size:18px; line-height:12px; margin-right:8px; color:#8da9be; }
+.gis-accordion[open] summary::before { transform:rotate(90deg); }
+.gis-accordion summary::-webkit-details-marker { display:none; }
+.accordion-content { padding:12px; }
+.accordion-content > .gis-label { margin-top:10px; }
+.accordion-content > .tool-btn { margin-top:9px; width:100%; }
+.font-controls { display:flex; gap:5px; margin-bottom:10px; }
+.font-controls .tool-btn { width:34px; }
+.composer-editbar .file-picker { position:relative; overflow:hidden; margin:0; color:#e7edf5; cursor:pointer; }
+.file-picker input[type=file] { position:absolute; inset:0; opacity:0; width:100%; cursor:pointer; }
+.template-buttons { display:grid; gap:6px; margin-bottom:14px; }
+.audit-issue { margin-top:12px; padding:12px; border:1px solid #726741; border-radius:5px; background:#383525; }
+.audit-issue.error { border-color:#83534b; background:#3c2b2c; }
+.audit-issue p { margin:7px 0; font-size:12px; }
+.audit-ok { color:#9bdfc1; padding:12px 0; }
+.inspector-tabs { display:flex; gap:4px; padding:4px; margin:12px 0 16px; background:#101a27; border:1px solid #304355; border-radius:8px; }
+.inspector-tabs button { flex:1; padding:8px 3px; border:0; border-radius:5px; background:transparent; color:#aabbd0; font-size:11px; }
+.inspector-tabs button.active { color:#092735; background:#89d8eb; font-weight:700; }
+.inspector-card { border:1px solid #33495b; border-radius:9px; margin:0 0 12px; overflow:hidden; background:#1a2939; }
+.inspector-card h4 { display:flex; justify-content:space-between; gap:8px; margin:0; padding:14px; color:#f1f7fb; font-size:12px; font-weight:650; }
+.inspector-card h4 > span { font-weight:400; color:#89d8eb; }
+.inspector-card > h4 { border-top:2px solid #4b8b9f; }
+.inspector-body { padding:0 14px 14px; }
+.inspector-body > .tool-btn { margin-top:10px; width:100%; }
+.inspector-body > .gis-label { margin-top:10px; }
+.inspector-body .form-group-horizontal { flex-wrap:wrap; }
+.inspector-body .form-group-horizontal > .gis-input, .inspector-body .form-group-horizontal > .gis-select { min-width:90px; }
+.inspector-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.inspector-field { display:flex; flex-direction:column; gap:6px; margin:0 0 12px; min-width:0; }
+.inspector-field > span { color:#9fb5c9; font-size:11px; }
+.inspector-name { margin-top:12px; }
+.inspector-card .gis-input, .inspector-card .gis-select { background:#102032; border-color:#3b536a; border-radius:6px; }
+.inspector-card fieldset { min-width:0; margin:0; border:0; }
+.inspector-card fieldset:disabled { opacity:.45; }
+.inspector-switch { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.inspector-switch label { display:flex; align-items:center; gap:5px; margin-right:14px; font-size:10px; color:#aadce4; }
+.inspector-actions { display:flex; gap:6px; margin:4px 0 14px; }
+.inspector-actions .tool-btn { flex:1; }
+.inspector-presets { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.inspector-presets button { border:1px solid #456071; border-radius:6px; padding:8px; background:#122131; color:#c6d9e6; font-size:11px; }
+.inspector-presets button:hover { border-color:#8dd5e4; }
+.preset-sample { display:block; height:25px; margin-bottom:7px; border-radius:3px; }
+.preset-sample.clean { border:1px dashed #8395a3; background:repeating-linear-gradient(45deg,#223445 0 5px,#182938 5px 10px); }
+.preset-sample.paper { background:white; border:2px solid #64748b; }
+.preset-sample.accent { background:#e8f5fa; border:2px solid #147d9e; }
+.color-field { padding:3px !important; height:36px; }
+.color-value { align-self:center; color:#a8c9d5; font:11px monospace; }
+.opacity-control { width:100%; margin:5px 0; }
+.composer-header { position:relative; z-index:40; gap:20px; }
+.composer-menubar { display:flex; align-items:center; gap:3px; margin-right:auto; }
+.composer-menu { position:relative; }
+.composer-menu summary { list-style:none; cursor:pointer; padding:9px 12px; border-radius:6px; font-size:13px; color:#c8d8e7; user-select:none; }
+.composer-menu summary::-webkit-details-marker { display:none; }
+.composer-menu summary::after { content:'⌄'; margin-left:8px; color:#91a9bd; }
+.composer-menu[open] summary, .composer-menu summary:hover { background:#253b4e; color:#a8edff; }
+.composer-menu summary:focus-visible, .composer-menu-panel button:focus-visible { outline:2px solid #75d4ee; outline-offset:2px; }
+.composer-menu-panel { position:absolute; top:calc(100% + 7px); left:0; width:280px; max-height:70vh; overflow-y:auto; padding:8px; border:1px solid #40576d; border-radius:9px; background:#162331; box-shadow:0 12px 35px #0007; display:flex; flex-direction:column; gap:3px; }
+.composer-menu:last-child .composer-menu-panel { left:auto; right:0; }
+.composer-menu-panel button, .menu-import { display:flex; align-items:center; gap:12px; justify-content:space-between; width:100%; padding:10px; border:0; border-radius:5px; background:transparent; color:#dfebf5; text-align:left; font:12px 'Segoe UI',Arial,sans-serif; cursor:pointer; box-sizing:border-box; }
+.composer-menu-panel button:hover:not(:disabled), .menu-import:hover { background:#294458; }
+.composer-menu-panel button:disabled { opacity:.35; cursor:default; }
+.composer-menu-panel button span { font-size:10px; color:#8faabc; }
+.composer-menu-panel button.danger { color:#ffaaaa; }
+.composer-menu-panel hr { width:100%; border:0; border-top:1px solid #304557; margin:5px 0; }
+.composer-menu-panel p { margin:6px 10px; color:#93a9bc; font-size:11px; line-height:1.5; }
+.menu-field { display:grid; grid-template-columns:1fr 135px; align-items:center; gap:8px; padding:8px 10px; font-size:12px; color:#c5d7e5; }
+.menu-check { display:flex; align-items:center; gap:8px; padding:9px 10px; font-size:12px; color:#c5d7e5; }
+.menu-import { position:relative; overflow:hidden; }
+.composer-quickbar { padding:6px 16px; min-height:42px; }
+.composer-selection-info { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#8fa7bc; font-size:12px; }
+.composer-compact-zoom { display:flex; gap:2px; align-items:center; border:1px solid #30465b; border-radius:6px; padding:2px; }
+.composer-compact-zoom .zoom-btn { min-width:30px; padding:5px 9px; }
+@media(max-width:1050px) { .composer-header { gap:8px; } .composer-header h2 { font-size:16px; } .composer-menu summary { padding:8px; } }
+@media(max-width:750px) { .composer-menubar { order:3; width:100%; } .composer-menu-panel { width:240px; } .composer-selection-info { display:none; } .composer-compact-zoom { margin-left:auto; } }
+.map-tool-section { border-top:1px solid #33495b; margin-top:16px; padding-top:12px; display:flex; flex-direction:column; gap:9px; }
+.map-tool-section h4 { margin:0; padding:0; border:0; color:#a4e6f6; }
+.map-direction-pad { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; }
+.map-direction-pad button:nth-child(5) { grid-column:3; }
+.map-coverage { display:flex; flex-direction:column; gap:4px; padding:10px; background:#112b39; border-radius:6px; font-size:12px; color:#aedceb; }
+.legend-order-btn { flex:0 0 22px; padding:3px 0; border:1px solid #40586c; border-radius:4px; background:#192a3b; color:#b9e9f4; cursor:pointer; }
+.legend-order-btn:disabled { opacity:.35; cursor:default; }
+.legend-order-btn:focus-visible { outline:2px solid #78d1e8; }
+.composer-footer { display:flex; justify-content:space-between; gap:18px; padding:7px 18px; border-top:1px solid var(--line); font-size:11px; color:#a8b7c9; }
+.composer-overlay.is-exporting .composer-workspace, .composer-overlay.is-exporting .composer-editbar { opacity:.7; }
+.context-menu { position:fixed; z-index:10000; min-width:190px; background:#1c293a; color:#e7edf5; border:1px solid #465a70; border-radius:6px; padding:5px; box-shadow:0 8px 24px #0006; font:12px 'Segoe UI',Arial,sans-serif; }
+.context-menu-item { padding:8px 12px; cursor:pointer; border-radius:3px; }
+.context-menu-item:hover { background:#2e485f; }
+.context-menu-divider { border-top:1px solid #384b5e; margin:4px; }
+@media(max-width:1150px) { .composer-header { flex-wrap:wrap; gap:10px; padding:10px 16px; } .composer-actions { justify-content:flex-start; } .composer-properties { flex-basis:300px; } .composer-editbar { gap:5px; } }
+@media(max-width:850px) { .composer-toolbar { flex-basis:52px; padding:12px 5px; } .composer-tool { padding:8px; justify-content:center; } .composer-tool span:not(.shape-icon), .tool-category { display:none; } .composer-properties { flex-basis:280px; } .composer-footer span:last-child { display:none; } .composer-canvas-area { padding:24px; } }

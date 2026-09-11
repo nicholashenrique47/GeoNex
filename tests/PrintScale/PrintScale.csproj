@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../GeoNex/Services/PrintMapContext.cs" Link="PrintMapContext.cs" />
+    <Compile Include="../../GeoNex/Services/MapCoordinateSpace.cs" Link="MapCoordinateSpace.cs" />
+    <Compile Include="../../GeoNex/Services/SrsFactory.cs" Link="SrsFactory.cs" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="GDAL" Version="3.12.1" />
+    <PackageReference Include="GDAL.Native" Version="3.12.1" />
+  </ItemGroup>
+</Project>
