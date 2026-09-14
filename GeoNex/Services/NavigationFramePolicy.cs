@@ -4,6 +4,17 @@ namespace GeoNex.Services;
 
 public static class NavigationFramePolicy
 {
+    public static SKMatrix RasterPreviewMatrix(MapCoordinateFrame source, int bitmapWidth, int bitmapHeight,
+        MapCoordinateFrame target)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bitmapWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bitmapHeight);
+        return SKMatrix.CreateScale((float)source.Viewport.PhysicalWidth / bitmapWidth,
+                (float)source.Viewport.PhysicalHeight / bitmapHeight)
+            .PostConcat(source.PhysicalToLocalMatrix)
+            .PostConcat(target.LocalToPhysicalMatrix);
+    }
+
     public static MapCoordinateFrame Rebase(MapCoordinateFrame source, float sourceScale,
         MapCameraState sourceCamera, MapCameraState targetCamera)
     {

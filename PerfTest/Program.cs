@@ -14,14 +14,28 @@ if (!string.IsNullOrEmpty(nativeOverride))
 }
 
 if (args.Contains("--index-contracts")) { IndexContracts.Run(); return; }
+if (args.Contains("--online-scheduler-contracts")) { await OnlineSchedulerContracts.Run(); return; }
+if (args.Contains("--polygon-image-cache-contracts")) { PolygonImageCacheContracts.Run(); return; }
+if (args.Contains("--online-session-contracts")) { await OnlineSessionContracts.Run(); return; }
+if (args.Contains("--render-precision-contracts")) { RenderPrecisionContracts.Run(); return; }
+if (args.Contains("--online-worker-contracts")) { await OnlineWorkerContracts.Run(); return; }
+if (args.Contains("--frame-encoding-contracts")) { FrameEncodingContracts.Run(); return; }
+if (Array.IndexOf(args, "--production-map-metrics") is int mapIndex && mapIndex >= 0)
+{ await ProductionMapMetrics.Run(args[mapIndex + 1], args[mapIndex + 2], args.Contains("--basemap") || args.Contains("--delayed-basemap"), args.Contains("--delayed-basemap"), args.Contains("--polygon-images")); return; }
 if (args.Contains("--cpu-contracts")) { NativeCpuContracts.Run(); return; }
 if (args.Contains("--render-contracts")) { RenderContracts.Run(); return; }
 if (args.Contains("--managed-interop-contracts")) { ManagedInteropContracts.Run(); return; }
 if (args.Contains("--presentation-metrics")) { PresentationMetrics.Run(); return; }
 if (args.Contains("--resource-budget-contracts")) { ResourceBudgetContracts.Run(); return; }
+if (args.Contains("--vector-resource-contracts")) { VectorResourceContracts.Run(); return; }
+if (args.Contains("--shx-stream-contracts")) { ShapefileIndexContracts.Run(); return; }
+if (Array.IndexOf(args, "--production-vector-smoke") is int productionIndex && productionIndex >= 0)
+{ ProductionVectorSmoke.Run(args[productionIndex + 1], args[productionIndex + 2]); return; }
 if (args.Contains("--resource-lease-contracts")) { ResourceLeaseContracts.Run(); return; }
 if (args.Contains("--raster-contracts")) { RasterContracts.Run(); return; }
 if (args.Contains("--raster-overview-contracts")) { RasterOverviewContracts.Run(); return; }
+if (Array.IndexOf(args, "--production-raster-refresh-contracts") is int refreshIndex && refreshIndex >= 0)
+{ await ProductionRasterRefreshContracts.Run(args[refreshIndex + 1]); return; }
 if (args.Contains("--ecw-contracts")) { EcwContracts.Run(); return; }
 if (args.Contains("--online-basemap-contracts")) { OnlineBasemapContracts.Run(); return; }
 if (args.Contains("--online-basemap-smoke")) { OnlineBasemapSmoke.Run(); return; }
@@ -29,6 +43,12 @@ if (args.Contains("--export-contracts")) { ExportContracts.Run(); return; }
 if (args.Contains("--coordinate-contracts")) { CoordinateContracts.Run(); return; }
 if (args.Contains("--telemetry-contracts")) { TelemetryContracts.Run(); return; }
 if (args.Contains("--large-shp-contracts")) { LargeShapefileContracts.Run(); return; }
+if (args.Contains("--render-path-cache-contracts")) { RenderPathCacheContracts.Run(); return; }
+if (args.Contains("--projection-batch-contracts")) { ProjectionBatchContracts.Run(); return; }
+if (args.Contains("--layer-camera-contracts")) { LayerCameraContracts.Run(); return; }
+if (args.Contains("--transformed-ring-contracts")) { TransformedRingContracts.Run(); return; }
+if (Array.IndexOf(args, "--geojson-render-metrics") is int jsonIndex && jsonIndex >= 0)
+{ TransformedRingContracts.Measure(args[jsonIndex + 1]); return; }
 if (Array.IndexOf(args, "--large-shp-metrics") is int realIndex && realIndex >= 0)
 {
     LargeShapefileContracts.Measure(args[realIndex + 1]);

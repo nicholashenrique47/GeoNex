@@ -88,7 +88,7 @@ namespace GeoNex.Services
                         boundsPointer,
                         kindsPointer,
                         features.Count,
-                        GeoNexHardware.IndexWorkerCount));
+                        GeoNexHardware.WorkersFor(features.Count)));
                 }
 
                 if (nativeHandle.IsInvalid)
@@ -252,16 +252,7 @@ namespace GeoNex.Services
 
     internal static class GeoNexHardware
     {
-        private static int ReadPositiveEnvironmentVariable(string name, int fallback)
-        {
-            string? text = Environment.GetEnvironmentVariable(name);
-            return int.TryParse(text, out int value) && value > 0 ? value : fallback;
-        }
-
-        // No i7-12700F, 12 workers usam os 12 núcleos físicos sem depender de
-        // Hyper-Threading no estágio memory-bound de indexação.
-        public static int IndexWorkerCount { get; } = ReadPositiveEnvironmentVariable(
-            "GEONEX_INDEX_WORKERS",
-            Environment.ProcessorCount >= 20 ? 12 : Math.Max(1, Math.Min(Environment.ProcessorCount, 8)));
+        public static int IndexWorkerCount => VectorRuntimeResources.Current.Workers;
+        public static int WorkersFor(int featureCount) => VectorRuntimeResources.Current.WorkersFor(featureCount);
     }
 }

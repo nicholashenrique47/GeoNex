@@ -47,13 +47,31 @@ internal static class OnlineBasemapContracts
         Assert(!OnlineBasemapPolicy.CanUseDirectRasterIo(
             true, false, "EPSG:3857", "project", (_, _) => false),
             "reprojection keeps Warp fallback");
-        Assert(OnlineBasemapPolicy.CalculateRenderDimensionCap(1500, false) == 1280 &&
-               OnlineBasemapPolicy.CalculateRenderDimensionCap(3000, false) == 1600 &&
-               OnlineBasemapPolicy.CalculateRenderDimensionCap(8000, false) == 2048 &&
-               OnlineBasemapPolicy.CalculateRenderDimensionCap(8000, true) == 512,
-            "adaptive online frame caps");
+        Assert(OnlineBasemapPolicy.CalculateRenderDimensions(1920, 1080, 1500, false) == new RasterDimensions(1920, 1080),
+            "notebook final keeps physical screen resolution");
+        Assert(OnlineBasemapPolicy.CalculateRenderDimensions(3840, 2160, 3000, false) == new RasterDimensions(3840, 2160),
+            "HiDPI/4K final does not inherit the old 1600px cap");
+        var preview = OnlineBasemapPolicy.CalculateRenderDimensions(3840, 2160, 3000, true);
+        Assert(OnlineBasemapPolicy.CalculateDirectRenderDimensions(3840, 2160, 768) == new RasterDimensions(3840, 2160),
+            "strip reader preserves 4K with bounded scratch on a notebook");
+        var bounded = OnlineBasemapPolicy.CalculateDirectRenderDimensions(32768, 32768, 256);
+        Assert((long)bounded.Width * bounded.Height * 8 + 8L * 1024 * 1024 <= 256L * 1024 * 1024 / 8,
+            "direct reader bounds two frames and strip scratch under pressure");
+        Assert(preview.Width <= 512 && preview.Height <= 512, "interaction stays bounded");
+        var pressure = OnlineBasemapPolicy.CalculateRenderDimensions(7680, 4320, 256, false);
+        Assert((long)pressure.Width * pressure.Height <= RasterRenderingPolicy.CalculateMaxFramePixels(256),
+            "low-memory final respects pixel budget");
+        Assert(OnlineBasemapPolicy.CalculateRenderDimensions(256, 256, 3000, false) == new RasterDimensions(256, 256),
+            "never download more resolution than requested");
+        string previewKey = RasterRenderingPolicy.CacheKeyForQuality("same-camera", true);
+        string finalKey = RasterRenderingPolicy.CacheKeyForQuality("same-camera", false);
+        var simulatedCache = new Dictionary<string, RasterDimensions> { [previewKey] = preview };
+        Assert(!simulatedCache.ContainsKey(finalKey), "preview cannot satisfy final refinement at identical camera");
+        simulatedCache[finalKey] = OnlineBasemapPolicy.CalculateRenderDimensions(3840, 2160, 3000, false);
+        Assert(simulatedCache[finalKey].Width == 3840 && simulatedCache[previewKey].Width == 512,
+            "preview and final retain separate quality identities");
 
-        Console.WriteLine("Online basemap contracts: PASS (pyramids, cache, TLS, direct RasterIO, notebook caps)");
+        Console.WriteLine("Online basemap contracts: PASS (pyramids, cache, TLS, RasterIO, physical resolution/DPI, pressure, preview/final isolation)");
     }
 
     private static OnlineBasemapCacheSettings CreateCache(int availableMb, string? configuredMb = null) =>

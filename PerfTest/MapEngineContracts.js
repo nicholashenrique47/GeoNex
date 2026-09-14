@@ -23,7 +23,7 @@ function setup() {
     const context = vm.createContext({
         window: {}, console: { warn() {} }, URL, Set, Map,
         performance: { now: () => now },
-        setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; },
+        setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay, due: now + delay }); return timerId; },
         clearTimeout: id => timers.delete(id),
         requestAnimationFrame: fn => { frames.push(fn); return frames.length; },
         cancelAnimationFrame() {},
@@ -44,10 +44,87 @@ function setup() {
         image.resolve(); await drain();
         frames.splice(0).forEach(fn => fn(now)); await drain();
     }
-    return { engine, a, b, images, calls, timers, present, drain, advance: ms => now += ms };
+    function tick(ms) {
+        const until = now + ms;
+        let guard = 0;
+        for (;;) {
+            const next = [...timers].filter(([, timer]) => timer.due <= until)
+                .sort((a, b) => a[1].due - b[1].due)[0];
+            if (!next) break;
+            assert.ok(++guard < 10000, 'timer loop remains bounded');
+            timers.delete(next[0]); now = next[1].due; next[1].fn();
+        }
+        now = until;
+    }
+    return { engine, a, b, images, calls, timers, present, drain, tick, advance: ms => now += ms };
 }
 
 (async () => {
+    {
+        const s = setup(), e = s.engine;
+        e.carregarNovoFrame('/vector-first?deferOnline=1', 1, 0, false, 0, 800, 600, 90, 40, 2, true);
+        assert.equal(s.calls.length, 0, 'online refinement waits for vector presentation');
+        await s.present(s.images[0]); s.tick(0);
+        const cameras = s.calls.filter(call => call[0] === 'AtualizarCameraJS');
+        assert.equal(cameras.length, 1, 'one automatic online refinement');
+        assert.equal(cameras[0][4], false, 'refinement requests full quality');
+        assert.deepEqual(cameras[0].slice(-3), [90, 40, 2], 'online refinement preserves fitted layer camera');
+    }
+    {
+        const s = setup(), e = s.engine;
+        e.carregarNovoFrame('/old-vector-preview', 1, 0, false, 0, 800, 600, 0, 0, 1, true);
+        e.carregarNovoFrame('/new-scene', 2, 0, false, 0, 800, 600, 0, 0, 2, false);
+        await s.present(s.images[1]);
+        await s.present(s.images[0]); s.tick(0);
+        assert.equal(s.calls.filter(call => call[0] === 'AtualizarCameraJS').length, 0,
+            'discarded online preview cannot trigger obsolete refinement');
+    }
+    {
+        const s = setup(), e = s.engine, requested = [];
+        e.solicitarFrame = interactive => requested.push(interactive);
+        for (let i = 0; i < 10; i++) { e.scheduleRender(); s.tick(100); }
+        assert.ok(requested.length > 0 && requested.every(Boolean), 'wheel burst requests previews, not premature final I/O');
+        s.tick(500);
+        assert.equal(requested.filter(value => !value).length, 1, 'exactly one full-quality refinement after settling');
+        for (const latency of [0, 16, 300, 5000, NaN, Infinity]) {
+            e.currentLatency = latency;
+            assert.ok(e.obterAtrasoAssentamento() >= 250 && e.obterAtrasoAssentamento() <= 400, 'settling delay bounded across hardware/network latency');
+        }
+    }
+    {
+        const s = setup(), e = s.engine;
+        e.targetX = 90; e.targetScale = 2;
+        e.executarRequisicao(true);
+        s.advance(300);
+        e.solicitarFrame(false);
+        assert.equal(e.activeRequestId, 1, 'same-camera final does not cancel slow preview');
+        assert.equal(s.calls.length, 1);
+        assert.equal(e.hasPendingRequest, true);
+        assert.equal(e.pendingInteractive, false);
+        e.carregarNovoFrame('/slow-preview', 1, 1, false, 0, 800, 600, 90, 0, 2);
+        await s.present(s.images[0]); s.tick(0);
+        const cameraCalls = s.calls.filter(call => call[0] === 'AtualizarCameraJS');
+        assert.equal(cameraCalls.length, 2);
+        assert.equal(cameraCalls[1][4], false, 'preview automatically followed by final quality');
+        assert.deepEqual(cameraCalls[1].slice(-3), [90, 0, 2], 'refinement uses committed camera without double zoom');
+    }
+    {
+        const s = setup(), e = s.engine;
+        e.executarRequisicao(true);
+        s.advance(300);
+        e.solicitarFrame(true);
+        assert.equal(s.calls.length, 1, 'identical in-flight preview is not duplicated');
+        assert.equal(e.hasPendingRequest, false);
+        e.solicitarFrame(false);
+        assert.equal(e.pendingInteractive, false);
+        e.targetX = 150;
+        e.scheduleRender();
+        assert.equal(e.pendingInteractive, true, 'new gesture demotes queued old final until next settle');
+        e.carregarNovoFrame('/previous-pause', 1, 1, false);
+        await s.present(s.images[0]); s.tick(0);
+        const cameraCalls = s.calls.filter(call => call[0] === 'AtualizarCameraJS');
+        assert.equal(cameraCalls.at(-1)[4], true, 'continued navigation does not trigger premature high-quality I/O');
+    }
     {
         const s = setup(), e = s.engine;
         e.committedCamera = { panX: 40, panY: -30, zoom: 2 };
@@ -100,5 +177,38 @@ function setup() {
         s.advance(200); e.solicitarFrame(false);
         assert.equal(e.activeRequestId, 2, 'navigation can recover after terminal failure');
     }
-    console.log('Map engine contracts: PASS (A/B swap, overscan, stale decode, camera preemption/rebase, reset, bounded retries)');
+    {
+        const s = setup(), e = s.engine;
+        e.executarRequisicao(true);
+        e.carregarNovoFrame('/old-basemap', 1, 1, false);
+        e.renderTimeout = 21; e.previewTimeout = 22; e.velocityX = 50;
+        const barrier = e.sincronizarCameraComBlazor(1234, -5678, 2500);
+        assert.equal(barrier, 1, 'fit returns the last old request identity');
+        assert.equal(e.renderTimeout, null);
+        assert.equal(e.previewTimeout, null);
+        assert.equal(e.velocityX, 0);
+        assert.equal(e.committedCamera.zoom, 2500, 'fit retains non-default camera basis');
+        await s.present(s.images[0]);
+        assert.equal(e.latestFramePresented, 0, 'old basemap decode cannot undo layer fit');
+        e.carregarNovoFrame('/fitted-vector', 2, 0, false, 0, 800, 600, 1234, -5678, 2500);
+        await s.present(s.images[1]);
+        e.executarRequisicao(false);
+        assert.deepEqual(s.calls.at(-1).slice(-3), [1234, -5678, 2500], 'next gesture uses fitted camera');
+    }
+    {
+        const s = setup(), e = s.engine;
+        e.sincronizarCameraComBlazor(1234, -5678, 2500);
+        e.executarRequisicao(true, true);
+        assert.equal(s.calls[0][4], true, 'fit requests preview first');
+        e.carregarNovoFrame('/fit-preview', 1, 1, false, 0, 800, 600, 1234, -5678, 2500);
+        assert.equal(s.calls.length, 1, 'final must not cancel the unpresented preview');
+        await s.present(s.images[0]);
+        assert.equal(e.latestFramePresented, 1);
+        for (const [id, timer] of [...s.timers]) if (timer.delay === 0) { s.timers.delete(id); timer.fn(); }
+        const cameraCalls = s.calls.filter(call => call[0] === 'AtualizarCameraJS');
+        assert.equal(cameraCalls.length, 2, 'fit automatically refines after presentation');
+        assert.equal(cameraCalls[1][4], false, 'refinement uses final quality');
+        assert.deepEqual(cameraCalls[1].slice(-3), [1234, -5678, 2500]);
+    }
+    console.log('Map engine contracts: PASS (A/B swap, camera/DPI, stale decode, wheel burst debounce, preview-before-final, deduplication, gesture resumption, reset/retries)');
 })().catch(error => { console.error(error); process.exitCode = 1; });

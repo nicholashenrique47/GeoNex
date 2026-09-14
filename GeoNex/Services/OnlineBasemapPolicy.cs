@@ -168,13 +168,20 @@ public static class OnlineBasemapPolicy
             areEquivalent(sourceSrs, projectSrs);
     }
 
-    public static int CalculateRenderDimensionCap(int availablePhysicalMb, bool isInteracting) =>
-        isInteracting
-            ? 512
-            : availablePhysicalMb switch
-            {
-                < 2048 => 1280,
-                < 4096 => 1600,
-                _ => 2048
-            };
+    public static RasterDimensions CalculateRenderDimensions(int physicalWidth, int physicalHeight,
+        int availablePhysicalMb, bool isInteracting) => isInteracting
+        ? RasterRenderingPolicy.FitDimensions(physicalWidth, physicalHeight, 512L * 512, 512)
+        : RasterRenderingPolicy.FitDimensions(physicalWidth, physicalHeight,
+            RasterRenderingPolicy.CalculateMaxFramePixels(availablePhysicalMb));
+
+    // Direct imagery is read in strips: two RGBA frames plus bounded scratch,
+    // rather than the Warp pipeline's 20 bytes per pixel. Preserve HiDPI detail
+    // on notebooks without allocating an unbounded intermediate source window.
+    public static RasterDimensions CalculateDirectRenderDimensions(int width, int height, int availableMb)
+    {
+        long budget = Math.Max(128L, availableMb) * 1024 * 1024 / 8;
+        long pixels = Math.Clamp((budget - 8L * 1024 * 1024) / 8,
+            1920L * 1080, 32L * 1024 * 1024);
+        return RasterRenderingPolicy.FitDimensions(width, height, pixels);
+    }
 }

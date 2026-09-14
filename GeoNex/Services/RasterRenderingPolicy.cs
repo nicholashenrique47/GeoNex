@@ -4,6 +4,10 @@ public readonly record struct RasterDimensions(int Width, int Height);
 
 public static class RasterRenderingPolicy
 {
+    // A low-resolution interaction frame must never satisfy a final-quality request.
+    public static string CacheKeyForQuality(string cameraKey, bool isInteracting) =>
+        cameraKey + (isInteracting ? "|preview" : "|final");
+
     private const long Mebibyte = 1024L * 1024L;
     private const int DefaultMinimumOverviewSize = 256;
     private const int AbsoluteMaximumDimension = 8192;

@@ -990,6 +990,7 @@ window.mapEngine = {
     },
 
     resetarCamera: function () {
+        this.refineAfterRequestId = 0;
         this.cameraEpoch++;
         this.committedCamera = { panX: 0, panY: 0, zoom: 1 };
         if (this.rafId !== null) cancelAnimationFrame(this.rafId);
@@ -1015,7 +1016,8 @@ window.mapEngine = {
     },
 
     sincronizarCameraComBlazor: function (panX, panY, zoomBase) {
-        this.cameraEpoch++;
+        // Reset pending timers and inertia as well as in-flight decodes, but keep the requested camera.
+        this.resetarCamera();
         this.committedCamera = { panX, panY, zoom: zoomBase };
         clearTimeout(this.fetchWatchdog);
         this.fetchWatchdog = null;
@@ -1030,6 +1032,7 @@ window.mapEngine = {
         this.pendingX = 0; this.pendingY = 0; this.pendingScale = 1;
         this.velocityX = 0; this.velocityY = 0;
         this.aplicarTransformacao();
+        return this.requestSerial;
     },
 
     aplicarTransformacao: function () {
@@ -1410,11 +1413,16 @@ window.mapEngine = {
 
     obterAtrasoAssentamento: function () {
         const latencia = Number.isFinite(this.currentLatency) ? this.currentLatency : 16;
-        return Math.max(60, Math.min(120, latencia * 0.3));
+        // Short wheel/trackpad pauses are not the end of a gesture. Final frames
+        // can involve uncancellable online RasterIO, so debounce them separately.
+        return Math.max(250, Math.min(400, latencia * 0.3));
     },
 
     scheduleRender: function () {
         this.lastInteractionTime = performance.now();
+        // New input invalidates a queued settle request from an earlier pause.
+        // Keep navigation responsive; the debounce below will request final quality again.
+        if (this.hasPendingRequest) this.pendingInteractive = true;
         clearTimeout(this.renderTimeout);
         let delayAdaptativo = this.obterAtrasoAssentamento();
         this.renderTimeout = setTimeout(() => {
@@ -1430,16 +1438,22 @@ window.mapEngine = {
                 this.previewTimeout = null;
                 if (performance.now() - this.lastInteractionTime < this.obterAtrasoAssentamento() + 24)
                     this.solicitarFrame(true);
-            }, 280);
+            }, 120);
         }
     },
 
     solicitarFrame: function (interacaoRapida) {
         if (!this.dotNetHelper) return;
         if (this.isFetching) {
+            const cameraChanged = this.targetX !== this.pendingX ||
+                this.targetY !== this.pendingY || this.targetScale !== this.pendingScale;
+            const exhausted = this.fetchWatchdog === null && this.retryCount > 2;
+            if (!cameraChanged && interacaoRapida && !exhausted) return;
             // Supersede slow frames. The next request uses the same presented
             // camera basis, so canceling a pending frame never doubles pan/zoom.
-            if (performance.now() - this.lastRequestStart >= 150) {
+            // A final refinement of the SAME camera waits for its preview to be
+            // presented: canceling it wastes I/O and prevents any early feedback.
+            if (performance.now() - this.lastRequestStart >= 150 && (cameraChanged || exhausted)) {
                 this.executarRequisicao(interacaoRapida);
                 return;
             }
@@ -1455,7 +1469,7 @@ window.mapEngine = {
         this.executarRequisicao(interacaoRapida);
     },
 
-    executarRequisicao: function (interacaoRapida) {
+    executarRequisicao: function (interacaoRapida, refineAfterPresentation = false) {
         this.isFetching = true;
         this.hasPendingRequest = false;
         this.pendingInteractive = false;
@@ -1468,6 +1482,7 @@ window.mapEngine = {
         this.pendingCameraBasis = { ...this.committedCamera };
 
         const requestId = ++this.requestSerial;
+        this.refineAfterRequestId = refineAfterPresentation ? requestId : 0;
         this.activeRequestId = requestId;
         this.lastRequestStart = performance.now();
         const limiteEspera = Math.max(3000, Math.min(15000, (this.currentLatency || 250) * 4 + 2000));
@@ -1504,7 +1519,7 @@ window.mapEngine = {
             .catch(() => this.falharRequisicao(requestId));
     },
 
-    carregarNovoFrame: function (url, frameId, requestIdCamera, telemetryEnabled, padding = 0, visibleWidth = 0, visibleHeight = 0, cameraPanX = 0, cameraPanY = 0, cameraZoom = 1) {
+    carregarNovoFrame: function (url, frameId, requestIdCamera, telemetryEnabled, padding = 0, visibleWidth = 0, visibleHeight = 0, cameraPanX = 0, cameraPanY = 0, cameraZoom = 1, refineOnline = false) {
         frameId = Number(frameId) || 0;
         requestIdCamera = Number(requestIdCamera) || 0;
         telemetryEnabled = telemetryEnabled === true;
@@ -1612,6 +1627,11 @@ window.mapEngine = {
             }
 
             if (confirmouCamera) {
+                if (this.refineAfterRequestId === requestIdCamera) {
+                    this.refineAfterRequestId = 0;
+                    this.hasPendingRequest = true;
+                    this.pendingInteractive = false;
+                }
                 this.targetScale = this.targetScale / this.pendingScale;
                 this.currentScale = this.currentScale / this.pendingScale;
                 this.targetX = this.targetX - (this.pendingX * this.targetScale);
@@ -1634,6 +1654,12 @@ window.mapEngine = {
             this.aplicarTransformacao();
             this.solicitarAnimacao();
 
+            // A scene update may present sharp vectors before online tiles arrive.
+            // Refine only after that frame commits, using its absolute camera.
+            if (refineOnline && !this.hasPendingRequest) {
+                this.hasPendingRequest = true;
+                this.pendingInteractive = performance.now() - this.lastInteractionTime < this.obterAtrasoAssentamento();
+            }
             if (this.hasPendingRequest) {
                 const interacaoPendente = this.pendingInteractive;
                 this.hasPendingRequest = false;

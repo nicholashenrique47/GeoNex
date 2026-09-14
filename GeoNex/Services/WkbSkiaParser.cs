@@ -405,9 +405,8 @@ namespace GeoNex.Services
         /// vetores do tamanho de TODOS os vértices visíveis; em camadas grandes isso
         /// podia transformar um único frame em vários GB temporários. Os buffers de
         /// reprojecao ficam limitados (~6 MB de doubles) e voltam ao pool mesmo quando
-        /// um pan cancela o frame. Este e o caminho de referencia: preserva todos os
-        /// vertices, sem stride ou LOD por amostragem. O SKPath final e o custo de CPU
-        /// crescem com a geometria ate existir simplificacao com erro visual controlado.
+        /// um pan cancela o frame. O frame final preserva todos os vertices;
+        /// apenas a previa usa reducao de vertices em espaco de tela.
         /// </summary>
         public static unsafe void BuildBatchPathWithTransform(
             SKPath batchPath, MemoryMappedShapefile shp,
@@ -415,7 +414,7 @@ namespace GeoNex.Services
             double offsetX, double offsetY,
             float resolution, float zoomReal,
             OSGeo.OSR.CoordinateTransformation transform,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, bool preview = false)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (feicoesList.Count == 0 || shp.ShpPointer == null) return;
@@ -442,7 +441,7 @@ namespace GeoNex.Services
                     {
                         AppendOversizedTransformedFeature(
                             batchPath, firstData, offsetX, offsetY,
-                            transform, x, y, z, cancellationToken);
+                            transform, x, y, z, cancellationToken, zoomReal, preview);
                         featureIndex++;
                         continue;
                     }
@@ -511,7 +510,7 @@ namespace GeoNex.Services
 
                             AppendTransformedFeature(
                                 batchPath, data, shapeType, numParts, numPoints, pointCursor,
-                                x, y, offsetX, offsetY, cancellationToken);
+                                x, y, offsetX, offsetY, cancellationToken, zoomReal, preview);
                             pointCursor += numPoints;
                         }
                     }
@@ -542,7 +541,7 @@ namespace GeoNex.Services
         private static unsafe void AppendTransformedFeature(
             SKPath batchPath, byte* data, int shapeType, int numParts, int numPoints,
             int pointCursor, double[] x, double[] y, double offsetX, double offsetY,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, float zoom, bool preview)
         {
             bool isPolygon = shapeType == 5 || shapeType == 15 || shapeType == 25;
             int* parts = (int*)(data + 44);
@@ -554,27 +553,32 @@ namespace GeoNex.Services
                 int count = end - start;
                 if (start < 0 || end > numPoints || count < (isPolygon ? 3 : 2)) continue;
 
-                // Este metodo recebe apenas feicoes que cabem no lote de transformacao.
-                // A conversao para floats tambem fica limitada a TransformPointBatchSize.
-                EnsureThreadOutputCapacity(count);
-                for (int point = 0; point < count; ++point)
+                if (preview)
                 {
-                    if ((point & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
-                    int global = pointCursor + start + point;
-                    _threadBufferOut![point * 2] = (float)(x[global] - offsetX);
-                    _threadBufferOut[point * 2 + 1] = -(float)(y[global] - offsetY);
+                    TransformedRingWriter.Append(batchPath, x, y, pointCursor + start, count,
+                        offsetX, offsetY, isPolygon, zoom, true, cancellationToken);
                 }
-
-                var points = System.Runtime.InteropServices.MemoryMarshal.Cast<float, SKPoint>(
-                    new ReadOnlySpan<float>(_threadBufferOut, 0, count * 2));
-                batchPath.AddPoly(points, isPolygon);
+                else
+                {
+                    // Retain the existing final-quality path and its reused thread-local buffer.
+                    EnsureThreadOutputCapacity(count);
+                    for (int point = 0; point < count; ++point)
+                    {
+                        if ((point & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
+                        int global = pointCursor + start + point;
+                        _threadBufferOut![point * 2] = (float)(x[global] - offsetX);
+                        _threadBufferOut[point * 2 + 1] = -(float)(y[global] - offsetY);
+                    }
+                    batchPath.AddPoly(System.Runtime.InteropServices.MemoryMarshal.Cast<float, SKPoint>(
+                        new ReadOnlySpan<float>(_threadBufferOut, 0, count * 2)), isPolygon);
+                }
             }
         }
 
         private static unsafe void AppendOversizedTransformedFeature(
             SKPath batchPath, byte* data, double offsetX, double offsetY,
             OSGeo.OSR.CoordinateTransformation transform,
-            double[] x, double[] y, double[] z, CancellationToken cancellationToken)
+            double[] x, double[] y, double[] z, CancellationToken cancellationToken, float zoom, bool preview)
         {
             int shapeType = *(int*)data;
             int numParts = *(int*)(data + 36);
@@ -609,6 +613,15 @@ namespace GeoNex.Services
                     transform.TransformPoints(chunkCount, x, y, z);
                     cancellationToken.ThrowIfCancellationRequested();
 
+                    if (consumed == 0 && chunkCount == count)
+                    {
+                        // A huge MultiPolygon usually contains many small rings. Submit each complete
+                        // ring once, instead of a managed/native LineTo call for every vertex.
+                        TransformedRingWriter.Append(batchPath, x, y, 0, count,
+                            offsetX, offsetY, isPolygon, zoom, preview, cancellationToken);
+                        consumed += chunkCount;
+                        continue;
+                    }
                     // Continuar o mesmo contorno entre chunks: AddPoly por chunk
                     // criaria novos aneis e ligacoes de fechamento artificiais.
                     for (int point = 0; point < chunkCount; ++point)
@@ -621,7 +634,7 @@ namespace GeoNex.Services
                     }
                     consumed += chunkCount;
                 }
-                if (isPolygon) batchPath.Close();
+                if (isPolygon && count > TransformPointBatchSize) batchPath.Close();
             }
         }
 

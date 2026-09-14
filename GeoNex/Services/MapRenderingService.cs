@@ -13,7 +13,8 @@ namespace GeoNex.Services
         string CacheKey,
         float PanX,
         float PanY,
-        float Zoom);
+        float Zoom,
+        MapCoordinateFrame? Frame = null);
 
     public readonly record struct GlobalCacheMetadata(
         float Zoom,
@@ -67,12 +68,10 @@ namespace GeoNex.Services
 
         // Cache de geometria simplificada com overscan. Uma copia de SKPath e barata
         // (copy-on-write no Skia) e impede corridas entre render/compositor.
-        private readonly object _renderPathCacheLock = new();
-        private SKPath? _renderPathCache;
-        private SKRect _renderPathCoverage = SKRect.Empty;
-        private float _renderPathZoom;
-        private bool _renderPathInteractive;
-        private bool _renderPathCompact;
+        private static readonly RenderPathCache SharedRenderPaths = new(
+            budgetProvider: () => VectorRuntimeResources.Current.CacheBytes);
+        private static long _nextRenderPathOwner;
+        private readonly long _renderPathOwner = System.Threading.Interlocked.Increment(ref _nextRenderPathOwner);
 
         /// <summary>Ponteiro bruto do SHP — adquirido uma vez, zero syscalls depois.</summary>
         public byte* ShpPointer
@@ -98,49 +97,23 @@ namespace GeoNex.Services
         }
 
         public bool TryGetRenderPath(SKRect viewport, float zoom, bool interactive, out SKPath? path, bool compact = false)
-        {
-            lock (_renderPathCacheLock)
-            {
-                bool sameScale = _renderPathZoom > 0 &&
-                    Math.Abs(_renderPathZoom - zoom) <= Math.Max(1.0e-6f, zoom * 0.001f);
-                bool contains = !_renderPathCoverage.IsEmpty &&
-                    viewport.Left >= _renderPathCoverage.Left && viewport.Top >= _renderPathCoverage.Top &&
-                    viewport.Right <= _renderPathCoverage.Right && viewport.Bottom <= _renderPathCoverage.Bottom;
+            => SharedRenderPaths.TryGet(_renderPathOwner, viewport, zoom, interactive, compact, out path);
 
-                if (_renderPathCache != null && sameScale && interactive == _renderPathInteractive && compact == _renderPathCompact && contains)
-                {
-                    path = new SKPath(_renderPathCache);
-                    return true;
-                }
-            }
-
-            path = null;
-            return false;
-        }
-
-        public void StoreRenderPath(SKPath path, SKRect coverage, float zoom, bool interactive, bool compact = false)
-        {
-            lock (_renderPathCacheLock)
-            {
-                _renderPathCache?.Dispose();
-                _renderPathCache = new SKPath(path);
-                _renderPathCoverage = coverage;
-                _renderPathZoom = zoom;
-                _renderPathInteractive = interactive;
-                _renderPathCompact = compact;
-            }
-        }
+        public void StoreRenderPath(SKPath path, SKRect coverage, float zoom, bool interactive, bool compact = false,
+            bool scaleIndependent = false)
+            => SharedRenderPaths.Store(_renderPathOwner, path, coverage, zoom, interactive, compact, scaleIndependent);
 
         public void InvalidateRenderPath()
-        {
-            lock (_renderPathCacheLock)
-            {
-                _renderPathCache?.Dispose();
-                _renderPathCache = null;
-                _renderPathCoverage = SKRect.Empty;
-                _renderPathZoom = 0;
-            }
-        }
+            => SharedRenderPaths.Invalidate(_renderPathOwner);
+
+        // Separate names preserve reflection consumers of the original methods.
+        public bool TryGetPreciseRenderPath(SKRect viewport, SKPoint origin, float zoom, bool interactive,
+            out SKPath? path, bool compact = false)
+            => SharedRenderPaths.TryGet(_renderPathOwner, viewport, zoom, interactive, compact, out path, origin);
+
+        public void StorePreciseRenderPath(SKPath path, SKRect coverage, SKPoint origin, float zoom,
+            bool interactive, bool compact, bool scaleIndependent)
+            => SharedRenderPaths.Store(_renderPathOwner, path, coverage, zoom, interactive, compact, scaleIndependent, origin);
 
         /// <summary>Ponteiro bruto do DBF — acesso direto sem syscall.</summary>
         public byte* DbfPointerDirect => _dbfPtr;
@@ -209,11 +182,13 @@ namespace GeoNex.Services
         }
     }
 
-    public class MapRenderingService : IDisposable
+    public partial class MapRenderingService : IDisposable
     {
         private int _disposeState;
         private long _sceneRevision;
         public long SceneRevision => System.Threading.Interlocked.Read(ref _sceneRevision);
+        private long _vectorPresentationRevision;
+        public long VectorPresentationRevision => System.Threading.Interlocked.Read(ref _vectorPresentationRevision);
         public string LocalServerBaseUrl { get; set; } = "";
         
         // Mestre das Projeções (Project CRS em WKT ou EPSG)
@@ -229,6 +204,17 @@ namespace GeoNex.Services
         
         // Dados do Viewport atual (alimentados pelo LocalMapServer)
         public float ViewportEscalaAutoFit { get; set; } = 1f;
+
+        public SKRect GetSceneBounds()
+        {
+            var bounds = TemRaster ? LimitesRasterGlobal : SKRect.Empty;
+            if (!LimitesGlobaisVetor.IsEmpty)
+            {
+                if (bounds.IsEmpty) bounds = LimitesGlobaisVetor;
+                else bounds.Union(LimitesGlobaisVetor);
+            }
+            return bounds;
+        }
         public float ViewportMidX { get; set; } = 0f;
         public float ViewportMidY { get; set; } = 0f;
         public float ViewportWidth { get; set; } = 1920f;
@@ -661,13 +647,26 @@ namespace GeoNex.Services
             lock (_rasterResourceGate) return _rasters.ContainsKey(layerName);
         }
 
+        private readonly HashSet<string> _onlineRasterNames = new();
+        private readonly Dictionary<string, string> _onlineRasterXml = new();
+        public string? GetOnlineRasterXml(string layerName)
+        { lock (_rasterResourceGate) return _onlineRasterXml.GetValueOrDefault(layerName); }
+        public bool HasOnlineBasemap { get { lock (_rasterResourceGate) return _onlineRasterNames.Count > 0; } }
+        public bool IsOnlineRaster(string layerName) { lock (_rasterResourceGate) return _onlineRasterNames.Contains(layerName); }
+
         public ResourceLease<Dataset>? AcquireRaster(string layerName) =>
             _rasterResources.Acquire(layerName);
 
-        public void PublishRaster(string layerName, Dataset dataset)
+        public void PublishRaster(string layerName, Dataset dataset, string? onlineXml = null)
         {
+            using var driver = dataset.GetDriver();
+            bool online = driver?.ShortName == "WMS";
             lock (_rasterResourceGate)
             {
+                if (online) _onlineRasterNames.Add(layerName);
+                else _onlineRasterNames.Remove(layerName);
+                if (online && !string.IsNullOrWhiteSpace(onlineXml)) _onlineRasterXml[layerName] = onlineXml;
+                else _onlineRasterXml.Remove(layerName);
                 _rasterCacheMetadata.Remove(layerName);
                 _rasterCacheResources.Remove(layerName);
                 _warpedRasterResources.Remove(layerName);
@@ -681,6 +680,8 @@ namespace GeoNex.Services
             lock (_rasterResourceGate)
             {
                 _rasters.Remove(layerName);
+                _onlineRasterNames.Remove(layerName);
+                _onlineRasterXml.Remove(layerName);
                 _rasterCacheMetadata.Remove(layerName);
                 _rasterCacheResources.Remove(layerName);
                 _warpedRasterResources.Remove(layerName);
@@ -739,7 +740,7 @@ namespace GeoNex.Services
             string cacheKey,
             float panX,
             float panY,
-            float zoom)
+            float zoom, MapCoordinateFrame? frame = null)
         {
             lock (_rasterResourceGate)
             {
@@ -750,7 +751,7 @@ namespace GeoNex.Services
                     return false;
                 }
                 _rasterCacheResources.Publish(layerName, bitmap);
-                _rasterCacheMetadata[layerName] = new RasterCacheMetadata(cacheKey, panX, panY, zoom);
+                _rasterCacheMetadata[layerName] = new RasterCacheMetadata(cacheKey, panX, panY, zoom, frame);
                 return true;
             }
         }
@@ -812,9 +813,18 @@ namespace GeoNex.Services
         }
 
         public void InvalidateGlobalCache()
+            => InvalidatePresentationCache(vectorChanged: true);
+
+        // Only newly published raster pixels may bypass vector invalidation.
+        // Edits, source/style changes and ordinary RequestRedraw remain conservative.
+        public void InvalidateRasterPresentationCache()
+            => InvalidatePresentationCache(vectorChanged: false);
+
+        private void InvalidatePresentationCache(bool vectorChanged)
         {
             lock (_rasterResourceGate)
             {
+                if (vectorChanged) System.Threading.Interlocked.Increment(ref _vectorPresentationRevision);
                 System.Threading.Interlocked.Increment(ref _sceneRevision);
                 _globalCacheResources.Remove(GlobalCacheResourceKey);
             }
@@ -980,7 +990,7 @@ namespace GeoNex.Services
             Console.WriteLine(
                 $"[GEONEX PERF] Índice C++: {arvore.NativeBytes / (1024.0 * 1024.0):F1} MB, " +
                 $"células={arvore.GridCells:N0}, entradas={arvore.GridEntries:N0}, " +
-                $"oversized={arvore.OversizedFeatures:N0}, workers={GeoNexHardware.IndexWorkerCount}");
+                $"oversized={arvore.OversizedFeatures:N0}, workers={GeoNexHardware.WorkersFor(feicoes.Count)}");
             if (feicoes.Count > 0) {
                 double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
                 foreach(var f in feicoes) {
@@ -1100,6 +1110,8 @@ namespace GeoNex.Services
             {
                 _rasterCacheMetadata.Clear();
                 _rasters.Clear();
+                _onlineRasterNames.Clear();
+                _onlineRasterXml.Clear();
                 _globalCacheResources.Dispose();
                 _rasterCacheResources.Dispose();
                 _warpedRasterResources.Dispose();

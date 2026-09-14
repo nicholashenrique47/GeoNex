@@ -75,6 +75,7 @@ namespace GeoNex.Services
             byte* ptr = null;
             shpAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
 
+            bool metadataReady = false;
             try
             {
                 long fileLength = new FileInfo(filePath).Length;
@@ -102,30 +103,11 @@ namespace GeoNex.Services
 
                 if (indexedRecordCount > 0)
                 {
-                    int indexByteCount = checked(indexedRecordCount * 8);
-                    byte[] shxEntries = ArrayPool<byte>.Shared.Rent(indexByteCount);
-                    try
-                    {
-                        using var shxStream = new FileStream(shxPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                        shxStream.Position = 100;
-                        shxStream.ReadExactly(shxEntries.AsSpan(0, indexByteCount));
-
-                        for (int i = 0; i < indexedRecordCount; ++i)
-                        {
-                            int p = i * 8;
-                            uint words = ((uint)shxEntries[p] << 24) |
-                                         ((uint)shxEntries[p + 1] << 16) |
-                                         ((uint)shxEntries[p + 2] << 8) |
-                                         shxEntries[p + 3];
-                            long byteOffset = words * 2L;
-                            if (byteOffset < 100 || byteOffset + 12 > fileLength) break;
-                            offsets[recordCount++] = byteOffset;
-                        }
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.Return(shxEntries);
-                    }
+                    using var shxStream = new FileStream(shxPath, FileMode.Open, FileAccess.Read,
+                        FileShare.Read, ShapefileIndexReader.BufferBytes, FileOptions.SequentialScan);
+                    shxStream.Position = 100;
+                    ShapefileIndexReader.Read(shxStream, offsets.AsSpan(0, indexedRecordCount), fileLength);
+                    recordCount = indexedRecordCount;
                 }
                 else
                 {
@@ -157,7 +139,7 @@ namespace GeoNex.Services
                 CollectionsMarshal.SetCount(features, recordCount);
                 var parallelOptions = new ParallelOptions
                 {
-                    MaxDegreeOfParallelism = GeoNexHardware.IndexWorkerCount
+                    MaxDegreeOfParallelism = GeoNexHardware.WorkersFor(recordCount)
                 };
                 Parallel.For(0, recordCount, parallelOptions, i =>
                 {
@@ -237,6 +219,7 @@ namespace GeoNex.Services
                 {
                     pool.Return(offsets);
                 }
+                metadataReady = true;
             }
             finally
             {
@@ -251,6 +234,13 @@ namespace GeoNex.Services
                 {
                     dbfAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
                     dbfPtr = null;
+                }
+                if (!metadataReady)
+                {
+                    shpAccessor.Dispose();
+                    shpMmf.Dispose();
+                    dbfAccessor?.Dispose();
+                    dbfMmf?.Dispose();
                 }
             }
 

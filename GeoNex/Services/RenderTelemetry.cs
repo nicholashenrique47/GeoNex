@@ -395,7 +395,7 @@ public static class RenderTelemetryStatistics
             : 0;
         return string.Create(CultureInfo.InvariantCulture,
             $"RenderTrace id={frame.CorrelationId} generation={frame.Generation} status={frame.Status} " +
-            $"queue_ms={StageMilliseconds(frame, "queue"):F3} io_ms={StageMilliseconds(frame, "io"):F3} " +
+            $"queue_ms={StageMilliseconds(frame, "queue"):F3} gdal_wait_ms={StageMilliseconds(frame, "gdal_wait"):F3} io_ms={StageMilliseconds(frame, "io"):F3} " +
             $"geometry_ms={StageMilliseconds(frame, "geometry"):F3} draw_ms={StageMilliseconds(frame, "draw"):F3} " +
             $"encode_ms={StageMilliseconds(frame, "encode"):F3} write_ms={StageMilliseconds(frame, "write"):F3} " +
             $"response_ms={responseMs:F3} e2e_ms={frame.Presentation?.EndToEndMilliseconds ?? 0:F3} " +

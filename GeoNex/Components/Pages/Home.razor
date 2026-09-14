@@ -3358,7 +3358,7 @@
             {
                 MapService.RemoveWarpedRaster(nome);
                 MapService.RemoveRasterCache(nome);
-                MapService.PublishRaster(nome, dataset);
+                MapService.PublishRaster(nome, dataset, xmlTMS);
                 // CORREÇÃO: Definir limites globais do mundo para o Basemap, senão a câmera colapsa (escala 0)
                 MapService.LimitesRasters[nome] = new SkiaSharp.SKRect(-20037508.34f, -20037508.34f, 20037508.34f, 20037508.34f);
                 
@@ -4011,6 +4011,7 @@
         objRef = DotNetObjectReference.Create(this);
 
         _server = new GeoNex.Services.LocalMapServer(MapService);
+        _server.OnOnlineFrameReady += AtualizarImagemOnline;
         _server.Start();
     }
 
@@ -4051,6 +4052,8 @@
 
     public void Dispose()
     {
+        _renderDisposed = true;
+        if (_server != null) _server.OnOnlineFrameReady -= AtualizarImagemOnline;
         foreach (var raster in CamadasAtivas.Where(c => c.Tipo == "Raster"))
             GeoNex.Services.RasterOverviewBuilder.Cancel(raster.CaminhoArquivo);
         ocultarResumoVetorCts?.Cancel();
@@ -4080,6 +4083,10 @@
             NavigationFramePolicy.Padding(frameWidth, frameHeight, frameDpi), frameWidth, frameHeight,
             camera.PanX, camera.PanY, camera.Zoom));
     }
+
+    private bool _renderDisposed;
+    private void AtualizarImagemOnline()
+        => _ = InvokeAsync(() => { if (!_renderDisposed) SolicitarNovoFrame(); });
 
     private async Task AdicionarCamadaAoMapa()
     {
@@ -4243,10 +4250,19 @@
 
             // A primeira imagem usa o raster original. Pirâmides externas são
             // criadas depois, com handle próprio, sem alterar a fonte em GA_Update.
-            GeoNex.Services.RasterOverviewBuilder.Schedule(
-                caminhoArquivoRaster,
-                MapService.GdalRasterLock,
-                MapService.RequestRedraw);
+            var overviewRefresh = MapService.CaptureRasterOverviewRefresh(nome, caminhoArquivoRaster);
+            var overviewServer = _server;
+            if (overviewRefresh != null && overviewServer != null)
+                GeoNex.Services.RasterOverviewBuilder.Schedule(
+                    overviewRefresh.SourcePath,
+                    MapService.GdalRasterLock,
+                    onPublishedAsync: () => InvokeAsync(async () =>
+                    {
+                        if (_renderDisposed || !ReferenceEquals(_server, overviewServer)) return;
+                        using var pause = await overviewServer.PauseForRasterMaintenanceAsync();
+                        if (_renderDisposed || !ReferenceEquals(_server, overviewServer)) return;
+                        MapService.TryRefreshRasterOverviews(overviewRefresh);
+                    }));
 
             MapService.RemoveRasterCache(nome);
 
@@ -4372,18 +4388,9 @@
                 CamadasAtivas.Insert(0, new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
             }
 
-            // Reinicia a câmara para o mapa inicial
-            MapService.CameraPanX = 0;
-            MapService.CameraPanY = 0;
-            MapService.CameraZoom = 1.0f;
-            MapService.ClearRasterCaches();
-
-            SolicitarNovoFrame();
+            SincronizarHierarquia(solicitarFrame: false);
+            await EnquadrarCamadaAsync(nomeArquivo);
             StateHasChanged();
-            await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
-
-            StateHasChanged();
-            SincronizarHierarquia();
         }
         catch (Exception ex)
         {
@@ -4561,33 +4568,22 @@
     { 
         string alvo = camadaSelecionadaMenu; 
         FecharMenuContexto(); 
+        await EnquadrarCamadaAsync(alvo);
+    }
+
+    private async Task EnquadrarCamadaAsync(string alvo)
+    {
         
         SkiaSharp.SKRect layerRect = SkiaSharp.SKRect.Empty;
 
-        if (MapService.FeaturesPorCamada.TryGetValue(alvo, out var features) && features.Count > 0)
+        if (MapService.LimitesVetoresWorld.TryGetValue(alvo, out var bounds) && !bounds.IsNull)
         {
-            double minX = double.MaxValue, minY = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue;
-            
-            foreach (var f in features)
-            {
-                if (!f.EnvelopeWorld.IsNull)
-                {
-                    if (f.EnvelopeWorld.MinX < minX) minX = f.EnvelopeWorld.MinX;
-                    if (f.EnvelopeWorld.MinY < minY) minY = f.EnvelopeWorld.MinY;
-                    if (f.EnvelopeWorld.MaxX > maxX) maxX = f.EnvelopeWorld.MaxX;
-                    if (f.EnvelopeWorld.MaxY > maxY) maxY = f.EnvelopeWorld.MaxY;
-                }
-            }
-            
-            if (minX <= maxX)
-            {
-                float skiaMinX = (float)(minX - MapService.OffsetMundoX);
-                float skiaMaxX = (float)(maxX - MapService.OffsetMundoX);
-                float skiaMinY = -(float)(maxY - MapService.OffsetMundoY);
-                float skiaMaxY = -(float)(minY - MapService.OffsetMundoY);
-                layerRect = new SkiaSharp.SKRect(skiaMinX, skiaMinY, skiaMaxX, skiaMaxY);
-            }
+            // Metadata already reprojected to the project CRS; O(1), even for millions of features.
+            layerRect = new SkiaSharp.SKRect(
+                (float)(bounds.MinX - MapService.OffsetMundoX),
+                (float)(MapService.OffsetMundoY - bounds.MaxY),
+                (float)(bounds.MaxX - MapService.OffsetMundoX),
+                (float)(MapService.OffsetMundoY - bounds.MinY));
         }
         else if (MapService.HasRaster(alvo))
         {
@@ -4595,33 +4591,22 @@
                 layerRect = r;
         }
 
-        if (!layerRect.IsEmpty)
+        if (LayerCameraPolicy.TryFit(MapService.GetSceneBounds(), layerRect,
+            _larguraTela, _alturaTela, out var camera))
         {
-            float width = MapService.ViewportWidth;
-            float height = MapService.ViewportHeight;
-            if (width <= 0) width = 1920;
-            if (height <= 0) height = 1080;
-
-            float escalaX = width / layerRect.Width;
-            float escalaY = height / layerRect.Height;
-            float layerEscalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f; // 20% de margem
-
-            float targetZoom = layerEscalaAutoFit / MapService.ViewportEscalaAutoFit;
-            float zoomRealLayer = MapService.ViewportEscalaAutoFit * targetZoom;
-
-            float targetPanX = (MapService.ViewportMidX - layerRect.MidX) * zoomRealLayer;
-            float targetPanY = (MapService.ViewportMidY - layerRect.MidY) * zoomRealLayer;
-
-            MapService.CameraPanX = targetPanX;
-            MapService.CameraPanY = targetPanY;
-            MapService.CameraZoom = targetZoom;
-
-            // Resetar a física inercial no frontend
-            await JSRuntime.InvokeVoidAsync("mapEngine.resetarCamera");
+            // Cancel old inertia/decodes before requesting the new frame, retaining the fitted basis.
+            long serial = await JSRuntime.InvokeAsync<long>("mapEngine.sincronizarCameraComBlazor",
+                camera.PanX, camera.PanY, camera.Zoom);
+            _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
+            MapService.CameraPanX = (float)camera.PanX;
+            MapService.CameraPanY = (float)camera.PanY;
+            MapService.CameraZoom = (float)camera.Zoom;
+            MapService.IsPanning = false;
 
             MapService.RequestRedraw();
-            SolicitarNovoFrame();
+            await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
         }
+        else SolicitarNovoFrame();
     }
 
     private async Task PrepararRemocaoCamada()
@@ -5154,18 +5139,23 @@
         }
         catch (Exception ex) { Console.WriteLine($"[C++ LINK ERRO]: {ex.Message}"); }
     }
-    private void SincronizarHierarquia()
+    private void SincronizarHierarquia(bool solicitarFrame = true)
     {
-        MapService.OrdemCamadas.Clear();
+        var novaOrdem = new List<string>();
 
         // O Filtro Absoluto: Só injeta na Placa Gráfica se o ícone do olho estiver ligado
         for (int i = CamadasAtivas.Count - 1; i >= 0; i--)
         {
             if (CamadasAtivas[i].Visivel)
             {
-                MapService.OrdemCamadas.Add(CamadasAtivas[i].Nome);
+                novaOrdem.Add(CamadasAtivas[i].Nome);
             }
         }
+
+        // Publish a complete hierarchy: the online worker must not observe the
+        // temporary empty list while the UI is rebuilding visibility/order.
+        MapService.OrdemCamadas = novaOrdem;
+        _server?.DiscardObsoleteOnlineWork();
 
         // Proteção contra Seleção Fantasma:
         // Apaga o lote amarelo e limpa o painel se a camada que o contém for ocultada
@@ -5180,7 +5170,7 @@
             }
         }
 
-        SolicitarNovoFrame();
+        if (solicitarFrame) SolicitarNovoFrame();
     }
     [JSInvokable]
     public async Task ProcessarCliqueRaycast(double telaX, double telaY)

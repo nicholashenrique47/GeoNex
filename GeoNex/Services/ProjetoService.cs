@@ -17,25 +17,19 @@ public class ProjetoService
 
     private static void ReprojetarMetadadosEmLotes(
         List<CompiledFeature> features,
-        OSGeo.OSR.CoordinateTransformation transform,
+        string sourceWkt, string targetCrs,
         double offsetX,
         double offsetY)
     {
         // Cinco pontos por feição: quatro cantos do envelope + centroide.
         // Um lote pequeno mantém o working set no cache e evita milhões de
         // double[3] de vida curta no GC durante a abertura da camada.
-        const int featuresPerBatch = 32_768;
         const int pointsPerFeature = 5;
-        int capacity = featuresPerBatch * pointsPerFeature;
-        double[] x = System.Buffers.ArrayPool<double>.Shared.Rent(capacity);
-        double[] y = System.Buffers.ArrayPool<double>.Shared.Rent(capacity);
-        double[] z = System.Buffers.ArrayPool<double>.Shared.Rent(capacity);
-
-        try
-        {
-            for (int first = 0; first < features.Count; first += featuresPerBatch)
+        int workers = ProjectionBatchRunner.WorkerCount(features.Count, GeoNexHardware.WorkersFor(features.Count));
+        var projectionTimer = System.Diagnostics.Stopwatch.StartNew();
+        ProjectionBatchRunner.Run(features.Count, workers, sourceWkt, targetCrs,
+            (first, count, x, y, z, transform) =>
             {
-                int count = Math.Min(featuresPerBatch, features.Count - first);
                 int pointCount = count * pointsPerFeature;
                 for (int local = 0; local < count; ++local)
                 {
@@ -53,6 +47,11 @@ public class ProjetoService
                 Array.Clear(z, 0, pointCount);
                 transform.TransformPoints(pointCount, x, y, z);
 
+                // Reject failed transformations before publishing any metadata from this batch.
+                for (int point = 0; point < pointCount; point++)
+                    if (!double.IsFinite(x[point]) || !double.IsFinite(y[point]))
+                        throw new InvalidDataException($"Falha na reprojeção da feição {first + point / pointsPerFeature}.");
+
                 for (int local = 0; local < count; ++local)
                 {
                     int cursor = local * pointsPerFeature;
@@ -66,14 +65,8 @@ public class ProjetoService
                         (float)(x[cursor + 4] - offsetX),
                         -(float)(y[cursor + 4] - offsetY));
                 }
-            }
-        }
-        finally
-        {
-            System.Buffers.ArrayPool<double>.Shared.Return(x);
-            System.Buffers.ArrayPool<double>.Shared.Return(y);
-            System.Buffers.ArrayPool<double>.Shared.Return(z);
-        }
+            });
+        Console.WriteLine($"[GEONEX PERF] Metadados reprojetados: features={features.Count}, workers={workers}, elapsed_ms={projectionTimer.Elapsed.TotalMilliseconds:F2}");
     }
 
     /// <summary>
@@ -244,12 +237,12 @@ public class ProjetoService
                 shpData.TransformLocal = SrsFactory.CreateThreadLocalTransform(srsOrigem, mapService.ProjetoSRS);
                 
                 // Reprojetar também os Bounding Boxes (EnvelopeWorld) e Centroids para garantir que a R-Tree funcione perfeitamente
-                var trans = shpData.TransformLocal.Value;
-                if (trans != null)
+                try
                 {
                     ReprojetarMetadadosEmLotes(
-                        features, trans, mapService.OffsetMundoX, mapService.OffsetMundoY);
+                        features, srsOrigem, mapService.ProjetoSRS, mapService.OffsetMundoX, mapService.OffsetMundoY);
                 }
+                catch { shpData.Dispose(); throw; }
             }
             
             feicoesCompletas = features;
@@ -284,8 +277,9 @@ public class ProjetoService
         }
         catch (Exception ex)
         {
-            System.IO.File.WriteAllText(System.IO.Path.Combine("wwwroot", "error.txt"), ex.ToString());
-            Console.WriteLine($"Erro ao carregar Shapefile {caminhoShp}: {ex.Message}");
+            Console.Error.WriteLine($"Erro ao carregar Shapefile {caminhoShp}: {ex}");
+            // The caller must not announce success or fit an unpublished layer after import failure.
+            throw;
         }
     }
 }
