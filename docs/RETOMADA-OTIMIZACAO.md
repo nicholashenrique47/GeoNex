@@ -1,5 +1,11 @@
 # Retomada — 14/09/2026
 
+## Pesquisa GDAL após compilação
+
+- Pedido atual: pesquisar repositório GDAL, sem implementar. Registrado em `docs/pesquisa-gdal-3.12.1.md`, com links para tag compatível com o projeto.
+- Próxima investigação: comparar RasterIO em faixas 128/256/512 e janela completa; batching WMS pode ser fragmentado pelas faixas atuais. É hipótese, não causa comprovada. Medir cache frio/quente, nitidez, pixels, memória e cancelamento antes de mudar padrão.
+- Restava 1% semanal na consulta (99% usado), 12% da janela curta. Nenhum build/teste em execução; motor não modificado nesta pesquisa.
+
 ## Correção atual — latência até tiles nítidos
 
 - Usuário relatou refinamento mais rápido antes do novo transporte. Fetch/Blob introduz espera pelo corpo completo antes de iniciar decode; causalidade real ainda não medida.
