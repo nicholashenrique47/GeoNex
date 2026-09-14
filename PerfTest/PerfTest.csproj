@@ -39,6 +39,7 @@
     <Compile Include="..\GeoNex\Services\VectorResourcePolicy.cs" />
     <Compile Include="..\GeoNex\Services\ShapefileIndexReader.cs" />
     <Compile Include="..\GeoNex\Services\MapFrameEncoding.cs" />
+    <Compile Include="..\GeoNex\Services\EncodedFrameCache.cs" />
     <Compile Include="..\GeoNex\Services\RenderPrecisionPolicy.cs" />
     <Compile Include="..\GeoNex\Services\NavigationFramePolicy.cs" />
     <Compile Include="..\GeoNex\Services\LayerCameraPolicy.cs" />

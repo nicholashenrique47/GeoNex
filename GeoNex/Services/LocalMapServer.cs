@@ -25,6 +25,9 @@ namespace GeoNex.Services
         private readonly LatestRenderWorker<SKBitmap> _onlineWorker;
         private readonly OnlineRasterSession _onlineSession = new();
         private readonly PolygonImageCache _polygonImages = new();
+        private readonly EncodedFrameCache _encodedFrames = new();
+        public long EncodedFrameCacheHits => _encodedFrames.Hits;
+        public long EncodedFrameCacheBytes => _encodedFrames.RetainedBytes;
         public long PolygonImageCacheHits => _polygonImages.Hits;
         public long PolygonImageCacheBuilds => _polygonImages.Builds;
         public long PolygonImageCacheBytes => _polygonImages.Bytes;
@@ -476,7 +479,7 @@ namespace GeoNex.Services
                     trace?.MarkRenderReady();
                     WriteEncodedFrame(
                         fastImage, res, isInteracting, cancellationToken,
-                        generation, trace, navigation: !isPrint);
+                        generation, trace, navigation: !isPrint, reusePayloadId: req.QueryString["reuse"]);
                     return;
                 }
                 // =========================================================================
@@ -1701,7 +1704,7 @@ namespace GeoNex.Services
                 trace?.MarkRenderReady();
                 WriteEncodedFrame(
                     image, res, isInteracting, cancellationToken,
-                    generation, trace, navigation: !isPrint);
+                    generation, trace, navigation: !isPrint, reusePayloadId: req.QueryString["reuse"]);
                 }
                 finally
                 {
@@ -1727,7 +1730,7 @@ namespace GeoNex.Services
             bool isInteracting,
             CancellationToken cancellationToken,
             long generation,
-            RenderFrameTrace? trace, bool navigation = false)
+            RenderFrameTrace? trace, bool navigation = false, string? reusePayloadId = null)
         {
             SKEncodedImageFormat format = UseWebpEncoding
                 ? SKEncodedImageFormat.Webp
@@ -1741,7 +1744,15 @@ namespace GeoNex.Services
 
             cancellationToken.ThrowIfCancellationRequested();
             long encodeStarted = Stopwatch.GetTimestamp();
-            using SKData? data = UseWebpEncoding ? image.Encode(format, quality) : MapFrameEncoding.EncodePng(image, pngCompression);
+            string? payloadId = null;
+            using ResourceLease<SKData>? encodedLease = !UseWebpEncoding && navigation && !isInteracting
+                ? _encodedFrames.Encode(image, pngCompression,
+                    Environment.GetEnvironmentVariable("GEONEX_ENCODED_FRAME_CACHE") == "0" ? 0 :
+                        EncodedFrameCache.Budget(GdalRuntimeConfiguration.Apply().AvailablePhysicalMb), cancellationToken, out payloadId)
+                : null;
+            using SKData? uncachedData = encodedLease != null ? null :
+                UseWebpEncoding ? image.Encode(format, quality) : MapFrameEncoding.EncodePng(image, pngCompression);
+            SKData? data = encodedLease?.Resource ?? uncachedData;
             long encodeCompleted = Stopwatch.GetTimestamp();
             trace?.AddSpan("encode", null, encodeStarted, encodeCompleted);
             double encodeMilliseconds = (encodeCompleted - encodeStarted) * 1000.0 / Stopwatch.Frequency;
@@ -1768,6 +1779,17 @@ namespace GeoNex.Services
                 "X-GeoNex-Trace-Id",
                 (trace?.CorrelationId ?? -generation).ToString(CultureInfo.InvariantCulture));
             response.AppendHeader("X-GeoNex-Image-Format", encoding);
+            response.AppendHeader("Access-Control-Expose-Headers", "X-GeoNex-Payload-Id, X-GeoNex-Reused");
+            if (payloadId != null) response.AppendHeader("X-GeoNex-Payload-Id", payloadId);
+            if (payloadId != null && reusePayloadId == payloadId)
+            {
+                response.AppendHeader("X-GeoNex-Reused", "1");
+                response.StatusCode = 204;
+                response.ContentLength64 = 0;
+                response.Close();
+                _telemetry.CompleteResponse(trace, "ok", 0);
+                return;
+            }
             response.ContentType = UseWebpEncoding ? "image/webp" : "image/png";
             response.ContentLength64 = data.Size;
 
@@ -1820,6 +1842,7 @@ namespace GeoNex.Services
             _onlineWorker.Dispose();
             _onlineSession.Dispose();
             _polygonImages.Dispose();
+            _encodedFrames.Dispose();
             OnOnlineFrameReady = null;
             Interlocked.Exchange(ref _activeRender, null)?.Cancel();
             _listener?.Stop();

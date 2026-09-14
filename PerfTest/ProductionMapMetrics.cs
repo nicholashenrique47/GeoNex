@@ -77,6 +77,7 @@ internal static class ProductionMapMetrics
                 return;
             }
             long frame = 0;
+            string? lastFrameUrl = null, lastPayloadId = null;
             foreach (int zoom in new[] { 1, 4, 16, 64 })
             {
                 byte[]? expectedPixels = null;
@@ -97,8 +98,10 @@ internal static class ProductionMapMetrics
                     clock.Restart();
                     var scene = (SKRect)mapType.GetMethod("GetSceneBounds")!.Invoke(map, null)!;
                     if (!LayerCameraPolicy.TryFit(scene, layerBounds, 1600, 900, out var camera)) throw new InvalidOperationException("Invalid camera");
-                    using var response = await client.GetAsync(FormattableString.Invariant(
-                        $"{url}mapa/?w=1600&h=900&dpi=1&nav=1&i=0&fid={++frame}&zoom={camera.Zoom * zoom}&panx={camera.PanX * zoom}&pany={camera.PanY * zoom}"));
+                    lastFrameUrl = FormattableString.Invariant(
+                        $"{url}mapa/?w=1600&h=900&dpi=1&nav=1&i=0&fid={++frame}&zoom={camera.Zoom * zoom}&panx={camera.PanX * zoom}&pany={camera.PanY * zoom}");
+                    using var response = await client.GetAsync(lastFrameUrl);
+                    lastPayloadId = response.Headers.TryGetValues("X-GeoNex-Payload-Id", out var ids) ? ids.Single() : null;
                     response.EnsureSuccessStatusCode();
                     byte[] bytes = await response.Content.ReadAsByteArrayAsync();
                     double httpMs = clock.Elapsed.TotalMilliseconds;
@@ -114,7 +117,7 @@ internal static class ProductionMapMetrics
                             foreach (int i in worst) Console.WriteLine($"PIXEL x={(i / 4) % bitmap.Width} y={(i / 4) / bitmap.Width} channel={i % 4} ref={string.Join(',', expectedPixels.Skip(i / 4 * 4).Take(4))} actual={string.Join(',', pixels.Skip(i / 4 * 4).Take(4))} alpha={bitmap.AlphaType}");
                             throw new InvalidOperationException($"Camera pixels changed at zoom {zoom}: delta={difference}");
                         }
-                        if (polygonImages) Console.WriteLine($"IMAGE pixels_max_delta={difference} hits={serverType.GetProperty("PolygonImageCacheHits")!.GetValue(server)} builds={serverType.GetProperty("PolygonImageCacheBuilds")!.GetValue(server)} bytes={serverType.GetProperty("PolygonImageCacheBytes")!.GetValue(server)}");
+                        if (polygonImages) Console.WriteLine($"IMAGE pixels_max_delta={difference} hits={serverType.GetProperty("PolygonImageCacheHits")!.GetValue(server)} builds={serverType.GetProperty("PolygonImageCacheBuilds")!.GetValue(server)} bytes={serverType.GetProperty("PolygonImageCacheBytes")!.GetValue(server)} encoded_hits={serverType.GetProperty("EncodedFrameCacheHits")!.GetValue(server)} encoded_bytes={serverType.GetProperty("EncodedFrameCacheBytes")!.GetValue(server)}");
                     }
                     if (polygonImages && sample > 0)
                     {
@@ -129,6 +132,19 @@ internal static class ProductionMapMetrics
             }
             if (polygonImages)
             {
+                if (lastPayloadId == null) throw new InvalidOperationException("Payload reuse fixture requires a retained PNG");
+                using (var reused = await client.GetAsync(lastFrameUrl + "&reuse=" + lastPayloadId))
+                {
+                    byte[] body = await reused.Content.ReadAsByteArrayAsync();
+                    if ((int)reused.StatusCode != 204 || body.Length != 0 ||
+                        reused.Headers.GetValues("X-GeoNex-Reused").Single() != "1" ||
+                        reused.Headers.GetValues("X-GeoNex-Payload-Id").Single() != lastPayloadId)
+                        throw new InvalidOperationException("Identical frame did not produce explicit bodyless reuse response");
+                }
+                using (var mismatch = await client.GetAsync(lastFrameUrl + "&reuse=" + new string('0', 32)))
+                    if ((int)mismatch.StatusCode != 200 || (await mismatch.Content.ReadAsByteArrayAsync()).Length == 0)
+                        throw new InvalidOperationException("Unknown base did not fall back to full PNG");
+                Console.WriteLine("PASS production frame reuse: matching identity=204/zero body, unknown identity=200/full PNG");
                 if ((long)serverType.GetProperty("PolygonImageCacheHits")!.GetValue(server)! == 0)
                     throw new InvalidOperationException("No production cache hits (dataset or memory budget ineligible)");
                 long before = (long)mapType.GetProperty("VectorPresentationRevision")!.GetValue(map)!;
@@ -280,8 +296,33 @@ internal static class ProductionMapMetrics
     {
         using var image = SKImage.FromBitmap(bitmap);
         using var pixels = image.PeekPixels();
+        // PNG decoding attaches sRGB metadata. Production map surfaces are
+        // untagged; model that explicitly without changing any pixel bytes.
+        using var rawPixels = new SKPixmap(new SKImageInfo(bitmap.Width, bitmap.Height,
+            bitmap.ColorType, bitmap.AlphaType), bitmap.GetPixels(), bitmap.RowBytes);
+        using var rawImage = SKImage.FromPixels(rawPixels);
+        using (var cache = new EncodedFrameCache())
+        {
+            byte[]? expected = null;
+            for (int sample = 0; sample < 6; sample++)
+            {
+                bool disabled = sample % 3 == 0;
+                long hits = cache.Hits;
+                var clock = Stopwatch.StartNew();
+                using var encoded = cache.Encode(rawImage, 0, disabled ? 0 : EncodedFrameCache.Budget(1024), default);
+                double encodeMs = clock.Elapsed.TotalMilliseconds;
+                using var decoded = SKBitmap.Decode(encoded.Resource);
+                double totalMs = clock.Elapsed.TotalMilliseconds;
+                byte[] bytes = encoded.Resource.ToArray();
+                expected ??= bytes;
+                if (!expected.SequenceEqual(bytes) || !bitmap.Bytes.SequenceEqual(decoded.Bytes))
+                    throw new InvalidOperationException("Encoded payload cache changed bytes/pixels");
+                Console.WriteLine($"PAYLOAD sample={sample} disabled={disabled} hit={cache.Hits > hits} encode_ms={encodeMs:F2} decode_total_ms={totalMs:F2} bytes={bytes.Length}");
+            }
+            if (cache.Hits != 2) throw new InvalidOperationException("Payload benchmark failed to exercise hits");
+        }
         Console.WriteLine($"ENCODE adaptive_level={MapFrameEncoding.NavigationCompressionLevel(image, 1024)}");
-        foreach (var filter in new[] { SKPngEncoderFilterFlags.Sub })
+        foreach (var filter in new[] { SKPngEncoderFilterFlags.None, SKPngEncoderFilterFlags.Up, SKPngEncoderFilterFlags.Sub })
         foreach (int level in new[] { 0, 1 })
         {
             for (int sample = 0; sample < 3; sample++)

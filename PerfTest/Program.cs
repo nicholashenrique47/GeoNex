@@ -14,6 +14,7 @@ if (!string.IsNullOrEmpty(nativeOverride))
 }
 
 if (args.Contains("--index-contracts")) { IndexContracts.Run(); return; }
+if (args.Contains("--encoded-frame-cache-contracts")) { EncodedFrameCacheContracts.Run(); return; }
 if (args.Contains("--online-scheduler-contracts")) { await OnlineSchedulerContracts.Run(); return; }
 if (args.Contains("--polygon-image-cache-contracts")) { PolygonImageCacheContracts.Run(); return; }
 if (args.Contains("--online-session-contracts")) { await OnlineSessionContracts.Run(); return; }

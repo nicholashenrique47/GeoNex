@@ -41,7 +41,7 @@ function setup() {
     engine.solicitarAnimacao = () => {};
     async function drain() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
     async function present(image) {
-        image.resolve(); await drain();
+        if (image) image.resolve(); await drain();
         frames.splice(0).forEach(fn => fn(now)); await drain();
     }
     function tick(ms) {
@@ -56,10 +56,102 @@ function setup() {
         }
         now = until;
     }
-    return { engine, a, b, images, calls, timers, present, drain, tick, advance: ms => now += ms };
+    return { engine, context, a, b, images, calls, timers, present, drain, tick, advance: ms => now += ms };
+}
+
+function transport(s, responses) {
+    const requests = [], revoked = [];
+    s.context.window.GEONEX_FRAME_REUSE = true;
+    s.context.AbortController = AbortController;
+    s.context.DOMException = DOMException;
+    s.context.URL = class extends URL {
+        static createObjectURL() { return `blob:fixture-${s.images.length}`; }
+        static revokeObjectURL(value) { revoked.push(value); }
+    };
+    s.context.fetch = async (url, options) => {
+        requests.push({ url, signal: options.signal });
+        const response = responses.shift();
+        assert.ok(response, 'no unbounded fallback requests');
+        return { status: response.status, headers: { get: name => name === 'X-GeoNex-Payload-Id' ? response.id : response.reused ? '1' : null },
+            blob: async () => ({}) };
+    };
+    return { requests, revoked };
 }
 
 (async () => {
+    for (const setting of [undefined, false]) {
+        const s = setup(), e = s.engine;
+        transport(s, []);
+        s.context.window.GEONEX_FRAME_REUSE = setting;
+        let fetches = 0;
+        s.context.fetch = async () => { fetches++; throw new Error('default must not buffer a Blob'); };
+        e.carregarNovoFrame('/mapa?fid=1', 1, 0, false);
+        assert.equal(s.images[0].src, '/mapa?fid=1', 'full frame uses native URL immediately');
+        await s.present(s.images[0]);
+        e.carregarNovoFrame('/mapa?fid=2', 2, 0, false, 0, 800, 600, 12, 34, 5);
+        await s.present(s.images[1]);
+        assert.equal(fetches, 0, 'default/disabled reuse never fetches or builds a Blob');
+        assert.equal(e.latestFramePresented, 2, 'refined tile frame is presented');
+        assert.equal(e.committedCamera.zoom, 5);
+        assert.equal(e.skiaCanvas.width, 1200, 'physical resolution preserved');
+        assert.equal(e.skiaCanvas.height, 1000);
+        assert.equal(e.decodedPayload, null);
+    }
+    {
+        const s = setup(), e = s.engine;
+        transport(s, []);
+        let fetches = 0;
+        s.context.fetch = async () => { fetches++; throw vm.runInContext('new TypeError("CORS fixture")', s.context); };
+        e.carregarNovoFrame('/mapa?fid=1', 1, 0, false);
+        await s.drain(); await s.present(s.images[0]);
+        e.carregarNovoFrame('/mapa?fid=2', 2, 0, false);
+        await s.present(s.images[1]);
+        assert.equal(fetches, 1, 'unsupported transport falls back without repeating duplicate fetches');
+        assert.equal(e.latestFramePresented, 2);
+    }
+    {
+        const s = setup(), e = s.engine;
+        transport(s, [{ status: 200, id: 'a'.repeat(32) }]);
+        e.carregarNovoFrame('/mapa', 1, 0, false);
+        await s.drain(); s.images[0].width = 4096; s.images[0].height = 4096;
+        await s.present(s.images[0]);
+        assert.equal(e.decodedPayload, null, 'oversized decoded frame is displayed but not retained');
+        assert.equal(e.latestFramePresented, 1);
+    }
+    {
+        const s = setup(), e = s.engine, id = 'a'.repeat(32), next = 'b'.repeat(32);
+        const t = transport(s, [{ status: 200, id }, { status: 204, id, reused: true },
+            { status: 204, id: next, reused: true }, { status: 200, id: next }]);
+        e.carregarNovoFrame('/mapa?fid=1', 1, 0, false);
+        await s.drain(); await s.present(s.images[0]);
+        assert.equal(e.decodedPayload.payloadId, id, 'only decoded and committed payload retained');
+        e.carregarNovoFrame('/mapa?fid=2', 2, 0, false, 0, 800, 600, 12, 34, 5);
+        await s.drain(); await s.present();
+        assert.equal(s.images.length, 1, 'reuse performs no extra image decode');
+        assert.equal(e.latestFramePresented, 2);
+        assert.equal(e.committedCamera.zoom, 5, 'identical pixels still commit new camera metadata');
+        assert.equal(new URL(t.requests[1].url).searchParams.get('reuse'), id);
+        e.carregarNovoFrame('/mapa?fid=3', 3, 0, false);
+        await s.drain(); await s.present(s.images[1]);
+        assert.equal(new URL(t.requests[3].url).searchParams.has('reuse'), false, 'mismatch retries full frame once');
+        assert.equal(e.decodedPayload.payloadId, next);
+        assert.equal(t.revoked.length, 2, 'object URLs released after decode');
+        e.resetarCamera();
+        assert.equal(e.decodedPayload, null);
+        assert.equal(t.requests[3].signal.aborted, true);
+    }
+    {
+        const s = setup(), e = s.engine, id = 'a'.repeat(32);
+        const t = transport(s, [{ status: 200, id }, { status: 200, id }]);
+        e.carregarNovoFrame('http://localhost:1/mapa', 1, 0, false);
+        await s.drain(); await s.present(s.images[0]);
+        e.carregarNovoFrame('http://localhost:2/mapa', 2, 0, false);
+        await s.drain();
+        assert.equal(new URL(t.requests[1].url).searchParams.has('reuse'), false, 'new server never receives old token');
+        e.resetarCamera(); await s.present(s.images[1]);
+        assert.equal(e.decodedPayload, null, 'decode completing after reset cannot repopulate cache');
+        assert.equal(e.latestFramePresented, 1);
+    }
     {
         const s = setup(), e = s.engine;
         e.carregarNovoFrame('/vector-first?deferOnline=1', 1, 0, false, 0, 800, 600, 90, 40, 2, true);

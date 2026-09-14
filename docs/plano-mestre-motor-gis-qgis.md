@@ -361,6 +361,10 @@ Atualização em 14/09/2026: **P2-W iniciado** pelo [ciclo de vida e retries do 
 
 ### Primeiro incremento recomendado
 
+Atualização em 14/09/2026: [reuso cliente/servidor de quadros idênticos](performance-frame-reuse-protocol.md) implementado. Cliente anuncia ID do payload apresentado; coincidência verificada retorna 204 explícito sem PNG e permite reusar a Image decodificada. Divergência recebe/solicita quadro completo. Contratos JS e DLL real passaram; ainda faltam medição manual WebView e deltas espaciais. P3-W continua parcial.
+
+Atualização de 14/09/2026: entregue o [cache de payload PNG](performance-encoded-frame-cache.md), recorte preparatório de P3-W. Reuso por SHA-256 de todos os pixels e metadados, orçamento adaptativo e leases; impressão/preview preservados. No LOTES, verificação/hit ~9,7–9,8 ms contra encode direto ~26,5 ms; misses ficaram mais caros. O protocolo continua enviando o PNG completo — deltas e eliminação de transferência/decode seguem pendentes.
+
 Ensaio de transporte em 14/09/2026: seletor PNG por compressibilidade de amostra disponível somente com `GEONEX_PNG_COMPRESSION_PROBE=1`. Reduziu LOTES de 11,09 MB para 2,12 MB, mas aumentou encode/latência; **não ativado por padrão**. Contratos de pixels passaram; não é conclusão de P3-W. Estado e próxima investigação em [RETOMADA-OTIMIZACAO.md](RETOMADA-OTIMIZACAO.md). Não comparar estes tempos de smoke como benchmark estatístico; houve variação de carga e execuções paralelas.
 
 Implementar P0 e P1-R como mudança pequena e verificável; em seguida P1-C. Isso ataca uma dependência de bloqueio concreta e o trabalho repetido compartilhado por vetores e tiles. Não começar por reescrever todo o renderer nem por aumentar cache/threads indiscriminadamente.
@@ -517,3 +521,4 @@ Fontes consultadas em 13/09/2026. Tags fixados identificam a versão do código;
 - [Cache preciso e RGB direto](performance-precise-cache-rgb-direct.md).
 - [Cache de imagem de polígonos e composição sobre tiles](performance-polygon-image-cache.md).
 - [Ciclo de vida e tentativas do agendador online](performance-online-scheduler-lifecycle.md).
+- [Cache de payload PNG e custos de hits/misses](performance-encoded-frame-cache.md).

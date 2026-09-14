@@ -992,6 +992,9 @@ window.mapEngine = {
     resetarCamera: function () {
         this.refineAfterRequestId = 0;
         this.cameraEpoch++;
+        this.frameLoadController?.abort();
+        this.decodedPayload = null;
+        this.frameReuseUnavailableFor = null;
         this.committedCamera = { panX: 0, panY: 0, zoom: 1 };
         if (this.rafId !== null) cancelAnimationFrame(this.rafId);
         clearTimeout(this.renderTimeout);
@@ -1519,6 +1522,57 @@ window.mapEngine = {
             .catch(() => this.falharRequisicao(requestId));
     },
 
+    carregarImagemFrame: async function (url) {
+        this.frameLoadController?.abort();
+        this.frameLoadController = null;
+        const direct = () => {
+            const image = new Image(); image.decoding = 'async'; image.src = url;
+            return image.decode().then(() => ({ image, payloadId: null, endpoint: null, reused: false, networkUrl: url }));
+        };
+        const target = new URL(url, document.baseURI);
+        // Changing tiles rarely reuse identical pixels. Keep the native Image
+        // loader as default: fetch/blob waits for the entire PNG before decode.
+        // Enable reuse only for explicit WebView A/B measurements.
+        if (window.GEONEX_FRAME_REUSE !== true || typeof fetch !== 'function' ||
+            this.frameReuseUnavailableFor === target.origin + target.pathname ||
+            typeof AbortController !== 'function' || target.searchParams.get('i') === '1' ||
+            target.searchParams.get('c') === '1') return direct();
+        const controller = new AbortController();
+        this.frameLoadController = controller;
+        const endpoint = target.origin + target.pathname;
+        const base = this.decodedPayload?.endpoint === endpoint ? this.decodedPayload : null;
+        target.searchParams.delete('reuse');
+        if (base) target.searchParams.set('reuse', base.payloadId);
+        try {
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const response = await fetch(target.href, { signal: controller.signal, cache: 'no-store', credentials: 'omit' });
+                const id = response.headers.get('X-GeoNex-Payload-Id');
+                if (response.status === 204 && response.headers.get('X-GeoNex-Reused') === '1') {
+                    if (base && this.decodedPayload === base && id === base.payloadId && base.image.width > 0 && base.image.height > 0)
+                        return { ...base, reused: true, networkUrl: target.href };
+                    target.searchParams.delete('reuse');
+                    continue; // Lost base: request a full frame once.
+                }
+                if (response.status !== 200) throw new Error(`Frame HTTP ${response.status}`);
+                const objectUrl = URL.createObjectURL(await response.blob());
+                try {
+                    const image = new Image(); image.decoding = 'async'; image.src = objectUrl;
+                    await image.decode();
+                    const payloadId = /^[a-f0-9]{32}$/.test(id || '') && image.width * image.height * 4 <= 16 * 1024 * 1024 ? id : null;
+                    return { image, payloadId, endpoint, reused: false, networkUrl: target.href };
+                } finally { URL.revokeObjectURL(objectUrl); }
+            }
+            throw new Error('Frame reutilizado sem imagem base válida');
+        } catch (error) {
+            if (controller.signal.aborted) throw new DOMException('Frame superseded', 'AbortError');
+            if (error instanceof TypeError) {
+                this.frameReuseUnavailableFor = endpoint;
+                return direct(); // Avoid repeating double requests in unsupported hosts.
+            }
+            throw error;
+        }
+    },
+
     carregarNovoFrame: function (url, frameId, requestIdCamera, telemetryEnabled, padding = 0, visibleWidth = 0, visibleHeight = 0, cameraPanX = 0, cameraPanY = 0, cameraZoom = 1, refineOnline = false) {
         frameId = Number(frameId) || 0;
         requestIdCamera = Number(requestIdCamera) || 0;
@@ -1545,13 +1599,13 @@ window.mapEngine = {
         // TIER 3 (GOD TIER): DESCODIFICAÇÃO OFF-MAIN-THREAD (GPU Zero-Stutter)
         // Em vez de atirar a imagem para o DOM (o que bloqueia a Thread UI do Browser),
         // pedimos ao Browser para descodificar o PNG numa thread paralela.
-        var tempImg = new Image();
-        tempImg.decoding = 'async';
+        let tempImg, loadedFrame;
         const frameLoadStarted = performance.now();
         const requestStartedAt = this.lastRequestStart || frameLoadStarted;
-        tempImg.src = url;
-
-        tempImg.decode().then(() => new Promise(resolve => requestAnimationFrame(resolve))).then(() => {
+        this.carregarImagemFrame(url).then(frame => {
+            loadedFrame = frame; tempImg = frame.image;
+            return new Promise(resolve => requestAnimationFrame(resolve));
+        }).then(() => {
             const decodedAt = performance.now();
             if (cameraEpoch !== this.cameraEpoch) return;
             if (frameId > 0 && frameId <= this.latestFramePresented) return;
@@ -1565,7 +1619,7 @@ window.mapEngine = {
             let decodeMilliseconds = Math.max(0, decodedAt - frameLoadStarted);
             let transferBytes = 0;
             if (telemetryEnabled && performance.getEntriesByName) {
-                const absoluteUrl = new URL(url, document.baseURI).href;
+                const absoluteUrl = new URL(loadedFrame.networkUrl, document.baseURI).href;
                 const resourceEntries = performance.getEntriesByName(absoluteUrl, 'resource');
                 const resource = resourceEntries.length > 0
                     ? resourceEntries[resourceEntries.length - 1]
@@ -1577,6 +1631,7 @@ window.mapEngine = {
                 }
             }
 
+            if (loadedFrame.reused) { decodeMilliseconds = 0; transferBytes = 0; }
             // A imagem está 100% pronta e calculada na RAM da GPU
             const confirmouCamera = this.isFetching && requestIdCamera === this.activeRequestId;
 
@@ -1651,6 +1706,7 @@ window.mapEngine = {
             this.committedCamera = { panX: cameraPanX, panY: cameraPanY, zoom: cameraZoom };
             this.absoluteZoom = cameraZoom * this.targetScale;
             this.latestFramePresented = Math.max(this.latestFramePresented, frameId);
+            this.decodedPayload = loadedFrame.payloadId ? loadedFrame : null;
             this.aplicarTransformacao();
             this.solicitarAnimacao();
 
@@ -1668,6 +1724,7 @@ window.mapEngine = {
                 setTimeout(() => this.solicitarFrame(assentado ? false : interacaoPendente), 0);
             }
         }).catch(e => {
+            if (cameraEpoch !== this.cameraEpoch || e.name === 'AbortError') return;
             if (frameId > 0 && frameId < this.latestFrameRequested) return;
             if (requestIdCamera === this.activeRequestId) this.falharRequisicao(requestIdCamera);
             console.warn("[GEONEX] Descodificação do frame abortada: ", e);
