@@ -14,9 +14,39 @@ public static class MapFrameEncoding
         ArgumentOutOfRangeException.ThrowIfNegative(compressionLevel);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(compressionLevel, 1);
         using SKPixmap? pixels = image.PeekPixels();
-        return (pixels?.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, compressionLevel))
+        return (pixels?.Encode(new SKPngEncoderOptions(SelectFilter(pixels, compressionLevel), compressionLevel))
             ?? image.Encode(SKEncodedImageFormat.Png, 100))
             ?? throw new InvalidOperationException("Não foi possível codificar o frame PNG.");
+    }
+
+    internal static unsafe SKPngEncoderFilterFlags SelectFilter(SKPixmap pixels, int compressionLevel)
+    {
+        // Compare the same small, scattered scanline windows with the real
+        // encoder. Flat parcel colors can compress better without Sub, whereas
+        // gradients often benefit from it. Require a material sample advantage;
+        // this selects lossless filtering only, never modifies source pixels.
+        const int width = 256, rows = 16, rowBytes = width * 4;
+        if (compressionLevel != 1 || (long)pixels.Width * pixels.Height < 1024 * 1024 ||
+            pixels.Width < width || pixels.ColorSpace != null || pixels.GetPixels() == IntPtr.Zero ||
+            pixels.ColorType is not (SKColorType.Rgba8888 or SKColorType.Bgra8888))
+            return SKPngEncoderFilterFlags.Sub;
+        Span<byte> sample = stackalloc byte[rows * rowBytes];
+        for (int row = 0; row < rows; row++)
+        {
+            int y = (int)((long)(2 * row + 1) * pixels.Height / (2 * rows));
+            int x = (int)((long)(pixels.Width - width) * (row % 4) / 3);
+            new ReadOnlySpan<byte>((byte*)pixels.GetPixels() + (long)y * pixels.RowBytes + (long)x * 4, rowBytes)
+                .CopyTo(sample.Slice(row * rowBytes, rowBytes));
+        }
+        fixed (byte* pointer = sample)
+        {
+            using var probe = new SKPixmap(new SKImageInfo(width, rows, pixels.ColorType, pixels.AlphaType),
+                (IntPtr)pointer, rowBytes);
+            using var none = probe.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.None, 1));
+            using var sub = probe.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 1));
+            return none != null && sub != null && none.Size * 8 < sub.Size * 7
+                ? SKPngEncoderFilterFlags.None : SKPngEncoderFilterFlags.Sub;
+        }
     }
 
     // Only the local navigation endpoint opts in. A stored-deflate PNG trades

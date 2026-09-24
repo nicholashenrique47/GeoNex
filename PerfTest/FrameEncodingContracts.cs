@@ -78,9 +78,65 @@ internal static class FrameEncodingContracts
             { paint.Color = new SKColor((byte)(x * 31), (byte)(x * 47), (byte)(x * 73)); canvas.DrawRect(x, 0, 1, narrow.Height, paint); }
         using var narrowImage = SKImage.FromBitmap(narrow);
         Check(MapFrameEncoding.NavigationCompressionLevel(narrowImage, int.MaxValue) == 1, "narrow/tall images never read beyond row bounds");
+        CheckLargeFrames();
         Console.WriteLine("Frame encoding: PASS (pixel-exact, alpha, channel order, compressible detail/noise, memory budget, small frames)");
         }
         finally { Environment.SetEnvironmentVariable("GEONEX_PNG_COMPRESSION_PROBE", previousProbe); }
+    }
+
+    private static void CheckLargeFrames()
+    {
+        foreach (var color in new[] { SKColorType.Rgba8888, SKColorType.Bgra8888 })
+        foreach (var alpha in new[] { SKAlphaType.Premul, SKAlphaType.Unpremul, SKAlphaType.Opaque })
+        {
+            using var bitmap = new SKBitmap();
+            Check(bitmap.TryAllocPixels(new SKImageInfo(1537, 1025, color, alpha), 1537 * 4 + 64), "padded fixture allocation");
+            using var canvas = new SKCanvas(bitmap);
+            using var paint = new SKPaint { IsAntialias = true };
+            foreach (string scene in new[] { "parcels", "gradient" })
+            {
+                canvas.Clear(SKColors.Transparent);
+                if (scene == "parcels")
+                {
+                    var random = new Random(917);
+                    for (int i = 0; i < 8000; i++)
+                    {
+                        paint.Color = new SKColor(56, 189, 248, 89);
+                        canvas.DrawRect(random.Next(1537), random.Next(1025), 3.7f, 7.1f, paint);
+                    }
+                }
+                else
+                {
+                    using var shader = SKShader.CreateLinearGradient(SKPoint.Empty, new SKPoint(1537, 1025),
+                        new[] { SKColors.DarkGreen, SKColors.LightGoldenrodYellow, SKColors.DarkBlue }, SKShaderTileMode.Clamp);
+                    paint.Shader = shader;
+                    canvas.DrawPaint(paint);
+                    paint.Shader = null;
+                }
+                canvas.Flush();
+                using var paddedPixels = bitmap.PeekPixels();
+                using var image = SKImage.FromBitmap(bitmap);
+                using var pixels = image.PeekPixels();
+                var filter = MapFrameEncoding.SelectFilter(paddedPixels, 1);
+                Check(filter == MapFrameEncoding.SelectFilter(pixels!, 1), "row padding changed filter selection");
+                if (scene == "gradient") Check(filter == SKPngEncoderFilterFlags.Sub, "smooth raster lost Sub filtering");
+                Check(MapFrameEncoding.SelectFilter(pixels!, 0) == SKPngEncoderFilterFlags.Sub, "stored PNG path changed");
+                using var expectedPng = pixels!.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 1))
+                    ?? throw new InvalidOperationException("Reference PNG failed");
+                using var actualPng = MapFrameEncoding.EncodePng(image, 1);
+                using var expected = SKBitmap.Decode(expectedPng);
+                using var actual = SKBitmap.Decode(actualPng);
+                Check(expected.Bytes.SequenceEqual(actual.Bytes), $"adaptive filter changed {scene}/{color}/{alpha} pixels");
+                Console.WriteLine($"PNG filter {scene}/{color}/{alpha}: selected={filter} before={expectedPng.Size} after={actualPng.Size}");
+            }
+        }
+        using var narrow = new SKBitmap(64, 16385);
+        using var narrowPixels = narrow.PeekPixels();
+        Check(MapFrameEncoding.SelectFilter(narrowPixels, 1) == SKPngEncoderFilterFlags.Sub, "narrow filter fallback");
+        using var space = SKColorSpace.CreateSrgb();
+        using var managed = new SKBitmap(new SKImageInfo(1024, 1024, SKColorType.Rgba8888, SKAlphaType.Premul, space));
+        using var managedPixels = managed.PeekPixels();
+        Check(MapFrameEncoding.SelectFilter(managedPixels, 1) == SKPngEncoderFilterFlags.Sub, "color-managed filter fallback");
     }
 
     private static void Check(bool value, string message)

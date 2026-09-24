@@ -60,7 +60,7 @@ public static class OnlineRasterFrameReader
         string F(double n) => n.ToString("R", CultureInfo.InvariantCulture);
         using var options = new GDALWarpAppOptions(new[] { "-of", "MEM", "-t_srs", targetSrs,
             "-te", F(left), F(bottom), F(right), F(top), "-ts", width.ToString(CultureInfo.InvariantCulture),
-            height.ToString(CultureInfo.InvariantCulture), "-r", "bilinear", "-dstalpha", "-wm", "32" });
+            height.ToString(CultureInfo.InvariantCulture), "-r", "bilinear", "-et", "0", "-dstalpha", "-wm", "32" });
         using var warped = Gdal.Warp("", new[] { source }, options,
             (complete, message, data) => token.IsCancellationRequested ? 0 : 1, null)
             ?? throw new IOException(Gdal.GetLastErrorMsg());

@@ -17,6 +17,7 @@ public sealed class RenderPathCache : IDisposable
     private sealed record Entry(SKPath Path, SKRect Coverage, float Zoom, bool Compact, long Bytes, bool ScaleIndependent, SKPoint? Origin)
     {
         public long LastUse { get; set; }
+        public ProjectedPathGeometry? Projected { get; init; }
     }
 
     public RenderPathCache(long budgetBytes = DefaultBudgetBytes, Func<long>? budgetProvider = null)
@@ -54,14 +55,19 @@ public sealed class RenderPathCache : IDisposable
     }
 
     public void Store(long owner, SKPath path, SKRect coverage, float zoom, bool interactive, bool compact,
-        bool scaleIndependent = false, SKPoint? origin = null)
+        bool scaleIndependent = false, SKPoint? origin = null, ProjectedPathGeometry? projected = null)
     {
-        long bytes = EstimateBytes(path);
+        if (interactive || compact || !scaleIndependent || !origin.HasValue) projected = null;
+        long bytes = EstimateBytes(path) + (projected?.RetainedBytes ?? 0);
         lock (_gate)
         {
             if (_disposed) return;
             RefreshBudget();
             var key = (owner, interactive);
+            // Spare-memory pressure may disable doubles while still allowing the
+            // original cheap path cache. Never sacrifice that existing fast path.
+            if (bytes > _budget && projected != null)
+            { bytes -= projected.RetainedBytes; projected = null; }
             // Never retain a stale entry for this quality after an uncacheable replacement.
             if (!Valid(coverage, zoom) || (origin.HasValue &&
                 (!float.IsFinite(origin.Value.X) || !float.IsFinite(origin.Value.Y))) || bytes > _budget)
@@ -82,12 +88,43 @@ public sealed class RenderPathCache : IDisposable
                     Remove(victim);
                 }
                 _entries.Add(key, new Entry(copy, coverage, zoom, compact, bytes,
-                    scaleIndependent && !interactive && !compact, origin) { LastUse = ++_clock });
+                    scaleIndependent && !interactive && !compact, origin) { LastUse = ++_clock, Projected = projected });
                 _bytes += bytes;
                 copy = null;
             }
             finally { copy?.Dispose(); }
         }
+    }
+
+    // Rebase retained doubles, never an already rounded SKPath. Release the cache
+    // lock before rebuilding; the immutable managed geometry survives eviction.
+    public bool TryGetProjected(long owner, SKRect viewport, SKPoint cameraOrigin, float zoom,
+        double baseX, double baseY, out SKPath? path, CancellationToken token = default)
+    {
+        ProjectedPathGeometry geometry;
+        SKPathFillType fillType;
+        lock (_gate)
+        {
+            path = null;
+            RefreshBudget();
+            if (_disposed || !Valid(viewport, zoom) ||
+                !float.IsFinite(cameraOrigin.X) || !float.IsFinite(cameraOrigin.Y) ||
+                !_entries.TryGetValue((owner, false), out var entry) ||
+                !entry.ScaleIndependent || entry.Compact || !entry.Origin.HasValue || entry.Projected == null ||
+                entry.Projected.BaseX != baseX || entry.Projected.BaseY != baseY ||
+                zoom / entry.Zoom > 4 || zoom / entry.Zoom < .25f) return false;
+            var anchor = entry.Origin.Value;
+            double dx = (double)cameraOrigin.X - anchor.X, dy = (double)cameraOrigin.Y - anchor.Y;
+            // Compare in double: adding offsets to float bounds can round an
+            // uncovered sliver back inside the retained query's coverage.
+            if (viewport.Left + dx < entry.Coverage.Left || viewport.Right + dx > entry.Coverage.Right ||
+                viewport.Top + dy < entry.Coverage.Top || viewport.Bottom + dy > entry.Coverage.Bottom) return false;
+            geometry = entry.Projected;
+            fillType = entry.Path.FillType;
+            entry.LastUse = ++_clock;
+        }
+        try { path = geometry.CreatePath(cameraOrigin, fillType, token); return true; }
+        catch (OutOfMemoryException) { return false; }
     }
 
     private void RefreshBudget()

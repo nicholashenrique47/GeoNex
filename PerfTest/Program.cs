@@ -18,17 +18,25 @@ if (args.Contains("--encoded-frame-cache-contracts")) { EncodedFrameCacheContrac
 if (args.Contains("--online-scheduler-contracts")) { await OnlineSchedulerContracts.Run(); return; }
 if (args.Contains("--polygon-image-cache-contracts")) { PolygonImageCacheContracts.Run(); return; }
 if (args.Contains("--online-session-contracts")) { await OnlineSessionContracts.Run(); return; }
+if (args.Contains("--online-transport-contracts")) { await OnlineTileTransportContracts.Run(); return; }
+if (args.Contains("--online-progressive-contracts")) { await OnlineProgressiveContracts.Run(); return; }
+if (args.Contains("--online-projected-zoom-contracts")) { OnlineProjectedZoomContracts.Run(); return; }
+if (args.Contains("--online-alignment-contracts")) { OnlineAlignmentContracts.Run(); return; }
+if (args.Length >= 2 && args[0] == "--online-provider-diagnostics") { OnlineProviderDiagnostics.Run(args[1], args.Length > 2 ? args[2] : "EPSG:3857", args.Length > 3 && args[3] == "direct"); return; }
+if (args.Length == 2 && args[0] == "--online-progressive-production") { await OnlineProgressiveProductionContracts.Run(args[1]); return; }
+if (args.Length == 2 && args[0] == "--high-zoom-preview-contracts") { await HighZoomPreviewContracts.Run(args[1]); return; }
 if (args.Contains("--render-precision-contracts")) { RenderPrecisionContracts.Run(); return; }
 if (args.Contains("--online-worker-contracts")) { await OnlineWorkerContracts.Run(); return; }
 if (args.Contains("--frame-encoding-contracts")) { FrameEncodingContracts.Run(); return; }
 if (Array.IndexOf(args, "--production-map-metrics") is int mapIndex && mapIndex >= 0)
-{ await ProductionMapMetrics.Run(args[mapIndex + 1], args[mapIndex + 2], args.Contains("--basemap") || args.Contains("--delayed-basemap"), args.Contains("--delayed-basemap"), args.Contains("--polygon-images")); return; }
+{ await ProductionMapMetrics.Run(args[mapIndex + 1], args[mapIndex + 2], args.Contains("--basemap") || args.Contains("--delayed-basemap"), args.Contains("--delayed-basemap"), args.Contains("--polygon-images"), args.Contains("--high-zoom"), args.Contains("--polygon-paint-experiments")); return; }
 if (args.Contains("--cpu-contracts")) { NativeCpuContracts.Run(); return; }
 if (args.Contains("--render-contracts")) { RenderContracts.Run(); return; }
 if (args.Contains("--managed-interop-contracts")) { ManagedInteropContracts.Run(); return; }
 if (args.Contains("--presentation-metrics")) { PresentationMetrics.Run(); return; }
 if (args.Contains("--resource-budget-contracts")) { ResourceBudgetContracts.Run(); return; }
 if (args.Contains("--vector-resource-contracts")) { VectorResourceContracts.Run(); return; }
+if (args.Contains("--vector-display-contracts")) { VectorDisplayContracts.Run(); return; }
 if (args.Contains("--shx-stream-contracts")) { ShapefileIndexContracts.Run(); return; }
 if (Array.IndexOf(args, "--production-vector-smoke") is int productionIndex && productionIndex >= 0)
 { ProductionVectorSmoke.Run(args[productionIndex + 1], args[productionIndex + 2]); return; }
@@ -44,6 +52,32 @@ if (args.Contains("--export-contracts")) { ExportContracts.Run(); return; }
 if (args.Contains("--coordinate-contracts")) { CoordinateContracts.Run(); return; }
 if (args.Contains("--telemetry-contracts")) { TelemetryContracts.Run(); return; }
 if (args.Contains("--large-shp-contracts")) { LargeShapefileContracts.Run(); return; }
+if (Array.IndexOf(args, "--captured-polygon-metrics") is int captureIndex && captureIndex >= 0)
+{
+    CapturedPolygonMetrics.Run(args[captureIndex + 1], int.Parse(args[captureIndex + 2]), int.Parse(args[captureIndex + 3]),
+        float.Parse(args[captureIndex + 4], System.Globalization.CultureInfo.InvariantCulture),
+        float.Parse(args[captureIndex + 5], System.Globalization.CultureInfo.InvariantCulture)); return;
+}
+if (args.Contains("--parallel-polygon-contracts")) { ParallelPolygonContracts.Run(); return; }
+if (args.Length == 6 && args[0] == "--polygon-blitter-metrics")
+{ PolygonBlitterMetrics.Run(args[1], int.Parse(args[2]), int.Parse(args[3]), float.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture), float.Parse(args[5], System.Globalization.CultureInfo.InvariantCulture)); return; }
+if (args.Length == 6 && args[0] == "--raster-surface-metrics")
+{ RasterSurfaceMetrics.Run(args[1], int.Parse(args[2]), int.Parse(args[3]), float.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture), float.Parse(args[5], System.Globalization.CultureInfo.InvariantCulture)); return; }
+if (args.Length == 3 && args[0] == "--compare-renderer-frames")
+{ RendererFrameComparison.Run(args[1], args[2]); return; }
+if (args.Length == 6 && args[0] == "--device-space-polygon-metrics")
+{
+    DeviceSpacePolygonMetrics.Run(args[1], int.Parse(args[2]), int.Parse(args[3]),
+        float.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture),
+        float.Parse(args[5], System.Globalization.CultureInfo.InvariantCulture)); return;
+}
+if (args.Contains("--raster-frame-snapshot-contracts")) { RasterFrameSnapshotContracts.Run(); return; }
+if (args.Contains("--cached-preview-image-contracts")) { CachedPreviewImageContracts.Run(); return; }
+if (args.Length == 2 && args[0] == "--captured-frame-encoding")
+{
+    using var bitmap = SKBitmap.Decode(args[1]) ?? throw new InvalidDataException("Invalid frame PNG");
+    ProductionMapMetrics.CompareEncoding(bitmap); return;
+}
 if (args.Contains("--render-path-cache-contracts")) { RenderPathCacheContracts.Run(); return; }
 if (args.Contains("--projection-batch-contracts")) { ProjectionBatchContracts.Run(); return; }
 if (args.Contains("--layer-camera-contracts")) { LayerCameraContracts.Run(); return; }

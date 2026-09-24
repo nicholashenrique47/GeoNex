@@ -93,6 +93,7 @@ public readonly struct MapCoordinateFrame
 {
     private MapCoordinateFrame(
         MapViewportMetrics viewport,
+        SKPoint localCenter,
         SKMatrix localToCss,
         SKMatrix cssToLocal,
         SKMatrix localToPhysical,
@@ -103,6 +104,7 @@ public readonly struct MapCoordinateFrame
         SKPoint bottomLeft)
     {
         Viewport = viewport;
+        LocalCenter = localCenter;
         LocalToCssMatrix = localToCss;
         CssToLocalMatrix = cssToLocal;
         LocalToPhysicalMatrix = localToPhysical;
@@ -119,6 +121,8 @@ public readonly struct MapCoordinateFrame
     }
 
     public MapViewportMetrics Viewport { get; }
+    // Retain the camera origin before translation is rounded inside SKMatrix.
+    public SKPoint LocalCenter { get; }
     public SKMatrix LocalToCssMatrix { get; }
     public SKMatrix CssToLocalMatrix { get; }
     public SKMatrix LocalToPhysicalMatrix { get; }
@@ -177,6 +181,7 @@ public readonly struct MapCoordinateFrame
 
         frame = new MapCoordinateFrame(
             viewport,
+            localCenter,
             localToCss,
             cssToLocal,
             localToPhysical,
@@ -200,6 +205,7 @@ public readonly struct MapCoordinateFrame
     }
 
     public SKPoint LocalToCss(SKPoint point) => LocalToCssMatrix.MapPoint(point);
+
     public SKPoint CssToLocal(SKPoint point) => CssToLocalMatrix.MapPoint(point);
     public SKPoint LocalToPhysical(SKPoint point) => LocalToPhysicalMatrix.MapPoint(point);
     public SKPoint PhysicalToLocal(SKPoint point) => PhysicalToLocalMatrix.MapPoint(point);

@@ -115,6 +115,14 @@ namespace GeoNex.Services
             bool interactive, bool compact, bool scaleIndependent)
             => SharedRenderPaths.Store(_renderPathOwner, path, coverage, zoom, interactive, compact, scaleIndependent, origin);
 
+        public bool TryGetProjectedRenderPath(SKRect viewport, SKPoint cameraOrigin, float zoom,
+            double baseX, double baseY, out SKPath? path, CancellationToken token)
+            => SharedRenderPaths.TryGetProjected(_renderPathOwner, viewport, cameraOrigin, zoom, baseX, baseY, out path, token);
+
+        public void StoreProjectedRenderPath(SKPath path, SKRect coverage, SKPoint origin, float zoom,
+            ProjectedPathGeometry? projected)
+            => SharedRenderPaths.Store(_renderPathOwner, path, coverage, zoom, false, false, true, origin, projected);
+
         /// <summary>Ponteiro bruto do DBF — acesso direto sem syscall.</summary>
         public byte* DbfPointerDirect => _dbfPtr;
 
@@ -592,6 +600,7 @@ namespace GeoNex.Services
         
         // --- GLOBAL INTERACTION CACHE ---
         private GlobalCacheMetadata _globalCacheMetadata = new(1, 0, 0, 0, 0, 0, 0);
+        private bool _globalCacheIsFinal;
         
         public event Action? OnMapInvalidated;
         public HashSet<string> CamadasInvisiveis { get; } = new();
@@ -778,9 +787,20 @@ namespace GeoNex.Services
         {
             lock (_rasterResourceGate)
             {
-                ResourceLease<SKBitmap>? lease = _globalCacheResources.Acquire(GlobalCacheResourceKey);
+                ResourceLease<SKBitmap>? lease = _globalCacheIsFinal ? _globalCacheResources.Acquire(GlobalCacheResourceKey) : null;
                 metadata = _globalCacheMetadata;
                 return lease;
+            }
+        }
+
+        // Gestures may reuse the last complete scene composition while newer raster
+        // pixels are arriving. Final requests must continue through AcquireGlobalCache.
+        public ResourceLease<SKBitmap>? AcquireGlobalPreviewCache(out GlobalCacheMetadata metadata)
+        {
+            lock (_rasterResourceGate)
+            {
+                metadata = _globalCacheMetadata;
+                return _globalCacheResources.Acquire(GlobalCacheResourceKey);
             }
         }
 
@@ -790,11 +810,20 @@ namespace GeoNex.Services
             float panX,
             float panY,
             MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, float cameraZoom)
+            => PublishSceneImage(bitmap, zoom, panX, panY, viewport, frame, sceneRevision, cameraZoom, true);
+
+        public void PublishGlobalPreviewCache(SKBitmap bitmap, float zoom, float panX, float panY,
+            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, float cameraZoom)
+            => PublishSceneImage(bitmap, zoom, panX, panY, viewport, frame, sceneRevision, cameraZoom, false);
+
+        private void PublishSceneImage(SKBitmap bitmap, float zoom, float panX, float panY,
+            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, float cameraZoom, bool final)
         {
             lock (_rasterResourceGate)
             {
                 if (sceneRevision != _sceneRevision) { bitmap.Dispose(); return; }
                 _globalCacheResources.Publish(GlobalCacheResourceKey, bitmap);
+                _globalCacheIsFinal = final;
                 _globalCacheMetadata = new GlobalCacheMetadata(
                     zoom,
                     panX,
@@ -826,7 +855,8 @@ namespace GeoNex.Services
             {
                 if (vectorChanged) System.Threading.Interlocked.Increment(ref _vectorPresentationRevision);
                 System.Threading.Interlocked.Increment(ref _sceneRevision);
-                _globalCacheResources.Remove(GlobalCacheResourceKey);
+                _globalCacheIsFinal = false;
+                if (vectorChanged) _globalCacheResources.Remove(GlobalCacheResourceKey);
             }
         }
 

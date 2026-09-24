@@ -12,6 +12,7 @@ internal static class RenderPathCacheContracts
         shape.AddRect(new SKRect(10, 10, 90, 90));
         var coverage = new SKRect(0, 0, 100, 100);
         long cost = RenderPathCache.EstimateBytes(shape);
+        ProjectedPathGeometryContracts.Run();
         using (var precise = new RenderPathCache(cost * 2))
         {
             var origin = new SKPoint(-5400000, 3000000);

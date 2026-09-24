@@ -415,6 +415,16 @@ namespace GeoNex.Services
             float resolution, float zoomReal,
             OSGeo.OSR.CoordinateTransformation transform,
             CancellationToken cancellationToken = default, bool preview = false)
+            => BuildBatchPathWithProjectedCache(batchPath, shp, feicoesList, offsetX, offsetY,
+                resolution, zoomReal, transform, cancellationToken, preview, null);
+
+        public static unsafe void BuildBatchPathWithProjectedCache(
+            SKPath batchPath, MemoryMappedShapefile shp,
+            System.Collections.Generic.IList<CompiledFeature> feicoesList,
+            double offsetX, double offsetY,
+            float resolution, float zoomReal,
+            OSGeo.OSR.CoordinateTransformation transform,
+            CancellationToken cancellationToken = default, bool preview = false, ProjectedPathGeometry.Builder? projected = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (feicoesList.Count == 0 || shp.ShpPointer == null) return;
@@ -439,6 +449,7 @@ namespace GeoNex.Services
                     // Transformar em chunks preserva cada vertice sem buffers gigantes.
                     if (firstPoints > TransformPointBatchSize)
                     {
+                        projected?.Disable(); // Chunk-spanning rings retain the existing bounded renderer.
                         AppendOversizedTransformedFeature(
                             batchPath, firstData, offsetX, offsetY,
                             transform, x, y, z, cancellationToken, zoomReal, preview);
@@ -510,7 +521,7 @@ namespace GeoNex.Services
 
                             AppendTransformedFeature(
                                 batchPath, data, shapeType, numParts, numPoints, pointCursor,
-                                x, y, offsetX, offsetY, cancellationToken, zoomReal, preview);
+                                x, y, offsetX, offsetY, cancellationToken, zoomReal, preview, projected);
                             pointCursor += numPoints;
                         }
                     }
@@ -541,7 +552,7 @@ namespace GeoNex.Services
         private static unsafe void AppendTransformedFeature(
             SKPath batchPath, byte* data, int shapeType, int numParts, int numPoints,
             int pointCursor, double[] x, double[] y, double offsetX, double offsetY,
-            CancellationToken cancellationToken, float zoom, bool preview)
+            CancellationToken cancellationToken, float zoom, bool preview, ProjectedPathGeometry.Builder? projected)
         {
             bool isPolygon = shapeType == 5 || shapeType == 15 || shapeType == 25;
             int* parts = (int*)(data + 44);
@@ -571,6 +582,7 @@ namespace GeoNex.Services
                     }
                     batchPath.AddPoly(System.Runtime.InteropServices.MemoryMarshal.Cast<float, SKPoint>(
                         new ReadOnlySpan<float>(_threadBufferOut, 0, count * 2)), isPolygon);
+                    projected?.Append(x, y, pointCursor + start, count, isPolygon, cancellationToken);
                 }
             }
         }

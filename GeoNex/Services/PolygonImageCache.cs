@@ -77,7 +77,10 @@ internal sealed class PolygonImageCache : IDisposable
             SKBitmap? image = null;
             try
             {
-                image = Paint(path, fill, stroke, key, cancellationToken);
+                var resources = VectorRuntimeResources.Current;
+                long workingBudget = Math.Max(budget, resources.PolygonWorkingBytes);
+                image = Paint(path, fill, stroke, key, workingBudget - cost - _bytes,
+                    resources.Workers, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 entry = new Entry(key, image, cost) { Used = ++_clock };
                 _entries.Add(layer, entry);
@@ -94,7 +97,8 @@ internal sealed class PolygonImageCache : IDisposable
         }
     }
 
-    private static SKBitmap Paint(SKPath path, SKPaint? fill, SKPaint? stroke, Key key, CancellationToken token)
+    private static SKBitmap Paint(SKPath path, SKPaint? fill, SKPaint? stroke, Key key, long spareBytes,
+        int workers, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         var bitmap = new SKBitmap();
@@ -102,6 +106,12 @@ internal sealed class PolygonImageCache : IDisposable
         {
             if (!bitmap.TryAllocPixels(new SKImageInfo(key.Width, key.Height,
                     SKColorType.Rgba8888, SKAlphaType.Premul))) throw new OutOfMemoryException();
+            if (ParallelPolygonPainter.TryPaint(bitmap, path, fill, stroke, key.Matrix,
+                    workers, spareBytes, token))
+            {
+                bitmap.SetImmutable();
+                return bitmap;
+            }
             using var canvas = new SKCanvas(bitmap);
             canvas.Clear(SKColors.Transparent);
             canvas.SetMatrix(key.Matrix);

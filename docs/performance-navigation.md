@@ -38,3 +38,29 @@ PASS: contratos novos, coordenadas, render, raster, leases, telemetria, interop,
 Para conferir na UI: importar LOTES; navegar antes/depois do primeiro frame completo; alternar pan curto/longo, roda/touchpad e DPI; conferir transparência e seleção após assentar; acrescentar raster e verificar alinhamento. A margem é finita, e chamadas GDAL/Skia em execução não são interrompidas internamente. Fora da cobertura do cache, a prévia ainda pode esperar a fila pesada.
 
 Mudanças locais, sem commit/push. Para reverter, revisar o diff contra o commit acima e restaurar apenas os arquivos desta alteração; não restaurar alterações posteriores indiscriminadamente.
+
+## Medição complementar — 16/09/2026
+
+O LOTES fornecido pelo usuário foi medido sem modificar a fonte: 4.937.409
+registros PolygonZ, 28.028.933 vértices, SHP de 1,64 GB e DBF de 3,04 GB.
+Na visão geral, a consulta encontrou todos os registros; geometria levou
+983,7 ms e o desenho final 4.066,3 ms. Em uma área intermediária, o desenho
+levou 1.403,4 ms; em escala de rua, 216,2 ms. A prévia compacta da visão geral
+ficou em aproximadamente 23 ms de geometria e 15 ms de desenho.
+
+Essa medição confirma que o gargalo atual é a pintura final de milhões de
+polígonos, e não a detecção de CPU/RAM. O próximo incremento deve ser P2/P3-V:
+índice por componentes, blocos reprojetados/LOD e composição incremental por
+camada. A superfície GPU permanece posterior, como P4/P6, depois de validar
+esses contratos. O smoke visual no WebView ainda é pendente.
+
+## Incremento P2/P3-V — LOD de visão geral — 16/09/2026
+
+Foi aplicado LOD automático somente para visões gerais densas: camadas
+poligonais com pelo menos 250 mil feições visíveis usam o índice uniforme
+representativo. Zoom local, seleção, rótulos, reprojeção, impressão e
+interação continuam no caminho exato. A fonte não é alterada.
+
+Contrato executado nos dois clones: `Vector display contracts: PASS`.
+Pendente: smoke visual no WebView e medição de frame real com os 4,9 milhões
+de polígonos.

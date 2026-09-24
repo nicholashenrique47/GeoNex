@@ -5,8 +5,8 @@ public sealed class LatestRenderWorker<T> : IDisposable where T : class, IDispos
 {
     private const int MaximumPendingLayers = 16;
     private const int FailureCooldownMilliseconds = 3000;
-    private sealed record Job(string Layer, string Key, Func<CancellationToken, T> Render, Action<T> Publish,
-        Func<bool>? IsRelevant, int Attempt = 0)
+    private sealed record Job(string Layer, string Key, Func<CancellationToken, Action<T>, T> Render, Action<T> Publish,
+        Func<bool>? IsRelevant, Action<T>? PublishPartial = null, int Attempt = 0)
     {
         public CancellationTokenSource Cancellation { get; } = new();
     }
@@ -51,6 +51,11 @@ public sealed class LatestRenderWorker<T> : IDisposable where T : class, IDispos
 
     public void Request(string layer, string key, Func<CancellationToken, T> render, Action<T> publish,
         Func<bool>? isRelevant = null)
+        => RequestProgressive(layer, key, (token, _) => render(token), publish, null, isRelevant);
+
+    /// <summary>Partial results transfer ownership and obey the same camera/lifetime checks as final results.</summary>
+    public void RequestProgressive(string layer, string key, Func<CancellationToken, Action<T>, T> render,
+        Action<T> publish, Action<T>? publishPartial, Func<bool>? isRelevant = null)
     {
         lock (_gate)
         {
@@ -67,7 +72,7 @@ public sealed class LatestRenderWorker<T> : IDisposable where T : class, IDispos
                 _pending.Remove(oldest.Key);
                 oldest.Value.Cancellation.Dispose();
             }
-            _pending[layer] = new Job(layer, key, render, publish, isRelevant);
+            _pending[layer] = new Job(layer, key, render, publish, isRelevant, publishPartial);
             if (!_running) { _running = true; _ = Task.Run(Pump); }
         }
     }
@@ -89,7 +94,7 @@ public sealed class LatestRenderWorker<T> : IDisposable where T : class, IDispos
             bool published = false;
             try
             {
-                result = job.Render(job.Cancellation.Token);
+                result = job.Render(job.Cancellation.Token, partial => PublishProgress(job, partial));
                 lock (_gate)
                 {
                     if (!_stopped && !job.Cancellation.IsCancellationRequested && Relevant(job))
@@ -134,6 +139,24 @@ public sealed class LatestRenderWorker<T> : IDisposable where T : class, IDispos
         }
     }
 
+    private void PublishProgress(Job job, T partial)
+    {
+        bool transferred = false;
+        try
+        {
+            lock (_gate)
+            {
+                if (_stopped || !ReferenceEquals(_active, job) || job.Cancellation.IsCancellationRequested ||
+                    !Relevant(job) || job.PublishPartial == null) return;
+                job.PublishPartial(partial);
+                transferred = true;
+            }
+        }
+        finally { if (!transferred) partial.Dispose(); }
+        try { _ready(); }
+        catch (Exception error) { _report(error); }
+    }
+
     // One timer for the whole worker, one automatic retry per camera. No tasks
     // or bitmaps accumulate while the provider is unavailable.
     private void RetryPending()
@@ -152,7 +175,7 @@ public sealed class LatestRenderWorker<T> : IDisposable where T : class, IDispos
                 // Keep the due retry if capacity is temporarily exhausted.
                 if (_active?.Layer == job.Layer || _pending.ContainsKey(job.Layer) || _pending.Count >= MaximumPendingLayers) continue;
                 _failures.Remove(failure.Key);
-                _pending[job.Layer] = new Job(job.Layer, job.Key, job.Render, job.Publish, job.IsRelevant, 1);
+                _pending[job.Layer] = new Job(job.Layer, job.Key, job.Render, job.Publish, job.IsRelevant, job.PublishPartial, 1);
             }
             ScheduleRetryLocked();
             if (_pending.Count > 0 && !_running) { _running = true; _ = Task.Run(Pump); }

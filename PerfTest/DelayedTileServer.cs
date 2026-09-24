@@ -9,6 +9,13 @@ internal sealed class DelayedTileServer : IDisposable
     private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Arrived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public int StatusCode = 200;
+    public Func<Uri, Task>? BeforeResponse { get; set; }
+    public Func<Uri, int>? ResponseStatus { get; set; }
+    public string? CacheControl { get; set; }
+    public byte[]? ResponseBytes { get; set; }
+    private int _active, _peak;
+    public int PeakActive => Volatile.Read(ref _peak);
+    public System.Collections.Concurrent.ConcurrentQueue<string> RequestedPaths { get; } = new();
     public System.Collections.Concurrent.ConcurrentQueue<int> RequestedZooms { get; } = new();
     public string Url { get; }
     public DelayedTileServer()
@@ -47,23 +54,32 @@ internal sealed class DelayedTileServer : IDisposable
     }
     private async Task Respond(HttpListenerContext context)
     {
+        int active = Interlocked.Increment(ref _active);
+        int peak;
+        do { peak = Volatile.Read(ref _peak); }
+        while (active > peak && Interlocked.CompareExchange(ref _peak, active, peak) != peak);
+        RequestedPaths.Enqueue(context.Request.Url!.AbsolutePath);
         string[] parts = context.Request.Url!.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length >= 2 && int.TryParse(parts[1], out int zoom)) RequestedZooms.Enqueue(zoom);
         Arrived.TrySetResult();
         await _release.Task;
         try
         {
-            context.Response.StatusCode = Volatile.Read(ref StatusCode);
+            if (BeforeResponse != null) await BeforeResponse(context.Request.Url!);
+            context.Response.StatusCode = ResponseStatus?.Invoke(context.Request.Url!) ?? Volatile.Read(ref StatusCode);
+            if (CacheControl != null) context.Response.Headers["Cache-Control"] = CacheControl;
             if (context.Response.StatusCode == 200)
             {
                 context.Response.ContentType = "image/png";
-                context.Response.ContentLength64 = _tile.Length;
-                await context.Response.OutputStream.WriteAsync(_tile);
+                byte[] body = ResponseBytes ?? _tile;
+                context.Response.ContentLength64 = body.Length;
+                await context.Response.OutputStream.WriteAsync(body);
             }
             context.Response.Close();
         }
         catch (HttpListenerException) { }
         catch (ObjectDisposedException) { }
+        finally { Interlocked.Decrement(ref _active); }
     }
     public void Dispose() { Release(); _listener.Close(); }
 }

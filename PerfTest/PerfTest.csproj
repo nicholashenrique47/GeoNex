@@ -30,13 +30,20 @@
     <Compile Include="..\GeoNex\Services\OnlineBasemapPolicy.cs" Link="Raster\OnlineBasemapPolicy.cs" />
     <Compile Include="..\GeoNex\Services\ShapefileRenderCatalog.cs" />
     <Compile Include="..\GeoNex\Services\RenderPathCache.cs" />
+    <Compile Include="..\GeoNex\Services\ProjectedPathGeometry.cs" />
     <Compile Include="..\GeoNex\Services\PolygonImageCache.cs" />
+    <Compile Include="..\GeoNex\Services\ParallelPolygonPainter.cs" />
+    <Compile Include="..\GeoNex\Services\RasterFrameSnapshot.cs" />
+    <Compile Include="..\GeoNex\Services\CachedPreviewImage.cs" />
     <Compile Include="..\GeoNex\Services\ProjectionBatchRunner.cs" />
     <Compile Include="..\GeoNex\Services\SrsFactory.cs" />
     <Compile Include="..\GeoNex\Services\LatestRenderWorker.cs" />
     <Compile Include="..\GeoNex\Services\OnlineRasterFrameReader.cs" />
     <Compile Include="..\GeoNex\Services\OnlineRasterSession.cs" />
+    <Compile Include="..\GeoNex\Services\ProgressiveOnlineRaster.cs" />
+    <Compile Include="..\GeoNex\Services\OnlineTileTransport.cs" />
     <Compile Include="..\GeoNex\Services\VectorResourcePolicy.cs" />
+    <Compile Include="..\GeoNex\Services\VectorDisplayPolicy.cs" />
     <Compile Include="..\GeoNex\Services\ShapefileIndexReader.cs" />
     <Compile Include="..\GeoNex\Services\MapFrameEncoding.cs" />
     <Compile Include="..\GeoNex\Services\EncodedFrameCache.cs" />

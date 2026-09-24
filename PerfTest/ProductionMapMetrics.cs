@@ -6,18 +6,18 @@ using SkiaSharp;
 
 internal static class ProductionMapMetrics
 {
-    public static async Task Run(string assemblyPath, string source, bool basemap, bool delayed = false, bool polygonImages = false)
+    public static async Task Run(string assemblyPath, string source, bool basemap, bool delayed = false, bool polygonImages = false, bool highZoom = false, bool paintExperiments = false)
     {
         assemblyPath = Path.GetFullPath(assemblyPath);
         source = Path.GetFullPath(source);
         string previousDirectory = Environment.CurrentDirectory;
         // Production import writes a relative diagnostic log. Isolate benchmark output.
         Environment.CurrentDirectory = Directory.CreateTempSubdirectory("GeoNexMapMetrics-").FullName;
-        try { await RunCore(assemblyPath, source, basemap, delayed, polygonImages); }
+        try { await RunCore(assemblyPath, source, basemap, delayed, polygonImages, highZoom, paintExperiments); }
         finally { Environment.CurrentDirectory = previousDirectory; }
     }
 
-    private static async Task RunCore(string assemblyPath, string source, bool basemap, bool delayed, bool polygonImages)
+    private static async Task RunCore(string assemblyPath, string source, bool basemap, bool delayed, bool polygonImages, bool highZoom, bool paintExperiments)
     {
         Environment.SetEnvironmentVariable("GEONEX_RENDER_METRICS", "1");
         GdalRuntimeBootstrap.Configure();
@@ -71,6 +71,135 @@ internal static class ProductionMapMetrics
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(90) };
             string url = (string)serverType.GetProperty("BaseUrl")!.GetValue(server)!;
+            if (highZoom)
+            {
+                float dpi = float.TryParse(Environment.GetEnvironmentVariable("GEONEX_BENCH_DPI"),
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var requestedDpi)
+                    ? requestedDpi : 1;
+                if (!float.IsFinite(dpi) || dpi < .5f || dpi > 4) throw new ArgumentOutOfRangeException("GEONEX_BENCH_DPI");
+                float targetScale = float.TryParse(Environment.GetEnvironmentVariable("GEONEX_BENCH_SCALE"),
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var requestedScale)
+                    ? requestedScale : 4;
+                if (!float.IsFinite(targetScale) || targetScale <= 0) throw new ArgumentOutOfRangeException("GEONEX_BENCH_SCALE");
+                var layers = (System.Collections.IDictionary)mapType.GetProperty("FeaturesPorCamada")!.GetValue(map)!;
+                var features = (System.Collections.IList)layers["benchmark"]!;
+                object focus = features[features.Count / 2]!;
+                var center = (SKPoint)focus.GetType().GetField("CentroidLocal")!.GetValue(focus)!;
+                float cx = center.X, cy = center.Y;
+                var scene = (SKRect)mapType.GetMethod("GetSceneBounds")!.Invoke(map, null)!;
+                var target = new SKRect(cx - 640 / targetScale, cy - 360 / targetScale,
+                    cx + 640 / targetScale, cy + 360 / targetScale);
+                if (!LayerCameraPolicy.TryFit(scene, target, 1600, 900, out var camera)) throw new InvalidOperationException("Invalid camera");
+                Console.WriteLine($"HIGH_ZOOM features={features.Count} center={cx},{cy} scale={targetScale} dpi={dpi}");
+                foreach (int sample in Enumerable.Range(0, 7))
+                {
+                    // Emulate repeated online tile publications without network timing noise.
+                    bool finalPan = Environment.GetEnvironmentVariable("GEONEX_BENCH_FINAL_PAN") == "1";
+                    if (sample > 0 && (finalPan || Environment.GetEnvironmentVariable("GEONEX_BENCH_RASTER_REFRESH") == "1"))
+                        mapType.GetMethod("InvalidateRasterPresentationCache")!.Invoke(map, null);
+                    int interactive = sample == 0 || finalPan ? 0 : 1;
+                    float panStep = float.TryParse(Environment.GetEnvironmentVariable("GEONEX_BENCH_PAN_STEP"),
+                        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var requestedPanStep)
+                        ? requestedPanStep : 4;
+                    if (!float.IsFinite(panStep)) throw new ArgumentOutOfRangeException("GEONEX_BENCH_PAN_STEP");
+                    float pan = (sample % 3) * panStep;
+                    clock.Restart();
+                    using var response = await client.GetAsync(FormattableString.Invariant(
+                        $"{url}mapa/?w=1600&h=900&dpi={dpi}&nav=1&i={interactive}&fid={sample + 1}&zoom={camera.Zoom}&panx={camera.PanX + pan}&pany={camera.PanY}"));
+                    response.EnsureSuccessStatusCode();
+                    byte[] bytes = await response.Content.ReadAsByteArrayAsync();
+                    Console.WriteLine($"HIGH_ZOOM sample={sample} http_ms={clock.Elapsed.TotalMilliseconds:F2} {string.Join(" ", response.Headers.GetValues("Server-Timing"))}");
+                    using var bitmap = SKBitmap.Decode(bytes) ?? throw new InvalidDataException("Invalid high-zoom PNG");
+                    if (!bitmap.Pixels.Any(p => p.Alpha != 0)) throw new InvalidOperationException("Empty focus area");
+                    string? frameDirectory = Environment.GetEnvironmentVariable("GEONEX_BENCH_FRAME_DIRECTORY");
+                    if (!string.IsNullOrWhiteSpace(frameDirectory))
+                    {
+                        Directory.CreateDirectory(frameDirectory);
+                        await File.WriteAllBytesAsync(Path.Combine(frameDirectory, $"frame-{sample}.png"), bytes);
+                    }
+                    string? referenceDirectory = Environment.GetEnvironmentVariable("GEONEX_BENCH_REFERENCE_DIRECTORY");
+                    if (!string.IsNullOrWhiteSpace(referenceDirectory))
+                    {
+                        using var reference = SKBitmap.Decode(Path.Combine(referenceDirectory, $"frame-{sample}.png"));
+                        if (reference == null || reference.Info != bitmap.Info) throw new InvalidDataException("Reference frame mismatch");
+                        byte[] expected = reference.Bytes, actual = bitmap.Bytes;
+                        int maximum = 0, changed = 0, visibleChanges = 0;
+                        int visibleWidth = (int)Math.Round(1600 * dpi), visibleHeight = (int)Math.Round(900 * dpi);
+                        int left = (bitmap.Width - visibleWidth) / 2, top = (bitmap.Height - visibleHeight) / 2;
+                        double squared = 0;
+                        for (int i = 0; i < actual.Length; i++)
+                        {
+                            int difference = Math.Abs(expected[i] - actual[i]);
+                            maximum = Math.Max(maximum, difference);
+                            if (difference != 0)
+                            {
+                                changed++;
+                                int px = (i / 4) % bitmap.Width, py = (i / 4) / bitmap.Width;
+                                if (px >= left && px < left + visibleWidth && py >= top && py < top + visibleHeight) visibleChanges++;
+                            }
+                            squared += difference * difference;
+                        }
+                        Console.WriteLine($"HIGH_ZOOM pixels sample={sample} max_delta={maximum} changed_channels={changed}/{actual.Length} visible_changes={visibleChanges} rms={Math.Sqrt(squared / actual.Length):F6}");
+                        // Strict by default. The explicit analytic-AA comparison
+                        // permits only one 8-bit level, including the overscan.
+                        bool analyticTolerance = Environment.GetEnvironmentVariable("GEONEX_BENCH_PIXEL_TOLERANCE") == "1";
+                        if (analyticTolerance ? maximum > 1 : visibleChanges != 0)
+                            throw new InvalidOperationException("High-zoom frame exceeds pixel tolerance");
+                    }
+                    if (sample == 0 || !string.IsNullOrWhiteSpace(frameDirectory))
+                    {
+                        object?[] cacheArgs = { null };
+                        using var global = (IDisposable?)mapType.GetMethod("AcquireGlobalCache")!.Invoke(map, cacheArgs);
+                        object metadata = cacheArgs[0]!;
+                        object productionFrame = metadata.GetType().GetProperty("Frame")!.GetValue(metadata)!;
+                        var origin = (SKPoint)productionFrame.GetType().GetProperty("LocalCenter")!.GetValue(productionFrame)!;
+                        float scale = (float)metadata.GetType().GetProperty("Zoom")!.GetValue(metadata)!;
+                        Console.WriteLine(FormattableString.Invariant($"HIGH_ZOOM frame_center_x={origin.X:R} frame_center_y={origin.Y:R} css_scale={scale:R}"));
+                        var viewport = MapViewportMetrics.Create(
+                            (int)metadata.GetType().GetProperty("CssWidth")!.GetValue(metadata)!,
+                            (int)metadata.GetType().GetProperty("CssHeight")!.GetValue(metadata)!, dpi);
+                        var localBounds = MapCoordinateFrame.Create(viewport, SKPoint.Empty, scale).LocalViewportBounds;
+                        using var shapeLease = (IDisposable)mapType.GetMethod("AcquireShapefile")!.Invoke(map, new object[] { "benchmark" })!;
+                        object shape = shapeLease.GetType().GetProperty("Resource")!.GetValue(shapeLease)!;
+                        object?[] pathArgs = { localBounds, origin, scale, false, null, false };
+                        bool pathAvailable = (bool)shape.GetType().GetMethod("TryGetPreciseRenderPath")!.Invoke(shape, pathArgs)!;
+                        if (!pathAvailable && shape.GetType().GetMethod("TryGetProjectedRenderPath") is { } projected)
+                        {
+                            object?[] projectedArgs = { localBounds, origin, scale,
+                                mapType.GetProperty("OffsetMundoX")!.GetValue(map), mapType.GetProperty("OffsetMundoY")!.GetValue(map), null, CancellationToken.None };
+                            pathAvailable = (bool)projected.Invoke(shape, projectedArgs)!;
+                            pathArgs[4] = projectedArgs[5];
+                        }
+                        if (pathAvailable)
+                        {
+                            using var path = (SKPath)pathArgs[4]!;
+                            var points = path.Points;
+                            Console.WriteLine($"HIGH_ZOOM path_points={path.PointCount} outside_frame={points.Count(p => !localBounds.Contains(p))} path_bounds={path.Bounds} frame_bounds={localBounds}");
+                            if (!string.IsNullOrWhiteSpace(frameDirectory))
+                            {
+                                await File.WriteAllBytesAsync(Path.Combine(frameDirectory, $"path-{sample}.xy"),
+                                    System.Runtime.InteropServices.MemoryMarshal.AsBytes(points.AsSpan()).ToArray());
+                                CapturedPolygonMetrics.Save(path, Path.Combine(frameDirectory, $"path-{sample}.gpath"));
+                            }
+                            if (paintExperiments)
+                            {
+                                float physicalScale = scale * viewport.PhysicalScaleX;
+                                if (Environment.GetEnvironmentVariable("GEONEX_BENCH_PAINT_MODE") == "bands")
+                                {
+                                    PolygonBandPainting.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                    continue;
+                                }
+                                MeasureContourCulling(path, localBounds, bitmap.Width, bitmap.Height, physicalScale);
+                                MeasureContourCulling(path, path.Bounds, bitmap.Width, bitmap.Height, physicalScale, true);
+                                PolygonBandPainting.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                OpenGlPolygonMetrics.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                PolygonPixelFormatMetrics.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                            }
+                        }
+                    }
+                }
+                return;
+            }
             if (basemap)
             {
                 await CheckAsyncOnline(client, url, mapType, map, serverType, server, layerBounds, fixture);
@@ -175,6 +304,36 @@ internal static class ProductionMapMetrics
             }
         }
         finally { serverType.GetMethod("Stop")!.Invoke(server, null); }
+    }
+
+    private static void MeasureContourCulling(SKPath path, SKRect extent, int width, int height, float scale, bool deduplicate = false)
+    {
+        extent.Inflate(4 / scale, 4 / scale);
+        var timer = Stopwatch.StartNew();
+        using var culled = PolygonContourCulling.Cull(path, extent, deduplicate: deduplicate);
+        double prepare = timer.Elapsed.TotalMilliseconds;
+        if (culled == null) { Console.WriteLine("CULL no eligible contours"); return; }
+        using var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var canvas = new SKCanvas(bitmap);
+        using var fill = new SKPaint { Color = SKColors.Cyan.WithAlpha(25), IsAntialias = true };
+        using var stroke = new SKPaint { Color = SKColors.Cyan.WithAlpha(200), IsAntialias = true,
+            Style = SKPaintStyle.Stroke, StrokeWidth = 1 / scale, StrokeJoin = SKStrokeJoin.Round };
+        var matrix = MapCoordinateFrame.Create(MapViewportMetrics.Create(width, height, 1), SKPoint.Empty, scale).LocalToPhysicalMatrix;
+        byte[]? reference = null;
+        var directTimes = new List<double>(); var culledTimes = new List<double>();
+        for (int round = 0; round < 4; round++)
+        foreach (bool useCulled in round % 2 == 0 ? new[] { false, true } : new[] { true, false })
+        {
+            canvas.Clear(SKColors.Transparent); canvas.SetMatrix(matrix); timer.Restart();
+            // Duplicates may carry winding multiplicity. Always retain original fill.
+            canvas.DrawPath(useCulled && !deduplicate ? culled : path, fill);
+            canvas.DrawPath(useCulled ? culled : path, stroke); canvas.Flush(); timer.Stop();
+            byte[] pixels = bitmap.Bytes;
+            reference ??= pixels;
+            if (!reference.SequenceEqual(pixels)) { Console.WriteLine($"CULL dedup={deduplicate} REJECTED: changed visible pixels"); return; }
+            if (round > 0) (useCulled ? culledTimes : directTimes).Add(timer.Elapsed.TotalMilliseconds);
+        }
+        Console.WriteLine($"CULL dedup={deduplicate} points={path.PointCount}->{culled.PointCount} prepare_ms={prepare:F2} draw_median_ms={directTimes.Order().ElementAt(1):F2}->{culledTimes.Order().ElementAt(1):F2} pixels=exact");
     }
 
     private static async Task CheckAsyncOnline(HttpClient client, string url, Type mapType, object map,
@@ -292,7 +451,7 @@ internal static class ProductionMapMetrics
         finally { fixture?.Release(); serverType.GetEvent("OnOnlineFrameReady")!.RemoveEventHandler(server, onReady); }
     }
 
-    private static void CompareEncoding(SKBitmap bitmap)
+    public static void CompareEncoding(SKBitmap bitmap)
     {
         using var image = SKImage.FromBitmap(bitmap);
         using var pixels = image.PeekPixels();
@@ -319,9 +478,22 @@ internal static class ProductionMapMetrics
                     throw new InvalidOperationException("Encoded payload cache changed bytes/pixels");
                 Console.WriteLine($"PAYLOAD sample={sample} disabled={disabled} hit={cache.Hits > hits} encode_ms={encodeMs:F2} decode_total_ms={totalMs:F2} bytes={bytes.Length}");
             }
-            if (cache.Hits != 2) throw new InvalidOperationException("Payload benchmark failed to exercise hits");
+            int expectedHits = expected!.Length <= EncodedFrameCache.Budget(1024) ? 2 : 0;
+            if (cache.Hits != expectedHits) throw new InvalidOperationException("Payload cache did not respect its byte budget");
         }
         Console.WriteLine($"ENCODE adaptive_level={MapFrameEncoding.NavigationCompressionLevel(image, 1024)}");
+        using (var untagged = rawImage.PeekPixels())
+            Console.WriteLine($"ENCODE adaptive_filter={MapFrameEncoding.SelectFilter(untagged!, 1)}");
+        for (int sample = 0; sample < 3; sample++)
+        {
+            var clock = Stopwatch.StartNew();
+            using var encoded = MapFrameEncoding.EncodePng(rawImage, 1);
+            double encodeMs = clock.Elapsed.TotalMilliseconds;
+            using var decoded = SKBitmap.Decode(encoded);
+            double totalMs = clock.Elapsed.TotalMilliseconds;
+            if (!bitmap.Bytes.SequenceEqual(decoded.Bytes)) throw new InvalidDataException("Adaptive PNG pixels changed");
+            Console.WriteLine($"ENCODE adaptive ms={encodeMs:F2} decode_total_ms={totalMs:F2} bytes={encoded.Size}");
+        }
         foreach (var filter in new[] { SKPngEncoderFilterFlags.None, SKPngEncoderFilterFlags.Up, SKPngEncoderFilterFlags.Sub })
         foreach (int level in new[] { 0, 1 })
         {

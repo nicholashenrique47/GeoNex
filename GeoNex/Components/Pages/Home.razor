@@ -4124,6 +4124,15 @@
                 }
                 
                 bool isWmsRaster = ds.GetDriver()?.ShortName == "WMS";
+                // O primeiro raster define a referência da cena. Isso precisa
+                // acontecer antes de criar o VRT e de calcular seus limites;
+                // caso contrário o projeto ainda está em EPSG:4326, o ECW/TIFF
+                // é reamostrado para graus e, depois, o projeto muda para UTM.
+                // O vetor carregado em seguida passa a usar metros enquanto o
+                // raster/cache continuam em graus, fazendo a ortofoto sumir.
+                string sourceProjection = ds.GetProjection();
+                if (!MapService.OffsetMundoDefinido && !string.IsNullOrWhiteSpace(sourceProjection))
+                    MapService.ProjetoSRS = sourceProjection;
                 MapService.RemoveWarpedRaster(nome);
                 MapService.PublishRaster(nome, ds);
 
@@ -4135,7 +4144,7 @@
                     try
                     {
                         bool precisaVrt = true;
-                        string srcWkt = ds.GetProjection();
+                        string srcWkt = sourceProjection;
                         string dstWkt = !string.IsNullOrEmpty(MapService.ProjetoSRS) ? MapService.ProjetoSRS : srcWkt;
                         
                         if (string.IsNullOrEmpty(srcWkt))
@@ -4201,7 +4210,7 @@
                 // entre cantos em transformações não lineares.
                 try
                 {
-                    string srcWkt = ds.GetProjection();
+                    string srcWkt = sourceProjection;
                     string dstWkt = MapService.ProjetoSRS;
                     if (!string.IsNullOrEmpty(srcWkt) && !string.IsNullOrEmpty(dstWkt) &&
                         !GeoNex.Services.SrsFactory.IsSame(srcWkt, dstWkt))
@@ -4232,7 +4241,7 @@
                     MapService.OffsetMundoY = maxY;
                     MapService.OffsetMundoDefinido = true;
                     
-                    string proj = ds.GetProjection();
+                    string proj = sourceProjection;
                     if (!string.IsNullOrEmpty(proj))
                     {
                         MapService.ProjetoSRS = proj;

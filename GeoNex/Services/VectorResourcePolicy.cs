@@ -5,6 +5,9 @@ namespace GeoNex.Services;
 public readonly record struct VectorResourceBudget(long CacheBytes, int Workers)
 {
     public int WorkersFor(int featureCount) => Math.Min(Workers, Math.Max(1, featureCount / 16_384));
+    // Transient polygon drawing is released after each frame. Keep persistent
+    // image retention small while permitting parallel painting on HiDPI screens.
+    public long PolygonWorkingBytes => Math.Min(Math.Max(0, CacheBytes) / 2, 256L * 1024 * 1024);
 }
 
 /// <summary>Vector-only budgets. No change to raster/GDAL settings or source geometry.</summary>
