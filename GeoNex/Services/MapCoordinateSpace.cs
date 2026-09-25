@@ -84,12 +84,15 @@ public readonly record struct MapViewportMetrics
 }
 
 public readonly record struct MapWorldCoordinate(double X, double Y);
+// Project-local coordinates: world origin removed and Y inverted. Keep these
+// distinct from geographic/world coordinates even though both use doubles.
+public readonly record struct MapLocalCoordinate(double X, double Y);
 
 /// <summary>
 /// Immutable transformation frame shared by the live map and print renderer.
 /// Local coordinates are the float, origin-shifted and Y-inverted coordinates used by Skia.
 /// </summary>
-public readonly struct MapCoordinateFrame
+public readonly partial struct MapCoordinateFrame
 {
     private MapCoordinateFrame(
         MapViewportMetrics viewport,
@@ -105,6 +108,7 @@ public readonly struct MapCoordinateFrame
     {
         Viewport = viewport;
         LocalCenter = localCenter;
+        PreciseLocalCenter = new(localCenter.X, localCenter.Y);
         LocalToCssMatrix = localToCss;
         CssToLocalMatrix = cssToLocal;
         LocalToPhysicalMatrix = localToPhysical;
@@ -121,8 +125,10 @@ public readonly struct MapCoordinateFrame
     }
 
     public MapViewportMetrics Viewport { get; }
-    // Retain the camera origin before translation is rounded inside SKMatrix.
+    // Float compatibility/path origin. PreciseLocalCenter also retains the
+    // fractional camera position which this property cannot represent.
     public SKPoint LocalCenter { get; }
+    public MapLocalCoordinate PreciseLocalCenter { get; }
     public SKMatrix LocalToCssMatrix { get; }
     public SKMatrix CssToLocalMatrix { get; }
     public SKMatrix LocalToPhysicalMatrix { get; }
@@ -217,6 +223,23 @@ public readonly record struct MapCameraState(double PanX, double PanY, double Zo
 
 public static class MapCoordinateSpace
 {
+    public static MapLocalCoordinate ApplyCssPanToPreciseLocalCenter(
+        MapLocalCoordinate center, double localToCssScale, double panX, double panY,
+        float clockwiseRotationDegrees = 0)
+    {
+        if (!double.IsFinite(center.X) || !double.IsFinite(center.Y) ||
+            !double.IsFinite(localToCssScale) || localToCssScale <= 0 ||
+            !double.IsFinite(panX) || !double.IsFinite(panY) || !float.IsFinite(clockwiseRotationDegrees))
+            throw new ArgumentOutOfRangeException(nameof(localToCssScale));
+        double radians = clockwiseRotationDegrees * Math.PI / 180;
+        double cosine = Math.Cos(radians), sine = Math.Sin(radians);
+        var result = new MapLocalCoordinate(center.X - (panX * cosine - panY * sine) / localToCssScale,
+            center.Y - (panX * sine + panY * cosine) / localToCssScale);
+        if (!double.IsFinite(result.X) || !double.IsFinite(result.Y))
+            throw new ArgumentOutOfRangeException(nameof(panX));
+        return result;
+    }
+
     public static SKPoint WorldToLocal(
         double worldX,
         double worldY,

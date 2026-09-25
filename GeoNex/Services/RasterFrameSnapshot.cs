@@ -10,9 +10,13 @@ internal sealed class RasterFrameSnapshot : IDisposable
     private readonly SKImage _image;
     private bool _disposed;
 
-    public RasterFrameSnapshot(SKSurface surface)
+    public RasterFrameSnapshot(SKSurface surface) : this(surface.Snapshot()
+        ?? throw new InvalidOperationException("Cannot snapshot the map surface.")) { }
+
+    // Takes ownership of an already-frozen frame (including pooled pixels).
+    public RasterFrameSnapshot(SKImage image)
     {
-        _image = surface.Snapshot() ?? throw new InvalidOperationException("Cannot snapshot the map surface.");
+        _image = image ?? throw new ArgumentNullException(nameof(image));
         try { _images.Publish(0, _image); }
         catch { _image.Dispose(); throw; }
     }

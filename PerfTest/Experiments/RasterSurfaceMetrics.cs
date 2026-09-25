@@ -12,17 +12,19 @@ internal static class RasterSurfaceMetrics
         using var fill = new SKPaint { Color = SKColor.Parse("#38bdf8").WithAlpha(89), IsAntialias = true };
         using var stroke = new SKPaint { Color = SKColor.Parse("#0ea5e9").WithAlpha(89), IsAntialias = true,
             Style = SKPaintStyle.Stroke, StrokeWidth = strokeWidth, StrokeJoin = SKStrokeJoin.Round };
-        var samples = new[] { new List<double>(), new List<double>() };
+        using var pool = new RasterPixelBuffer(); pool.Maintain(64L * 1024 * 1024);
+        var samples = new[] { new List<double>(), new List<double>(), new List<double>() };
         byte[]? reference = null;
         for (int round = 0; round < 9; round++)
-        foreach (int version in round % 2 == 0 ? new[] { 0, 1 } : new[] { 1, 0 })
+        foreach (int version in round % 2 == 0 ? new[] { 0, 1, 2 } : new[] { 2, 1, 0 })
         {
             long start = Stopwatch.GetTimestamp();
-            using var surface = SKSurface.Create(info);
-            if (version == 0) surface.Canvas.Clear(SKColors.Transparent);
+            using var target = RasterRenderTarget.Create(info, version == 2 ? pool : null);
+            var surface = target.Surface;
+            if (version != 1) surface.Canvas.Clear(SKColors.Transparent);
             surface.Canvas.SetMatrix(matrix);
             surface.Canvas.DrawPath(path, fill); surface.Canvas.DrawPath(path, stroke);
-            using var image = surface.Snapshot();
+            using var image = target.Finish();
             if (round > 0) samples[version].Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             using var pixels = image.PeekPixels();
             reference ??= pixels.GetPixelSpan().ToArray();
@@ -31,7 +33,8 @@ internal static class RasterSurfaceMetrics
         for (int i = 0; i < samples.Length; i++)
         {
             var values = samples[i].Order().ToArray();
-            Console.WriteLine(FormattableString.Invariant($"SURFACE extra_clear={i == 0} median_ms={(values[3] + values[4]) / 2:F3} samples={values.Length} pixels=exact"));
+            string mode = new[] { "original", "without-clear", "reused" }[i];
+            Console.WriteLine(FormattableString.Invariant($"SURFACE mode={mode} median_ms={(values[3] + values[4]) / 2:F3} samples={values.Length} pixels=exact"));
         }
     }
 }

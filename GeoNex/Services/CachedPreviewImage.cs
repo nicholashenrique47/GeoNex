@@ -6,7 +6,8 @@ internal static class CachedPreviewImage
 {
     // The caller keeps its cache lease until encoding finishes. Integer pans
     // need a pixel transfer, not a resampling/compositing pass over a clear frame.
-    public static SKImage Create(SKBitmap source, SKMatrix matrix, CancellationToken token)
+    public static SKImage Create(SKBitmap source, SKMatrix matrix, CancellationToken token,
+        RasterPixelBuffer? buffer = null)
     {
         token.ThrowIfCancellationRequested();
         if (source.ColorType == SKColorType.Rgba8888 && source.AlphaType == SKAlphaType.Premul &&
@@ -19,24 +20,36 @@ internal static class CachedPreviewImage
             if (matrix.TransX == 0 && matrix.TransY == 0)
                 return SKImage.FromBitmap(source) ?? throw new OutOfMemoryException();
             int dx = (int)matrix.TransX, dy = (int)matrix.TransY;
-            using var target = new SKBitmap(source.Info);
-            var destination = target.GetPixelSpan();
-            var original = source.GetPixelSpan();
-            int x = Math.Max(0, dx), y = Math.Max(0, dy);
-            int rows = source.Height - Math.Abs(dy), bytes = (source.Width - Math.Abs(dx)) * 4;
-            destination[..(y * target.RowBytes)].Clear();
-            destination[((y + rows) * target.RowBytes)..].Clear();
-            for (int row = 0; row < rows; row++)
+            RasterPixelBuffer.Rental? rental = buffer?.TryRent(source.Info);
+            using var allocated = rental == null ? new SKBitmap(source.Info) : null;
+            try
             {
-                if ((row & 63) == 0) token.ThrowIfCancellationRequested();
-                var targetRow = destination.Slice((y + row) * target.RowBytes, target.RowBytes);
-                targetRow[..(x * 4)].Clear();
-                original.Slice((y + row - dy) * source.RowBytes + (x - dx) * 4, bytes)
-                    .CopyTo(targetRow.Slice(x * 4, bytes));
-                targetRow[(x * 4 + bytes)..].Clear();
+                var target = rental?.Bitmap ?? allocated!;
+                var destination = target.GetPixelSpan();
+                var original = source.GetPixelSpan();
+                int x = Math.Max(0, dx), y = Math.Max(0, dy);
+                int rows = source.Height - Math.Abs(dy), bytes = (source.Width - Math.Abs(dx)) * 4;
+                destination[..(y * target.RowBytes)].Clear();
+                destination[((y + rows) * target.RowBytes)..].Clear();
+                for (int row = 0; row < rows; row++)
+                {
+                    if ((row & 63) == 0) token.ThrowIfCancellationRequested();
+                    var targetRow = destination.Slice((y + row) * target.RowBytes, target.RowBytes);
+                    targetRow[..(x * 4)].Clear();
+                    original.Slice((y + row - dy) * source.RowBytes + (x - dx) * 4, bytes)
+                        .CopyTo(targetRow.Slice(x * 4, bytes));
+                    targetRow[(x * 4 + bytes)..].Clear();
+                }
+                if (rental != null)
+                {
+                    var image = rental.CreateImage();
+                    rental = null; // Native pixel-ref owns the reusable allocation.
+                    return image;
+                }
+                target.SetImmutable();
+                return SKImage.FromBitmap(target) ?? throw new OutOfMemoryException();
             }
-            target.SetImmutable();
-            return SKImage.FromBitmap(target) ?? throw new OutOfMemoryException();
+            finally { rental?.Dispose(); }
         }
         // Fractional pans, zoom, rotation and other pixel formats retain Skia's
         // existing sampling, blending and color conversion semantics.

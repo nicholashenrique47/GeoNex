@@ -15,6 +15,10 @@ if (!string.IsNullOrEmpty(nativeOverride))
 
 if (args.Contains("--index-contracts")) { IndexContracts.Run(); return; }
 if (args.Contains("--encoded-frame-cache-contracts")) { EncodedFrameCacheContracts.Run(); return; }
+if (args.Contains("--frame-pixel-fingerprint-contracts")) { FramePixelFingerprintContracts.Run(); return; }
+if (args.Length == 2 && args[0] == "--frame-pixel-hash-metrics") { FramePixelFingerprintContracts.Measure(args[1]); return; }
+if (args.Length == 2 && args[0] == "--lossless-encoding-metrics") { LosslessEncodingMetrics.Run(args[1]); return; }
+if (args.Contains("--exact-palette-png-contracts")) { ExactPalettePngContracts.Run(); return; }
 if (args.Contains("--online-scheduler-contracts")) { await OnlineSchedulerContracts.Run(); return; }
 if (args.Contains("--polygon-image-cache-contracts")) { PolygonImageCacheContracts.Run(); return; }
 if (args.Contains("--online-session-contracts")) { await OnlineSessionContracts.Run(); return; }
@@ -50,6 +54,9 @@ if (args.Contains("--online-basemap-contracts")) { OnlineBasemapContracts.Run();
 if (args.Contains("--online-basemap-smoke")) { OnlineBasemapSmoke.Run(); return; }
 if (args.Contains("--export-contracts")) { ExportContracts.Run(); return; }
 if (args.Contains("--coordinate-contracts")) { CoordinateContracts.Run(); return; }
+if (args.Contains("--precise-camera-contracts")) { PreciseCameraContracts.Run(); return; }
+if (args.Length == 6 && args[0] == "--precise-camera-capture")
+{ PreciseCameraContracts.RunCapture(args[1], int.Parse(args[2]), int.Parse(args[3]), float.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture), float.Parse(args[5], System.Globalization.CultureInfo.InvariantCulture)); return; }
 if (args.Contains("--telemetry-contracts")) { TelemetryContracts.Run(); return; }
 if (args.Contains("--large-shp-contracts")) { LargeShapefileContracts.Run(); return; }
 if (Array.IndexOf(args, "--captured-polygon-metrics") is int captureIndex && captureIndex >= 0)
@@ -73,6 +80,8 @@ if (args.Length == 6 && args[0] == "--device-space-polygon-metrics")
 }
 if (args.Contains("--raster-frame-snapshot-contracts")) { RasterFrameSnapshotContracts.Run(); return; }
 if (args.Contains("--cached-preview-image-contracts")) { CachedPreviewImageContracts.Run(); return; }
+if (args.Contains("--preview-pixel-buffer-contracts") || args.Contains("--raster-pixel-buffer-contracts")) { RasterPixelBufferContracts.Run(); return; }
+if (args.Contains("--raster-render-target-contracts")) { RasterRenderTargetContracts.Run(); return; }
 if (args.Length == 2 && args[0] == "--captured-frame-encoding")
 {
     using var bitmap = SKBitmap.Decode(args[1]) ?? throw new InvalidDataException("Invalid frame PNG");

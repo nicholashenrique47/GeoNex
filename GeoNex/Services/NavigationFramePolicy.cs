@@ -21,8 +21,8 @@ public static class NavigationFramePolicy
         double b = ((double)t.SkewX * s.ScaleX - (double)t.ScaleX * s.SkewX) / determinant;
         double c = ((double)t.SkewY * s.ScaleY - (double)t.ScaleY * s.SkewY) / determinant;
         double d = ((double)t.ScaleY * s.ScaleX - (double)t.SkewY * s.SkewX) / determinant;
-        double dx = (double)source.LocalCenter.X - target.LocalCenter.X;
-        double dy = (double)source.LocalCenter.Y - target.LocalCenter.Y;
+        double dx = source.PreciseLocalCenter.X - target.PreciseLocalCenter.X;
+        double dy = source.PreciseLocalCenter.Y - target.PreciseLocalCenter.Y;
         double x = target.Viewport.PhysicalWidth / 2.0 - a * source.Viewport.PhysicalWidth / 2.0 - b * source.Viewport.PhysicalHeight / 2.0
             + t.ScaleX * dx + t.SkewX * dy;
         double y = target.Viewport.PhysicalHeight / 2.0 - c * source.Viewport.PhysicalWidth / 2.0 - d * source.Viewport.PhysicalHeight / 2.0
@@ -44,6 +44,27 @@ public static class NavigationFramePolicy
         var targetCenter = new SKPoint(baseCenter.X - (float)(targetCamera.PanX / targetScale),
             baseCenter.Y - (float)(targetCamera.PanY / targetScale));
         return MapCoordinateFrame.Create(viewport, targetCenter, targetScale);
+    }
+
+    // Unrotated navigation only. Activate alongside the precise final camera,
+    // never independently: otherwise the old final frame would snap back.
+    public static MapCoordinateFrame RebasePrecisely(MapCoordinateFrame source, float sourceScale,
+        MapCameraState sourceCamera, MapCameraState targetCamera)
+    {
+        if (!float.IsFinite(sourceScale) || sourceScale <= 0 ||
+            !double.IsFinite(sourceCamera.Zoom) || sourceCamera.Zoom <= 0 ||
+            !double.IsFinite(targetCamera.Zoom) || targetCamera.Zoom <= 0 ||
+            !double.IsFinite(sourceCamera.PanX) || !double.IsFinite(sourceCamera.PanY) ||
+            !double.IsFinite(targetCamera.PanX) || !double.IsFinite(targetCamera.PanY) ||
+            source.LocalToCssMatrix.SkewX != 0 || source.LocalToCssMatrix.SkewY != 0 ||
+            source.LocalToCssMatrix.ScaleX != sourceScale || source.LocalToCssMatrix.ScaleY != sourceScale)
+            throw new ArgumentException("Invalid unrotated navigation camera.");
+        float targetScale = (float)(sourceScale * targetCamera.Zoom / sourceCamera.Zoom);
+        double ratio = (double)targetScale / sourceScale;
+        var center = source.PreciseLocalCenter;
+        var target = new MapLocalCoordinate(center.X + (sourceCamera.PanX - targetCamera.PanX / ratio) / sourceScale,
+            center.Y + (sourceCamera.PanY - targetCamera.PanY / ratio) / sourceScale);
+        return MapCoordinateFrame.CreatePrecise(source.Viewport, target, targetScale);
     }
 
     public static int Padding(int width, int height, float dpi)

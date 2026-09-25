@@ -35,6 +35,9 @@
     <Compile Include="..\GeoNex\Services\ParallelPolygonPainter.cs" />
     <Compile Include="..\GeoNex\Services\RasterFrameSnapshot.cs" />
     <Compile Include="..\GeoNex\Services\CachedPreviewImage.cs" />
+    <Compile Include="..\GeoNex\Services\RasterPixelBuffer.cs" />
+    <Compile Include="..\GeoNex\Services\RasterRenderTarget.cs" />
+    <Compile Include="..\GeoNex\Services\ExactPalettePngEncoder.cs" />
     <Compile Include="..\GeoNex\Services\ProjectionBatchRunner.cs" />
     <Compile Include="..\GeoNex\Services\SrsFactory.cs" />
     <Compile Include="..\GeoNex\Services\LatestRenderWorker.cs" />
@@ -52,6 +55,7 @@
     <Compile Include="..\GeoNex\Services\LayerCameraPolicy.cs" />
     <Compile Include="..\GeoNex\Services\TransformedRingWriter.cs" />
     <Compile Include="..\GeoNex\Services\MapCoordinateSpace.cs" Link="Rendering\MapCoordinateSpace.cs" />
+    <Compile Include="..\GeoNex\Services\MapCoordinateFrame.Precision.cs" Link="Rendering\MapCoordinateFrame.Precision.cs" />
     <Compile Include="..\GeoNex\Services\RenderTelemetry.cs" Link="Rendering\RenderTelemetry.cs" />
     <Compile Include="..\GeoNex\Services\LeasedResourceRegistry.cs" Link="Resources\LeasedResourceRegistry.cs" />
     <Compile Include="..\GeoNex\Services\ExportPublicationTransaction.cs" Link="Export\ExportPublicationTransaction.cs" />

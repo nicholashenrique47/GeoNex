@@ -5,6 +5,25 @@ namespace GeoNex.Services;
 
 public static class MapFrameEncoding
 {
+    internal static bool PaletteEnabled => Environment.GetEnvironmentVariable("GEONEX_PALETTE_PNG") != "0";
+
+    // Only navigation opts into exact indexed PNG. Print/export keeps its encoder.
+    internal static SKData EncodeNavigationPng(SKImage image, int compressionLevel, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (compressionLevel == 1 && PaletteEnabled)
+        {
+            using var pixels = image.PeekPixels();
+            if (pixels != null)
+            {
+                var indexed = ExactPalettePngEncoder.TryEncode(pixels, VectorRuntimeResources.Current.CacheBytes / 16, token);
+                if (indexed != null) return indexed;
+            }
+        }
+        token.ThrowIfCancellationRequested();
+        return EncodePng(image, compressionLevel);
+    }
+
     // Localhost frames favor latency over minimum file size. Still lossless RGBA.
     public static SKData EncodePng(SKImage image)
         => EncodePng(image, 1);

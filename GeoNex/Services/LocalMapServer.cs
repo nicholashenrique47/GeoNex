@@ -27,6 +27,8 @@ namespace GeoNex.Services
         private readonly ProgressiveOnlineRaster _progressiveOnline = new();
         private readonly PolygonImageCache _polygonImages = new();
         private readonly EncodedFrameCache _encodedFrames = new();
+        private readonly RasterPixelBuffer _previewPixels = new();
+        private readonly RasterPixelBuffer _framePixels = new(128L * 1024 * 1024);
         public long EncodedFrameCacheHits => _encodedFrames.Hits;
         public long EncodedFrameCacheBytes => _encodedFrames.RetainedBytes;
         public long PolygonImageCacheHits => _polygonImages.Hits;
@@ -163,7 +165,7 @@ namespace GeoNex.Services
             {
                 // Read-only cached previews do not queue behind an uninterruptible
                 // GDAL/Skia call. The resource lease pins the immutable source bitmap.
-                if (TryServeCachedPreview(context, owner.Token, generation, trace)) return;
+                if (await TryServeCachedPreviewAsync(context, owner.Token, generation, trace).ConfigureAwait(false)) return;
                 await _renderGate.WaitAsync(owner.Token).ConfigureAwait(false);
                 entered = true;
                 trace?.MarkDequeued();
@@ -195,10 +197,16 @@ namespace GeoNex.Services
             }
         }
 
-        private bool TryServeCachedPreview(HttpListenerContext context, CancellationToken token,
+        private async Task<bool> TryServeCachedPreviewAsync(HttpListenerContext context, CancellationToken token,
             long generation, RenderFrameTrace? trace)
         {
-            if (!_previewGate.Wait(0)) return false;
+            var q = context.Request.QueryString;
+            if (q["nav"] != "1" || q["i"] != "1" || q["c"] == "1" || q["rot"] != null ||
+                q["ox"] != null || q["oy"] != null) return false;
+            // A superseded preview may still be in an uninterruptible native PNG
+            // call. Keep its successor here, away from the full-render gate.
+            // Cancellation removes obsolete waiters; only the latest survives.
+            await _previewGate.WaitAsync(token).ConfigureAwait(false);
             try { return TryServeCachedPreviewCore(context, token, generation, trace); }
             finally { _previewGate.Release(); }
         }
@@ -230,14 +238,17 @@ namespace GeoNex.Services
             token.ThrowIfCancellationRequested();
             trace?.MarkDequeued();
             trace?.Configure(width, height, dpi, true, 0);
+            _previewPixels.Maintain(Environment.GetEnvironmentVariable("GEONEX_PREVIEW_BUFFER") == "0"
+                ? 0 : VectorRuntimeResources.Current.CacheBytes / 8);
             SKImage preview;
             using (trace?.Measure("draw", "__global_cache__"))
-                preview = CachedPreviewImage.Create(lease.Resource, matrix, token);
+                preview = CachedPreviewImage.Create(lease.Resource, matrix, token, _previewPixels);
             using var image = preview;
             context.Response.AppendHeader("Access-Control-Allow-Origin", "*");
             context.Response.AppendHeader("Cache-Control", "no-store");
             trace?.MarkRenderReady();
-            WriteEncodedFrame(image, context.Response, true, token, generation, trace, navigation: true);
+            WriteEncodedFrame(image, context.Response, true, token, generation, trace, navigation: true,
+                cacheIdentityPreview: matrix.Equals(SKMatrix.Identity));
             return true;
         }
 
@@ -341,9 +352,13 @@ namespace GeoNex.Services
                 try
                 {
                     // Fallback inteligente: Se falhar (Thread sem contexto OpenGL), desenha na CPU.
-                    using var surface = grContext != null 
-                        ? SKSurface.Create(grContext, true, info) 
-                        : SKSurface.Create(info);
+                    _framePixels.Maintain(!isPrint && req.QueryString["nav"] == "1" &&
+                        Environment.GetEnvironmentVariable("GEONEX_FRAME_BUFFER") != "0"
+                            ? VectorRuntimeResources.Current.CacheBytes / 4 : 0);
+                    using var renderTarget = grContext != null
+                        ? new RasterRenderTarget(SKSurface.Create(grContext, true, info))
+                        : RasterRenderTarget.Create(info, _framePixels);
+                    var surface = renderTarget.Surface;
                         
                     var canvas = surface.Canvas;
 
@@ -479,7 +494,7 @@ namespace GeoNex.Services
                         canvas.DrawBitmap(globalCache, 0, 0);
                     
                     // Salvar e responder (Interativo = Máxima fluidez)
-                    using var fastImage = surface.Snapshot();
+                    using var fastImage = renderTarget.Finish();
                     trace?.MarkRenderReady();
                     WriteEncodedFrame(
                         fastImage, res, isInteracting, cancellationToken,
@@ -1726,7 +1741,7 @@ namespace GeoNex.Services
                 canvas.Restore();
                 cancellationToken.ThrowIfCancellationRequested();
                 res.AppendHeader("X-GeoNex-Online-Pending", onlinePending ? "1" : "0");
-                using var frameSnapshot = new RasterFrameSnapshot(surface);
+                using var frameSnapshot = new RasterFrameSnapshot(renderTarget.Finish());
                 var image = frameSnapshot.Image;
 
                 // Retain one scene image for gestures even while online pixels are
@@ -1776,7 +1791,8 @@ namespace GeoNex.Services
             bool isInteracting,
             CancellationToken cancellationToken,
             long generation,
-            RenderFrameTrace? trace, bool navigation = false, string? reusePayloadId = null)
+            RenderFrameTrace? trace, bool navigation = false, string? reusePayloadId = null,
+            bool cacheIdentityPreview = false)
         {
             SKEncodedImageFormat format = UseWebpEncoding
                 ? SKEncodedImageFormat.Webp
@@ -1791,13 +1807,20 @@ namespace GeoNex.Services
             cancellationToken.ThrowIfCancellationRequested();
             long encodeStarted = Stopwatch.GetTimestamp();
             string? payloadId = null;
-            using ResourceLease<SKData>? encodedLease = !UseWebpEncoding && navigation && !isInteracting
-                ? _encodedFrames.Encode(image, pngCompression,
-                    Environment.GetEnvironmentVariable("GEONEX_ENCODED_FRAME_CACHE") == "0" ? 0 :
-                        EncodedFrameCache.Budget(GdalRuntimeConfiguration.Apply().AvailablePhysicalMb), cancellationToken, out payloadId)
+            // Identity previews can reuse the final PNG after exact all-pixel
+            // validation. Moving previews avoid hashing every new pan frame.
+            bool useEncodedCache = !UseWebpEncoding && navigation && (!isInteracting || cacheIdentityPreview);
+            long encodedBudget = !useEncodedCache || Environment.GetEnvironmentVariable("GEONEX_ENCODED_FRAME_CACHE") == "0" ? 0 :
+                EncodedFrameCache.Budget(GdalRuntimeConfiguration.Apply().AvailablePhysicalMb);
+            using ResourceLease<SKData>? encodedLease = useEncodedCache
+                ? (isInteracting
+                    ? _encodedFrames.TryEncodePreview(image, pngCompression, encodedBudget, cancellationToken, out payloadId)
+                    : _encodedFrames.Encode(image, pngCompression, encodedBudget, cancellationToken, out payloadId))
                 : null;
             using SKData? uncachedData = encodedLease != null ? null :
-                UseWebpEncoding ? image.Encode(format, quality) : MapFrameEncoding.EncodePng(image, pngCompression);
+                UseWebpEncoding ? image.Encode(format, quality) : navigation
+                    ? MapFrameEncoding.EncodeNavigationPng(image, pngCompression, cancellationToken)
+                    : MapFrameEncoding.EncodePng(image, pngCompression);
             SKData? data = encodedLease?.Resource ?? uncachedData;
             long encodeCompleted = Stopwatch.GetTimestamp();
             trace?.AddSpan("encode", null, encodeStarted, encodeCompleted);
@@ -1890,6 +1913,8 @@ namespace GeoNex.Services
             _onlineSession.Dispose();
             _polygonImages.Dispose();
             _encodedFrames.Dispose();
+            _previewPixels.Dispose();
+            _framePixels.Dispose();
             OnOnlineFrameReady = null;
             Interlocked.Exchange(ref _activeRender, null)?.Cancel();
             _listener?.Stop();
