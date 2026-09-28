@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../GeoNex/Services/DigitizingCursor.cs" Link="DigitizingCursor.cs" />
+    <Compile Include="../../GeoNex/Services/SketchVertexHistory.cs" Link="SketchVertexHistory.cs" />
+    <Compile Include="../../GeoNex/Services/DigitizingGeometry.cs" Link="DigitizingGeometry.cs" />
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+  </ItemGroup>
+</Project>

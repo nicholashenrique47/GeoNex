@@ -795,32 +795,6 @@ window.forcarPosicaoVertice = function (nomeCamada, indice, novaLat, novaLng) {
 // 6. GESTOR DE ATALHOS DE TECLADO INTELIGENTES
 // GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
 // =========================================================================
-// GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
-// =========================================================================
-// GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
-// =========================================================================
-// GESTOR GLOBAL DE ATALHOS - UNIFICADO
-document.addEventListener('keydown', function (event) {
-    // 1. Não deixar o navegador processar estas teclas específicas
-    const teclasProtegidas = ['tab', 'f6', 'escape', 'm', 'i', 'd', 'p', 'enter', 'c', 'backspace', 'z', 'ctrl+z'];    let tecla = event.key.toLowerCase();
-
-    // Suporte para Ctrl+Z
-    if (event.ctrlKey && tecla === 'z') tecla = 'ctrl+z';
-
-    if (teclasProtegidas.includes(tecla)) {
-        // Ignora se estiver a escrever num input
-        const tagsIgnoradas = ['INPUT', 'TEXTAREA', 'SELECT'];
-        if (tagsIgnoradas.includes(event.target.tagName)) return;
-
-        event.preventDefault(); // Impede o navegador de saltar para a barra de endereços (F6) ou mudar foco (Tab)
-
-        // Envia para o C#
-        if (window.mapEngine && window.mapEngine.dotNetHelper) {
-            window.mapEngine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', tecla)
-                .catch(err => console.warn("Erro ao enviar tecla para o C#: ", err));
-        }
-    }
-}, { passive: false });
 // 7. MOTOR DE SIMBOLOGIA TEMÁTICA (AUTO-CATEGORIZADOR)
 window.aplicarSimbologiaCategorizada = function (nomeCamada, colunaAtributo, espessura, opacidade) {
     let camada = window.camadasGeoNex[nomeCamada];
@@ -963,6 +937,9 @@ window.mapEngine = {
     initialized: false,
     cameraEpoch: 0, retryCount: 0,
     committedCamera: { panX: 0, panY: 0, zoom: 1 },
+    toolPointerPending: null,
+    toolPointerFrame: null,
+    toolPointerInFlight: false,
 
     init: function (dotNetRef) {
         this.container = document.getElementById('map-container');
@@ -1099,6 +1076,7 @@ window.mapEngine = {
 
     onDoubleClick: function (e) {
         e.preventDefault();
+        if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(this.ferramentaAtual)) return;
         this.aplicarZoomCentralizado(2.0, e.clientX, e.clientY, false);
     },
 
@@ -1163,6 +1141,46 @@ window.mapEngine = {
         };
     },
 
+    obterPontoImagem: function (clientX, clientY) {
+        const rect = this.container.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+        return {
+            x: (x - cx - this.currentX) / this.currentScale + cx,
+            y: (y - cy - this.currentY) / this.currentScale + cy
+        };
+    },
+
+    resetToolPointer: function () {
+        this.toolPointerPending = null;
+        if (this.toolPointerFrame !== null) cancelAnimationFrame(this.toolPointerFrame);
+        this.toolPointerFrame = null;
+    },
+
+    queueToolPointer: function (clientX, clientY) {
+        this.toolPointerPending = { clientX, clientY };
+        if (this.toolPointerFrame === null && !this.toolPointerInFlight)
+            this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
+    },
+
+    flushToolPointer: function () {
+        this.toolPointerFrame = null;
+        if (!this.toolPointerPending || this.toolPointerInFlight || !this.dotNetHelper) return;
+        const sample = this.toolPointerPending;
+        this.toolPointerPending = null;
+        const point = this.obterPontoImagem(sample.clientX, sample.clientY);
+        this.toolPointerInFlight = true;
+        this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas', point.x, point.y)
+            .catch(err => console.warn('Erro na prévia da ferramenta:', err))
+            .finally(() => {
+                this.toolPointerInFlight = false;
+                if (this.toolPointerPending && this.toolPointerFrame === null)
+                    this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
+            });
+    },
+
     onPointerMove: function (e) {
         if (e.pointerType === 'touch' && this.activeTouches.has(e.pointerId)) {
             this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1203,10 +1221,8 @@ window.mapEngine = {
         }
 
         if (!this.isDragging) {
-            if ((this.ferramentaAtual === 'Medicao' || this.ferramentaAtual === 'AquisicaoPoligono') && this.dotNetHelper) {
-                const rect = this.container.getBoundingClientRect();
-                this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas', e.clientX - rect.left, e.clientY - rect.top);
-            }
+            if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(this.ferramentaAtual))
+                this.queueToolPointer(e.clientX, e.clientY);
             return;
         }
 
@@ -1240,6 +1256,7 @@ window.mapEngine = {
     ferramentaAtual: 'Identificacao',
 
     setFerramenta: function (nomeFerramenta) {
+        this.resetToolPointer();
         this.ferramentaAtual = nomeFerramenta;
         if (this.container) {
             this.container.style.cursor =
@@ -1249,6 +1266,7 @@ window.mapEngine = {
     },
 
     onPointerDown: function (e) {
+        this.resetToolPointer();
         if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
 
         this.pointerIds.add(e.pointerId);
@@ -1363,18 +1381,8 @@ window.mapEngine = {
 
     dispararRaycast: function (clientX, clientY) {
         if (!this.dotNetHelper) return;
-
-        const rect = this.container.getBoundingClientRect();
-        const mouseX = clientX - rect.left;
-        const mouseY = clientY - rect.top;
-
-        const cx = rect.width / 2;
-        const cy = rect.height / 2;
-
-        const pixelImagemX = (mouseX - cx - this.currentX) / this.currentScale + cx;
-        const pixelImagemY = (mouseY - cy - this.currentY) / this.currentScale + cy;
-
-        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', pixelImagemX, pixelImagemY)
+        const point = this.obterPontoImagem(clientX, clientY);
+        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y)
             .catch(err => console.warn("Erro no Túnel:", err));
     },
 
@@ -1981,22 +1989,27 @@ window.addEventListener('resize', () => { if (window.GeoNexGraphics) window.GeoN
 // GESTOR GLOBAL DE ATALHOS (Resolve o problema do Foco no MAUI)
 // =========================================================================
 document.addEventListener('keydown', function (event) {
-    // Ignora se o engenheiro estiver a digitar dentro de um campo de texto
-    const tagsIgnoradas = ['INPUT', 'TEXTAREA', 'SELECT'];
-    if (tagsIgnoradas.includes(event.target.tagName)) return;
+    const target = event.target;
+    if (target instanceof Element &&
+        (target.closest('input, textarea, select, button, a, summary, [role="dialog"]') || target.isContentEditable)) return;
+    const engine = window.mapEngine;
+    if (!engine?.dotNetHelper) return;
 
-    const tecla = event.key.toLowerCase();
+    const key = event.key.toLowerCase();
+    const command = event.ctrlKey && event.shiftKey && key === 'z' ? 'ctrl+shift+z' :
+        event.ctrlKey && key === 'z' ? 'ctrl+z' :
+        event.ctrlKey && key === 'y' ? 'ctrl+y' : key;
+    const drawing = ['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(engine.ferramentaAtual);
+    const measuring = engine.ferramentaAtual === 'Medicao';
+    const global = ['escape', 'm', 'i', 'd', 'p'].includes(command);
+    const edit = ['ctrl+z', 'ctrl+y', 'ctrl+shift+z', 'z', 'backspace'].includes(command);
+    const construction = drawing && ['enter', 'c', 'tab', 'f6'].includes(command);
+    if (!global && !(edit && (drawing || measuring)) && !construction) return;
+    if (event.repeat && ['enter', 'c'].includes(command)) return;
 
-    // Se for uma das nossas teclas de atalho (m, i, escape)
-    if (tecla === 'escape' || tecla === 'm' || tecla === 'i') {
-        if (window.mapEngine && window.mapEngine.dotNetHelper) {
-            event.preventDefault(); // Impede comportamentos estranhos do navegador
-
-            // Atira o comando diretamente para a máquina de estados do C#
-            window.mapEngine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', tecla)
-                .catch(err => console.warn("Erro no atalho: ", err));
-        }
-    }
+    event.preventDefault();
+    engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', command)
+        .catch(err => console.warn('Erro no atalho:', err));
 });
 // === BLOQUEIO DO WINDOWS E TRAVA DO RATO ===
 document.addEventListener('mousedown', function (e) {
