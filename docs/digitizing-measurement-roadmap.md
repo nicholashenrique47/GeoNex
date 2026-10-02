@@ -27,3 +27,25 @@ Objetivo ativo: evoluir as ferramentas até um fluxo GIS completo, rápido e res
 5. Snap por camada, meio de aresta, interseções, prioridade e feedback visual por tipo.
 6. Medição adequada ao SRC/ellipsoide, unidades explícitas, segmentos, azimutes, resultados congelados e exportação.
 7. Extração gradual da interface monolítica em componentes testáveis e validação visual em diferentes tamanhos de janela.
+
+## Verificação de renderização — 02/10/2026
+
+- Corrigido o cache global que devolvia o mapa anterior sem os vértices novos: o cache agora contém apenas as camadas; aquisição, medição, snap e destaque são compostos em cada resposta.
+- Durante ferramentas ativas, a prévia de navegação passa pelo compositor que reutiliza as camadas e acrescenta as sobreposições atuais.
+- O cache possui pixels próprios, copiados antes das sobreposições. Um primeiro teste detectou falha nativa com o snapshot do buffer reutilizável; a cópia independente corrigiu essa falha nos testes seguintes.
+- Restaurado o segmento tracejado do último vértice até o cursor; caminhos temporários Skia passam a ser descartados após cada quadro.
+- `dotnet run --project tests/DigitizingCore/DigitizingCore.csproj -c Debug`: 61 verificações aprovadas, incluindo validação topológica já presente no commit atual.
+- `node tests/digitizing-interaction.spec.cjs`: aprovado.
+- `dotnet build GeoNex/GeoNex.csproj -c Debug --no-restore -p:GeoNexBuildNative=false`: zero erros, 191 avisos; usa os binários nativos existentes.
+- `tests/digitizing-app-smoke.cjs`, com `GEONEX_TEST_CDP` apontando para uma instância descartável do aplicativo: inicialização MAUI, criação de camada temporária, desenho efetivamente visível, rejeição de polígono cruzado, desfazer/refazer, ausência de pixels antigos após cancelar e medição visível. Capturas em `test-results/digitizing-app/`.
+- Ambiente: SDK 10.0.401 estava sem workloads; instalado `maui-windows`. O teste cria apenas dados temporários e não grava edições em dados do usuário.
+
+Ainda falta validar gravação/recarga de feições novas, eliminar seus offsets sintéticos, ampliar construções e edição, corrigir unidades/azimutes e medir desempenho em conjuntos grandes. O teste visual não comprova esses requisitos nem superioridade a outros SIGs.
+
+## Encaixe por contorno e ponto médio — 02/10/2026
+
+- `SnapSearch` percorre os contornos Skia sem achatar multipartes/anéis em uma linha. Considera o fechamento real de anéis e pontos isolados; não cria arestas entre partes nem usa controles Bézier como vértices.
+- A consulta ignora camadas invisíveis, mantém os recursos nativos protegidos durante a leitura e evita copiar todos os vértices para arrays por feição. A busca continua linear nos vértices dos candidatos; ainda falta medir desempenho com datasets grandes.
+- Encaixe em ponto médio disponível na vetorização e medição, inclusive nos segmentos do esboço corrente. Medição também permite encaixe em arestas. Modos independentes mantêm a tolerância em pixels e o resolvedor comum à prévia/clique.
+- O submenu de vetorização abre por clique/teclado usando `details`, sem depender de hover.
+- Validação: 79 verificações do núcleo, contratos JS e build Debug sem erros. Na janela MAUI, ativar apenas o ponto médio atraiu a mira ao centro de um segmento apesar do cursor deslocado 8 px; captura `test-results/digitizing-app/midpoint-snap.png`. Testes anteriores de desenho, cancelamento e medição continuaram passando.

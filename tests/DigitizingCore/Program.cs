@@ -105,4 +105,69 @@ Check(crossingLine.IsValid && !crossingLine.IsSimple,
 var pointGeometry = DigitizingGeometry.Create(DigitizingGeometry.Kind.Point, [new(500000, 7400000)]);
 Check(pointGeometry.Coordinate.Equals2D(new Coordinate(500000, 7400000)), "Project coordinates must be preserved.");
 
+SnapSearch.Candidate? FindSnap(SKPath path, SKPoint cursor, float radius,
+    bool vertices = false, bool edges = false, bool midpoints = false)
+{
+    var search = new SnapSearch(cursor, radius, vertices, edges, midpoints);
+    search.AddPath(path);
+    return search.Best;
+}
+using var multipart = new SKPath();
+multipart.MoveTo(0, 0); multipart.LineTo(1, 0);
+multipart.MoveTo(10, 0); multipart.LineTo(11, 0);
+Check(FindSnap(multipart, new(5, 0), 1, edges: true) is null,
+    "Parts must not create a fake connecting edge.");
+Check(FindSnap(multipart, new(5.5f, 0), 1, midpoints: true) is null,
+    "Parts must not create a fake midpoint.");
+Check(FindSnap(multipart, new(10.5f, 0.2f), 1, midpoints: true)?.Point == new SKPoint(10.5f, 0),
+    "Each part must retain its own midpoint.");
+using var ring = new SKPath();
+ring.MoveTo(0, 0); ring.LineTo(10, 0); ring.LineTo(10, 10); ring.LineTo(0, 10); ring.Close();
+Check(FindSnap(ring, new(0.2f, 5), 1, edges: true)?.Point == new SKPoint(0, 5),
+    "Implicit closing edges must participate in snap.");
+Check(FindSnap(ring, new(0.2f, 5), 1, midpoints: true)?.Kind == SnapKind.Midpoint,
+    "Closing edges also have midpoints.");
+ring.MoveTo(4, 4); ring.LineTo(6, 4); ring.LineTo(6, 6); ring.LineTo(4, 6); ring.Close();
+Check(FindSnap(ring, new(2, 7), 0.1f, edges: true) is null,
+    "Hole contours must not be connected to the shell.");
+Check(FindSnap(ring, new(4.1f, 5), 0.2f, edges: true)?.Point == new SKPoint(4, 5),
+    "Real hole edges remain snappable.");
+using var single = new SKPath();
+single.MoveTo(2, 3);
+Check(FindSnap(single, new(2.1f, 3), 1, vertices: true)?.Point == new SKPoint(2, 3),
+    "A single point must snap without requiring a second point.");
+using var segment = new SKPath();
+segment.MoveTo(0, 0); segment.LineTo(10, 0);
+Check(FindSnap(segment, new(5, 0.5f), 1, vertices: true) is null,
+    "Vertex-only mode must not attract midpoints.");
+Check(FindSnap(segment, new(5, 0.5f), 1, edges: true, midpoints: true)?.Kind == SnapKind.Midpoint,
+    "Equal-distance ties identify the more specific midpoint.");
+Check(FindSnap(segment, new(0, 0), 1, vertices: true, edges: true)?.Kind == SnapKind.Vertex,
+    "Equal-distance ties identify the endpoint.");
+Check(FindSnap(segment, new(5, 1), 1, midpoints: true) != null,
+    "The tolerance boundary must be inclusive.");
+Check(FindSnap(segment, new(5, 1.001f), 1, midpoints: true) is null,
+    "Candidates beyond the tolerance must be rejected.");
+using var curve = new SKPath();
+curve.MoveTo(0, 0); curve.QuadTo(5, 10, 10, 0);
+Check(FindSnap(curve, new(5, 0), 0.1f, edges: true, midpoints: true) is null,
+    "A curve's chord is not a real linear edge.");
+Check(FindSnap(curve, new(5, 10), 0.1f, vertices: true) is null,
+    "Bezier controls are not geometry vertices.");
+var closest = new SnapSearch(new(0, 0), 10, true, false);
+closest.AddVertex(new(4, 0)); closest.AddVertex(new(1, 0)); closest.AddVertex(new(3, 0));
+Check(closest.Best?.Point == new SKPoint(1, 0), "The nearest candidate must win across paths.");
+int midpointCalls = 0;
+var sketchSnap = new SnapSearch(new(5, 0.5f), 1, false, false, true);
+sketchSnap.AddPolyline(new SKPoint[] { new(0, 0), new(10, 0) });
+Check(sketchSnap.Best?.Point == new SKPoint(5, 0), "An unfinished sketch supports midpoint snapping.");
+var midpointCursor = DigitizingCursor.Resolve(new(5, 0.5f), SKMatrix.Identity, 1,
+    false, false, null, false, 0, false, (p, radius, vertices, edges) =>
+    {
+        midpointCalls++;
+        return FindSnap(segment, p, radius, vertices, edges, midpoints: true)?.Point;
+    }, midpoints: true);
+Check(midpointCalls == 1 && midpointCursor.Snap == new SKPoint(5, 0),
+    "Midpoint-only mode must reach the shared preview/click resolver.");
+
 Console.WriteLine($"Digitizing core contracts passed: {passed} assertions.");

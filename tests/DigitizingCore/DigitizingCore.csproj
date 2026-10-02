@@ -9,6 +9,7 @@
     <Compile Include="../../GeoNex/Services/DigitizingCursor.cs" Link="DigitizingCursor.cs" />
     <Compile Include="../../GeoNex/Services/SketchVertexHistory.cs" Link="SketchVertexHistory.cs" />
     <Compile Include="../../GeoNex/Services/DigitizingGeometry.cs" Link="DigitizingGeometry.cs" />
+    <Compile Include="../../GeoNex/Services/SnapSearch.cs" Link="SnapSearch.cs" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
     <PackageReference Include="SkiaSharp" Version="3.119.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />

@@ -81,6 +81,14 @@
     .digitizing-toolbar .toolbar-status.warning { width: 100%; margin-left: 0; color: #fbbf24; white-space: normal; }
     .digitizing-toolbar .snap-tolerance { display: grid; gap: 5px; padding: 8px 12px; color: #94a3b8; font-size: 11px; }
     .digitizing-toolbar .snap-tolerance select { width: 100%; }
+    .snap-options { position: relative; pointer-events: auto; }
+    .snap-options summary { list-style: none; padding: 8px; border-radius: 6px; }
+    .snap-options summary:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+    .snap-options .snap-menu { position: absolute; top: 100%; left: 0; z-index: 1;
+        display: grid; width: min(260px, calc(100vw - 40px)); padding: 6px;
+        background: #142030; border: 1px solid #36536b; border-radius: 8px;
+        box-shadow: 0 10px 28px #0008; }
+    .snap-menu .drop-item { width: 100%; box-sizing: border-box; min-height: 36px; }
     @@media (max-width: 820px) {
         .digitizing-toolbar { top: 70px; left: 10px; width: calc(100vw - 20px); transform: none; }
         .digitizing-toolbar .gis-select { flex: 1 1 220px; max-width: none; }
@@ -343,12 +351,12 @@
             <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.2);"></div>
 
             <!-- O BOTÃO SUSPENSO (DROPDOWN) DE SNAP -->
-            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn" style="display: flex; align-items: center; color: @(_snapAquisicaoVertice || _snapAquisicaoAresta ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
+            <details class="snap-options">
+                <summary class="menu-btn" style="display: flex; align-items: center; color: @(_snapAquisicaoVertice || _snapAquisicaoAresta || _snapAquisicaoMeio ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                     SNAP ▾
-                </button>
-                <div class="dropdown-content" style="top: 100%; left: 0; min-width: 180px; margin-top: 10px;">
+                </summary>
+                <div class="snap-menu">
                     <button class="drop-item" style="display: flex; justify-content: space-between; align-items: center; color: @(_snapAquisicaoVertice ? "#38bdf8" : "#cbd5e1"); background: @(_snapAquisicaoVertice ? "rgba(56, 189, 248, 0.1)" : "transparent");" @onclick="() => _snapAquisicaoVertice = !_snapAquisicaoVertice">
                         <span>Atrair Vértices</span>
                         <span style="font-weight: bold; font-size: 0.7rem;">@(_snapAquisicaoVertice ? "ON" : "")</span>
@@ -357,6 +365,9 @@
                         <span>Atrair Arestas</span>
                         <span style="font-weight: bold; font-size: 0.7rem;">@(_snapAquisicaoAresta ? "ON" : "")</span>
                     </button>
+                    <label class="drop-item" style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" @bind="_snapAquisicaoMeio" /> Meio das arestas
+                    </label>
                     <label class="snap-tolerance">Tolerância em tela
                         <select class="gis-select" aria-label="Tolerância do snap" @bind="ToleranciaSnapPixels">
                             <option value="6">6 px · precisa</option>
@@ -367,7 +378,7 @@
                         </select>
                     </label>
                 </div>
-            </div>
+            </details>
 
             <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.2);"></div>
 
@@ -495,6 +506,10 @@
                                     style="font-size: 1.2rem; padding: 6px 12px;">
                                 📐
                             </button>
+                        </div>
+                        <div role="group" aria-label="Encaixes da medição" style="display:grid;gap:8px;margin-top:12px;font-size:0.8rem;">
+                            <label><input type="checkbox" @bind="_snapMedicaoAresta" /> Encaixar nas arestas</label>
+                            <label><input type="checkbox" @bind="_snapMedicaoMeio" /> Encaixar no meio das arestas</label>
                         </div>
                         <label style="display:grid;gap:6px;margin-top:12px;color:#94a3b8;font-size:0.7rem;">TOLERÂNCIA DO SNAP
                             <select class="gis-select" aria-label="Tolerância do snap de medição" @bind="ToleranciaSnapPixels">

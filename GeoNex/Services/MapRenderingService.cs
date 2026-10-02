@@ -201,6 +201,7 @@ namespace GeoNex.Services
         
         // Mestre das Projeções (Project CRS em WKT ou EPSG)
         public string ProjetoSRS { get; set; } = "EPSG:4326";
+        public MapMeasurementService Measurements { get; } = new();
         
         public string TipoGeometriaAtiva { get; set; } = "POLIGONO";
         public bool TravaDistanciaAtiva { get; set; } = false;
@@ -402,44 +403,6 @@ namespace GeoNex.Services
             _bufferEdicaoAtiva = buffer;
         }
 
-        private void VerificarCandidatos(SkiaSharp.SKPoint[] pontosDaGeometria, int numPontos, SkiaSharp.SKPoint ptClique, bool checarVertices, bool checarArestas, ref float menorDistanciaSq, ref SkiaSharp.SKPoint? melhorPonto)
-        {
-            if (checarVertices)
-            {
-                for (int i = 0; i < numPontos; i++)
-                {
-                    var pt = pontosDaGeometria[i];
-                    float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
-                    if (distSq < menorDistanciaSq)
-                    {
-                        menorDistanciaSq = distSq;
-                        melhorPonto = pt;
-                    }
-                }
-            }
-
-            if (checarArestas)
-            {
-                for (int i = 0; i < numPontos - 1; i++)
-                {
-                    var p1 = pontosDaGeometria[i];
-                    var p2 = pontosDaGeometria[i + 1];
-                    float l2 = (p1.X - p2.X) * (p1.X - p2.X) + (p1.Y - p2.Y) * (p1.Y - p2.Y);
-                    if (l2 == 0) continue;
-
-                    float t = Math.Max(0, Math.Min(1, ((ptClique.X - p1.X) * (p2.X - p1.X) + (ptClique.Y - p1.Y) * (p2.Y - p1.Y)) / l2));
-                    float projX = p1.X + t * (p2.X - p1.X);
-                    float projY = p1.Y + t * (p2.Y - p1.Y);
-                    float distSqSegmento = (ptClique.X - projX) * (ptClique.X - projX) + (ptClique.Y - projY) * (ptClique.Y - projY);
-
-                    if (distSqSegmento < menorDistanciaSq)
-                    {
-                        menorDistanciaSq = distSqSegmento;
-                        melhorPonto = new SkiaSharp.SKPoint(projX, projY);
-                    }
-                }
-            }
-        }
 
         public void ConstruirIndiceEspacialEstatico()
         {
@@ -466,79 +429,45 @@ namespace GeoNex.Services
             _indiceNecessitaReconstrucao = false;
         }
 
-        public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo, bool checarVertices = true, bool checarArestas = false)
+        public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo,
+            bool checarVertices = true, bool checarArestas = false, bool checarMeios = false)
         {
-            SkiaSharp.SKPoint? melhorPonto = null;
-            float menorDistanciaSq = toleranciaMundo * toleranciaMundo;
+            if (!float.IsFinite(ptClique.X) || !float.IsFinite(ptClique.Y) ||
+                !float.IsFinite(toleranciaMundo) || toleranciaMundo <= 0 ||
+                !(checarVertices || checarArestas || checarMeios)) return null;
 
-            double lng = ptClique.X + OffsetMundoX;
-            double lat = OffsetMundoY - ptClique.Y;
+            var search = new SnapSearch(ptClique, toleranciaMundo, checarVertices, checarArestas, checarMeios);
+            double x = ptClique.X + OffsetMundoX, y = OffsetMundoY - ptClique.Y;
+            var envelope = new Envelope(x - toleranciaMundo, x + toleranciaMundo,
+                y - toleranciaMundo, y + toleranciaMundo);
 
-            var envTarget = new NetTopologySuite.Geometries.Envelope(
-                lng - toleranciaMundo, lng + toleranciaMundo,
-                lat - toleranciaMundo, lat + toleranciaMundo
-            );
-            var rectClique = new SkiaSharp.SKRect(
-                ptClique.X - toleranciaMundo, ptClique.Y - toleranciaMundo,
-                ptClique.X + toleranciaMundo, ptClique.Y + toleranciaMundo
-            );
-
-            var todasFeicoesAValidar = new List<CompiledFeature>();
             foreach (string layerName in _spatialIndexResources.SnapshotKeys())
             {
-                using ResourceLease<NativeShapeSpatialIndex>? indexLease = AcquireSpatialIndex(layerName);
-                using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(layerName);
+                if (CamadasInvisiveis.Contains(layerName)) continue;
+                using var indexLease = AcquireSpatialIndex(layerName);
                 if (indexLease == null) continue;
-
-                NativeShapeSpatialIndex arvore = indexLease.Resource;
-                MemoryMappedShapefile? shapefile = shapefileLease?.Resource;
-                using var candidatos = arvore.Query(envTarget);
-                foreach (var c in candidatos)
+                using var shapefileLease = AcquireShapefile(layerName);
+                using var candidates = indexLease.Resource.Query(envelope);
+                foreach (var candidate in candidates)
                 {
-                    var path = c.GetPath(shapefile, OffsetMundoX, OffsetMundoY);
-                    if (path != null && !path.IsEmpty)
-                    {
-                        todasFeicoesAValidar.Add(c);
-                    }
+                    // Consume the path while both resources are pinned. Avoid a
+                    // second candidate list and the full Path.Points allocation.
+                    var path = candidate.GetPath(shapefileLease?.Resource, OffsetMundoX, OffsetMundoY);
+                    if (path != null) search.AddPath(path);
                 }
-            }
-
-            foreach (var feat in todasFeicoesAValidar)
-            {
-                if (feat.Path == null || !feat.Path.Bounds.IntersectsWith(rectClique)) continue;
-
-                var pontosDaGeometria = feat.Path.Points;
-                int numPontos = pontosDaGeometria.Length;
-                if (numPontos < 2) continue;
-
-                VerificarCandidatos(pontosDaGeometria, numPontos, ptClique, checarVertices, checarArestas, ref menorDistanciaSq, ref melhorPonto);
             }
 
             foreach (var path in _bufferEdicaoAtiva)
             {
-                if (!path.Bounds.IntersectsWith(rectClique)) continue;
-
-                var pontosDaGeometria = path.Points;
-                int numPontos = pontosDaGeometria.Length;
-                if (numPontos < 2) continue;
-
-                VerificarCandidatos(pontosDaGeometria, numPontos, ptClique, checarVertices, checarArestas, ref menorDistanciaSq, ref melhorPonto);
+                var bounds = path.Bounds;
+                // Inclusive bounds also retain point and horizontal/vertical paths.
+                if (bounds.Right < ptClique.X - toleranciaMundo || bounds.Left > ptClique.X + toleranciaMundo ||
+                    bounds.Bottom < ptClique.Y - toleranciaMundo || bounds.Top > ptClique.Y + toleranciaMundo) continue;
+                search.AddPath(path);
             }
-
-            if (checarVertices && PontosAquisicao.Count > 0)
-            {
-                foreach (var pt in PontosAquisicao)
-                {
-                    float distSq = (pt.X - ptClique.X) * (pt.X - ptClique.X) + (pt.Y - ptClique.Y) * (pt.Y - ptClique.Y);
-                    if (distSq < menorDistanciaSq)
-                    {
-                        menorDistanciaSq = distSq;
-                        melhorPonto = pt;
-                    }
-                }
-            }
-
-            return melhorPonto;
+            search.AddPolyline(PontosAquisicao);
+            search.AddPolyline(PontosMedicao, MostrarAreaMedicao);
+            return search.Best?.Point;
         }
 
         private readonly object _vectorResourceGate = new();
@@ -1155,6 +1084,7 @@ namespace GeoNex.Services
             }
 
             OnMapInvalidated = null;
+            Measurements.Dispose();
         }
     }
 }

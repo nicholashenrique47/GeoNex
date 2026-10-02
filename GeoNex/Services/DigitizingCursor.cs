@@ -29,7 +29,8 @@ public static class DigitizingCursor
         bool constrainDistance,
         double distance,
         bool fixedDistance,
-        Func<SKPoint, float, bool, bool, SKPoint?> findSnap)
+        Func<SKPoint, float, bool, bool, SKPoint?> findSnap,
+        bool midpoints = false)
     {
         if (!float.IsFinite(cursor.X) || !float.IsFinite(cursor.Y))
             throw new ArgumentException("A posição do cursor deve ser finita.", nameof(cursor));
@@ -49,7 +50,7 @@ public static class DigitizingCursor
         }
 
         float tolerance = WorldTolerance(localToScreen, tolerancePixels);
-        SKPoint? snap = tolerance > 0 && (vertices || edges)
+        SKPoint? snap = tolerance > 0 && (vertices || edges || midpoints)
             ? findSnap(cursor, tolerance, vertices, edges)
             : null;
         return new(snap ?? cursor, snap);
