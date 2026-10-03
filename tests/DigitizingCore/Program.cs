@@ -1,6 +1,9 @@
 using GeoNex.Services;
 using SkiaSharp;
 using NetTopologySuite.Geometries;
+using DigitizingCore;
+GdalConfiguration.ConfigureGdal();
+GdalConfiguration.ConfigureOgr();
 
 int passed = 0;
 void Check(bool condition, string message)
@@ -169,5 +172,26 @@ var midpointCursor = DigitizingCursor.Resolve(new(5, 0.5f), SKMatrix.Identity, 1
     }, midpoints: true);
 Check(midpointCalls == 1 && midpointCursor.Snap == new SKPoint(5, 0),
     "Midpoint-only mode must reach the shared preview/click resolver.");
+
+using var measurements = new MapMeasurementService();
+var metric = measurements.Measure([new(0, 0), new(100, 0)], "EPSG:31983", 500000, 7400000, false);
+Check(Math.Abs(metric.LengthMetres - 100) < 1e-6 && !metric.Geodesic,
+    "Projected metre CRS must return grid length in metres.");
+var metricArea = measurements.Measure([new(0, 0), new(100, 0), new(0, 100)],
+    "EPSG:31983", 500000, 7400000, true);
+Check(metricArea.AreaSquareMetres is > 4999.99 and < 5000.01,
+    "Projected metre CRS must return area in square metres.");
+var feet = measurements.Measure([new(0, 0), new(100, 0)], "EPSG:2227", 0, 0, false);
+Check(Math.Abs(feet.LengthMetres - 100 * 1200.0 / 3937.0) < 1e-6,
+    "Projected US survey-foot CRS must convert length to metres.");
+var geodesic = measurements.Measure([new(0, 0), new(0.001f, 0)], "EPSG:4326", -47, -23, false);
+Check(geodesic.Geodesic && geodesic.LengthMetres is > 100 and < 105,
+    "Geographic CRS must use ellipsoidal geodesic length.");
+var geodesicArea = measurements.Measure([new(0, 0), new(0.001f, 0), new(0, 0.001f)],
+    "EPSG:4326", -47, -23, true);
+Check(geodesicArea.AreaSquareMetres is > 4500 and < 6000 && geodesicArea.Geodesic,
+    "Geographic CRS must use ellipsoidal geodesic area.");
+Check(MapMeasurementService.GridAzimuth(new(0, 0), new(1, 0)) == 90,
+    "Grid azimuth must be clockwise from north in the local Y-down frame.");
 
 Console.WriteLine($"Digitizing core contracts passed: {passed} assertions.");

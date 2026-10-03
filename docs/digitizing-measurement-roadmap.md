@@ -14,7 +14,7 @@ Objetivo ativo: evoluir as ferramentas até um fluxo GIS completo, rápido e res
 
 ## Evidência automatizada
 
-- `dotnet run --project tests/DigitizingCore/DigitizingCore.csproj`: 39 contratos de cursor, escala, rotação, restrições e histórico.
+- `dotnet run --project tests/DigitizingCore/DigitizingCore.csproj`: 85 contratos de cursor, escala, rotação, restrições, histórico, snap e medição.
 - `node tests/digitizing-interaction.spec.cjs` com Playwright disponível em `NODE_PATH`: atalhos, foco, fila latest-only, quatro ferramentas, transformação visual e duplo clique.
 - `dotnet build GeoNex/GeoNex.csproj -f net10.0-windows10.0.19041.0 -c Debug -p:GeoNexBuildNative=false --no-restore`: integração MAUI, zero erros.
 
@@ -42,10 +42,17 @@ Objetivo ativo: evoluir as ferramentas até um fluxo GIS completo, rápido e res
 
 Ainda falta validar gravação/recarga de feições novas, eliminar seus offsets sintéticos, ampliar construções e edição, corrigir unidades/azimutes e medir desempenho em conjuntos grandes. O teste visual não comprova esses requisitos nem superioridade a outros SIGs.
 
+## Medição por CRS — 02/10/2026
+
+- `MapMeasurementService` usa as unidades lineares do CRS projetado e converte para metros; não assume que toda unidade de grade já seja metro.
+- Em CRS geográfico, comprimento e área usam a geodésica do elipsoide do próprio CRS via GDAL/OGR.
+- A interface informa o método utilizado, mostra erro de topologia da área sem apagar o esboço e exibe o azimute da última perna.
+- A suíte cobre UTM métrica, pés topográficos, EPSG:4326, área e azimute; total atual: 85 asserções aprovadas.
+
 ## Encaixe por contorno e ponto médio — 02/10/2026
 
 - `SnapSearch` percorre os contornos Skia sem achatar multipartes/anéis em uma linha. Considera o fechamento real de anéis e pontos isolados; não cria arestas entre partes nem usa controles Bézier como vértices.
 - A consulta ignora camadas invisíveis, mantém os recursos nativos protegidos durante a leitura e evita copiar todos os vértices para arrays por feição. A busca continua linear nos vértices dos candidatos; ainda falta medir desempenho com datasets grandes.
 - Encaixe em ponto médio disponível na vetorização e medição, inclusive nos segmentos do esboço corrente. Medição também permite encaixe em arestas. Modos independentes mantêm a tolerância em pixels e o resolvedor comum à prévia/clique.
 - O submenu de vetorização abre por clique/teclado usando `details`, sem depender de hover.
-- Validação: 79 verificações do núcleo, contratos JS e build Debug sem erros. Na janela MAUI, ativar apenas o ponto médio atraiu a mira ao centro de um segmento apesar do cursor deslocado 8 px; captura `test-results/digitizing-app/midpoint-snap.png`. Testes anteriores de desenho, cancelamento e medição continuaram passando.
+- Validação: 85 verificações do núcleo, contratos JS e build Debug sem erros. Na janela MAUI, ativar apenas o ponto médio atraiu a mira ao centro de um segmento apesar do cursor deslocado 8 px; captura `test-results/digitizing-app/midpoint-snap.png`. Testes anteriores de desenho, cancelamento e medição continuaram passando.

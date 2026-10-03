@@ -526,6 +526,10 @@
                         <div class="form-group-vertical" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
                             <label style="color: #64748b;">COMPRIMENTO LINEAR</label>
                             <span style="font-family: monospace; font-size: 1.6rem; font-weight: 500; color: #e2e8f0;">@_medicaoComprimentoMetros.ToString("N2") <span style="font-size: 1rem; color: #94a3b8;">m</span></span>
+                            @if (!string.IsNullOrWhiteSpace(_medicaoMetodo))
+                            {
+                                <small style="color:#64748b; margin-top:5px;">@_medicaoMetodo</small>
+                            }
                         </div>
 
                         @if (MapService.MostrarAreaMedicao && MapService.PontosMedicao.Count >= 3)
@@ -533,6 +537,18 @@
                             <div class="form-group-vertical" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
                                 <label style="color: #64748b;">ÁREA PLANA FECHADA</label>
                                 <span style="font-family: monospace; font-size: 1.6rem; font-weight: 500; color: #38bdf8;">@_medicaoAreaM2.ToString("N2") <span style="font-size: 1rem; color: #94a3b8;">m²</span></span>
+                                @if (!string.IsNullOrWhiteSpace(_medicaoAreaErro))
+                                {
+                                    <small style="color:#fca5a5; margin-top:5px;">@_medicaoAreaErro</small>
+                                }
+                            </div>
+                        }
+
+                        @if (_medicaoAzimuteGraus is { } azimute)
+                        {
+                            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid rgba(56,189,248,.18);border-radius:6px;color:#cbd5e1;font-size:.8rem;">
+                                <span>AZIMUTE DA ÚLTIMA PERNA</span>
+                                <strong style="font-family:monospace;color:#67e8f9;">@azimute.ToString("N1")°</strong>
                             </div>
                         }
 
@@ -5383,11 +5399,17 @@
     // =========================================================================
     private double _medicaoComprimentoMetros = 0;
     private double _medicaoAreaM2 = 0;
+    private string _medicaoMetodo = "";
+    private string? _medicaoAreaErro;
+    private double? _medicaoAzimuteGraus;
 
     private void RecalcularMedicoes()
     {
         _medicaoComprimentoMetros = 0;
         _medicaoAreaM2 = 0;
+        _medicaoMetodo = "";
+        _medicaoAreaErro = null;
+        _medicaoAzimuteGraus = null;
 
         // Cria uma lista temporária unindo os cliques REAIS com a posição flutuante do RATO
         var ptsMapeados = new List<SkiaSharp.SKPoint>(MapService.PontosMedicao);
@@ -5399,25 +5421,27 @@
 
         if (ptsMapeados.Count < 2) return;
 
-        // 1. Distância Linear Euclidiana
-        for (int i = 1; i < ptsMapeados.Count; i++)
+        try
         {
-            double dx = ptsMapeados[i].X - ptsMapeados[i - 1].X;
-            double dy = ptsMapeados[i].Y - ptsMapeados[i - 1].Y;
-            _medicaoComprimentoMetros += Math.Sqrt(dx * dx + dy * dy);
+            var resultado = MapService.Measurements.Measure(
+                ptsMapeados,
+                MapService.ProjetoSRS,
+                MapService.OffsetMundoX,
+                MapService.OffsetMundoY,
+                MapService.MostrarAreaMedicao);
+            _medicaoComprimentoMetros = resultado.LengthMetres;
+            _medicaoAreaM2 = resultado.AreaSquareMetres ?? 0;
+            _medicaoMetodo = resultado.Method;
+            _medicaoAreaErro = resultado.AreaError;
+            _medicaoAzimuteGraus = MapMeasurementService.GridAzimuth(ptsMapeados[^2], ptsMapeados[^1]);
         }
-
-        // 2. Área Poligonal (Fórmula de Shoelace)
-        if (ptsMapeados.Count >= 3 && MapService.MostrarAreaMedicao)
+        catch (ArgumentException ex)
         {
-            double area = 0;
-            int j = ptsMapeados.Count - 1;
-            for (int i = 0; i < ptsMapeados.Count; i++)
-            {
-                area += (ptsMapeados[j].X + ptsMapeados[i].X) * (ptsMapeados[j].Y - ptsMapeados[i].Y);
-                j = i;
-            }
-            _medicaoAreaM2 = Math.Abs(area / 2.0);
+            _medicaoMetodo = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _medicaoMetodo = ex.Message;
         }
     }
 
@@ -5507,6 +5531,9 @@
         LimparCursorDesenho();
         _medicaoComprimentoMetros = 0;
         _medicaoAreaM2 = 0;
+        _medicaoMetodo = "";
+        _medicaoAreaErro = null;
+        _medicaoAzimuteGraus = null;
 
         // Limpa o rastro animado do JS (se houver)
         _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.limparTudo");
