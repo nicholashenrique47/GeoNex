@@ -352,7 +352,7 @@
 
             <!-- O BOTÃO SUSPENSO (DROPDOWN) DE SNAP -->
             <details class="snap-options">
-                <summary class="menu-btn" style="display: flex; align-items: center; color: @(_snapAquisicaoVertice || _snapAquisicaoAresta || _snapAquisicaoMeio ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
+                <summary class="menu-btn" style="display: flex; align-items: center; color: @(_snapAquisicaoVertice || _snapAquisicaoAresta || _snapAquisicaoMeio || _snapAquisicaoIntersecao ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                     SNAP ▾
                 </summary>
@@ -367,6 +367,9 @@
                     </button>
                     <label class="drop-item" style="display:flex;align-items:center;gap:8px;">
                         <input type="checkbox" @bind="_snapAquisicaoMeio" /> Meio das arestas
+                    </label>
+                    <label class="drop-item" style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" @bind="_snapAquisicaoIntersecao" /> Interseções
                     </label>
                     <label class="snap-tolerance">Tolerância em tela
                         <select class="gis-select" aria-label="Tolerância do snap" @bind="ToleranciaSnapPixels">
@@ -510,6 +513,7 @@
                         <div role="group" aria-label="Encaixes da medição" style="display:grid;gap:8px;margin-top:12px;font-size:0.8rem;">
                             <label><input type="checkbox" @bind="_snapMedicaoAresta" /> Encaixar nas arestas</label>
                             <label><input type="checkbox" @bind="_snapMedicaoMeio" /> Encaixar no meio das arestas</label>
+                            <label><input type="checkbox" @bind="_snapMedicaoIntersecao" /> Encaixar em interseções</label>
                         </div>
                         <label style="display:grid;gap:6px;margin-top:12px;color:#94a3b8;font-size:0.7rem;">TOLERÂNCIA DO SNAP
                             <select class="gis-select" aria-label="Tolerância do snap de medição" @bind="ToleranciaSnapPixels">

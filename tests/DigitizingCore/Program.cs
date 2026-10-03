@@ -151,6 +151,22 @@ Check(FindSnap(segment, new(5, 1), 1, midpoints: true) != null,
     "The tolerance boundary must be inclusive.");
 Check(FindSnap(segment, new(5, 1.001f), 1, midpoints: true) is null,
     "Candidates beyond the tolerance must be rejected.");
+using var crossingA = new SKPath();
+crossingA.MoveTo(0, 0); crossingA.LineTo(10, 10);
+using var crossingB = new SKPath();
+crossingB.MoveTo(0, 10); crossingB.LineTo(10, 0);
+var intersectionSearch = new SnapSearch(new(5, 5.4f), 1, false, false, false, true);
+intersectionSearch.AddPath(crossingA);
+intersectionSearch.AddPath(crossingB);
+intersectionSearch.CompleteIntersections();
+Check(intersectionSearch.Best?.Kind == SnapKind.Intersection && intersectionSearch.Best?.Point == new SKPoint(5, 5),
+    "Intersection-only mode must snap the crossing of independent contours.");
+var endpointIntersection = new SnapSearch(new(0, 0), 1, true, false, false, true);
+endpointIntersection.AddPath(crossingA);
+endpointIntersection.AddPath(crossingB);
+endpointIntersection.CompleteIntersections();
+Check(endpointIntersection.Best?.Kind == SnapKind.Vertex,
+    "A real vertex must outrank an intersection at the same coordinate.");
 using var curve = new SKPath();
 curve.MoveTo(0, 0); curve.QuadTo(5, 10, 10, 0);
 Check(FindSnap(curve, new(5, 0), 0.1f, edges: true, midpoints: true) is null,

@@ -2,7 +2,7 @@ using SkiaSharp;
 
 namespace GeoNex.Services;
 
-public enum SnapKind { Vertex, Midpoint, Edge }
+public enum SnapKind { Vertex, Midpoint, Edge, Intersection }
 
 /// <summary>One nearest-candidate search across independent path contours.</summary>
 public sealed class SnapSearch
@@ -10,17 +10,20 @@ public sealed class SnapSearch
     public readonly record struct Candidate(SKPoint Point, SnapKind Kind, double DistanceSquared);
     private readonly SKPoint _cursor;
     private readonly double _radiusSquared;
-    private readonly bool _vertices, _edges, _midpoints;
+    private readonly bool _vertices, _edges, _midpoints, _intersections;
     private readonly SKPoint[] _segment = new SKPoint[4];
+    private readonly List<(SKPoint A, SKPoint B)> _nearbySegments = new();
+    private const int MaxIntersectionSegments = 512;
     public Candidate? Best { get; private set; }
 
-    public SnapSearch(SKPoint cursor, float radius, bool vertices, bool edges, bool midpoints = false)
+    public SnapSearch(SKPoint cursor, float radius, bool vertices, bool edges, bool midpoints = false,
+        bool intersections = false)
     {
         if (!float.IsFinite(cursor.X) || !float.IsFinite(cursor.Y) || !float.IsFinite(radius) || radius <= 0)
             throw new ArgumentOutOfRangeException(nameof(radius), "Snap requires a finite cursor and positive radius.");
         _cursor = cursor;
         _radiusSquared = (double)radius * radius;
-        _vertices = vertices; _edges = edges; _midpoints = midpoints;
+        _vertices = vertices; _edges = edges; _midpoints = midpoints; _intersections = intersections;
     }
 
     public void AddVertex(SKPoint point)
@@ -50,6 +53,43 @@ public sealed class SnapSearch
             double fraction = Math.Clamp((((double)_cursor.X - a.X) * dx +
                 ((double)_cursor.Y - a.Y) * dy) / lengthSquared, 0, 1);
             Consider(new((float)(a.X + fraction * dx), (float)(a.Y + fraction * dy)), SnapKind.Edge);
+        }
+        if (_intersections && _nearbySegments.Count < MaxIntersectionSegments && SegmentNearCursor(a, b))
+            _nearbySegments.Add((a, b));
+    }
+
+    private bool SegmentNearCursor(SKPoint a, SKPoint b)
+    {
+        float left = MathF.Min(a.X, b.X), right = MathF.Max(a.X, b.X);
+        float top = MathF.Min(a.Y, b.Y), bottom = MathF.Max(a.Y, b.Y);
+        float radius = (float)Math.Sqrt(_radiusSquared);
+        return right >= _cursor.X - radius && left <= _cursor.X + radius &&
+            bottom >= _cursor.Y - radius && top <= _cursor.Y + radius;
+    }
+
+    /// <summary>
+    /// Computes crossings only among nearby segments. Endpoints are already
+    /// represented as vertices, so intersections lose endpoint ties naturally.
+    /// </summary>
+    public void CompleteIntersections()
+    {
+        if (!_intersections || _nearbySegments.Count < 2) return;
+        for (int i = 0; i < _nearbySegments.Count - 1; i++)
+        {
+            var first = _nearbySegments[i];
+            double rx = first.B.X - first.A.X, ry = first.B.Y - first.A.Y;
+            for (int j = i + 1; j < _nearbySegments.Count; j++)
+            {
+                var second = _nearbySegments[j];
+                double sx = second.B.X - second.A.X, sy = second.B.Y - second.A.Y;
+                double denominator = rx * sy - ry * sx;
+                if (denominator == 0) continue;
+                double qx = second.A.X - first.A.X, qy = second.A.Y - first.A.Y;
+                double t = (qx * sy - qy * sx) / denominator;
+                double u = (qx * ry - qy * rx) / denominator;
+                if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+                Consider(new((float)(first.A.X + t * rx), (float)(first.A.Y + t * ry)), SnapKind.Intersection);
+            }
         }
     }
 

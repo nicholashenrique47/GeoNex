@@ -430,13 +430,15 @@ namespace GeoNex.Services
         }
 
         public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo,
-            bool checarVertices = true, bool checarArestas = false, bool checarMeios = false)
+            bool checarVertices = true, bool checarArestas = false, bool checarMeios = false,
+            bool checarIntersecoes = false)
         {
             if (!float.IsFinite(ptClique.X) || !float.IsFinite(ptClique.Y) ||
                 !float.IsFinite(toleranciaMundo) || toleranciaMundo <= 0 ||
-                !(checarVertices || checarArestas || checarMeios)) return null;
+                !(checarVertices || checarArestas || checarMeios || checarIntersecoes)) return null;
 
-            var search = new SnapSearch(ptClique, toleranciaMundo, checarVertices, checarArestas, checarMeios);
+            var search = new SnapSearch(ptClique, toleranciaMundo, checarVertices, checarArestas,
+                checarMeios, checarIntersecoes);
             double x = ptClique.X + OffsetMundoX, y = OffsetMundoY - ptClique.Y;
             var envelope = new Envelope(x - toleranciaMundo, x + toleranciaMundo,
                 y - toleranciaMundo, y + toleranciaMundo);
@@ -467,6 +469,7 @@ namespace GeoNex.Services
             }
             search.AddPolyline(PontosAquisicao);
             search.AddPolyline(PontosMedicao, MostrarAreaMedicao);
+            search.CompleteIntersections();
             return search.Best?.Point;
         }
 

@@ -8,8 +8,10 @@ public partial class Home
 {
     private int ToleranciaSnapPixels { get; set; } = 15;
     private bool _snapAquisicaoMeio;
+    private bool _snapAquisicaoIntersecao;
     private bool _snapMedicaoAresta;
     private bool _snapMedicaoMeio;
+    private bool _snapMedicaoIntersecao;
     private string mensagemVetorizacao = "";
     private SketchVertexHistory<SKPoint>? historicoAquisicao;
     private SketchVertexHistory<SKPoint>? historicoMedicao;
@@ -27,6 +29,7 @@ public partial class Home
         bool vertices = measuring ? _snapMedicaoAtivo : _snapAquisicaoVertice;
         bool edges = measuring ? _snapMedicaoAresta : _snapAquisicaoAresta;
         bool midpoints = measuring ? _snapMedicaoMeio : _snapAquisicaoMeio;
+        bool intersections = measuring ? _snapMedicaoIntersecao : _snapAquisicaoIntersecao;
         return DigitizingCursor.Resolve(
             cursor,
             matrix,
@@ -38,7 +41,8 @@ public partial class Home
             MapService.TravaDistanciaValor,
             MapService.TravaModoFixo,
             (point, tolerance, snapVertices, snapEdges) =>
-                MapService.EncontrarVerticeProximo(point, tolerance, snapVertices, snapEdges, midpoints), midpoints);
+                MapService.EncontrarVerticeProximo(point, tolerance, snapVertices, snapEdges, midpoints, intersections),
+            midpoints, intersections);
     }
 
     private void LimparCursorDesenho()
