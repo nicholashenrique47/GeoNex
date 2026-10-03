@@ -663,7 +663,7 @@
     <!-- ========================================== -->
     @if (exibirModalImportacao)
     {
-        <div class="modal-overlay">
+        <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
             <div class="glass-panel import-modal">
                 <div class="modal-header">
                     <h2>GERENCIADOR DE FONTES DE DADOS</h2>
@@ -739,7 +739,7 @@
     <!-- ========================================== -->
     @if (exibirModalExportacao)
     {
-        <div class="modal-overlay">
+        <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
             <div class="glass-panel import-modal">
                 <div class="modal-header">
                     <h2>EXPORTAR CAMADA VETORIAL (OGR)</h2>
@@ -962,7 +962,7 @@
 
         </style>
 
-        <div class="modal-overlay">
+        <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
             <div class="glass-panel modal-container" style="width: 550px; min-height: 400px; max-height: 85vh; display: flex; flex-direction: column;">
                 <div class="modal-header">
                     <h2>PROPRIEDADES: @camadaEmEdicao</h2>
@@ -1257,7 +1257,7 @@
     <!-- MODAL DE INJEÇÃO DE COORDENADAS (CADERNETA DE CAMPO) -->
     @if (exibirModalCoordenadas)
     {
-        <div class="modal-overlay">
+        <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
             <div class="glass-panel" style="width: 550px; display: flex; flex-direction: column;">
                 <div class="modal-header">
                     <h2>CADERNETA DE CAMPO DIGITAL</h2>
@@ -1379,7 +1379,7 @@
     
     @if (exibirModalTrocaVertice)
     {
-        <div class="modal-overlay">
+        <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
             <div class="glass-panel" style="width: 400px;">
                 <div class="modal-header">
                     <h2>AJUSTE DE VÉRTICE: V@(verticeEditandoIndice + 1)</h2>
@@ -1596,7 +1596,7 @@
     }
     @if (exibirModalNovaCamada)
     {
-        <div class="modal-overlay">
+        <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
             <div class="glass-panel import-modal" style="width: 550px; height: auto;">
                 <div class="modal-header">
                     <h2>ALOCAÇÃO DE DATASET VETORIAL</h2>

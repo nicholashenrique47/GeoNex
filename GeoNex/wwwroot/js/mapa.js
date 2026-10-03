@@ -1076,11 +1076,13 @@ window.mapEngine = {
 
     onDoubleClick: function (e) {
         e.preventDefault();
+        if (this.uiModalAberto()) return;
         if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(this.ferramentaAtual)) return;
         this.aplicarZoomCentralizado(2.0, e.clientX, e.clientY, false);
     },
 
     onWheel: function (e) {
+        if (this.uiModalAberto()) return;
         e.preventDefault();
         if (e.buttons & 4) return;
 
@@ -1182,6 +1184,10 @@ window.mapEngine = {
     },
 
     onPointerMove: function (e) {
+        if (this.uiModalAberto()) {
+            this.resetToolPointer();
+            return;
+        }
         if (e.pointerType === 'touch' && this.activeTouches.has(e.pointerId)) {
             this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
             if (this.activeTouches.size >= 2) {
@@ -1255,6 +1261,12 @@ window.mapEngine = {
 
     ferramentaAtual: 'Identificacao',
 
+    // Modais são uma superfície modal de verdade: nenhum gesto do mapa
+    // escapa para trás enquanto o usuário edita propriedades ou atributos.
+    uiModalAberto: function () {
+        return !!document.querySelector('.modal-overlay[aria-modal="true"]');
+    },
+
     setFerramenta: function (nomeFerramenta) {
         this.resetToolPointer();
         this.ferramentaAtual = nomeFerramenta;
@@ -1267,6 +1279,10 @@ window.mapEngine = {
 
     onPointerDown: function (e) {
         this.resetToolPointer();
+        if (this.uiModalAberto()) {
+            e.preventDefault();
+            return;
+        }
         if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
 
         this.pointerIds.add(e.pointerId);
@@ -1312,6 +1328,10 @@ window.mapEngine = {
     },
 
     onPointerUp: function (e, cancelado) {
+        if (this.uiModalAberto()) {
+            this.pointerIds.delete(e.pointerId);
+            return;
+        }
         if (!this.pointerIds.has(e.pointerId)) return;
         this.pointerIds.delete(e.pointerId);
         if (e.pointerType === 'touch') this.activeTouches.delete(e.pointerId);
