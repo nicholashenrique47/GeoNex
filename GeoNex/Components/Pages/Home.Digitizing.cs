@@ -9,6 +9,7 @@ public partial class Home
     private int ToleranciaSnapPixels { get; set; } = 15;
     private bool _snapAquisicaoMeio;
     private bool _snapAquisicaoIntersecao;
+    private bool _modoOrtogonalAquisicao;
     private bool _snapMedicaoAresta;
     private bool _snapMedicaoMeio;
     private bool _snapMedicaoIntersecao;
@@ -30,6 +31,7 @@ public partial class Home
         bool edges = measuring ? _snapMedicaoAresta : _snapAquisicaoAresta;
         bool midpoints = measuring ? _snapMedicaoMeio : _snapAquisicaoMeio;
         bool intersections = measuring ? _snapMedicaoIntersecao : _snapAquisicaoIntersecao;
+        bool orthogonal = !measuring && _modoOrtogonalAquisicao;
         return DigitizingCursor.Resolve(
             cursor,
             matrix,
@@ -42,7 +44,7 @@ public partial class Home
             MapService.TravaModoFixo,
             (point, tolerance, snapVertices, snapEdges) =>
                 MapService.EncontrarVerticeProximo(point, tolerance, snapVertices, snapEdges, midpoints, intersections),
-            midpoints, intersections);
+            midpoints, intersections, orthogonal);
     }
 
     private void LimparCursorDesenho()

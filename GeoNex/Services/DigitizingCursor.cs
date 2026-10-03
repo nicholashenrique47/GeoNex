@@ -31,10 +31,21 @@ public static class DigitizingCursor
         bool fixedDistance,
         Func<SKPoint, float, bool, bool, SKPoint?> findSnap,
         bool midpoints = false,
-        bool intersections = false)
+        bool intersections = false,
+        bool orthogonal = false)
     {
         if (!float.IsFinite(cursor.X) || !float.IsFinite(cursor.Y))
             throw new ArgumentException("A posição do cursor deve ser finita.", nameof(cursor));
+
+        if (orthogonal && anchor is SKPoint orthogonalStart)
+        {
+            double dx = (double)cursor.X - orthogonalStart.X;
+            double dy = (double)cursor.Y - orthogonalStart.Y;
+            if (double.IsFinite(dx) && double.IsFinite(dy) && (dx != 0 || dy != 0))
+                cursor = Math.Abs(dx) >= Math.Abs(dy)
+                    ? new SKPoint(cursor.X, orthogonalStart.Y)
+                    : new SKPoint(orthogonalStart.X, cursor.Y);
+        }
 
         if (constrainDistance && anchor is SKPoint start && double.IsFinite(distance) && distance > 0)
         {

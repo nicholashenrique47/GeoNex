@@ -38,6 +38,18 @@ var maximumPoint = DigitizingCursor.Resolve(new(30, 40), SKMatrix.Identity, 15, 
     new(0, 0), true, 10, false, CountSnap);
 Check(maximumPoint.Position == new SKPoint(6, 8) && snapCalls == 0,
     "Restrição máxima deve limitar o segmento.");
+var orthogonalHorizontal = DigitizingCursor.Resolve(new(8, 3), SKMatrix.Identity, 15,
+    false, false, new(0, 0), false, 0, false, CountSnap, false, false, true);
+Check(orthogonalHorizontal.Position == new SKPoint(8, 0),
+    "Modo ortogonal deve alinhar ao eixo dominante horizontal.");
+var orthogonalVertical = DigitizingCursor.Resolve(new(3, 8), SKMatrix.Identity, 15,
+    false, false, new(0, 0), false, 0, false, CountSnap, false, false, true);
+Check(orthogonalVertical.Position == new SKPoint(0, 8),
+    "Modo ortogonal deve alinhar ao eixo dominante vertical.");
+var orthogonalDistance = DigitizingCursor.Resolve(new(8, 3), SKMatrix.Identity, 15,
+    false, false, new(0, 0), true, 10, true, CountSnap, false, false, true);
+Check(orthogonalDistance.Position == new SKPoint(10, 0),
+    "Distância fixa deve continuar compatível com o modo ortogonal.");
 Check(DigitizingCursor.WorldTolerance(default, 15) == 0, "Matriz degenerada deve desativar a consulta.");
 Check(DigitizingCursor.WorldTolerance(SKMatrix.Identity, float.NaN) == 0, "Tolerância inválida deve ser segura.");
 
