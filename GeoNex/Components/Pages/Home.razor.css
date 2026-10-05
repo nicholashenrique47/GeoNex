@@ -1,0 +1,348 @@
+.geonex-ui {
+    background: #0e151e;
+    --tool-bg: #141e29;
+    --tool-raised: #1c2937;
+    --tool-line: #334354;
+    --tool-text: #e6eef5;
+    --tool-muted: #a4b5c5;
+    --tool-accent: #70e2bf;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: var(--tool-text);
+}
+.geonex-ui .top-bar { background: #101923; height: 54px; flex-shrink: 0; margin: 10px 12px 0; border-color: #2d3b49; box-shadow: 0 5px 20px #0003; }
+.geonex-ui .brand-group h1 { font: 750 17px 'Segoe UI', sans-serif; letter-spacing: 2px; }
+.geonex-ui .side-panel { background: var(--tool-bg); border-color: var(--tool-line); box-shadow: 0 8px 24px #0003; }
+.geonex-ui .panel-header h2 { font-family: inherit; font-size: 11px; letter-spacing: .8px; color: var(--tool-muted); }
+.geonex-ui .panel-header { background: transparent; }
+.geonex-ui .workspace-area { min-height: 0; }
+.geonex-ui.is-digitizing .left-panel { max-height: none; }
+.geonex-ui.is-measuring .right-panel { width: 320px; max-height: calc(100vh - 125px); }
+.geonex-ui.is-measuring .right-panel > .properties-content { padding: 18px !important; }
+.geonex-ui:is(.is-digitizing, .is-measuring) > div.glass-panel { display: none !important; }
+.geonex-ui .tool-workbench {
+    display: block; position: relative; top: auto; left: auto; right: auto; width: auto; margin: 12px 12px 0; flex-shrink: 0;
+    transform: none; padding: 0; border: 1px solid var(--tool-line); border-radius: 12px;
+    background: var(--tool-bg); box-shadow: 0 10px 28px #0004; backdrop-filter: none;
+    max-height: calc(100vh - 230px); overflow: auto; z-index: 2500; scrollbar-color: #526b7d transparent; scrollbar-width: thin;
+}
+.workbench-heading, .workbench-controls { display: flex; align-items: center; gap: 16px; padding: 12px 16px; }
+.workbench-heading { border-bottom: 1px solid var(--tool-line); }
+.tool-identity { display: flex; align-items: center; gap: 10px; min-width: 180px; }
+.tool-symbol { width: 34px; height: 34px; display: grid; place-items: center; font-size: 26px; color: var(--tool-accent); background: #173d36; border-radius: 9px; }
+.tool-identity h2 { margin: 0; color: var(--tool-text); font-size: 15px; font-weight: 650; }
+.tool-identity span:not(.tool-symbol) { color: var(--tool-muted); font-size: 11px; }
+.destination-field, .construction-field, .sides-field { display: grid; gap: 5px; font-size: 11px; color: var(--tool-muted); }
+.destination-field { flex: 1; max-width: 360px; min-width: 160px; }
+.sketch-actions { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.geonex-ui .workbench-button {
+    min-height: 36px; padding: 8px 12px; border: 1px solid var(--tool-line); border-radius: 7px;
+    color: var(--tool-text); background: var(--tool-raised); font: 550 12px 'Segoe UI', sans-serif;
+    cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s;
+}
+.geonex-ui .workbench-button:hover:not(:disabled) { background: #2b4053; border-color: #7393aa; }
+.geonex-ui .workbench-button.primary { background: var(--tool-accent); border-color: var(--tool-accent); color: #102c25; font-weight: 700; }
+.workbench-button.primary span { margin-left: 8px; }
+.geonex-ui .workbench-button.danger { color: #ffb2b2; background: transparent; }
+.geonex-ui .workbench-button:disabled { opacity: .4; cursor: default; }
+.geonex-ui :is(button, select, summary, input):focus-visible { outline: 2px solid #7cdcff; outline-offset: 3px; }
+.geonex-ui :is(.tool-workbench, .measurement-workbench) .gis-select {
+    min-width: 0; width: 100%; max-width: 100%; min-height: 36px; box-sizing: border-box;
+    background-color: #0e1721; border: 1px solid #42576c; color: var(--tool-text); border-radius: 7px;
+    padding: 7px 28px 7px 10px; font: 12px 'Segoe UI', sans-serif;
+}
+.construction-field { width: 265px; flex: 0 1 265px; }
+.sides-field { width: 72px; }
+.workbench-controls { flex-wrap: wrap; gap: 12px; }
+.tool-workbench .construction-hint { color: var(--tool-muted); font-size: 12px; flex: 1 1 180px; }
+.workbench-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 9px 16px; background: #101923; border-top: 1px solid #2d3b49; }
+.tool-workbench .toolbar-status { margin: 0; white-space: normal; font-size: 11px; color: var(--tool-muted); }
+.tool-workbench .toolbar-status.warning { color: #ffd293; }
+.tool-workbench .sketch-metrics { margin-left: auto; min-width: 0; flex: 0 1 auto; display: grid; gap: 3px; font-size: 12px; color: var(--tool-accent); font-variant-numeric: tabular-nums; }
+.tool-workbench .sketch-metrics small, .construction-note { font-size: 10px; color: var(--tool-muted); }
+.workbench-details summary { cursor: pointer; list-style: none; min-height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; color: var(--tool-text); font-size: 12px; padding: 8px 12px; border: 1px solid var(--tool-line); border-radius: 7px; }
+.workbench-details summary::after { content: '+'; margin-left: auto; color: var(--tool-muted); }
+.workbench-details[open] summary::after { content: '−'; }
+.setting-count { padding: 1px 6px; border-radius: 4px; background: #254839; color: #a8f0d6; font-size: 10px; }
+.workbench-details[open] { flex-basis: 100%; order: 5; }
+.tool-workbench .snap-menu { position: static; width: auto; box-sizing: border-box; margin-top: 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 16px; padding: 12px; background: #0e1721; border: 1px solid var(--tool-line); box-shadow: none; }
+.settings-title { grid-column: 1 / -1; color: var(--tool-muted); text-transform: uppercase; letter-spacing: 1px; font-size: 10px; padding: 0 0 8px; }
+.snap-menu label, .measurement-settings label { display: flex; align-items: center; gap: 8px; color: var(--tool-text); min-height: 36px; font-size: 12px; }
+.snap-toggle { display: flex; gap: 8px; align-items: center; border: 1px solid var(--tool-line); background: transparent; color: var(--tool-text); border-radius: 6px; padding: 8px; min-height: 36px; font: 12px 'Segoe UI', sans-serif; cursor: pointer; }
+.snap-toggle[aria-pressed=true] { border-color: #417e6b; background: #18362e; }
+.snap-toggle span { margin-left: auto; font-size: 10px; color: var(--tool-muted); }
+.snap-menu input, .measurement-settings input { accent-color: var(--tool-accent); width: 16px; height: 16px; }
+.snap-menu .tolerance-field, .measurement-settings .tolerance-field { display: grid; gap: 6px; }
+.geonex-ui .tool-panels-toggle { display: none; }
+.measurement-workbench { display: grid; gap: 12px; }
+.precision-hud {
+    position: fixed; top: 0; left: 0; z-index: 4100; width: min(400px, calc(100vw - 16px));
+    max-height: calc(100vh - 72px); box-sizing: border-box; overflow: auto; padding: 12px;
+    pointer-events: auto; color: var(--tool-text); background: rgba(15, 24, 34, .98);
+    border: 1px solid #405367; border-radius: 11px; box-shadow: 0 16px 38px #0009;
+    backdrop-filter: blur(14px); will-change: transform;
+}
+.precision-hud-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -2px -2px 12px; cursor: grab; touch-action: none; user-select: none; }
+.precision-hud-heading:active { cursor: grabbing; }
+.precision-hud-heading > div { display: grid; gap: 3px; }
+.precision-hud-heading strong { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; }
+.precision-eyebrow { color: var(--tool-muted); font-size: 9px; font-weight: 650; letter-spacing: .8px; }
+.precision-hud kbd { padding: 2px 5px; border: 1px solid #42576c; border-radius: 4px; background: #202e3d; color: #c8d7e5; font: 10px 'Segoe UI', sans-serif; }
+.precision-close { display: grid; flex: 0 0 30px; width: 30px; height: 30px; place-items: center; border: 1px solid var(--tool-line); border-radius: 7px; color: var(--tool-muted); background: #182431; font: 20px/1 'Segoe UI', sans-serif; cursor: pointer; }
+.precision-close:hover { color: #fff; border-color: #8b5860; background: #39272c; }
+.precision-form, .precision-constraint { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto; gap: 10px; align-items: end; }
+.precision-form label, .precision-constraint label { display: grid; gap: 6px; color: var(--tool-muted); font-size: 11px; }
+.precision-hud input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 36px; padding: 7px 10px; font: 13px 'Segoe UI', sans-serif; color: var(--tool-text); border: 1px solid #42576c; border-radius: 7px; background: #0e1721; }
+.precision-form small { grid-column: 1 / -1; color: var(--tool-muted); font-size: 11px; }
+.precision-constraint { margin-top: 14px; border-top: 1px solid var(--tool-line); padding-top: 12px; }
+@media (max-width: 600px) {
+    .precision-hud { padding: 10px; }
+    .precision-form, .precision-constraint { grid-template-columns: 1fr; }
+    .precision-form small { grid-column: 1; }
+}
+.measurement-state { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; font-size: 11px; color: var(--tool-muted); padding: 8px 10px; background: #0e1721; border-radius: 6px; }
+.measurement-state.confirmed { color: #a6ecd7; background: #1c3f35; }
+.measurement-state span { font-variant-numeric: tabular-nums; }
+.measurement-finish { grid-column: 1 / -1; }
+.geonex-ui .properties-content { scrollbar-color: #526b7d transparent; scrollbar-width: thin; }
+.measurement-title .eyebrow { font-size: 9px; letter-spacing: 1px; color: var(--tool-muted); }
+.measurement-title h3 { font-size: 22px; font-weight: 650; margin: 5px 0; }
+.measurement-title p { font-size: 12px; color: var(--tool-muted); margin: 0; }
+.measurement-modes { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 3px; background: #0e1721; border: 1px solid var(--tool-line); border-radius: 9px; }
+.measurement-modes .workbench-button { border-color: transparent; background: transparent; }
+.measurement-modes .workbench-button.selected { color: #a6ecd7; border-color: #397b68; background: #1c3f35; }
+.measurement-result { display: grid; gap: 8px; padding: 14px; border-radius: 9px; background: #1b2a39; border: 1px solid #3a5268; }
+.measurement-result label { font-size: 10px; color: var(--tool-muted); letter-spacing: .8px; }
+.measurement-result .result-number { font: 600 28px 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; color: #c6f5e7; overflow-wrap: anywhere; user-select: text; }
+.result-number span { font-size: 15px; font-weight: 400; color: var(--tool-muted); }
+.bearing-result { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--tool-muted); }
+.bearing-result strong { color: var(--tool-text); font-variant-numeric: tabular-nums; }
+.measurement-method { color: var(--tool-muted); font-size: 11px; line-height: 1.5; margin: 0; }
+.measurement-error { color: #ffc2b9; font-size: 11px; }
+.measurement-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.measurement-settings { border-top: 1px solid var(--tool-line); padding-top: 12px; }
+.measurement-settings > div { display: grid; padding: 8px 0 0; }
+.measurement-help { display: flex; align-items: center; gap: 6px; color: var(--tool-muted); font-size: 10px; }
+.measurement-help kbd { background: #263544; border: 1px solid #4a5a6a; border-radius: 4px; padding: 2px 4px; color: var(--tool-text); }
+.app-menu-toggle { display: none; }
+@media (max-width: 1200px) {
+    .top-bar .status-group, .top-bar .vertical-divider, .top-bar button[title='Diagnóstico de Motor'] { display: none; }
+    .tool-identity { min-width: 160px; }
+    .workbench-heading { gap: 12px; }
+}
+@media (max-width: 1000px) {
+    .app-menu-toggle { display: inline-block; margin-right: auto; }
+    .geonex-ui .top-bar { gap: 8px !important; padding: 0 12px !important; }
+    .geonex-ui .main-menu { display: none !important; }
+    .geonex-ui.show-app-menu .main-menu { display: flex !important; position: absolute; top: 60px; left: 0; right: 0; height: auto !important; flex-wrap: wrap; padding: 10px; background: #141e29; border: 1px solid #42576c; border-radius: 8px; }
+    .geonex-ui .main-menu > .dropdown { height: 38px !important; }
+    .geonex-ui .dropdown:focus-within > .dropdown-content { display: block; }
+    .workbench-heading { flex-wrap: wrap; }
+    .sketch-actions { flex: 1 1 100%; justify-content: flex-end; }
+    .destination-field { max-width: none; }
+    .geonex-ui.is-measuring .left-panel { display: none; }
+    .geonex-ui.is-measuring .right-panel { margin-left: auto; }
+}
+@media (max-width: 820px) {
+    .geonex-ui.is-digitizing.digitizing-advanced .tool-panels-toggle { display: inline-flex; }
+    .geonex-ui.is-digitizing.show-tool-panels .left-panel { margin-top: 8px; }
+    .tool-workbench .toolbar-status { width: auto; }
+    .tool-workbench .snap-menu { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+    .geonex-ui .top-bar { margin: 8px 8px 0; }
+    .top-bar .brand-group { margin-right: 0 !important; }
+    .top-bar .sub-brand { display: none; }
+    .top-bar .tool-btn { font-size: 10px; padding: 7px; }
+    .workbench-heading, .workbench-controls { padding: 10px; gap: 8px; }
+    .tool-identity { min-width: 0; flex: 1 1 100%; }
+    .tool-identity > div { display: flex; align-items: baseline; gap: 10px; }
+    .tool-symbol { width: 26px; height: 26px; font-size: 20px; }
+    .destination-field { flex-basis: 100%; }
+    .sketch-actions { display: grid; grid-template-columns: repeat(4, 1fr); }
+    .geonex-ui .sketch-actions .workbench-button { padding: 8px 6px; font-size: 11px; }
+    .construction-field { flex: 1 1 220px; width: auto; }
+    .tool-workbench .construction-hint { display: none; }
+    .workbench-footer { padding: 8px 10px; gap: 6px; }
+    .tool-workbench .sketch-metrics { margin-left: 0; }
+    .tool-workbench .snap-menu { grid-template-columns: 1fr; }
+    .geonex-ui.is-digitizing.show-tool-panels .left-panel { margin: 8px; width: calc(100vw - 16px); }
+    .geonex-ui.is-measuring .right-panel { position: fixed; right: 8px; left: 8px; bottom: 32px; width: auto; max-height: 48vh; margin: 0; }
+    .measurement-title h3 { font-size: 18px; }
+    .measurement-title .eyebrow, .measurement-help { display: none; }
+    .measurement-result .result-number { font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .geonex-ui .workbench-button { transition: none; }
+}
+
+/* Map-first editor shell: panels collapse to rails and expand without resizing the canvas. */
+.geonex-ui {
+    --dock-rail: 42px;
+    --panel-left-width: 280px;
+    --panel-right-width: 300px;
+    --digitizing-left-inset: 54px;
+    --digitizing-right-inset: 54px;
+    --tool-bg: #111a24;
+    --tool-raised: #1a2734;
+    --tool-line: #2a3948;
+    --tool-text: #e8eef4;
+    --tool-muted: #9aabba;
+    --tool-accent: #70e2bf;
+}
+.geonex-ui .top-bar {
+    box-sizing: border-box; height: 48px !important; min-height: 48px; margin: 8px 10px 0;
+    padding: 0 12px !important; gap: 8px !important; border-radius: 10px;
+    background: rgba(13, 21, 30, .96); box-shadow: 0 5px 18px #0003;
+}
+.geonex-ui .brand-group { margin-right: 4px !important; gap: 7px; }
+.geonex-ui .brand-group h1 { font-size: 15px; letter-spacing: 1.5px; }
+.geonex-ui .sub-brand { padding: 2px 5px; font-size: 9px; }
+.geonex-ui .main-menu { gap: 2px; }
+.geonex-ui .menu-btn { padding: 0 9px; font-size: 12px; }
+.geonex-ui .bottom-status-bar { box-sizing: border-box; height: 28px; min-height: 28px; padding: 0 12px; font-size: 10px; }
+.geonex-ui .workspace-area {
+    position: relative; display: grid; grid-template-columns: var(--dock-rail) minmax(0, 1fr) var(--dock-rail);
+    grid-template-rows: minmax(0, 1fr); gap: 0; margin: 10px 12px 8px; min-height: 120px; flex: 1 1 auto; overflow: hidden;
+}
+.geonex-ui .workspace-area { pointer-events: auto; }
+.geonex-ui #map-container {
+    grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; box-sizing: border-box; pointer-events: auto;
+    border: 1px solid #293847; border-radius: 8px; background: #0c131b;
+}
+.geonex-ui .workspace-area > .side-panel {
+    display: flex !important; flex-direction: column; position: relative; inset: auto; z-index: 1; box-sizing: border-box; width: var(--dock-rail) !important;
+    height: 100%; min-width: var(--dock-rail); min-height: 0; max-height: none !important; margin: 0 !important;
+    overflow: hidden; border-radius: 8px; background: rgba(14, 22, 31, .96); box-shadow: none;
+    transition: width .16s ease, box-shadow .16s ease;
+}
+.geonex-ui .workspace-area > .left-panel { grid-column: 1; grid-row: 1; }
+.geonex-ui .workspace-area > .right-panel { grid-column: 3; grid-row: 1; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel {
+    position: absolute; top: 0; bottom: 0; z-index: 3200; height: auto; max-height: none !important;
+    box-shadow: 0 12px 36px #0008;
+}
+.geonex-ui.layers-panel-open .workspace-area > .left-panel { left: 0; width: var(--panel-left-width) !important; }
+.geonex-ui.identify-panel-open .workspace-area > .right-panel { right: 0; left: auto; width: var(--panel-right-width) !important; }
+.geonex-ui .workspace-area > .side-panel > .panel-header {
+    box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 100%; height: auto; min-height: 0; gap: 4px; padding: 6px 3px; border-bottom: 0; border-radius: 0;
+    background: #111b26;
+}
+.geonex-ui .workspace-area > .side-panel > .panel-header h2 { display: none; margin: 0; font-size: 10px; letter-spacing: .7px; }
+.geonex-ui .panel-rail-label { display: block; color: #899bab; font-size: 9px; font-weight: 650; letter-spacing: .5px; line-height: 1; writing-mode: vertical-rl; transform: rotate(180deg); }
+.geonex-ui .panel-dock-toggle {
+    display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; padding: 0;
+    color: #a9bac9; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer;
+}
+.geonex-ui .panel-dock-toggle:hover { color: var(--tool-text); border-color: #35495d; background: #1b2937; }
+.geonex-ui .panel-dock-toggle span { font: 24px/1 'Segoe UI', sans-serif; }
+.geonex-ui .workspace-area > .left-panel .header-actions,
+.geonex-ui .workspace-area > .left-panel .layer-list,
+.geonex-ui .workspace-area > .right-panel .properties-content { display: none; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel > .panel-header,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel > .panel-header { justify-content: space-between; flex-direction: row; height: 46px; min-height: 46px; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #243241; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel > .panel-header h2,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel > .panel-header h2 { display: block; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel .panel-rail-label,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel .panel-rail-label { display: none; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel .header-actions { display: flex; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel .layer-list,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel .properties-content { display: block; min-width: 0; min-height: 0; flex: 1 1 auto; overflow: auto; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel .layer-list { padding: 8px; }
+.geonex-ui .workspace-area > .left-panel .layer-item {
+    min-width: 0; min-height: 36px; gap: 7px; margin-bottom: 5px; padding: 6px;
+    border: 1px solid #1d2b39; border-radius: 7px; background: #121d28; font-size: 11px;
+}
+.geonex-ui .workspace-area > .left-panel .layer-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.geonex-ui .workspace-area > .left-panel .layer-actions { gap: 2px !important; }
+.geonex-ui .workspace-area > .left-panel .layer-action-btn { width: 26px; height: 26px; }
+.geonex-ui.identify-panel-open .workspace-area > .right-panel > .properties-content { padding: 12px !important; }
+.geonex-ui .measurement-workbench { gap: 9px; }
+.geonex-ui .measurement-title h3 { margin: 2px 0; font-size: 18px; }
+.geonex-ui .measurement-title p { line-height: 1.4; }
+.geonex-ui .measurement-result { gap: 6px; padding: 10px; }
+.geonex-ui .measurement-result .result-number { font-size: 24px; }
+.geonex-ui .attribute-table-container { position: absolute; inset: auto 12px 36px; z-index: 3300; max-height: 32vh; margin: 0; }
+
+.geonex-ui.is-digitizing .tool-workbench {
+    position: absolute; top: 64px; left: var(--digitizing-left-inset); right: var(--digitizing-right-inset);
+    width: min(1080px, calc(100vw - var(--digitizing-left-inset) - var(--digitizing-right-inset)));
+    max-width: calc(100vw - var(--digitizing-left-inset) - var(--digitizing-right-inset)); max-height: min(38vh, calc(100vh - 140px)); margin: 0 auto;
+    overflow: auto; z-index: 3500; border: 1px solid #304356; border-radius: 11px;
+    padding: 0; background: rgba(13, 22, 32, .96); box-shadow: 0 10px 28px #0007; backdrop-filter: blur(12px);
+}
+.geonex-ui.layers-panel-open.is-digitizing { --digitizing-left-inset: 300px; }
+.geonex-ui.identify-panel-open.is-digitizing { --digitizing-right-inset: 320px; }
+.geonex-ui .workbench-heading, .geonex-ui .workbench-controls { gap: 8px; padding: 8px 10px; }
+.geonex-ui .workbench-heading { border-bottom-color: #263544; }
+.geonex-ui .tool-identity { min-width: 116px; gap: 7px; }
+.geonex-ui .tool-symbol { width: 30px; height: 30px; font-size: 21px; }
+.geonex-ui .tool-identity h2 { font-size: 13px; }
+.geonex-ui .tool-identity span:not(.tool-symbol) { font-size: 10px; }
+.geonex-ui .destination-field { min-width: 150px; max-width: 245px; }
+.geonex-ui .construction-field { flex: 0 1 220px; width: 220px; }
+.geonex-ui .workbench-button { min-height: 32px; padding: 6px 9px; font-size: 11px; }
+.digitizing-mode { display: flex; flex: 0 0 auto; gap: 2px; padding: 2px; border: 1px solid var(--tool-line); border-radius: 8px; background: #0c141d; }
+.digitizing-mode button { min-height: 30px; padding: 5px 10px; border: 1px solid transparent; border-radius: 6px; color: var(--tool-muted); background: transparent; font: 600 11px 'Segoe UI', sans-serif; cursor: pointer; }
+.digitizing-mode button.selected { color: #c6f5e7; background: #1c3f35; border-color: #397b68; }
+.geonex-ui.digitizing-simple .snap-options,
+.geonex-ui.digitizing-simple .workbench-controls,
+.geonex-ui.digitizing-simple .workbench-footer { display: none !important; }
+.geonex-ui.is-digitizing.digitizing-simple .tool-workbench { display: flex; align-items: center; width: max-content; max-width: calc(100vw - var(--digitizing-left-inset) - var(--digitizing-right-inset)); min-height: 54px; max-height: 58px; overflow-x: auto; overflow-y: hidden; }
+.geonex-ui.is-digitizing.digitizing-simple .workbench-heading { display: flex; flex-wrap: nowrap; align-items: center; width: max-content; min-width: max-content; gap: 8px; padding: 5px 8px; border: 0; }
+.geonex-ui.is-digitizing.digitizing-simple .tool-identity { min-width: 112px; gap: 6px; }
+.geonex-ui.is-digitizing.digitizing-simple .tool-symbol { width: 28px; height: 28px; font-size: 19px; }
+.geonex-ui.is-digitizing.digitizing-simple .destination-field { flex: 0 1 220px; min-width: 160px; max-width: 230px; }
+.geonex-ui.is-digitizing.digitizing-simple .sketch-actions { flex: 0 0 auto; gap: 4px; margin-left: 0; }
+.geonex-ui.is-digitizing.digitizing-simple .workbench-button { min-height: 30px; padding: 5px 8px; }
+.geonex-ui .workbench-footer { min-height: 0; gap: 5px 12px; padding: 5px 10px; }
+.geonex-ui .tool-workbench .toolbar-status { font-size: 10px; }
+.geonex-ui .tool-workbench .sketch-metrics { font-size: 11px; }
+.geonex-ui .digitizing-context-controls { gap: 6px; padding: 7px 10px; }
+.geonex-ui .digitizing-context-controls .workbench-button { min-height: 30px; }
+
+@media (max-width: 1000px) {
+    .geonex-ui .top-bar { padding-inline: 9px !important; gap: 5px !important; }
+    .geonex-ui .menu-btn { padding-inline: 7px; font-size: 11px; }
+    .geonex-ui.show-app-menu .top-bar { height: 48px !important; min-height: 48px; flex-wrap: nowrap; padding-top: 0 !important; padding-bottom: 0 !important; }
+    .geonex-ui.show-app-menu .main-menu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 4200; display: flex; flex-wrap: wrap; height: auto !important; max-height: 55vh; overflow: auto; padding: 8px; background: #101923; border: 1px solid #334354; border-radius: 9px; box-shadow: 0 14px 36px #0008; }
+    .geonex-ui.show-app-menu .main-menu > .dropdown { height: auto !important; flex: 1 1 140px; }
+    .geonex-ui.show-app-menu .main-menu > .dropdown > button { min-height: 36px; }
+    .geonex-ui.show-app-menu .dropdown-content { position: static; min-width: 0; box-shadow: none; }
+    .geonex-ui.show-app-menu .dropdown-submenu { width: 100%; }
+    .geonex-ui.show-app-menu .submenu-content { position: static; min-width: 0; padding: 0 0 4px 12px; border: 0; box-shadow: none; }
+}
+@media (max-width: 700px) {
+    .geonex-ui .workspace-area { grid-template-columns: var(--dock-rail) minmax(0, 1fr) var(--dock-rail); grid-template-rows: minmax(0, 1fr); margin: 8px; }
+    .geonex-ui.is-digitizing { --digitizing-left-inset: 50px; --digitizing-right-inset: 50px; }
+    .geonex-ui .workspace-area > .left-panel { display: flex !important; grid-column: 1; grid-row: 1; }
+    .geonex-ui .workspace-area > .right-panel { display: flex !important; grid-column: 3; grid-row: 1; width: var(--dock-rail) !important; }
+    .geonex-ui.is-digitizing .tool-workbench { top: 64px; width: max-content; max-width: calc(100vw - 100px); min-height: 52px; max-height: 56px; }
+    .geonex-ui.layers-panel-open.is-digitizing .workspace-area > .left-panel,
+    .geonex-ui.identify-panel-open.is-digitizing .workspace-area > .right-panel { top: 76px; bottom: 0; height: auto; }
+    .geonex-ui.layers-panel-open.is-digitizing { --digitizing-left-inset: 50px; }
+    .geonex-ui.identify-panel-open.is-digitizing { --digitizing-right-inset: 50px; }
+    .geonex-ui.layers-panel-open .workspace-area > .left-panel { width: min(var(--panel-left-width), calc(100vw - 64px)) !important; }
+    .geonex-ui.identify-panel-open .workspace-area > .right-panel { width: min(var(--panel-right-width), calc(100vw - 64px)) !important; }
+    .geonex-ui.is-digitizing .workbench-heading { flex-wrap: nowrap; }
+    .geonex-ui.is-digitizing .sketch-actions { flex: 0 0 auto; }
+    .geonex-ui.is-digitizing .tool-identity { min-width: 105px; }
+    .geonex-ui.is-digitizing .tool-identity > div { display: flex; align-items: baseline; gap: 5px; }
+    .geonex-ui.is-digitizing .destination-field { min-width: 145px; }
+}
+@media (max-width: 520px) {
+    .geonex-ui .brand-group h1 { font-size: 13px; }
+    .geonex-ui .top-bar .sub-brand,
+    .geonex-ui .top-bar .status-group,
+    .geonex-ui .top-bar .vertical-divider,
+    .geonex-ui .top-bar button[title='Diagnóstico de Motor'] { display: none; }
+    .geonex-ui.is-digitizing .tool-identity { min-width: 90px; }
+    .geonex-ui.is-digitizing .tool-identity h2 { font-size: 11px; }
+    .geonex-ui.is-digitizing .tool-identity span:not(.tool-symbol) { display: none; }
+    .geonex-ui.is-digitizing .destination-field { min-width: 120px; }
+    .geonex-ui.is-digitizing .sketch-actions .workbench-button { padding-inline: 6px; font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .geonex-ui .workspace-area > .side-panel { transition: none; }
+}

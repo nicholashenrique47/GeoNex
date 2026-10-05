@@ -8,7 +8,13 @@ const script = fs.readFileSync(path.resolve(__dirname, '../GeoNex/wwwroot/js/map
 assert.doesNotMatch(home, /@onpointermove=/, 'Home must not duplicate the JavaScript pointer channel');
 assert.equal((script.match(/document\.addEventListener\('keydown'/g) || []).length, 1,
     'Production script must register exactly one shortcut handler');
-assert.match(home, /HistoricoAquisicao\.Add\(ptFinalAq\)/, 'Committed clicks participate in undo/redo');
+assert.match(home, /AdicionarControleAquisicao\(ptFinalAq\)/, 'Committed clicks use the shared control insertion');
+const digitizing = fs.readFileSync(path.resolve(__dirname, '../GeoNex/Components/Pages/Home.Digitizing.cs'), 'utf8');
+assert.match(digitizing, /HistoricoAquisicao\.Add\(point\)/, 'Control insertion participates in undo/redo');
+assert.match(home, /if \(primeiraCamada\) _painelCamadasAberto = true/, 'The first added layer automatically opens its dock.');
+assert.match(home, /if \(feicao != null\)\s*\{\s*_painelIdentificarAberto = true/, 'A successful identify hit opens the attributes dock.');
+assert.match(digitizing, /Clique no primeiro vértice para fechar/, 'Polygon closure is discoverable from the live construction hint.');
+assert.match(script, /toolPointerPendingInteractive = false/, 'Pointer settling schedules a final-quality render.');
 assert.match(home, /@@media \(max-width: 820px\)/, 'Digitizing toolbar has a narrow viewport layout');
 
 (async () => {
@@ -31,6 +37,12 @@ assert.match(home, /@@media \(max-width: 820px\)/, 'Digitizing toolbar has a nar
         assert.deepEqual(await page.evaluate(() => window.calls.map(call => call[1])),
             ['ctrl+z', 'ctrl+y', 'ctrl+shift+z', 'enter', 'escape'], 'Drawing shortcuts dispatch once');
 
+        await page.evaluate(() => { window.calls.length = 0; window.mapEngine.setFerramenta('Medicao'); });
+        await page.keyboard.press('Enter');
+        await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })));
+        assert.deepEqual(await page.evaluate(() => window.calls.map(call => call[1])), ['enter'],
+            'Measurement Enter dispatches once and ignores key repeat');
+
         await page.evaluate(() => window.calls.length = 0);
         for (const selector of ['#field', '#button', '#dialog']) {
             await page.locator(selector).focus();
@@ -49,6 +61,11 @@ assert.match(home, /@@media \(max-width: 820px\)/, 'Digitizing toolbar has a nar
             const call = await page.evaluate(() => window.calls[0]);
             assert.equal(call[0], 'ReceberMovimentoFerramentas');
             assert.equal(call[1], 209, 'Burst sends its latest position');
+            assert.equal(call[3], true, 'Pointer movement requests an interactive preview.');
+            await page.waitForFunction(() => window.calls.length === 2);
+            const settledCall = await page.evaluate(() => window.calls[1]);
+            assert.equal(settledCall[1], 209, 'The idle refinement reuses the last cursor position.');
+            assert.equal(settledCall[3], false, 'A settled cursor requests the final-quality frame.');
         }
 
         await page.waitForFunction(() => !window.mapEngine.toolPointerInFlight);
@@ -106,6 +123,21 @@ assert.match(home, /@@media \(max-width: 820px\)/, 'Digitizing toolbar has a nar
             return result;
         });
         assert.deepEqual(zoomed, ['Navegacao'], 'Double-click while drawing cannot zoom the map');
+        const docked = await page.evaluate(() => {
+            const map = document.getElementById('map-container');
+            map.style.cssText = 'position:fixed;left:100px;top:60px;width:300px;height:200px;border:2px solid;box-sizing:content-box';
+            Object.assign(window.mapEngine, { currentX: 0, currentY: 0, currentScale: 1 });
+            return { point: window.mapEngine.obterPontoImagem(152, 92), dimensions: window.dimensoesJanela.obter() };
+        });
+        assert.deepEqual(docked.point, { x: 50, y: 30 }, 'Docked map input subtracts container position and border.');
+        assert.equal(docked.dimensions.largura, 300);
+        assert.equal(docked.dimensions.altura, 200);
+        await page.evaluate(() => {
+            window.calls.length = 0;
+            window.dimensoesJanela.registrarResize({ invokeMethodAsync: async (...args) => window.calls.push(args) });
+            document.getElementById('map-container').style.width = '350px';
+        });
+        await page.waitForFunction(() => window.calls.some(call => call[0] === 'AtualizarDimensoesTela' && call[1] === 350 && call[2] === 200));
         assert.deepEqual(errors, [], 'Production map script loads without browser errors');
         console.log('Digitizing interaction contracts passed.');
     } finally {

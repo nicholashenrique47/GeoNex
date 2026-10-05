@@ -10,6 +10,7 @@
     <Compile Include="../../GeoNex/Services/SketchVertexHistory.cs" Link="SketchVertexHistory.cs" />
     <Compile Include="../../GeoNex/Services/DigitizingGeometry.cs" Link="DigitizingGeometry.cs" />
     <Compile Include="../../GeoNex/Services/SnapSearch.cs" Link="SnapSearch.cs" />
+    <Compile Include="../../GeoNex/Services/SketchConstruction.cs" Link="SketchConstruction.cs" />
     <Compile Include="../../GeoNex/Services/MapMeasurementService.cs" Link="MapMeasurementService.cs" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
     <PackageReference Include="GDAL" Version="3.12.1" />

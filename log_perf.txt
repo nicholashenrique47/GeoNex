@@ -1,4 +1,3 @@
-FastShapeReader levou 5943 ms
-ConstruirIndiceEspacial levou 4624 ms
-PreCompilarPoligonos levou 4686 ms
-TOTAL: 10631 ms
+FastShapeReader levou 11 ms
+Publicar camada + índice levou 3 ms
+TOTAL: 16 ms

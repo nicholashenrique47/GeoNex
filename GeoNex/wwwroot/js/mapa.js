@@ -861,15 +861,19 @@ window.dimensoesJanela = {
         return Math.max(0.5, Math.min(4, dpi));
     },
     obter: function () {
+        const map = document.getElementById('map-container');
         return {
-            largura: Math.max(1, Math.round(window.innerWidth)),
-            altura: Math.max(1, Math.round(window.innerHeight)),
+            largura: Math.max(1, map ? map.clientWidth : Math.round(window.innerWidth)),
+            altura: Math.max(1, map ? map.clientHeight : Math.round(window.innerHeight)),
             dpi: window.dimensoesJanela.obterDpi()
         };
     },
     registrarResize: function (dotnetHelper) {
+        this.resizeObserver?.disconnect();
+        if (this.resizeListener) window.removeEventListener('resize', this.resizeListener);
         let timer = null;
         const notificar = function () {
+            if (window.mapEngine) window.mapEngine.viewportResizePending = true;
             clearTimeout(timer);
             timer = setTimeout(function () {
                 const dimensoes = window.dimensoesJanela.obter();
@@ -877,10 +881,16 @@ window.dimensoesJanela = {
                     'AtualizarDimensoesTela',
                     dimensoes.largura,
                     dimensoes.altura,
-                    dimensoes.dpi);
+                    dimensoes.dpi).catch(err => console.warn('Erro ao redimensionar mapa:', err));
             }, 60);
         };
         window.addEventListener('resize', notificar);
+        this.resizeListener = notificar;
+        const map = document.getElementById('map-container');
+        if (map && window.ResizeObserver) {
+            this.resizeObserver = new ResizeObserver(notificar);
+            this.resizeObserver.observe(map);
+        }
 
         // WebView2 pode trocar o devicePixelRatio ao mover a janela entre o
         // ecrã do notebook e um monitor externo sem alterar o tamanho CSS.
@@ -938,8 +948,13 @@ window.mapEngine = {
     cameraEpoch: 0, retryCount: 0,
     committedCamera: { panX: 0, panY: 0, zoom: 1 },
     toolPointerPending: null,
+    toolPointerLatest: null,
     toolPointerFrame: null,
+    toolPointerSettleTimer: null,
+    toolPointerPendingInteractive: true,
     toolPointerInFlight: false,
+    lastPointerClientX: -1,
+    lastPointerClientY: -1,
 
     init: function (dotNetRef) {
         this.container = document.getElementById('map-container');
@@ -1145,10 +1160,10 @@ window.mapEngine = {
 
     obterPontoImagem: function (clientX, clientY) {
         const rect = this.container.getBoundingClientRect();
-        const x = clientX - rect.left;
-        const y = clientY - rect.top;
-        const cx = rect.width / 2;
-        const cy = rect.height / 2;
+        const x = clientX - rect.left - this.container.clientLeft;
+        const y = clientY - rect.top - this.container.clientTop;
+        const cx = this.container.clientWidth / 2;
+        const cy = this.container.clientHeight / 2;
         return {
             x: (x - cx - this.currentX) / this.currentScale + cx,
             y: (y - cy - this.currentY) / this.currentScale + cy
@@ -1157,12 +1172,32 @@ window.mapEngine = {
 
     resetToolPointer: function () {
         this.toolPointerPending = null;
+        this.toolPointerLatest = null;
         if (this.toolPointerFrame !== null) cancelAnimationFrame(this.toolPointerFrame);
         this.toolPointerFrame = null;
+        if (this.toolPointerSettleTimer !== null) clearTimeout(this.toolPointerSettleTimer);
+        this.toolPointerSettleTimer = null;
+        this.toolPointerPendingInteractive = true;
     },
 
     queueToolPointer: function (clientX, clientY) {
-        this.toolPointerPending = { clientX, clientY };
+        if (this.viewportResizePending) {
+            this.resetToolPointer();
+            return;
+        }
+        const sample = { clientX, clientY };
+        this.toolPointerLatest = sample;
+        this.toolPointerPending = sample;
+        this.toolPointerPendingInteractive = true;
+        if (this.toolPointerSettleTimer !== null) clearTimeout(this.toolPointerSettleTimer);
+        this.toolPointerSettleTimer = setTimeout(() => {
+            this.toolPointerSettleTimer = null;
+            if (!this.toolPointerLatest || !this.dotNetHelper) return;
+            this.toolPointerPending = this.toolPointerLatest;
+            this.toolPointerPendingInteractive = false;
+            if (this.toolPointerFrame === null && !this.toolPointerInFlight)
+                this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
+        }, 120);
         if (this.toolPointerFrame === null && !this.toolPointerInFlight)
             this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
     },
@@ -1171,10 +1206,11 @@ window.mapEngine = {
         this.toolPointerFrame = null;
         if (!this.toolPointerPending || this.toolPointerInFlight || !this.dotNetHelper) return;
         const sample = this.toolPointerPending;
+        const interacaoRapida = this.toolPointerPendingInteractive;
         this.toolPointerPending = null;
         const point = this.obterPontoImagem(sample.clientX, sample.clientY);
         this.toolPointerInFlight = true;
-        this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas', point.x, point.y)
+        this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas', point.x, point.y, interacaoRapida)
             .catch(err => console.warn('Erro na prévia da ferramenta:', err))
             .finally(() => {
                 this.toolPointerInFlight = false;
@@ -1184,6 +1220,8 @@ window.mapEngine = {
     },
 
     onPointerMove: function (e) {
+        this.lastPointerClientX = e.clientX;
+        this.lastPointerClientY = e.clientY;
         if (this.uiModalAberto()) {
             this.resetToolPointer();
             return;
@@ -1278,6 +1316,8 @@ window.mapEngine = {
     },
 
     onPointerDown: function (e) {
+        this.lastPointerClientX = e.clientX;
+        this.lastPointerClientY = e.clientY;
         this.resetToolPointer();
         if (this.uiModalAberto()) {
             e.preventDefault();
@@ -1400,7 +1440,9 @@ window.mapEngine = {
     },
 
     dispararRaycast: function (clientX, clientY) {
+        if (this.viewportResizePending) return;
         if (!this.dotNetHelper) return;
+        this.resetToolPointer();
         const point = this.obterPontoImagem(clientX, clientY);
         this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y)
             .catch(err => console.warn("Erro no Túnel:", err));
@@ -1681,6 +1723,10 @@ window.mapEngine = {
             canvas.style.left = `${-padding}px`;
             canvas.style.top = `${-padding}px`;
             canvas.style.visibility = 'visible';
+            this.presentedViewport = { width: visibleWidth, height: visibleHeight };
+            const viewport = window.dimensoesJanela.obter();
+            if (Math.abs(visibleWidth - viewport.largura) <= 1 && Math.abs(visibleHeight - viewport.altura) <= 1)
+                this.viewportResizePending = false;
             this.skiaCanvas.style.visibility = 'hidden';
             this.backCanvas = this.skiaCanvas;
             this.skiaCanvas = canvas;
@@ -1908,6 +1954,24 @@ function finalizarMedicao(e) {
         window.medicaoTooltip = null;
     }
 }
+window.geonexCopiarTexto = async function (texto) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(String(texto ?? ''));
+        return true;
+    }
+    const area = document.createElement('textarea');
+    area.value = String(texto ?? '');
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const copiado = document.execCommand('copy');
+    area.remove();
+    if (!copiado) throw new Error('A área de transferência não está disponível.');
+    return true;
+};
+
 window.GeoNexGraphics = {
     _destaque: [], _medicao: [], _mouse: null, _snap: null,
     _futuroDestaque: null, _futuroMedicao: null,
@@ -2010,25 +2074,27 @@ window.addEventListener('resize', () => { if (window.GeoNexGraphics) window.GeoN
 // =========================================================================
 document.addEventListener('keydown', function (event) {
     const target = event.target;
-    if (target instanceof Element &&
-        (target.closest('input, textarea, select, button, a, summary, [role="dialog"]') || target.isContentEditable)) return;
     const engine = window.mapEngine;
     if (!engine?.dotNetHelper) return;
 
     const key = event.key.toLowerCase();
+    const drawing = ['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(engine.ferramentaAtual);
+    const preciseCoordinateShortcut = drawing && key === 'f6';
+    if (!preciseCoordinateShortcut && target instanceof Element &&
+        (target.closest('input, textarea, select, button, a, summary, [role="dialog"]') || target.isContentEditable)) return;
     const command = event.ctrlKey && event.shiftKey && key === 'z' ? 'ctrl+shift+z' :
         event.ctrlKey && key === 'z' ? 'ctrl+z' :
         event.ctrlKey && key === 'y' ? 'ctrl+y' : key;
-    const drawing = ['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(engine.ferramentaAtual);
     const measuring = engine.ferramentaAtual === 'Medicao';
     const global = ['escape', 'm', 'i', 'd', 'p'].includes(command);
     const edit = ['ctrl+z', 'ctrl+y', 'ctrl+shift+z', 'z', 'backspace'].includes(command);
-    const construction = drawing && ['enter', 'c', 'tab', 'f6'].includes(command);
+    const construction = (drawing && ['enter', 'c', 'tab', 'f6'].includes(command)) ||
+        (measuring && command === 'enter');
     if (!global && !(edit && (drawing || measuring)) && !construction) return;
-    if (event.repeat && ['enter', 'c'].includes(command)) return;
+    if (event.repeat && ['enter', 'c', 'f6'].includes(command)) return;
 
     event.preventDefault();
-    engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', command)
+    engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', command, engine.lastPointerClientX, engine.lastPointerClientY)
         .catch(err => console.warn('Erro no atalho:', err));
 });
 // === BLOQUEIO DO WINDOWS E TRAVA DO RATO ===
@@ -2052,10 +2118,26 @@ window.mapEngine.soltarRato = function (pointerId) {
         mapa.releasePointerCapture(pointerId);
     }
 };
+
+function reposicionarHudFlutuante() {
+    const dotNet = window.dotnetReferencia || window.mapEngine?.dotNetHelper;
+    for (const id of ['hud-f6', 'hud-cogo']) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const matrix = new DOMMatrix(window.getComputedStyle(el).transform);
+        const x = Math.max(8, Math.min(matrix.m41, window.innerWidth - el.offsetWidth - 8));
+        const y = Math.max(64, Math.min(matrix.m42, window.innerHeight - el.offsetHeight - 8));
+        el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+        if (dotNet) dotNet.invokeMethodAsync('AtualizarMemoriaHUD', id, x, y).catch(() => {});
+    }
+}
+window.addEventListener('resize', () => requestAnimationFrame(reposicionarHudFlutuante));
+
 // =========================================================================
 // MOTOR DE ARRASTO DE JANELAS (HARDWARE ACCELERATION BYPASS BLAZOR)
 // =========================================================================
 window.iniciarArrasteHUD = function (e, elementId) {
+    if (e.target instanceof Element && e.target.closest('button, input, select, textarea, a')) return;
     e.preventDefault(); // Impede que selecione texto enquanto arrasta
     const el = document.getElementById(elementId);
     if (!el) return;
@@ -2076,8 +2158,8 @@ window.iniciarArrasteHUD = function (e, elementId) {
     function onMouseMove(event) {
         const dx = event.clientX - initialMouseX;
         const dy = event.clientY - initialMouseY;
-        finalX = startX + dx;
-        finalY = startY + dy;
+        finalX = Math.max(8, Math.min(startX + dx, window.innerWidth - el.offsetWidth - 8));
+        finalY = Math.max(64, Math.min(startY + dy, window.innerHeight - el.offsetHeight - 8));
 
         // Atira para a GPU instantaneamente
         el.style.transform = `translate3d(${finalX}px, ${finalY}px, 0)`;
@@ -2087,15 +2169,17 @@ window.iniciarArrasteHUD = function (e, elementId) {
     function onMouseUp(event) {
         window.removeEventListener('pointermove', onMouseMove);
         window.removeEventListener('pointerup', onMouseUp);
+        window.removeEventListener('pointercancel', onMouseUp);
 
         // Sincroniza silenciosamente com o C# para a janela não voltar para trás
         let dotNet = window.dotnetReferencia || (window.mapEngine && window.mapEngine.dotNetHelper);
         if (dotNet) {
-            dotNet.invokeMethodAsync('AtualizarMemoriaHUD', finalX, finalY);
+            dotNet.invokeMethodAsync('AtualizarMemoriaHUD', elementId, finalX, finalY);
         }
     }
 
     // Liga os sensores de alta velocidade no ecrã inteiro
     window.addEventListener('pointermove', onMouseMove);
     window.addEventListener('pointerup', onMouseUp);
+    window.addEventListener('pointercancel', onMouseUp);
 };

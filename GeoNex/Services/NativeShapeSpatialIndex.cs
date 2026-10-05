@@ -16,6 +16,8 @@ namespace GeoNex.Services
     {
         private readonly List<CompiledFeature> _features;
         private NativeIndexHandle? _handle;
+        private NetTopologySuite.Index.Strtree.STRtree<int>? _memoryIndex;
+        public bool HasInMemoryFeatures { get; }
         private const int MinimumQueryCapacity = 8_192; // 32 KiB of feature IDs.
         private int _queryCapacityHint = MinimumQueryCapacity;
 
@@ -38,23 +40,42 @@ namespace GeoNex.Services
         public NativeShapeSpatialIndex? UniformRenderIndex { get; private set; }
         public IList<CompiledFeature> AllFeatures => _features.AsReadOnly();
 
-        public NativeShapeSpatialIndex(MemoryMappedShapefile shapefile, List<CompiledFeature> features)
+        public NativeShapeSpatialIndex(MemoryMappedShapefile? shapefile, List<CompiledFeature> features)
             : this(shapefile, features, buildCatalog: true) { }
 
-        private NativeShapeSpatialIndex(MemoryMappedShapefile shapefile, List<CompiledFeature> features, bool buildCatalog)
+        private NativeShapeSpatialIndex(MemoryMappedShapefile? shapefile, List<CompiledFeature> features, bool buildCatalog)
         {
-            ArgumentNullException.ThrowIfNull(shapefile);
             ArgumentNullException.ThrowIfNull(features);
-            _features = features;
+            // Queries retain a stable ID-to-feature mapping while the editing list changes.
+            _features = new List<CompiledFeature>(features);
+            features = _features;
 
             if (features.Count == 0) return;
+            HasInMemoryFeatures = features.Any(f => f.DataOffset < 100);
+            if (features.All(f => f.DataOffset < 100))
+            {
+                // An editing-only layer has no mapped records to accelerate in C++.
+                var memoryIndex = new NetTopologySuite.Index.Strtree.STRtree<int>();
+                for (int i = 0; i < features.Count; i++)
+                {
+                    var envelope = features[i].EnvelopeWorld;
+                    if (!envelope.IsNull) memoryIndex.Insert(new Envelope(envelope.MinX, envelope.MaxX,
+                        envelope.MinY, envelope.MaxY), i);
+                }
+                memoryIndex.Build();
+                _memoryIndex = memoryIndex;
+                return;
+            }
 
             var nativeHandle = new NativeIndexHandle();
             long[] offsets = ArrayPool<long>.Shared.Rent(features.Count);
             // Sem reprojeção, o C++ lê os envelopes diretamente do SHP mapeado.
             // Com reprojeção on-the-fly, o índice deve usar os envelopes no CRS do
             // projeto; misturar viewport projetado com bounds crus omite feições.
-            bool useProjectedBounds = shapefile.TransformLocal != null;
+            // New in-memory features have no SHP record. Their actual envelopes
+            // must be supplied; reading offset zero would silently omit them.
+            bool useProjectedBounds = shapefile == null || shapefile.TransformLocal != null ||
+                features.Any(feature => feature.DataOffset < 100);
             try
             {
                 double[]? projectedBounds = useProjectedBounds
@@ -82,8 +103,8 @@ namespace GeoNex.Services
                 fixed (byte* kindsPointer = projectedKinds)
                 {
                     nativeHandle.Initialize(NativeMethods.CreateShapeSpatialIndex(
-                        shapefile.ShpPointer,
-                        shapefile.FileLength,
+                        shapefile == null ? null : shapefile.ShpPointer,
+                        shapefile?.FileLength ?? 0,
                         offsetPointer,
                         boundsPointer,
                         kindsPointer,
@@ -100,7 +121,7 @@ namespace GeoNex.Services
                 GridEntries = entries;
                 OversizedFeatures = oversized;
                 _handle = nativeHandle;
-                if (buildCatalog && !useProjectedBounds && features.Count >= ShapefileRenderCatalog.MinimumFeatures)
+                if (buildCatalog && !useProjectedBounds && shapefile != null && features.Count >= ShapefileRenderCatalog.MinimumFeatures)
                 {
                     int[]? representatives = ShapefileRenderCatalog.Build(
                         shapefile.ShpPointer, shapefile.FileLength, offsets.AsSpan(0, features.Count));
@@ -127,6 +148,14 @@ namespace GeoNex.Services
         public NativeFeatureQuery Query(Envelope envelope)
         {
             ArgumentNullException.ThrowIfNull(envelope);
+            var memoryIndex = Volatile.Read(ref _memoryIndex);
+            if (memoryIndex != null)
+            {
+                var matches = memoryIndex.Query(envelope);
+                int[] results = ArrayPool<int>.Shared.Rent(Math.Max(1, matches.Count));
+                for (int i = 0; i < matches.Count; i++) results[i] = matches[i];
+                return new NativeFeatureQuery(_features, results, matches.Count);
+            }
             NativeIndexHandle? nativeHandle = Volatile.Read(ref _handle);
             if (nativeHandle == null || envelope.IsNull || _features.Count == 0)
                 return NativeFeatureQuery.Empty(_features);
@@ -183,6 +212,7 @@ namespace GeoNex.Services
 
         public void Dispose()
         {
+            Interlocked.Exchange(ref _memoryIndex, null);
             UniformRenderIndex?.Dispose();
             Interlocked.Exchange(ref _handle, null)?.Dispose();
         }

@@ -57,28 +57,7 @@
     .vector-load-progress-bar { width: 38%; height: 100%; background: #10b981; animation: vector-load-progress 1.1s ease-in-out infinite; }
     @@keyframes vector-load-progress { 0% { transform: translateX(-110%); } 100% { transform: translateX(290%); } }
 
-    .digitizing-toolbar {
-        position: absolute;
-        top: 80px;
-        left: 50%;
-        z-index: 9999;
-        display: flex;
-        width: min(1180px, calc(100vw - 40px));
-        box-sizing: border-box;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 14px;
-        transform: translateX(-50%);
-        border: 1px solid rgba(56, 189, 248, 0.38);
-        border-radius: 12px;
-        background: rgba(20, 32, 48, 0.96);
-        box-shadow: 0 12px 36px rgba(0,0,0,0.48);
-        backdrop-filter: blur(16px);
-    }
-    .digitizing-toolbar .gis-select { min-width: 190px; max-width: 320px; }
-    .digitizing-toolbar .toolbar-status { margin-left: auto; color: #94a3b8; font-size: 12px; white-space: nowrap; }
-    .digitizing-toolbar .toolbar-status.warning { width: 100%; margin-left: 0; color: #fbbf24; white-space: normal; }
+    .digitizing-toolbar { font-family: 'Segoe UI', sans-serif; }
     .digitizing-toolbar .snap-tolerance { display: grid; gap: 5px; padding: 8px 12px; color: #94a3b8; font-size: 11px; }
     .digitizing-toolbar .snap-tolerance select { width: 100%; }
     .snap-options { position: relative; pointer-events: auto; }
@@ -89,37 +68,38 @@
         background: #142030; border: 1px solid #36536b; border-radius: 8px;
         box-shadow: 0 10px 28px #0008; }
     .snap-menu .drop-item { width: 100%; box-sizing: border-box; min-height: 36px; }
+    .snap-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 7px 10px 2px; color: #94a3b8; font-size: 10px; border-top: 1px solid rgba(148,163,184,.15); }
+    .snap-legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .snap-key { width: 8px; height: 8px; display: inline-block; border: 1px solid currentColor; }
+    .snap-key.vertex { color: #fde047; }
+    .snap-key.midpoint { color: #22d3ee; border-radius: 50%; }
+    .snap-key.edge { color: #fb923c; transform: rotate(45deg); }
+    .snap-key.intersection { color: #f0abfc; border-radius: 50%; }
+    .construction-row { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-top: 1px solid #36536b; padding-top: 10px; }
+    .sketch-metrics { flex: 1 1 250px; min-width: 220px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; color: #67e8f9; font-size: 12px; }
+    .sketch-metrics small { color: #94a3b8; font-size: 10px; }
+    .sketch-metrics-error { color: #fca5a5 !important; }
+    .measurement-units { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; color: #94a3b8; font-size: 0.7rem; }
+    .measurement-units label { display: grid; gap: 6px; }
+    .measurement-units .gis-select { min-width: 0; width: 100%; }
+    .measurement-feedback { display: block; margin-top: 7px; color: #67e8f9; text-align: center; font-size: 0.72rem; }
+    .tool-panels-toggle { display: none; }
+    .construction-row label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+    .construction-hint { flex: 1 1 200px; color: #b9cce0; font-size: 12px; }
     @@media (max-width: 820px) {
-        .digitizing-toolbar { top: 70px; left: 10px; width: calc(100vw - 20px); transform: none; }
-        .digitizing-toolbar .gis-select { flex: 1 1 220px; max-width: none; }
-        .digitizing-toolbar .toolbar-status { width: 100%; margin-left: 0; }
+        .tool-panels-toggle { display: inline-flex; }
+        .geonex-ui:has(.digitizing-toolbar) > div.glass-panel { display: none; }
     }
     @@media (max-width: 520px) {
-        .digitizing-toolbar { padding: 9px; gap: 7px; border-radius: 9px; }
         .digitizing-toolbar .btn-clean { padding: 7px 9px; font-size: 11px; }
+        .measurement-units { grid-template-columns: 1fr; }
     }
 </style>
 
 
-<div id="map-container"
-     tabindex="0"
-     @onpointerdown="ProcessarPressionarMouse"
-     @onpointerup="ProcessarSoltarMouse"
-     @onpointercancel="ProcessarSoltarMouse"
-     @oncontextmenu:preventDefault="true"
-     style="cursor: @EstiloCursor; width: 100vw; height: 100vh; background-color: #161921; position: absolute; left:0; top:0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; contain: strict;">
-    <!-- A área de entrada fica imóvel; somente esta superfície vai para a GPU. -->
-    <div id="map-render-surface" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; transform-origin: 50% 50%; will-change: transform; contain: layout style;">
-        <!-- TIER 0: RENDERING EM CANVAS (Zero-Blink) -->
-        <canvas id="skia-canvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1;"></canvas>
-        <canvas id="skia-canvas-back" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; visibility: hidden;"></canvas>
-
-        <canvas id="overlayCanvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
-    </div>
-</div>
 
 <!-- A INTERFACE FLUTUANTE -->
-<div class="geonex-ui">
+<div class="geonex-ui @(FerramentaDesenhoAtiva ? "is-digitizing" : _ferramentaAtiva == ModoFerramenta.Medicao ? "is-measuring" : "") @(_painelCamadasAberto ? "layers-panel-open" : "") @(_painelIdentificarAberto ? "identify-panel-open" : "") @(_mostrarMenuPrincipal ? "show-app-menu" : "") @(FerramentaDesenhoAtiva ? (_modoAvancadoVetorizacao ? "digitizing-advanced" : "digitizing-simple") : "")">
     
     <!-- HUD DE TELEMETRIA DE HARDWARE -->
     <div class="glass-panel" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 10px 20px; display: flex; gap: 20px; font-family: 'Consolas', monospace; font-size: 0.85rem; color: #00ffcc; pointer-events: none; border-radius: 8px;">
@@ -152,60 +132,34 @@
             <span class="sub-brand">PRO</span>
         </div>
 
-        <nav class="main-menu" style="display: flex; height: 100%; align-items: stretch; margin-right: auto;">
-
-            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn">Arquivo ▾</button>
+        <button class="app-menu-toggle workbench-button" aria-controls="geonex-main-menu" aria-expanded="@_mostrarMenuPrincipal" @onclick="() => _mostrarMenuPrincipal = !_mostrarMenuPrincipal">Menu</button>
+        <nav id="geonex-main-menu" class="main-menu" aria-label="Comandos do aplicativo" style="display: flex; height: 100%; align-items: stretch; margin-right: auto;">
+            <div class="dropdown" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true">Arquivo ▾</button>
                 <div class="dropdown-content">
                     <button @onclick="CriarNovoProjeto">Novo Projeto</button>
-                    <button>Abrir Projeto...</button>
+                    <button disabled title="Ainda não implementado">Abrir Projeto…</button>
                     <div class="drop-divider"></div>
-                    <button>Salvar</button>
-                    <button>Salvar Como...</button>
-                    <div class="drop-divider"></div>
-                    <button>Sincronizar Nuvem</button> <div class="drop-divider"></div>
-                    <button>Configurações do Sistema</button>
-                    <button>Sair</button>
+                    <button disabled title="Ainda não implementado">Salvar Projeto</button>
                 </div>
             </div>
-
-            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn">Dados ▾</button>
+            <div class="dropdown" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true">Dados ▾</button>
                 <div class="dropdown-content">
-
                     <div class="dropdown-submenu">
-                        <button class="submenu-btn">
-                            <span>Importar Fontes Locais</span>
-                            <span style="font-size: 0.7rem; color: #64748b;">▸</span>
-                        </button>
-
+                        <button class="submenu-btn"><span>Importar fontes locais</span><span aria-hidden="true">▸</span></button>
                         <div class="submenu-content">
-                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); }'>
-                                Raster (ECW, TIF)
-                            </button>
-
-                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>
-                                Vetor (SHP, GeoJSON)
-                            </button>
-
-                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Texto"); }'>
-                                Pontos (CSV, TXT)
-                            </button>
+                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); }'>Raster (ECW, TIF)</button>
+                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>Vetor (SHP, GeoJSON)</button>
+                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Texto"); }'>Pontos (CSV, TXT)</button>
                         </div>
                     </div>
-                    
                     <div class="dropdown-submenu">
-                        <button class="submenu-btn">
-                            <span>Importar Fontes Onlines</span>
-                            <span style="font-size: 0.7rem; color: #64748b;">▸</span>
-                        </button>
+                        <button class="submenu-btn"><span>Importar fontes online</span><span aria-hidden="true">▸</span></button>
                         <div class="submenu-content">
-                            <div class="dropdown-submenu" style="width: 100%;">
-                                <button class="submenu-btn">
-                                    <span>Mapa Base</span>
-                                    <span style="font-size: 0.7rem; color: #64748b;">▸</span>
-                                </button>
-                                <div class="submenu-content" style="left: 100%; top: 0; margin-top: -5px;">
+                            <div class="dropdown-submenu" style="width:100%">
+                                <button class="submenu-btn"><span>Mapa base</span><span aria-hidden="true">▸</span></button>
+                                <div class="submenu-content" style="left:100%;top:0;margin-top:-5px">
                                     <button class="drop-item" @onclick='() => CarregarMapaBaseOnline("OSM")'>OpenStreetMap</button>
                                     <button class="drop-item" @onclick='() => CarregarMapaBaseOnline("ESRI")'>ESRI Satellite</button>
                                     <button class="drop-item" @onclick='() => CarregarMapaBaseOnline("Google")'>Google Satellite</button>
@@ -213,79 +167,42 @@
                             </div>
                         </div>
                     </div>
-                    
                     <div class="drop-divider"></div>
-                    <button class="drop-item">Conectar Banco PostGIS</button>
+                    <button class="drop-item" disabled title="Ainda não implementado">Conectar PostGIS</button>
                 </div>
             </div>
-
-            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn" style="@(_ferramentaAtiva != ModoFerramenta.Navegacao ? "color: #38bdf8;" : "")">Ferramentas ▾</button>
+            <div class="dropdown" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" style="@(_ferramentaAtiva != ModoFerramenta.Navegacao ? "color:#38bdf8" : "")">Ferramentas ▾</button>
                 <div class="dropdown-content">
-
-                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Navegacao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Navegacao)">
-                        <div style="display: flex; align-items: center;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M19 9l3 3-3 3M9 19l3 3 3-3M2 12h20M12 2v20" /></svg>
-                            Mover Mapa (Pan)
-                        </div>
-                    </button>
-
-                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Identificacao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)">
-                        <div style="display: flex; align-items: center;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-                            Identificar Feição
-                        </div>
-                    </button>
-
-                    <button class="drop-item" style="@(_ferramentaAtiva == ModoFerramenta.Medicao ? "background: #0284c7; color: white;" : "")" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)">
-                        <div style="display: flex; align-items: center;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><rect x="2" y="6" width="20" height="12" rx="2" ry="2" /><line x1="6" y1="6" x2="6" y2="10" /><line x1="10" y1="6" x2="10" y2="10" /><line x1="14" y1="6" x2="14" y2="10" /><line x1="18" y1="6" x2="18" y2="10" /></svg>
-                            Régua Topográfica
-                        </div>
-                    </button>
-
+                    <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Navegacao)">Mover mapa</button>
+                    <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)">Identificar feição</button>
+                    <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)">Medição</button>
                     <div class="drop-divider"></div>
-
-                    <!-- O NOSSO BOTÃO MESTRE DE VETORIZAÇÃO (CHAMA A MÁQUINA DE ESTADOS) -->
-                    <button class="drop-item" style="@((_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto) ? "background: #0284c7; color: white;" : "")" @onclick="AtivarModoVetorizacao">
-                        <div style="display: flex; align-items: center;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                            Vetorizar Feição
-                        </div>
-                    </button>
-
+                    <button class="drop-item" @onclick="AtivarModoVetorizacao">Vetorizar feição</button>
                 </div>
             </div>
-
-            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn" style="@(modoEdicaoVerticeLigado ? "color: #38bdf8; font-weight: bold;" : "")">Edição ▾</button>
+            <div class="dropdown" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" style="@(modoEdicaoVerticeLigado ? "color:#38bdf8;font-weight:bold" : "")">Edição ▾</button>
                 <div class="dropdown-content">
-                    <button style="@(modoEdicaoVerticeLigado ? "color: #38bdf8; font-weight: bold; background: rgba(56, 189, 248, 0.1);" : "")" @onclick="AlternarEdicaoVertices">
-                        @(modoEdicaoVerticeLigado ? "Modo Vértices [ ATIVO ]" : "Ativar Edição de Vértices")
-                    </button>
-                    <button>Cortar Geometria</button>
-                    <button>Mesclar Polígonos</button>
+                    <button class="drop-item" @onclick="AlternarEdicaoVertices">@(modoEdicaoVerticeLigado ? "Desativar edição de vértices" : "Editar vértices")</button>
+                    <button class="drop-item" disabled title="Ainda não implementado">Cortar geometria</button>
+                    <button class="drop-item" disabled title="Ainda não implementado">Mesclar polígonos</button>
                 </div>
             </div>
-
-            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn">Exportar ▾</button>
+            <div class="dropdown" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true">Exportar ▾</button>
                 <div class="dropdown-content">
-                    <button class="drop-item" style="color: #38bdf8; font-weight: bold;" @onclick="AbrirCompositorImpressao">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                        Compositor de Impressão
-                    </button>
+                    <button class="drop-item" @onclick="AbrirCompositorImpressao">Compositor de impressão</button>
                     <div class="drop-divider"></div>
-                    <button class="drop-item" @onclick="AbrirModalExportacao">Exportar Vetor (Shapefile/GeoJSON)</button>
-                    <button class="drop-item">Exportar Tabela (CSV)</button>
+                    <button class="drop-item" @onclick="AbrirModalExportacao">Exportar vetor (SHP / GeoJSON)</button>
+                    <button class="drop-item" disabled title="Ainda não implementado">Exportar tabela (CSV)</button>
                 </div>
             </div>
-
-            <div class="dropdown" style="display: flex; align-items: center; height: 100%;">
-                <button class="menu-btn">GNSS / RTK ▾</button>
+            <div class="dropdown" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true">GNSS / RTK ▾</button>
                 <div class="dropdown-content">
-                    <button>Gerenciador de Conexão (COM/BT)</button>
-                    <button>Monitor NMEA (Satélites)</button>
+                    <button class="drop-item" disabled title="Ainda não implementado">Gerenciador de conexão</button>
+                    <button class="drop-item" disabled title="Ainda não implementado">Monitor NMEA</button>
                 </div>
             </div>
         </nav>
@@ -329,94 +246,140 @@
     <!-- ========================================================= -->
     @if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
     {
-        <section class="glass-panel digitizing-toolbar" aria-label="Ferramentas de vetorização">
-
-            <!-- INDICADOR DE GRAVAÇÃO (PONTO VERMELHO) -->
-            <div style="display: flex; align-items: center; gap: 8px; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 15px; margin-right: 5px;">
-                <span class="recording-dot"></span>
-                <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.5px;">MODO DESENHO</span>
+        <section class="glass-panel digitizing-toolbar tool-workbench" aria-label="Ferramentas de vetorização">
+            <div class="workbench-heading">
+                <div class="tool-identity"><span class="tool-symbol" aria-hidden="true">◇</span><div><h2>Vetorização</h2><span>@(_modoAvancadoVetorizacao ? "Ferramentas e precisão" : $"{MapService.PontosAquisicao.Count} ponto(s)")</span></div></div>
+                <div class="digitizing-mode" role="group" aria-label="Nível de ferramentas">
+                    <button class="@(!_modoAvancadoVetorizacao ? "selected" : "")" aria-pressed="@(!_modoAvancadoVetorizacao)" disabled="@(_modoAvancadoVetorizacao && ConstrucaoParametrica && MapService.PontosAquisicao.Count > 0)" title="Conclua ou cancele a construção avançada antes de voltar ao modo simples" @onclick="() => DefinirModoVetorizacaoAvancado(false)">Simples</button>
+                    <button class="@(_modoAvancadoVetorizacao ? "selected" : "")" aria-pressed="@_modoAvancadoVetorizacao" @onclick="() => DefinirModoVetorizacaoAvancado(true)">Avançada</button>
+                </div>
+                <label class="destination-field">Camada de destino
+                    <select class="gis-select" value="@_camadaDestinoAquisicao" @onchange="AoMudarCamadaDestino" disabled="@(MapService.PontosAquisicao.Count > 0)" aria-label="Camada de destino da vetorização">
+                        <option value="" disabled>Selecione uma camada</option>
+                        <option value="NOVA">+ Criar nova camada…</option>
+                        @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
+                        {
+                            <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
+                        }
+                    </select>
+                </label>
+                <div class="sketch-actions" role="group" aria-label="Ações do esboço">
+                    <button class="workbench-button" @onclick="DesfazerUltimoPontoAquisicao" disabled="@(!HistoricoAquisicao.CanUndo)" title="Desfazer · Ctrl+Z">Desfazer</button>
+                    <button class="workbench-button" @onclick="RefazerUltimoPontoAquisicao" disabled="@(!HistoricoAquisicao.CanRedo)" title="Refazer · Ctrl+Y">Refazer</button>
+                    <button class="workbench-button danger" @onclick="CancelarAquisicao" title="Cancelar · Esc">Cancelar</button>
+                    <button class="workbench-button precision-shortcut" aria-label="Inserir coordenadas (F6)" aria-keyshortcuts="F6" title="Coordenadas absolutas · F6" @onclick="(Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => AbrirEntradaPrecisa(false, e.ClientX, e.ClientY)">XY · F6</button>
+                    <button class="workbench-button primary" @onclick="ConcluirAquisicaoGeometrica" disabled="@(MapService.PontosAquisicao.Count < MinimoPontosAquisicao)" title="Concluir · Enter">Concluir <span aria-hidden="true">↵</span></button>
+                </div>
             </div>
-
-            <!-- NOVO: SELETOR DE CAMADA ALVO (AGORA COM A CLASSE GIS-SELECT E MOSTRANDO A GEOMETRIA) -->
-            <!-- NOVO: SELETOR DE CAMADA ALVO (INJEÇÃO DIRETA DE ESTILO DARK) -->
-            <select class="gis-select" value="@_camadaDestinoAquisicao" @onchange="AoMudarCamadaDestino" disabled="@(MapService.PontosAquisicao.Count > 0)" aria-label="Camada de destino da vetorização" title="Conclua ou cancele o desenho para trocar o destino" style="min-width: 220px; font-weight: bold;">
-                <option value="" disabled selected>[ Selecione o Destino ]</option>
-                <option value="NOVA" style="color: #34d399;">+ Criar Novo Ficheiro...</option>
-                @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
+            <div class="workbench-controls">
+                @if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && _modoAvancadoVetorizacao)
                 {
-                    <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
-                }
-            </select>
-
-            <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.2);"></div>
-
-            <!-- O BOTÃO SUSPENSO (DROPDOWN) DE SNAP -->
-            <details class="snap-options">
-                <summary class="menu-btn" style="display: flex; align-items: center; color: @(_snapAquisicaoVertice || _snapAquisicaoAresta || _snapAquisicaoMeio || _snapAquisicaoIntersecao || _modoOrtogonalAquisicao ? "#38bdf8" : "#cbd5e1"); font-weight: bold; background: transparent; border: none; cursor: pointer;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                    SNAP ▾
-                </summary>
-                <div class="snap-menu">
-                    <button class="drop-item" style="display: flex; justify-content: space-between; align-items: center; color: @(_snapAquisicaoVertice ? "#38bdf8" : "#cbd5e1"); background: @(_snapAquisicaoVertice ? "rgba(56, 189, 248, 0.1)" : "transparent");" @onclick="() => _snapAquisicaoVertice = !_snapAquisicaoVertice">
-                        <span>Atrair Vértices</span>
-                        <span style="font-weight: bold; font-size: 0.7rem;">@(_snapAquisicaoVertice ? "ON" : "")</span>
-                    </button>
-                    <button class="drop-item" style="display: flex; justify-content: space-between; align-items: center; color: @(_snapAquisicaoAresta ? "#38bdf8" : "#cbd5e1"); background: @(_snapAquisicaoAresta ? "rgba(56, 189, 248, 0.1)" : "transparent");" @onclick="() => _snapAquisicaoAresta = !_snapAquisicaoAresta">
-                        <span>Atrair Arestas</span>
-                        <span style="font-weight: bold; font-size: 0.7rem;">@(_snapAquisicaoAresta ? "ON" : "")</span>
-                    </button>
-                    <label class="drop-item" style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" @bind="_snapAquisicaoMeio" /> Meio das arestas
-                    </label>
-                    <label class="drop-item" style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" @bind="_snapAquisicaoIntersecao" /> Interseções
-                    </label>
-                    <label class="drop-item" style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" @bind="_modoOrtogonalAquisicao" /> Ortogonal (90°)
-                    </label>
-                    <label class="snap-tolerance">Tolerância em tela
-                        <select class="gis-select" aria-label="Tolerância do snap" @bind="ToleranciaSnapPixels">
-                            <option value="6">6 px · precisa</option>
-                            <option value="10">10 px</option>
-                            <option value="15">15 px · padrão</option>
-                            <option value="20">20 px</option>
-                            <option value="30">30 px · ampla</option>
+                    <label class="construction-field">Construção
+                        <select class="gis-select" aria-label="Modo de construção" @bind="ModoConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">
+                            <option value="@ConstructionMode.Vertices">Vértice a vértice</option>
+                            <option value="@ConstructionMode.Rectangle">Retângulo · 2 cantos</option>
+                            <option value="@ConstructionMode.OrientedRectangle">Retângulo orientado · 3 pontos</option>
+                            <option value="@ConstructionMode.Circle">Círculo · centro e raio</option>
+                            <option value="@ConstructionMode.Ellipse">Elipse · centro e 2 eixos</option>
+                            <option value="@ConstructionMode.RegularPolygon">Polígono regular · centro e raio</option>
                         </select>
                     </label>
+                    @if (ModoConstrucao == ConstructionMode.RegularPolygon)
+                    {
+                        <label class="sides-field">Lados
+                            <select class="gis-select" aria-label="Lados do polígono regular" @bind="LadosConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">
+                                @for (int lados = 3; lados <= 32; lados++) { <option value="@lados">@lados</option> }
+                            </select>
+                        </label>
+                    }
+                }
+                @if (_modoAvancadoVetorizacao)
+                {
+                    <button class="workbench-button precision-shortcut" aria-label="Abrir COGO (Tab)" aria-keyshortcuts="Tab" title="Vetor polar COGO · Tab" @onclick="(Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => AbrirEntradaPrecisa(true, e.ClientX, e.ClientY)">COGO · Tab</button>
+                }
+                @if (_modoAvancadoVetorizacao)
+                {
+                    <details class="snap-options workbench-details">
+                        <summary>Encaixes <span class="setting-count">@NumeroEncaixesAtivos</span></summary>
+                        <div class="snap-menu">
+                        <div class="settings-title">Atração do cursor</div>
+                        <button class="snap-toggle" aria-pressed="@_snapAquisicaoVertice" @onclick="() => _snapAquisicaoVertice = !_snapAquisicaoVertice"><i class="snap-key vertex"></i>Atrair Vértices<span>@(_snapAquisicaoVertice ? "Ligado" : "Desligado")</span></button>
+                        <button class="snap-toggle" aria-pressed="@_snapAquisicaoAresta" @onclick="() => _snapAquisicaoAresta = !_snapAquisicaoAresta"><i class="snap-key edge"></i>Atrair Arestas<span>@(_snapAquisicaoAresta ? "Ligado" : "Desligado")</span></button>
+                        <label><input type="checkbox" @bind="_snapAquisicaoMeio" /><i class="snap-key midpoint"></i>Meio das arestas</label>
+                        <label><input type="checkbox" @bind="_snapAquisicaoIntersecao" /><i class="snap-key intersection"></i>Interseções</label>
+                        <label><input type="checkbox" @bind="_modoOrtogonalAquisicao" disabled="@ConstrucaoParametrica" />Ortogonal (90°) · vértices</label>
+                        <label class="tolerance-field">Tolerância em tela
+                            <select class="gis-select" aria-label="Tolerância do snap" @bind="ToleranciaSnapPixels">
+                                <option value="6">6 px · precisa</option><option value="10">10 px</option><option value="15">15 px · padrão</option><option value="20">20 px</option><option value="30">30 px · ampla</option>
+                            </select>
+                        </label>
+                        </div>
+                    </details>
+                }
+                <span class="construction-hint">@InstrucaoConstrucao</span>
+            </div>
+            @if (_mostrarMenuContexto)
+            {
+                <div class="digitizing-context-controls" role="group" aria-label="Ações rápidas da vetorização" @onkeydown="TecladoContextoVetorizacao">
+                    <span>AÇÕES DO ESBOÇO</span>
+                    <button @ref="_contextoVetorizacaoRef" class="workbench-button" @onclick="DesfazerUltimoPontoAquisicao" disabled="@(!HistoricoAquisicao.CanUndo)">Desfazer ponto</button>
+                    @if (_modoAvancadoVetorizacao)
+                    {
+                        <button class="workbench-button" @onclick="() => AbrirEntradaPrecisa(true, _menuContextoX, _menuContextoY)">Vetor polar · COGO</button>
+                    }
+                    <button class="workbench-button primary" @onclick="() => { _mostrarMenuContexto = false; ConcluirAquisicaoGeometrica(); }" disabled="@(MapService.PontosAquisicao.Count < MinimoPontosAquisicao)">Concluir esboço</button>
+                    <button class="workbench-button" @onclick="() => _mostrarMenuContexto = false">Fechar</button>
                 </div>
-            </details>
-
-            <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.2);"></div>
-
-            <button class="btn-clean" @onclick="DesfazerUltimoPontoAquisicao" title="Desfazer (Backspace/Z)" disabled="@(MapService.PontosAquisicao.Count == 0)" style="display: flex; align-items: center; gap: 6px; background: transparent; border: none; color: #cbd5e1; font-weight: 500; cursor: pointer; transition: 0.2s; opacity: @(MapService.PontosAquisicao.Count == 0 ? "0.5" : "1");">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-                DESFAZER
-            </button>
-
-            <button class="btn-clean" @onclick="RefazerUltimoPontoAquisicao" title="Refazer (Ctrl+Y)" disabled="@(!HistoricoAquisicao.CanRedo)">
-                REFAZER
-            </button>
-
-            <button class="btn-clean" @onclick="CancelarAquisicao" title="Cancelar Desenho (Esc)" style="display: flex; align-items: center; gap: 6px; background: transparent; border: none; color: #f87171; font-weight: 500; cursor: pointer; transition: 0.2s;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                CANCELAR
-            </button>
-
-            <!-- AGORA APONTA PARA ConcluirAquisicaoGeometrica E MUDA A OPACIDADE DINAMICAMENTE -->
-            <button class="btn-clean" @onclick="ConcluirAquisicaoGeometrica" title="Finalizar Geometria (Enter)"
-                    disabled="@((_ferramentaAtiva == ModoFerramenta.AquisicaoPonto && MapService.PontosAquisicao.Count < 1) || (_ferramentaAtiva == ModoFerramenta.AquisicaoLinha && MapService.PontosAquisicao.Count < 2) || (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count < 3))"
-                    style="display: flex; align-items: center; gap: 6px; background: transparent; border: none; color: #34d399; font-weight: bold; cursor: pointer; transition: 0.2s; opacity: @(((_ferramentaAtiva == ModoFerramenta.AquisicaoPonto && MapService.PontosAquisicao.Count < 1) || (_ferramentaAtiva == ModoFerramenta.AquisicaoLinha && MapService.PontosAquisicao.Count < 2) || (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && MapService.PontosAquisicao.Count < 3)) ? "0.5" : "1");">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                CONCLUIR
-            </button>
-            @if (!string.IsNullOrEmpty(mensagemVetorizacao))
-            {
-                <span class="toolbar-status warning" role="status">@mensagemVetorizacao</span>
             }
-            else
-            {
-                <span class="toolbar-status">@MapService.PontosAquisicao.Count ponto(s) · Enter conclui · Esc cancela</span>
-            }
+            <div class="workbench-footer">
+                <span class="toolbar-status @(string.IsNullOrEmpty(mensagemVetorizacao) ? "" : "warning")" role="status">@MapService.PontosAquisicao.Count ponto(s) · @(string.IsNullOrEmpty(mensagemVetorizacao) ? "Enter conclui · Esc cancela" : mensagemVetorizacao)</span>
+                @if (MapService.PontosAquisicao.Count > 0)
+                {
+                    <div class="sketch-metrics" aria-label="Métricas do esboço">
+                        <strong>@TextoMetricasAquisicao</strong>
+                        <small class="@(_aquisicaoAreaErro != null ? "sketch-metrics-error" : "")">@(_aquisicaoAreaErro ?? _aquisicaoMetodo)</small>
+                    </div>
+                }
+                @if (ConstrucaoParametrica)
+                {
+                    <small class="construction-note">Grade do SRC@(ModoConstrucao is ConstructionMode.Circle or ConstructionMode.Ellipse ? " · 128 segmentos" : "")</small>
+                }
+            </div>
+        </section>
+    }
+    @if (FerramentaDesenhoAtiva && _mostrarInputAbsoluto)
+    {
+        <section id="hud-f6" class="precision-hud precision-hud-coordinate" style="@EstiloHud(_hudX, _hudY)" role="region" aria-labelledby="hud-f6-title">
+            <header class="precision-hud-heading" onpointerdown="window.iniciarArrasteHUD(event,'hud-f6')">
+                <div><span class="precision-eyebrow">ENTRADA ABSOLUTA</span><strong id="hud-f6-title">Coordenadas <kbd>F6</kbd></strong></div>
+                <button type="button" class="precision-close" aria-label="Fechar coordenadas F6" title="Fechar" @onpointerdown:stopPropagation="true" @onclick="FecharEntradaAbsoluta">×</button>
+            </header>
+            <form class="precision-form" @onsubmit="AplicarCoordenadaAbsoluta" @onsubmit:preventDefault="true">
+                <label>X / Este / Longitude<input @ref="_inputAbsolutoXRef" type="number" step="any" required @bind="_absolutoX" @bind:event="oninput" aria-label="Coordenada X" /></label>
+                <label>Y / Norte / Latitude<input type="number" step="any" required @bind="_absolutoY" @bind:event="oninput" aria-label="Coordenada Y" /></label>
+                <button type="submit" class="workbench-button primary" disabled="@(!_absolutoX.HasValue || !_absolutoY.HasValue)">Adicionar coordenada</button>
+                <small>SRC do projeto: @MapService.ProjetoSRS · Enter adiciona um ponto, sem concluir o desenho.</small>
+            </form>
+        </section>
+    }
+    @if (FerramentaDesenhoAtiva && _mostrarInputCogo)
+    {
+        <section id="hud-cogo" class="precision-hud precision-hud-cogo" style="@EstiloHud(_hudCogoX, _hudCogoY)" role="region" aria-labelledby="hud-cogo-title">
+            <header class="precision-hud-heading" onpointerdown="window.iniciarArrasteHUD(event,'hud-cogo')">
+                <div><span class="precision-eyebrow">DIGITAÇÃO POLAR</span><strong id="hud-cogo-title">COGO <kbd>Tab</kbd></strong></div>
+                <button type="button" class="precision-close" aria-label="Fechar COGO" title="Fechar" @onpointerdown:stopPropagation="true" @onclick="FecharEntradaCogo">×</button>
+            </header>
+            <form class="precision-form" @onsubmit="AplicarVetorRestritoCogo" @onsubmit:preventDefault="true">
+                <label>Distância de grade (m)<input @ref="_inputDistanciaRef" type="number" step="any" min="0.000001" required @bind="_cogoDistancia" @bind:event="oninput" aria-label="Distância polar em metros" /></label>
+                <label>Azimute de grade (°)<input type="number" step="any" required @bind="_cogoAzimute" @bind:event="oninput" aria-label="Azimute polar em graus" /></label>
+                <button type="submit" class="workbench-button primary" disabled="@(MapService.PontosAquisicao.Count == 0 || !(_cogoDistancia > 0) || !_cogoAzimute.HasValue)">Projetar ponto</button>
+                <small>@(MapService.PontosAquisicao.Count == 0 ? "Marque o primeiro ponto ou informe uma coordenada." : "A partir do último ponto · 0° norte da grade · 90° leste. Requer SRC projetado.")</small>
+            </form>
+            <div class="precision-constraint">
+                <label>Restrição de distância (m)<input type="number" step="any" min="0.000001" @bind="_restricaoDistanciaMetros" @bind:event="oninput" aria-label="Distância da restrição em metros" disabled="@MapService.TravaDistanciaAtiva" /></label>
+                <label>Comportamento<select class="gis-select" value="@MapService.TravaModoFixo.ToString().ToLowerInvariant()" @onchange='e => MapService.TravaModoFixo = e.Value?.ToString() == "true"' aria-label="Modo da restrição"><option value="false">Máximo</option><option value="true">Fixo</option></select></label>
+                <button class="workbench-button" disabled="@ConstrucaoParametrica" aria-pressed="@MapService.TravaDistanciaAtiva" @onclick="AlternarRestricaoPrecisa">@(MapService.TravaDistanciaAtiva ? "Desativar restrição" : "Ativar restrição")</button>
+            </div>
         </section>
     }
     <!-- PAINÉIS LATERAIS E ÁREA DE TRABALHO -->
@@ -425,6 +388,11 @@
         <!-- PAINEL ESQUERDO: CAMADAS -->
         <aside class="glass-panel side-panel left-panel">
             <div class="panel-header">
+                <button type="button" class="panel-dock-toggle" aria-expanded="@_painelCamadasAberto" aria-label="@(_painelCamadasAberto ? "Recolher painel de camadas" : "Abrir painel de camadas")" title="@(_painelCamadasAberto ? "Recolher camadas" : "Abrir camadas")" @onclick="() => _painelCamadasAberto = !_painelCamadasAberto">
+                    @if (_painelCamadasAberto) { <span aria-hidden="true">‹</span> }
+                    else { <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg> }
+                </button>
+                <span class="panel-rail-label" aria-hidden="true">Camadas</span>
                 <h2>CAMADAS</h2>
                 <div class="header-actions">
                     <button class="icon-action-btn">+</button>
@@ -483,11 +451,32 @@
             </div>
         </aside>
 
-        <!-- O PAINEL SENSORIAL BLINDADO -->
+<div id="map-container"
+     @ref="_mapContainerRef"
+     tabindex="0"
+     @onpointerdown="ProcessarPressionarMouse"
+     @onpointerup="ProcessarSoltarMouse"
+     @onpointercancel="ProcessarSoltarMouse"
+     @oncontextmenu:preventDefault="true"
+     style="cursor: @EstiloCursor; width: 100%; height: 100%; background-color: #161921; position: relative; min-width: 0; min-height: 0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; contain: strict;">
+    <!-- A área de entrada fica imóvel; somente esta superfície vai para a GPU. -->
+    <div id="map-render-surface" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; transform-origin: 50% 50%; will-change: transform; contain: layout style;">
+        <!-- TIER 0: RENDERING EM CANVAS (Zero-Blink) -->
+        <canvas id="skia-canvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1;"></canvas>
+        <canvas id="skia-canvas-back" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; visibility: hidden;"></canvas>
+
+        <canvas id="overlayCanvas" style="width: 100%; height: 100%; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;"></canvas>
+    </div>
+</div>
        
         <!-- PAINEL DIREITO: ATRIBUTOS -->
         <aside class="glass-panel side-panel right-panel">
             <div class="panel-header">
+                <button type="button" class="panel-dock-toggle" aria-expanded="@_painelIdentificarAberto" aria-label="@(_painelIdentificarAberto ? "Recolher painel de identificação" : "Abrir painel de identificação")" title="@(_painelIdentificarAberto ? "Recolher identificação" : "Abrir identificação")" @onclick="() => _painelIdentificarAberto = !_painelIdentificarAberto">
+                    @if (_painelIdentificarAberto) { <span aria-hidden="true">›</span> }
+                    else { <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg> }
+                </button>
+                <span class="panel-rail-label" aria-hidden="true">@(_ferramentaAtiva == ModoFerramenta.Medicao ? "Medição" : "Identificar")</span>
                 <h2>@(_ferramentaAtiva == ModoFerramenta.Medicao ? "FERRAMENTAS DE MEDIÇÃO" : "ATRIBUTOS DA FEIÇÃO")</h2>
             </div>
 
@@ -495,78 +484,67 @@
 
                 @if (_ferramentaAtiva == ModoFerramenta.Medicao)
                 {
-                    <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 20px;">
-                        <span style="font-size: 0.65rem; color: #94a3b8; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 10px;">Opções de Mensura</span>
-
-                        <div style="display: flex; gap: 10px;">
-                            <button class="tool-btn @(_snapMedicaoAtivo ? "active" : "")"
-                                    @onclick="() => _snapMedicaoAtivo = !_snapMedicaoAtivo"
-                                    title="Atrair para Vértices (Snap Magnético)"
-                                    style="font-size: 1.2rem; padding: 6px 12px;">
-                                🧲
-                            </button>
-
-                            <button class="tool-btn @(MapService.MostrarAreaMedicao ? "active" : "")"
-                                    @onclick="@(() => { MapService.MostrarAreaMedicao = !MapService.MostrarAreaMedicao; _ = SincronizarOverlay(false); RecalcularMedicoes(); StateHasChanged(); })"
-                                    title="Calcular e Desenhar Área Poligonal"
-                                    style="font-size: 1.2rem; padding: 6px 12px;">
-                                📐
-                            </button>
+                    <section class="measurement-workbench" aria-label="Medição">
+                        <div class="measurement-title"><span class="eyebrow">INSPECIONAR DISTÂNCIAS E ÁREAS</span><h3>Medição</h3><p>@(_medicaoConcluida ? "Valores fixos. Continue para acrescentar pontos." : "Clique no mapa. Enter confirma os pontos marcados.")</p></div>
+                        <div class="measurement-state @(_medicaoConcluida ? "confirmed" : "")" data-testid="measurement-state" role="status">@EstadoMedicao <span>@MapService.PontosMedicao.Count ponto(s)</span></div>
+                        <div class="measurement-modes" role="group" aria-label="Tipo de medição">
+                            <button class="workbench-button @(!MapService.MostrarAreaMedicao ? "selected" : "")" aria-pressed="@(!MapService.MostrarAreaMedicao)" @onclick="() => DefinirModoMedicao(false)">Distância</button>
+                            <button class="workbench-button @(MapService.MostrarAreaMedicao ? "selected" : "")" aria-pressed="@MapService.MostrarAreaMedicao" @onclick="() => DefinirModoMedicao(true)">Área</button>
                         </div>
-                        <div role="group" aria-label="Encaixes da medição" style="display:grid;gap:8px;margin-top:12px;font-size:0.8rem;">
-                            <label><input type="checkbox" @bind="_snapMedicaoAresta" /> Encaixar nas arestas</label>
-                            <label><input type="checkbox" @bind="_snapMedicaoMeio" /> Encaixar no meio das arestas</label>
-                            <label><input type="checkbox" @bind="_snapMedicaoIntersecao" /> Encaixar em interseções</label>
-                        </div>
-                        <label style="display:grid;gap:6px;margin-top:12px;color:#94a3b8;font-size:0.7rem;">TOLERÂNCIA DO SNAP
-                            <select class="gis-select" aria-label="Tolerância do snap de medição" @bind="ToleranciaSnapPixels">
-                                <option value="6">6 px · precisa</option>
-                                <option value="10">10 px</option>
-                                <option value="15">15 px · padrão</option>
-                                <option value="20">20 px</option>
-                                <option value="30">30 px · ampla</option>
+                        <div class="measurement-result form-group-vertical">
+                            <label>COMPRIMENTO LINEAR</label>
+                            <span class="result-number" data-testid="measurement-length">@ComprimentoMedicaoExibido.ToString("N2") <span>@RotuloComprimentoMedicao</span></span>
+                            <select class="gis-select result-unit" aria-label="Unidade da distância" @bind="_unidadeComprimentoMedicao">
+                                <option value="m">Metros (m)</option><option value="km">Quilômetros (km)</option><option value="ft">Pés (ft)</option><option value="mi">Milhas (mi)</option>
                             </select>
-                        </label>
-                    </div>
-
-                    <div style="display: flex; flex-direction: column; gap: 20px; padding: 10px 5px;">
-                        <div class="form-group-vertical" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
-                            <label style="color: #64748b;">COMPRIMENTO LINEAR</label>
-                            <span style="font-family: monospace; font-size: 1.6rem; font-weight: 500; color: #e2e8f0;">@_medicaoComprimentoMetros.ToString("N2") <span style="font-size: 1rem; color: #94a3b8;">m</span></span>
-                            @if (!string.IsNullOrWhiteSpace(_medicaoMetodo))
-                            {
-                                <small style="color:#64748b; margin-top:5px;">@_medicaoMetodo</small>
-                            }
                         </div>
-
-                        @if (MapService.MostrarAreaMedicao && MapService.PontosMedicao.Count >= 3)
+                        @if (MapService.MostrarAreaMedicao)
                         {
-                            <div class="form-group-vertical" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
-                                <label style="color: #64748b;">ÁREA PLANA FECHADA</label>
-                                <span style="font-family: monospace; font-size: 1.6rem; font-weight: 500; color: #38bdf8;">@_medicaoAreaM2.ToString("N2") <span style="font-size: 1rem; color: #94a3b8;">m²</span></span>
-                                @if (!string.IsNullOrWhiteSpace(_medicaoAreaErro))
-                                {
-                                    <small style="color:#fca5a5; margin-top:5px;">@_medicaoAreaErro</small>
-                                }
+                            <div class="measurement-result form-group-vertical">
+                                <label>ÁREA DO CONTORNO</label>
+                                <span class="result-number" data-testid="measurement-area">@(MapService.PontosMedicao.Count < 3 || _medicaoAreaErro != null ? "—" : AreaMedicaoExibida.ToString("N2")) <span>@RotuloAreaMedicao</span></span>
+                                <select class="gis-select result-unit" aria-label="Unidade da área" @bind="_unidadeAreaMedicao">
+                                    <option value="m2">Metros quadrados (m²)</option><option value="ha">Hectares (ha)</option><option value="km2">Quilômetros quadrados (km²)</option><option value="ac">Acres (ac)</option>
+                                </select>
+                                <small class="measurement-error">@(_medicaoAreaErro ?? (MapService.PontosMedicao.Count < 3 ? "Adicione pelo menos três pontos." : ""))</small>
                             </div>
                         }
-
                         @if (_medicaoAzimuteGraus is { } azimute)
                         {
-                            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid rgba(56,189,248,.18);border-radius:6px;color:#cbd5e1;font-size:.8rem;">
-                                <span>AZIMUTE DA ÚLTIMA PERNA</span>
-                                <strong style="font-family:monospace;color:#67e8f9;">@azimute.ToString("N1")°</strong>
-                            </div>
+                            <div class="bearing-result"><span>Azimute da última perna</span><strong>@azimute.ToString("N1")°</strong></div>
                         }
-
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                            <button class="btn-clean" disabled="@(MapService.PontosMedicao.Count == 0)" @onclick="() => AlterarHistoricoMedicao(false)">DESFAZER</button>
-                            <button class="btn-clean" disabled="@(!HistoricoMedicao.CanRedo)" @onclick="() => AlterarHistoricoMedicao(true)">REFAZER</button>
+                        <p class="measurement-method">@_medicaoMetodo</p>
+                        <div class="measurement-actions" role="group" aria-label="Ações da medição">
+                            @if (_medicaoConcluida)
+                            {
+                                <button class="workbench-button primary measurement-finish" @onclick="ContinuarMedicao">Continuar medição</button>
+                            }
+                            else
+                            {
+                                <button class="workbench-button primary measurement-finish" disabled="@(MapService.PontosMedicao.Count < MinimoPontosMedicao)" title="Confirmar pontos marcados · Enter" @onclick="ConcluirMedicao">Concluir medição</button>
+                            }
+                            <button class="workbench-button" disabled="@(!HistoricoMedicao.CanUndo)" title="Desfazer · Ctrl+Z" @onclick="() => AlterarHistoricoMedicao(false)">Desfazer</button>
+                            <button class="workbench-button" disabled="@(!HistoricoMedicao.CanRedo)" title="Refazer · Ctrl+Y" @onclick="() => AlterarHistoricoMedicao(true)">Refazer</button>
+                            <button class="workbench-button copy-result" disabled="@(MapService.PontosMedicao.Count < 2)" @onclick="CopiarResumoMedicao">Copiar resultado</button>
+                            <button class="workbench-button danger" disabled="@(MapService.PontosMedicao.Count == 0)" title="Limpar · Esc" @onclick="LimparMedicao">Limpar rastro</button>
                         </div>
-                        <button class="btn-cancel" style="width: 100%; margin-top: 10px; border-color: rgba(239, 68, 68, 0.3); color: #f87171;" @onclick="LimparMedicao">
-                            LIMPAR RASTRO
-                        </button>
-                    </div>
+                        @if (!string.IsNullOrWhiteSpace(_medicaoMensagem)) { <small class="measurement-feedback" role="status">@_medicaoMensagem</small> }
+                        <details class="measurement-settings workbench-details">
+                            <summary>Encaixes e precisão</summary>
+                            <div role="group" aria-label="Encaixes da medição">
+                                <label><input type="checkbox" @bind="_snapMedicaoAtivo" />Encaixar nos vértices</label>
+                                <label><input type="checkbox" @bind="_snapMedicaoAresta" />Encaixar nas arestas</label>
+                                <label><input type="checkbox" @bind="_snapMedicaoMeio" />Encaixar no meio das arestas</label>
+                                <label><input type="checkbox" @bind="_snapMedicaoIntersecao" />Encaixar em interseções</label>
+                                <label class="tolerance-field">Tolerância em tela
+                                    <select class="gis-select" aria-label="Tolerância do snap de medição" @bind="ToleranciaSnapPixels">
+                                        <option value="6">6 px · precisa</option><option value="10">10 px</option><option value="15">15 px · padrão</option><option value="20">20 px</option><option value="30">30 px · ampla</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </details>
+                        <div class="measurement-help"><kbd>Enter</kbd> concluir <span>·</span> <kbd>Ctrl Z</kbd> desfazer <span>·</span> <kbd>Esc</kbd> limpar</div>
+                    </section>
                 }
                 else
                 {
@@ -607,8 +585,6 @@
         </aside>
 
     </main>
-    <main class="workspace-area">
-    </main>
 
     @if (exibirTabelaAtributos)
     {
@@ -647,8 +623,6 @@
         </div>
     }
 
-    <footer class="bottom-status-bar">
-    </footer>
     <!-- RODAPÉ DE TELEMETRIA -->
     <footer class="bottom-status-bar">
         <div class="status-left">
@@ -1430,173 +1404,10 @@
     <!-- ========================================================= -->
     <!-- HUD DE ENGENHARIA: MENU DE CONTEXTO TÁTICO                -->
     <!-- ========================================================= -->
-    @if (_mostrarMenuContexto && !_mostrarInputCogo)
-    {
-        <div style="pointer-events: auto; position: fixed; top: @(_menuContextoY)px; left: @(_menuContextoX)px; width: 220px; background: rgba(15, 23, 42, 0.90); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); z-index: 10000; backdrop-filter: blur(16px); display: flex; flex-direction: column; padding: 4px 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
-             @onclick:stopPropagation="true"
-             @onmousedown:stopPropagation="true"
-             @onpointerdown:stopPropagation="true"
-             @onpointerup:stopPropagation="true"
-             @oncontextmenu:preventDefault="true">
-
-            <button class="ctx-btn" @onclick="() => { _mostrarInputCogo = true; }" style="text-align: left; padding: 8px 16px; background: transparent; border: none; color: #e2e8f0; font-size: 13px; font-weight: 500; cursor: pointer; border-left: 3px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderLeft='3px solid #38bdf8';" onmouseout="this.style.background='transparent'; this.style.borderLeft='3px solid transparent';">
-                Vetor Restrito (Comprimento e Direção)
-            </button>
-
-            <div style="height: 1px; background: rgba(255,255,255,0.08); margin: 4px 0;"></div>
-
-            <button class="ctx-btn" @onclick="() => { ConcluirAquisicaoGeometrica(); _mostrarMenuContexto = false; }" style="text-align: left; padding: 8px 16px; background: transparent; border: none; color: #34d399; font-size: 13px; font-weight: 600; cursor: pointer; border-left: 3px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='rgba(52, 211, 153, 0.1)'; this.style.borderLeft='3px solid #34d399';" onmouseout="this.style.background='transparent'; this.style.borderLeft='3px solid transparent';">
-                Concluir Esboço
-            </button>
-        </div>
-    }
 
     <!-- ========================================================= -->
     <!-- HUD DE ENGENHARIA [TAB]: COGO POLAR                       -->
     <!-- ========================================================= -->
-    @if (_mostrarInputCogo)
-    {
-        <style>
-                .hud-input::-webkit-inner-spin-button,
-                .hud-input::-webkit-outer-spin-button {
-                    -webkit-appearance: none;
-                    margin: 0;
-                }
-
-                .hud-input {
-                    -moz-appearance: textfield;
-                    font-family: 'Consolas', 'Courier New', monospace;
-                    text-align: right;
-                }
-
-                .hud-btn {
-                    transition: all 0.2s ease-in-out;
-                }
-
-                    .hud-btn:hover {
-                        filter: brightness(1.3);
-                    }
-        </style>
-
-        <div id="hud-cogo" style="pointer-events: auto; position: fixed; top: 0px; left: 0px; transform: translate3d(@(_hudX)px, @(_hudY)px, 0); will-change: transform; width: 280px; background: rgba(15, 23, 42, 0.70); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; box-shadow: 0 24px 48px rgba(0,0,0,0.6); z-index: 10001; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); display: flex; flex-direction: column; overflow: hidden; font-family: 'Segoe UI', sans-serif;"
-             @onpointerdown:stopPropagation="true"
-             @onpointerup:stopPropagation="true"
-             @onmousedown:stopPropagation="true"
-             @onmouseup:stopPropagation="true"
-             @onclick:stopPropagation="true"
-             @oncontextmenu:preventDefault="true">
-
-            <div onpointerdown="window.iniciarArrasteHUD(event, 'hud-cogo')" style="background: rgba(0, 0, 0, 0.25); padding: 12px 16px; cursor: grab; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;" onmousedown="this.style.cursor='grabbing'" onmouseup="this.style.cursor='grab'">
-                <span style="font-size: 10px; color: #38bdf8; font-weight: 700; letter-spacing: 1.5px;">COGO AVANÇADO (TAB)</span>
-                <span style="color: #64748b; font-size: 14px; cursor: pointer;" @onclick="() => _mostrarInputCogo = false">✕</span>
-            </div>
-
-            <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
-
-               <div>
-     <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">1. VETOR POLAR</span>
-     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-         <label style="color: #94a3b8; font-size: 11px;">Distância (m)</label>
-         <input class="hud-input" type="number" @bind="_cogoDistancia" @onkeyup='@(e => { if (e.Key == "Enter") AplicarVetorRestritoCogo(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
-     </div>
-     <div style="display: flex; justify-content: space-between; align-items: center;">
-         <label style="color: #94a3b8; font-size: 11px;">Azimute (º)</label>
-         <input class="hud-input" type="number" @bind="_cogoAzimute" @onkeyup='@(e => { if (e.Key == "Enter") AplicarVetorRestritoCogo(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
-     </div>
-     <button class="hud-btn"
-             @onclick="AplicarVetorRestritoCogo"
-             @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
-             style="width: 100%; margin-top: 8px; background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;">
-         PROJETAR POLAR
-     </button>
- </div>
-
-                <div style="height: 1px; background: rgba(255,255,255,0.05);"></div>
-
-                <div>
-                    <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">2. COORDENADA ABSOLUTA</span>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <label style="color: #94a3b8; font-size: 11px;">ESTE (X)</label>
-                        <input class="hud-input" type="number" @bind="_absolutoX" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <label style="color: #94a3b8; font-size: 11px;">NORTE (Y)</label>
-                        <input class="hud-input" type="number" @bind="_absolutoY" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
-                    </div>
-                    <button class="hud-btn"
-                            @onclick="AplicarCoordenadaAbsoluta"
-                            @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
-                            style="width: 100%; margin-top: 8px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(52, 211, 153, 0.3); color: #34d399; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;">
-                        CRAVAR COORDENADA
-                    </button>
-                </div>
-
-                <div style="height: 1px; background: rgba(255,255,255,0.05);"></div>
-                <div>
-                    <span style="font-size: 9px; color: #64748b; font-weight: 700; letter-spacing: 1px; display: block; margin-bottom: 8px;">3. RESTRIÇÃO DE DISTÂNCIA</span>
-
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <label style="color: #94a3b8; font-size: 11px;">Raio (m)</label>
-                        <input class="hud-input" type="number"
-                               @bind="MapService.TravaDistanciaValor"
-                               @bind:event="oninput"
-                               @onkeyup='@(e => { if (e.Key == "Enter") MapService.TravaDistanciaAtiva = true; })'
-                               style="width: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #f8fafc; padding: 4px 8px; font-size: 12px; border-radius: 4px; outline: none;" />
-                    </div>
-
-                    <div style="display: flex; gap: 4px; margin-bottom: 10px;">
-                        <button class="hud-btn" @onclick="() => MapService.TravaModoFixo = false" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
-                                style="flex: 1; padding: 4px; font-size: 9px; font-weight: 700; border-radius: 4px; cursor: pointer;
-                            background: @(!MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)"); color: @(!MapService.TravaModoFixo ? "#38bdf8" : "#64748b"); border: 1px solid @(!MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
-                            MÁXIMO
-                        </button>
-                        <button class="hud-btn" @onclick="() => MapService.TravaModoFixo = true" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
-                                style="flex: 1; padding: 4px; font-size: 9px; font-weight: 700; border-radius: 4px; cursor: pointer;
-                            background: @(MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)"); color: @(MapService.TravaModoFixo ? "#38bdf8" : "#64748b"); border: 1px solid @(MapService.TravaModoFixo ? "rgba(56, 189, 248, 0.4)" : "transparent");">
-                            FIXO
-                        </button>
-                    </div>
-
-                    <button class="hud-btn"
-                            @onclick="() => MapService.TravaDistanciaAtiva = !MapService.TravaDistanciaAtiva"
-                            @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true"
-                            style="width: 100%; padding: 6px; font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer; border-radius: 4px;
-                        background: @(MapService.TravaDistanciaAtiva ? "rgba(239, 68, 68, 0.15)" : "rgba(148, 163, 184, 0.1)");
-                        border: 1px solid @(MapService.TravaDistanciaAtiva ? "rgba(248, 113, 113, 0.4)" : "rgba(148, 163, 184, 0.3)");
-                        color: @(MapService.TravaDistanciaAtiva ? "#f87171" : "#94a3b8");">
-                        @(MapService.TravaDistanciaAtiva ? "DESATIVAR RESTRIÇÃO" : "ATIVAR RESTRIÇÃO")
-                    </button>
-                </div>
-            </div>
-        </div>
-    }
-    @if (_mostrarInputAbsoluto && !_mostrarInputCogo)
-    {
-        <div id="hud-f6" style="pointer-events: auto; position: fixed; top: 0px; left: 0px; transform: translate3d(@(_hudX)px, @(_hudY)px, 0); will-change: transform; width: 260px; background: rgba(15, 23, 42, 0.95); border: 1px solid #10b981; border-radius: 6px; box-shadow: 0 15px 50px rgba(0,0,0,0.7); z-index: 10001; backdrop-filter: blur(16px); display: flex; flex-direction: column; overflow: hidden;"
-             @onpointerdown:stopPropagation="true"
-             @onpointerup:stopPropagation="true"
-             @onclick:stopPropagation="true"
-             @oncontextmenu:preventDefault="true">
-
-            <div onpointerdown="window.iniciarArrasteHUD(event, 'hud-f6')" style="background: rgba(16, 185, 129, 0.15); padding: 6px 12px; cursor: grab; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;" onmousedown="this.style.cursor='grabbing'" onmouseup="this.style.cursor='grab'">
-                <span style="font-size: 10px; color: #10b981; font-weight: bold; letter-spacing: 1px;">INSERÇÃO ABSOLUTA (F6)</span>
-                <span style="color: #94a3b8; font-size: 14px; cursor: pointer; padding: 0 4px;" @onclick="() => _mostrarInputAbsoluto = false" title="Fechar">✕</span>
-            </div>
-
-            <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #cbd5e1; font-size: 11px; font-weight: 600;">ESTE (X)</label>
-                    <input @ref="_inputAbsolutoXRef" type="number" @bind="_absolutoX" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="color: #cbd5e1; font-size: 11px; font-weight: 600;">NORTE (Y)</label>
-                    <input type="number" @bind="_absolutoY" @onkeyup='@(e => { if (e.Key == "Enter") AplicarCoordenadaAbsoluta(); })' style="width: 140px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 8px; font-size: 13px; border-radius: 2px; outline: none; font-family: monospace;" />
-                </div>
-
-                <button @onclick="AplicarCoordenadaAbsoluta" style="background: #047857; border: none; color: white; padding: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 2px; margin-top: 4px; transition: 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#047857';">CRAVAR VÉRTICE</button>
-            </div>
-        </div>
-    }
     @if (exibirModalNovaCamada)
     {
         <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
@@ -2160,6 +1971,14 @@
 
     /* Revelar o menu ao passar o rato */
     .dropdown:hover .dropdown-content {
+        display: block;
+    }
+
+    .dropdown:focus-within > .dropdown-content {
+        display: block;
+    }
+
+    .dropdown-submenu:focus-within > .submenu-content {
         display: block;
     }
 
@@ -3482,11 +3301,8 @@
                 bool isFirstLayer = CamadasAtivas.Count == 0;
                 
                 // Adicionar a camada à lista
-                if (!CamadasAtivas.Any(c => c.Nome == nome))
-                {
-                    CamadasAtivas.Add(new Camada { Nome = nome, Tipo = "Raster", Visivel = true });
+                if (RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true }))
                     SincronizarHierarquia();
-                }
 
                 if (isFirstLayer)
                 {
@@ -3730,19 +3546,15 @@
                 ProjetoService.CarregarShapefileParaMotorMapas(caminhoFinal, nomeFicheiroLimpo, MapService);
             });
 
-            // Impede que duplique no painel da esquerda
-            var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeFicheiroLimpo);
-            if (camadaExistente == null)
+            // Impede duplicatas e expande o painel ao importar a primeira camada.
+            RegistrarNovaCamada(new Camada
             {
-                CamadasAtivas.Insert(0, new Camada
-                {
-                    Nome = nomeFicheiroLimpo,
-                    Tipo = "Vetor",
-                    Visivel = true,
-                    CaminhoArquivo = caminhoFinal,
-                    Geometria = novaCamadaGeometria
-                });
-            }
+                Nome = nomeFicheiroLimpo,
+                Tipo = "Vetor",
+                Visivel = true,
+                CaminhoArquivo = caminhoFinal,
+                Geometria = novaCamadaGeometria
+            }, inserirNoInicio: true);
 
             // Aplica o Estilo Verde/Esmeralda automático para novas camadas de aquisição
             MapService.EstilosPorCamada[nomeFicheiroLimpo] = new GeoNex.Services.EstiloCamada
@@ -3810,12 +3622,14 @@
     // VARIÁVEIS DE ATALHOS DE HARDWARE (TAB e F6)
     // =========================================================
     private bool _mostrarInputAbsoluto = false;
-    private double _absolutoX = 0;
-    private double _absolutoY = 0;
+    private double? _absolutoX;
+    private double? _absolutoY;
 
-    // Rastreio em tempo real de onde o HUD deve abrir
-    private double _hudX = 0;
-    private double _hudY = 0;
+    private double _hudX = 16;
+    private double _hudY = 72;
+    private double _hudCogoX = 430;
+    private double _hudCogoY = 72;
+    private string EstiloHud(double x, double y) => FormattableString.Invariant($"transform:translate3d({x}px,{y}px,0)");
 
     // Referências para foco instantâneo do teclado
     private ElementReference _inputDistanciaRef;
@@ -3828,8 +3642,9 @@
     private double _menuContextoY = 0;
 
     private bool _mostrarInputCogo = false;
-    private double _cogoDistancia = 0;
-    private double _cogoAzimute = 0;
+    private double? _cogoDistancia;
+    private double? _cogoAzimute = 0;
+    private double? _restricaoDistanciaMetros;
     // Define para que camada o polígono desenhado vai ser enviado
     private string _camadaDestinoAquisicao = "";
     // Lembra onde o último Snap foi desenhado para não renderizar à toa
@@ -3873,6 +3688,17 @@
     private string AbaModalAtiva = "Raster";
     private DotNetObjectReference<Home>? objRef;
     private List<Camada> CamadasAtivas = new List<Camada>();
+    private bool RegistrarNovaCamada(Camada camada, bool inserirNoInicio = false)
+    {
+        if (CamadasAtivas.Any(c => c.Nome == camada.Nome)) return false;
+
+        bool primeiraCamada = CamadasAtivas.Count == 0;
+        if (inserirNoInicio) CamadasAtivas.Insert(0, camada);
+        else CamadasAtivas.Add(camada);
+
+        if (primeiraCamada) _painelCamadasAberto = true;
+        return true;
+    }
     private string caminhoArquivoRaster = "";
     private string caminhoArquivoVetor = "";
     private string statusGdal = "Aguardando seleção de arquivo...";
@@ -4053,12 +3879,15 @@
             StateHasChanged();
             return;
         }
+        FecharEntradaPrecisa();
 
         // 1. Limpeza Estrita de Memória
         if (_ferramentaAtiva == ModoFerramenta.Medicao)
         {
             HistoricoMedicao.Clear();
             LimparCursorDesenho();
+            _medicaoConcluida = false;
+            RecalcularMedicoes(false);
             _distanciaTotalMetros = 0;
             _areaTotalM2 = 0;
         }
@@ -4076,13 +3905,21 @@
         {
             HistoricoAquisicao.Clear();
             LimparCursorDesenho();
+            LimparMetricasAquisicao();
         }
         else if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = false;
         }
 
+        if (novaFerramenta is ModoFerramenta.Medicao or ModoFerramenta.Identificacao)
+            _painelIdentificarAberto = true;
+        else if (_ferramentaAtiva == ModoFerramenta.Medicao && atributosFeicaoSelecionada.Count == 0)
+            _painelIdentificarAberto = false;
+
         _ferramentaAtiva = novaFerramenta;
+        if (novaFerramenta != ModoFerramenta.AquisicaoPoligono)
+            MapService.ConstrucaoAtiva = ConstructionMode.Vertices;
         mensagemVetorizacao = "";
 
         // AVISAR A PLACA GRÁFICA: Transmite o tipo de geometria para o LocalMapServer
@@ -4135,6 +3972,34 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_focoMapaPendente)
+        {
+            _focoMapaPendente = false;
+            await _mapContainerRef.FocusAsync();
+        }
+        if (_focoContextoVetorizacaoPendente && _mostrarMenuContexto)
+        {
+            _focoContextoVetorizacaoPendente = false;
+            await _contextoVetorizacaoRef.FocusAsync();
+        }
+        if (FerramentaDesenhoAtiva && (_focoCoordenadaPendente || _focoCogoPendente))
+        {
+            if (_focoCoordenadaPendente && _mostrarInputAbsoluto)
+            {
+                _focoCoordenadaPendente = false;
+                await _inputAbsolutoXRef.FocusAsync();
+            }
+            if (_focoCogoPendente && _mostrarInputCogo)
+            {
+                _focoCogoPendente = false;
+                await _inputDistanciaRef.FocusAsync();
+            }
+        }
+        if (_hudPosicaoPendente && FerramentaDesenhoAtiva)
+        {
+            _hudPosicaoPendente = false;
+            await JSRuntime.InvokeVoidAsync("reposicionarHudFlutuante");
+        }
         if (firstRender)
         {
             await Task.Delay(100);
@@ -4393,11 +4258,7 @@
 
             MapService.RemoveRasterCache(nome);
 
-            var rasterExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nome);
-            if (rasterExistente == null)
-            {
-                CamadasAtivas.Insert(0, new Camada { Nome = nome, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster });
-            }
+            RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster }, inserirNoInicio: true);
             
             SincronizarHierarquia(); // FUNDAMENTAL: Informa o C# que a camada já existe
             MapService.RequestRedraw(); // Invalida o cache
@@ -4506,14 +4367,8 @@
 
             // CORREÇÃO CRÍTICA: Popula a árvore de busca logarítmica com os lotes importados
             // MapService.ConstruirIndiceEspacial(); já foi movido para dentro da Task.Run para não travar a UI!
-            // Impede que o Shapefile duplique o painel se for importado novamente
-            // Substitua o bloco do camadaExistente por este:
-            var camadaExistente = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeArquivo);
-            if (camadaExistente == null)
-            {
-                // .Insert(0) atira a nova camada para o Topo absoluto do Painel Lateral
-                CamadasAtivas.Insert(0, new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor });
-            }
+            // Mantém novas camadas no topo, sem duplicá-las.
+            RegistrarNovaCamada(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor }, inserirNoInicio: true);
 
             SincronizarHierarquia(solicitarFrame: false);
             await EnquadrarCamadaAsync(nomeArquivo);
@@ -4884,6 +4739,7 @@
             {
                 foreach (var item in dadosBrutos) { atributosFeicaoSelecionada[item.Key] = item.Value.ValueKind == System.Text.Json.JsonValueKind.Null ? "" : item.Value.ToString(); }
             }
+            _painelIdentificarAberto = true;
             await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Falha ao decodificar feição:\n{ex.Message}"); }
@@ -5085,7 +4941,7 @@
     // =========================================================================
     private async Task AtivarFerramentaPoligono()
     {
-        if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual)) { CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true }); StateHasChanged(); }
+        if (RegistrarNovaCamada(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true })) StateHasChanged();
         await JSRuntime.InvokeVoidAsync("iniciarDesenhoPoligono", camadaAquisicaoAtual);
     }
 
@@ -5143,7 +4999,7 @@
         try
         {
             if (listaPontosCaderneta.Count == 0) return;
-            if (!CamadasAtivas.Any(c => c.Nome == camadaAquisicaoAtual)) CamadasAtivas.Add(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
+            RegistrarNovaCamada(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
             var pontosProcessados = new List<Dictionary<string, string>>();
             ProjNet.CoordinateSystems.Transformations.ICoordinateTransformation conversorUtm = null;
             if (sistemaCoordenadas == "UTM")
@@ -5319,6 +5175,7 @@
 
                     if (feicao != null)
                     {
+                        _painelIdentificarAberto = true;
                         camadaSelecionadaPainel = camadaAtingida;
                         atributosFeicaoSelecionada = new Dictionary<string, string>();
                         
@@ -5338,8 +5195,11 @@
                     break;
 
                 case ModoFerramenta.Medicao:
+                    if (_medicaoConcluida) return;
                     var ptFinalMed = ResolverCursorFerramenta(ptMundo, matriz).Position;
                     HistoricoMedicao.Add(ptFinalMed);
+                    LimparCursorDesenho();
+                    _ultimaAtualizacaoPreviewMedicao = 0;
                     RecalcularMedicoes();
                     _ = SincronizarOverlay(false);
                     break;
@@ -5353,6 +5213,11 @@
                     }
 
                     var ptFinalAq = ResolverCursorFerramenta(ptMundo, matriz).Position;
+                    if (CliqueFechaPoligono(new SkiaSharp.SKPoint((float)telaX, (float)telaY), matriz))
+                    {
+                        ConcluirAquisicaoGeometrica();
+                        return;
+                    }
 
                     // ==========================================================
                     // >>> TRAVA TOPOLÓGICA ANTI-DUPLO-CLIQUE E SANGRAMENTO <<<
@@ -5369,7 +5234,8 @@
                     }
 
                     // 3. INJETA O VÉRTICE BLINDADO NA MEMÓRIA
-                    HistoricoAquisicao.Add(ptFinalAq);
+                    if (!AdicionarControleAquisicao(ptFinalAq)) return;
+                    RecalcularMetricasAquisicao(true);
                     mensagemVetorizacao = "";
                     if (_ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
                     {
@@ -5409,19 +5275,94 @@
     private string _medicaoMetodo = "";
     private string? _medicaoAreaErro;
     private double? _medicaoAzimuteGraus;
+    private string _medicaoMensagem = "";
+    private string _unidadeComprimentoMedicao = "m";
+    private string _unidadeAreaMedicao = "m2";
 
-    private void RecalcularMedicoes()
+    private double ComprimentoMedicaoExibido => _unidadeComprimentoMedicao switch
     {
+        "km" => _medicaoComprimentoMetros / 1000d,
+        "ft" => _medicaoComprimentoMetros * 3.280839895013123d,
+        "mi" => _medicaoComprimentoMetros / 1609.344d,
+        _ => _medicaoComprimentoMetros
+    };
+
+    private string RotuloComprimentoMedicao => _unidadeComprimentoMedicao switch
+    {
+        "km" => "km",
+        "ft" => "ft",
+        "mi" => "mi",
+        _ => "m"
+    };
+
+    private double AreaMedicaoExibida => _unidadeAreaMedicao switch
+    {
+        "ha" => _medicaoAreaM2 / 10000d,
+        "km2" => _medicaoAreaM2 / 1_000_000d,
+        "ac" => _medicaoAreaM2 * 0.00024710538146716534d,
+        _ => _medicaoAreaM2
+    };
+
+    private string RotuloAreaMedicao => _unidadeAreaMedicao switch
+    {
+        "ha" => "ha",
+        "km2" => "km²",
+        "ac" => "ac",
+        _ => "m²"
+    };
+
+    private string ResumoMedicao => string.Join(Environment.NewLine,
+        new[]
+        {
+            $"Comprimento: {ComprimentoMedicaoExibido:N2} {RotuloComprimentoMedicao}",
+            _medicaoAreaM2 > 0 ? $"Área: {AreaMedicaoExibida:N2} {RotuloAreaMedicao}" : null,
+            MapService.MostrarAreaMedicao && MapService.PontosMedicao.Count < 3 ? "Área: indisponível — adicione pelo menos três pontos." : _medicaoAreaErro,
+            _medicaoAzimuteGraus is { } azimute ? $"Azimute da última perna: {azimute:N1}°" : null,
+            $"SRC: {MapService.ProjetoSRS}",
+            $"Pontos confirmados: {MapService.PontosMedicao.Count} (cursor excluído)",
+            !string.IsNullOrWhiteSpace(_medicaoMetodo) ? $"Método: {_medicaoMetodo}" : null
+        }.Where(linha => linha != null)!);
+
+    private async Task CopiarResumoMedicao()
+    {
+        if (MapService.PontosMedicao.Count < 2) return;
+        // Export a snapshot of committed vertices; moving the cursor must not change it.
+        RecalcularMedicoes(false);
+        bool falhou = _medicaoFalhou;
+        string resumo = ResumoMedicao;
+        string erro = _medicaoMetodo;
+        RecalcularMedicoes();
+        if (falhou)
+        {
+            _medicaoMensagem = $"Não foi possível copiar: {erro}";
+            return;
+        }
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("geonexCopiarTexto", resumo);
+            _medicaoMensagem = "Resultado dos pontos confirmados copiado. Cursor excluído.";
+        }
+        catch (JSException ex)
+        {
+            _medicaoMensagem = $"Não foi possível copiar: {ex.Message}";
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void RecalcularMedicoes(bool incluirCursor = true)
+    {
+        _medicaoFalhou = false;
         _medicaoComprimentoMetros = 0;
         _medicaoAreaM2 = 0;
         _medicaoMetodo = "";
         _medicaoAreaErro = null;
         _medicaoAzimuteGraus = null;
+        _medicaoMensagem = "";
 
         // Cria uma lista temporária unindo os cliques REAIS com a posição flutuante do RATO
         var ptsMapeados = new List<SkiaSharp.SKPoint>(MapService.PontosMedicao);
 
-        if (_ferramentaAtiva == ModoFerramenta.Medicao && ptsMapeados.Count > 0 && MapService.PontoCursorMundo.HasValue)
+        if (incluirCursor && !_medicaoConcluida && _ferramentaAtiva == ModoFerramenta.Medicao && ptsMapeados.Count > 0 && MapService.PontoCursorMundo.HasValue)
         {
             ptsMapeados.Add(MapService.PontoCursorMundo.Value);
         }
@@ -5444,10 +5385,12 @@
         }
         catch (ArgumentException ex)
         {
+            _medicaoFalhou = true;
             _medicaoMetodo = ex.Message;
         }
         catch (InvalidOperationException ex)
         {
+            _medicaoFalhou = true;
             _medicaoMetodo = ex.Message;
         }
     }
@@ -5459,7 +5402,7 @@
     // 16. ATALHOS DE TECLADO GLOBAIS (ESC, M, I)
     // =========================================================================
     [JSInvokable]
-    public void ProcessarTecladoGlobal(string tecla)
+    public void ProcessarTecladoGlobal(string tecla, double clientX = double.NaN, double clientY = double.NaN)
     {
         // A MÁGICA: Transfere o sinal do JavaScript para a Thread Visual do Blazor
         InvokeAsync(async () =>
@@ -5476,26 +5419,13 @@
             {
                 if (tecla == "tab")
                 {
-                    _mostrarInputCogo = true;
-                    _mostrarInputAbsoluto = false;
-                    _mostrarMenuContexto = false;
-                    StateHasChanged();
-
-                    // Espera 50ms para o HTML renderizar e foca no campo automaticamente
-                    await Task.Delay(50);
-                    try { await _inputDistanciaRef.FocusAsync(); } catch { }
+                    AbrirEntradaPrecisa(true, clientX, clientY);
                     return;
                 }
 
                 if (tecla == "f6")
                 {
-                    _mostrarInputAbsoluto = true;
-                    _mostrarInputCogo = false;
-                    _mostrarMenuContexto = false;
-                    StateHasChanged();
-
-                    await Task.Delay(50);
-                    try { await _inputAbsolutoXRef.FocusAsync(); } catch { }
+                    AbrirEntradaPrecisa(false, clientX, clientY);
                     return;
                 }
 
@@ -5507,6 +5437,7 @@
 
             if (_ferramentaAtiva == ModoFerramenta.Medicao)
             {
+                if (tecla == "enter") { ConcluirMedicao(); return; }
                 if (tecla is "ctrl+z" or "z" or "backspace") { AlterarHistoricoMedicao(false); return; }
                 if (tecla is "ctrl+y" or "ctrl+shift+z") { AlterarHistoricoMedicao(true); return; }
             }
@@ -5534,6 +5465,10 @@
     }
     private void LimparMedicao()
     {
+        _medicaoConcluida = false;
+        _medicaoFalhou = false;
+        _medicaoMensagem = "";
+        _ultimaAtualizacaoPreviewMedicao = 0;
         HistoricoMedicao.Clear();
         LimparCursorDesenho();
         _medicaoComprimentoMetros = 0;
@@ -5582,7 +5517,8 @@
             _menuContextoX = e.ClientX;
             _menuContextoY = e.ClientY;
             _mostrarMenuContexto = true;
-            _mostrarInputCogo = false;
+            FecharEntradaPrecisa();
+            _focoContextoVetorizacaoPendente = true;
             return;
         }
 
@@ -5590,7 +5526,7 @@
         if (e.Button == 0 && _mostrarMenuContexto)
         {
             _mostrarMenuContexto = false;
-            _mostrarInputCogo = false;
+            FecharEntradaCogo();
         }
 
         if (e.Button == 1 || (e.Button == 0 && _ferramentaAtiva == ModoFerramenta.Navegacao))
@@ -5606,6 +5542,7 @@
 
     private void ProcessarMovimentoMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
+        if (_ferramentaAtiva == ModoFerramenta.Medicao && _medicaoConcluida) return;
         if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
         // 1. CONGELAMENTO ESTRITO DA ÂNCORA (Zero lógica de arrasto aqui)
         if (_mostrarInputCogo == false && _mostrarInputAbsoluto == false && _mostrarMenuContexto == false)
@@ -5654,6 +5591,7 @@
 
                     MapService.PontoCursorMundo = ptMundo;
                     MapService.PontoCursorSnap = null;
+                    MapService.PontoCursorSnapTipo = null;
                     SolicitarNovoFrame();
                     return;
                 }
@@ -5688,9 +5626,9 @@
                         MapService.PontoCursorSnap = ptMagnetico.Value;
                         MapService.PontoCursorMundo = ptMagnetico.Value;
                     }
-                    else { MapService.PontoCursorSnap = null; }
+                    else { MapService.PontoCursorSnap = null; MapService.PontoCursorSnapTipo = null; }
                 }
-                else { MapService.PontoCursorSnap = null; }
+                else { MapService.PontoCursorSnap = null; MapService.PontoCursorSnapTipo = null; }
 
                 // LÓGICA INTELIGENTE DE RENDERIZAÇÃO
                 bool precisaRedesenhar = false;
@@ -5823,6 +5761,7 @@
     private bool _snapAquisicaoAresta = false; 
     private void ReceberMovimentoFerramentasLegado(double pixelX, double pixelY)
     {
+        if (_ferramentaAtiva == ModoFerramenta.Medicao && _medicaoConcluida) return;
         if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
         if (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.AquisicaoLinha || _ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
         {
@@ -5862,9 +5801,9 @@
                         MapService.PontoCursorSnap = ptMagnetico.Value;
                         MapService.PontoCursorMundo = ptMagnetico.Value;
                     }
-                    else { MapService.PontoCursorSnap = null; }
+                    else { MapService.PontoCursorSnap = null; MapService.PontoCursorSnapTipo = null; }
                 }
-                else { MapService.PontoCursorSnap = null; }
+                else { MapService.PontoCursorSnap = null; MapService.PontoCursorSnapTipo = null; }
 
                 if ((DateTime.Now - _ultimoMovimentoMouse).TotalMilliseconds >= 33)
                 {
@@ -6194,6 +6133,7 @@
         NetTopologySuite.Geometries.Geometry geometriaNts;
         try
         {
+            if (ConstrucaoParametrica) pontos = SketchConstruction.Build(ModoConstrucao, pontos, LadosConstrucao).ToList();
             var kind = _ferramentaAtiva switch
             {
                 ModoFerramenta.AquisicaoPonto => DigitizingGeometry.Kind.Point,
@@ -6247,6 +6187,8 @@
             {
                 FID = colecao.Count > 0 ? (long)colecao.Count : 0,
                 LayerName = camadaAlvo,
+                CentroidLocal = new SKPoint((float)(geometriaNts.Centroid.X - MapService.OffsetMundoX),
+                    (float)(MapService.OffsetMundoY - geometriaNts.Centroid.Y)),
                 Kind = _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? GeoNex.Services.GeometryKind.Polygon : (_ferramentaAtiva == ModoFerramenta.AquisicaoLinha ? GeoNex.Services.GeometryKind.Line : GeoNex.Services.GeometryKind.Point),
                 Path = pathRender,
                 EnvelopeWorld = new GeoNex.Services.FeatureEnvelope(
@@ -6294,10 +6236,12 @@
 
         // Acende a luz amarela de "Gravação Pendente" no menu superior
         temEdicoesPendentes = true;
+        MapService.RequestRedraw();
 
         // Limpa a tela
         HistoricoAquisicao.Clear();
         LimparCursorDesenho();
+        LimparMetricasAquisicao();
         mensagemVetorizacao = "";
 
         SolicitarNovoFrame();
@@ -6306,8 +6250,10 @@
 
     private void CancelarAquisicao()
     {
+        FecharEntradaPrecisa();
         HistoricoAquisicao.Clear();
         LimparCursorDesenho();
+        LimparMetricasAquisicao();
         mensagemVetorizacao = "";
         SolicitarNovoFrame();
         StateHasChanged();
@@ -6319,43 +6265,33 @@
     }
     private void AplicarVetorRestritoCogo()
     {
-        if (MapService.PontosAquisicao.Count == 0) return;
-
-        var ultimoPonto = MapService.PontosAquisicao.Last();
-
-        // Conversão de graus (azimute topográfico) para radianos
-        double radianos = _cogoAzimute * (Math.PI / 180.0);
-
-        // APLICAÇÃO DA INVERSÃO DE MATRIZ: Y negativo para subir na tela (Norte)
-        float matrizMundoProjX = ultimoPonto.X + (float)(_cogoDistancia * Math.Sin(radianos));
-        float matrizMundoProjY = ultimoPonto.Y - (float)(_cogoDistancia * Math.Cos(radianos));
-
-        // Injeta a nova coordenada cravada no mapa
-        HistoricoAquisicao.Add(new SkiaSharp.SKPoint(matrizMundoProjX, matrizMundoProjY));
-        // Limpeza de estado e retorno ao modo fluido
-        _mostrarInputCogo = false;
-        _mostrarMenuContexto = false;
-        _cogoDistancia = 0;
-        _cogoAzimute = 0;
-
-        SolicitarNovoFrame();
-        InvokeAsync(StateHasChanged);
+        if (MapService.PontosAquisicao.Count == 0 || !_cogoAzimute.HasValue) return;
+        try
+        {
+            var point = MapService.Measurements.ProjectGridVector(MapService.PontosAquisicao[^1],
+                _cogoDistancia ?? 0, _cogoAzimute.Value, MapService.ProjetoSRS);
+            if (!AdicionarControleAquisicao(point)) return;
+            RecalcularMetricasAquisicao(true);
+            SolicitarNovoFrame();
+            _focoCogoPendente = true;
+        }
+        catch (ArgumentException ex) { mensagemVetorizacao = ex.Message; }
+        StateHasChanged();
     }
+
     private void AplicarCoordenadaAbsoluta()
     {
-        // Subtrai o "Offset do Mundo" (que tira os milhões da coordenada UTM)
-        // e aplica a inversão forçada do Eixo Y na tela.
-        float matrizX = (float)(_absolutoX - MapService.OffsetMundoX);
-        float matrizY = (float)(MapService.OffsetMundoY - _absolutoY);
-
-        HistoricoAquisicao.Add(new SkiaSharp.SKPoint(matrizX, matrizY));
-
-        _mostrarInputAbsoluto = false;
-        _absolutoX = 0;
-        _absolutoY = 0;
-
+        if (_absolutoX is not { } x || _absolutoY is not { } y || !double.IsFinite(x) || !double.IsFinite(y))
+        {
+            mensagemVetorizacao = "Informe X e Y válidos no SRC do projeto.";
+            return;
+        }
+        var point = new SkiaSharp.SKPoint((float)(x - MapService.OffsetMundoX), (float)(MapService.OffsetMundoY - y));
+        if (!AdicionarControleAquisicao(point)) return;
+        RecalcularMetricasAquisicao(true);
         SolicitarNovoFrame();
-        InvokeAsync(StateHasChanged);
+        _focoCoordenadaPendente = true;
+        StateHasChanged();
     }
     public double ConverterAzimuteParaGrausDecimais(string entrada)
     {
@@ -6385,10 +6321,18 @@
     }
     // ✔️ ADICIONE ESTE NOVO MÉTODO (A PONTE COM O JAVASCRIPT):
     [JSInvokable]
-    public void AtualizarMemoriaHUD(double novoX, double novoY)
+    public void AtualizarMemoriaHUD(string hudId, double novoX, double novoY)
     {
-        _hudX = novoX;
-        _hudY = novoY;
+        if (hudId == "hud-cogo")
+        {
+            _hudCogoX = novoX;
+            _hudCogoY = novoY;
+        }
+        else
+        {
+            _hudX = novoX;
+            _hudY = novoY;
+        }
         // Não usamos StateHasChanged() para evitar que o ecrã pisque!
     }
 

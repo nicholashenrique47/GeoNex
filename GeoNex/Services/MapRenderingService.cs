@@ -204,6 +204,8 @@ namespace GeoNex.Services
         public MapMeasurementService Measurements { get; } = new();
         
         public string TipoGeometriaAtiva { get; set; } = "POLIGONO";
+        public ConstructionMode ConstrucaoAtiva { get; set; } = ConstructionMode.Vertices;
+        public int ConstrucaoLados { get; set; } = 6;
         public bool TravaDistanciaAtiva { get; set; } = false;
         public double TravaDistanciaValor { get; set; } = 50;
         public bool TravaModoFixo { get; set; } = true;
@@ -254,6 +256,7 @@ namespace GeoNex.Services
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosAquisicao { get; set; } = new();
         public SkiaSharp.SKPoint? PontoCursorSnap { get; set; }
+        public SnapKind? PontoCursorSnapTipo { get; set; }
         public SkiaSharp.SKPoint? PontoCursorMundo { get; set; }
         public bool MostrarAreaMedicao { get; set; } = false; 
         
@@ -467,9 +470,16 @@ namespace GeoNex.Services
                     bounds.Bottom < ptClique.Y - toleranciaMundo || bounds.Top > ptClique.Y + toleranciaMundo) continue;
                 search.AddPath(path);
             }
-            search.AddPolyline(PontosAquisicao);
+            if (ConstrucaoAtiva == ConstructionMode.Vertices) search.AddPolyline(PontosAquisicao);
+            else
+            {
+                var construction = SketchConstruction.Preview(ConstrucaoAtiva, PontosAquisicao, null, ConstrucaoLados);
+                if (construction.Closed) search.AddPolyline(construction.Points, true);
+                else foreach (var control in PontosAquisicao) search.AddVertex(control);
+            }
             search.AddPolyline(PontosMedicao, MostrarAreaMedicao);
             search.CompleteIntersections();
+            PontoCursorSnapTipo = search.Best?.Kind;
             return search.Best?.Point;
         }
 
@@ -562,13 +572,13 @@ namespace GeoNex.Services
 
         private bool TryPublishSpatialIndex(
             string layerName,
-            MemoryMappedShapefile source,
+            MemoryMappedShapefile? source,
             NativeShapeSpatialIndex index)
         {
             lock (_vectorResourceGate)
             {
                 using ResourceLease<MemoryMappedShapefile>? current = _shapefileResources.Acquire(layerName);
-                if (current == null || !ReferenceEquals(current.Resource, source)) return false;
+                if (!ReferenceEquals(current?.Resource, source)) return false;
                 _spatialIndexResources.Publish(layerName, index);
                 return true;
             }
@@ -932,16 +942,12 @@ namespace GeoNex.Services
         public void ConstruirIndiceEspacial(string nomeCamada, List<CompiledFeature> feicoes)
         {
             using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(nomeCamada);
-            if (shapefileLease == null)
-                throw new InvalidOperationException($"Shapefile não registrado para a camada '{nomeCamada}'.");
-
-            var arvore = new NativeShapeSpatialIndex(shapefileLease.Resource, feicoes);
+            var arvore = new NativeShapeSpatialIndex(shapefileLease?.Resource, feicoes);
             try
             {
-                if (!TryPublishSpatialIndex(nomeCamada, shapefileLease.Resource, arvore))
+                if (!TryPublishSpatialIndex(nomeCamada, shapefileLease?.Resource, arvore))
                 {
-                    arvore.Dispose();
-                    return;
+                    throw new InvalidOperationException("A camada mudou durante a publicação do índice espacial.");
                 }
             }
             catch

@@ -47,7 +47,9 @@ public partial class LocalMapServer
             }
         }
         // 8.1. FERRAMENTA DE AQUISIÇÃO (DESENHO DE LOTE)
-        if (ptsAquisicao.Count > 0)
+        if (ptsAquisicao.Count > 0 && _mapService.ConstrucaoAtiva != ConstructionMode.Vertices)
+            DrawConstructionOverlay(canvas, matriz, zoomReal, ptsAquisicao);
+        if (ptsAquisicao.Count > 0 && _mapService.ConstrucaoAtiva == ConstructionMode.Vertices)
         {
             canvas.SetMatrix(matriz);
 
@@ -172,7 +174,7 @@ public partial class LocalMapServer
             // >>> RENDERIZAÇÃO FINAL (Área, Esqueleto e Vértices) <<<
             // ==========================================================
 
-            if (ptsAquisicao.Count >= 2 && _mapService.PontoCursorMundo.HasValue)
+            if (_mapService.TipoGeometriaAtiva == "POLIGONO" && ptsAquisicao.Count >= 3)
             {
                 using var pathAreaAq = new SKPath(pathAq);
                 pathAreaAq.Close();
@@ -208,14 +210,49 @@ public partial class LocalMapServer
         {
             canvas.SetMatrix(matriz);
             var snapPt = _mapService.PontoCursorSnap.Value;
-            using var pincelSnap = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Yellow, StrokeWidth = 2.0f / zoomReal, IsAntialias = true };
-            using var pincelSnapFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Yellow.WithAlpha(80), IsAntialias = true };
+            SKColor snapColor = _mapService.PontoCursorSnapTipo switch
+            {
+                SnapKind.Vertex => SKColors.Yellow,
+                SnapKind.Midpoint => SKColors.Cyan,
+                SnapKind.Edge => SKColors.Orange,
+                SnapKind.Intersection => SKColors.Magenta,
+                _ => SKColors.Yellow
+            };
+            using var pincelSnap = new SKPaint { Style = SKPaintStyle.Stroke, Color = snapColor, StrokeWidth = 2.0f / zoomReal, IsAntialias = true };
+            using var pincelSnapFill = new SKPaint { Style = SKPaintStyle.Fill, Color = snapColor.WithAlpha(80), IsAntialias = true };
             float size = 14f / zoomReal;
             var rect = new SKRect(snapPt.X - size / 2, snapPt.Y - size / 2, snapPt.X + size / 2, snapPt.Y + size / 2);
-            canvas.DrawRect(rect, pincelSnapFill);
-            canvas.DrawRect(rect, pincelSnap);
-            canvas.DrawLine(snapPt.X - size, snapPt.Y, snapPt.X + size, snapPt.Y, pincelSnap);
-            canvas.DrawLine(snapPt.X, snapPt.Y - size, snapPt.X, snapPt.Y + size, pincelSnap);
+            switch (_mapService.PontoCursorSnapTipo)
+            {
+                case SnapKind.Midpoint:
+                    canvas.DrawCircle(snapPt, size * 0.45f, pincelSnapFill);
+                    canvas.DrawCircle(snapPt, size * 0.45f, pincelSnap);
+                    break;
+                case SnapKind.Edge:
+                    using (var diamond = new SKPath())
+                    {
+                        diamond.MoveTo(snapPt.X, snapPt.Y - size * 0.55f);
+                        diamond.LineTo(snapPt.X + size * 0.55f, snapPt.Y);
+                        diamond.LineTo(snapPt.X, snapPt.Y + size * 0.55f);
+                        diamond.LineTo(snapPt.X - size * 0.55f, snapPt.Y);
+                        diamond.Close();
+                        canvas.DrawPath(diamond, pincelSnapFill);
+                        canvas.DrawPath(diamond, pincelSnap);
+                    }
+                    break;
+                case SnapKind.Intersection:
+                    canvas.DrawCircle(snapPt, size * 0.45f, pincelSnapFill);
+                    canvas.DrawCircle(snapPt, size * 0.45f, pincelSnap);
+                    canvas.DrawLine(snapPt.X - size, snapPt.Y - size, snapPt.X + size, snapPt.Y + size, pincelSnap);
+                    canvas.DrawLine(snapPt.X + size, snapPt.Y - size, snapPt.X - size, snapPt.Y + size, pincelSnap);
+                    break;
+                default:
+                    canvas.DrawRect(rect, pincelSnapFill);
+                    canvas.DrawRect(rect, pincelSnap);
+                    canvas.DrawLine(snapPt.X - size, snapPt.Y, snapPt.X + size, snapPt.Y, pincelSnap);
+                    canvas.DrawLine(snapPt.X, snapPt.Y - size, snapPt.X, snapPt.Y + size, pincelSnap);
+                    break;
+            }
         }
         // =========================================================================
         // 10. CONTORNO ANIMADO DA FEIÇÃO SELECIONADA (MARCHING ANTS)
@@ -249,5 +286,45 @@ public partial class LocalMapServer
             canvas.DrawPath(_mapService.CaminhoDestaqueLinha, paintM);
         }
 
+    }
+
+    private void DrawConstructionOverlay(SKCanvas canvas, SKMatrix matrix, float zoom, List<SKPoint> controls)
+    {
+        var preview = SketchConstruction.Preview(_mapService.ConstrucaoAtiva, controls, _mapService.PontoCursorMundo, _mapService.ConstrucaoLados);
+        canvas.SetMatrix(matrix);
+        using var path = new SKPath();
+        for (int i = 0; i < preview.Points.Length; i++)
+        {
+            if (i == 0) path.MoveTo(preview.Points[i]);
+            else path.LineTo(preview.Points[i]);
+        }
+        if (preview.Closed) path.Close();
+        using var stroke = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen,
+            StrokeWidth = 2.5f / zoom, IsAntialias = true };
+        using var fill = new SKPaint { Color = SKColors.SpringGreen.WithAlpha(40), IsAntialias = true };
+        if (preview.Closed) canvas.DrawPath(path, fill);
+        canvas.DrawPath(path, stroke);
+        using var guide = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(150),
+            StrokeWidth = 1f / zoom, IsAntialias = true,
+            PathEffect = SKPathEffect.CreateDash([6f / zoom, 6f / zoom], 0) };
+        if (_mapService.ConstrucaoAtiva == ConstructionMode.Circle && preview.Points.Length > 0)
+            canvas.DrawLine(controls[0], preview.Closed ? preview.Points[0] : preview.Points[^1], guide);
+        if (_mapService.ConstrucaoAtiva == ConstructionMode.Ellipse && controls.Count > 0)
+        {
+            canvas.DrawLine(controls[0], controls.Count > 1 ? controls[1] :
+                (preview.Points.Length > 0 ? preview.Points[^1] : controls[0]), guide);
+            if (controls.Count > 2)
+                canvas.DrawLine(controls[0], controls[2], guide);
+        }
+        if (_mapService.ConstrucaoAtiva == ConstructionMode.RegularPolygon && controls.Count > 0)
+            canvas.DrawLine(controls[0], controls.Count > 1 ? controls[1] :
+                (preview.Points.Length > 0 ? preview.Points[0] : controls[0]), guide);
+        using var handle = new SKPaint { Color = SKColors.White, IsAntialias = true };
+        for (int i = 0; i < controls.Count; i++)
+        {
+            handle.Color = i == 0 ? SKColors.Orange : SKColors.White;
+            canvas.DrawCircle(controls[i], 4.5f / zoom, handle);
+            canvas.DrawCircle(controls[i], 5.5f / zoom, stroke);
+        }
     }
 }

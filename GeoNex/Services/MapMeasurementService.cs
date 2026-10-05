@@ -105,6 +105,38 @@ public sealed class MapMeasurementService : IDisposable
         }
     }
 
+    /// <summary>Converts a positive metric grid distance to projected CRS units; geographic CRS is not a planar metre grid.</summary>
+    public double MetresToGridUnits(double metres, string crs)
+    {
+        if (!double.IsFinite(metres) || metres <= 0)
+            throw new ArgumentException("Informe uma distância finita maior que zero.");
+        lock (_gate)
+        {
+            Configure(crs);
+            if (_geographic) throw new ArgumentException("Vetor polar e restrição em metros exigem um SRC projetado. Em SRC geográfico, use coordenadas.");
+            double units = metres / _metresPerUnit;
+            if (!double.IsFinite(units)) throw new ArgumentException("Distância fora do intervalo suportado.");
+            return units;
+        }
+    }
+
+    /// <summary>Projects a metric grid vector clockwise from grid north, returning local screen-Y-down coordinates.</summary>
+    public SKPoint ProjectGridVector(SKPoint start, double metres, double azimuthDegrees, string crs)
+    {
+        if (!float.IsFinite(start.X) || !float.IsFinite(start.Y) || !double.IsFinite(azimuthDegrees))
+            throw new ArgumentException("Coordenada ou azimute inválido.");
+        double units = MetresToGridUnits(metres, crs);
+        double radians = (azimuthDegrees % 360d) * Math.PI / 180d;
+        double east = Math.Sin(radians), north = Math.Cos(radians);
+        // Suppress trig residue at cardinal bearings, which could disguise a collapsed vector.
+        if (Math.Abs(east) < 1e-15) east = 0;
+        if (Math.Abs(north) < 1e-15) north = 0;
+        var point = new SKPoint((float)(start.X + units * east), (float)(start.Y - units * north));
+        if (!float.IsFinite(point.X) || !float.IsFinite(point.Y) || point == start)
+            throw new ArgumentException("O ponto excede o alcance ou a precisão das coordenadas locais.");
+        return point;
+    }
+
     /// <summary>Grid bearing, clockwise from north; local Y points south.</summary>
     public static double? GridAzimuth(SKPoint start, SKPoint end)
     {

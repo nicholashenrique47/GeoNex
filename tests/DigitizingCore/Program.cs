@@ -222,4 +222,90 @@ Check(geodesicArea.AreaSquareMetres is > 4500 and < 6000 && geodesicArea.Geodesi
 Check(MapMeasurementService.GridAzimuth(new(0, 0), new(1, 0)) == 90,
     "Grid azimuth must be clockwise from north in the local Y-down frame.");
 
+foreach (var corner in new SKPoint[] { new(12, 7), new(-12, 7), new(12, -7), new(-12, -7) })
+{
+    var rectangle = SketchConstruction.Build(ConstructionMode.Rectangle, [new(0, 0), corner]);
+    var shape = DigitizingGeometry.Create(DigitizingGeometry.Kind.Polygon, rectangle.Select(p => new Coordinate(p.X, p.Y)));
+    Check(shape.IsValid && shape.Area == 84, "Rectangles must work in all four drag directions.");
+    var preview = SketchConstruction.Preview(ConstructionMode.Rectangle, [new(0, 0)], corner);
+    Check(preview.Closed && preview.Points.SequenceEqual(rectangle), "Preview and committed rectangle must match exactly.");
+}
+foreach (float side in new[] { -1f, 1f })
+{
+    SKPoint[] controls = [new(10, 20), new(13, 24), new(10 - 8 * side, 20 + 6 * side)];
+    var oriented = SketchConstruction.Build(ConstructionMode.OrientedRectangle, controls);
+    var shape = DigitizingGeometry.Create(DigitizingGeometry.Kind.Polygon, oriented.Select(p => new Coordinate(p.X, p.Y)));
+    Check(Math.Abs(shape.Area - 50) < 1e-5, "Oriented rectangle must preserve base times perpendicular width on either side.");
+    double dot = (oriented[1].X - oriented[0].X) * (oriented[2].X - oriented[1].X) +
+        (oriented[1].Y - oriented[0].Y) * (oriented[2].Y - oriented[1].Y);
+    Check(Math.Abs(dot) < 1e-6, "Oriented rectangle adjacent sides must be perpendicular.");
+    var preview = SketchConstruction.Preview(ConstructionMode.OrientedRectangle, controls[..2], controls[2]);
+    Check(preview.Closed && preview.Points.SequenceEqual(oriented), "Oriented preview must use the committed ring generator.");
+}
+var circle = SketchConstruction.Build(ConstructionMode.Circle, [new(20, 30), new(23, 34)]);
+var circleShape = DigitizingGeometry.Create(DigitizingGeometry.Kind.Polygon, circle.Select(p => new Coordinate(p.X, p.Y)));
+Check(circle.Length == 128 && circle[0] == new SKPoint(23, 34), "Circle must include the exact radius endpoint.");
+Check(circleShape.Area < Math.PI * 25 && circleShape.Area > Math.PI * 25 * 0.999,
+    "Inscribed circle approximation must have less than 0.1% area deficit.");
+Check(circle.All(p => Math.Abs(Math.Sqrt(Math.Pow(p.X - 20, 2) + Math.Pow(p.Y - 30, 2)) - 5) < 1e-5),
+    "All generated circle vertices must lie on the radius.");
+var ellipse = SketchConstruction.Build(ConstructionMode.Ellipse, [new(20, 30), new(25, 30), new(20, 34)]);
+var ellipseShape = DigitizingGeometry.Create(DigitizingGeometry.Kind.Polygon, ellipse.Select(p => new Coordinate(p.X, p.Y)));
+Check(ellipse.Length == 128 && ellipse[0] == new SKPoint(25, 30), "Ellipse must include the first axis endpoint.");
+Check(ellipseShape.Area < Math.PI * 5 * 4 && ellipseShape.Area > Math.PI * 5 * 4 * 0.999,
+    "Inscribed ellipse approximation must preserve the two-axis area.");
+Check(ellipse.All(p => Math.Abs(Math.Pow((p.X - 20) / 5, 2) + Math.Pow((p.Y - 30) / 4, 2) - 1) < 1e-5),
+    "Ellipse vertices must lie on the generated two-axis curve.");
+var pentagon = SketchConstruction.Build(ConstructionMode.RegularPolygon, [new(10, 20), new(20, 20)], 5);
+var pentagonShape = DigitizingGeometry.Create(DigitizingGeometry.Kind.Polygon, pentagon.Select(p => new Coordinate(p.X, p.Y)));
+Check(pentagon.Length == 5 && pentagon[0] == new SKPoint(20, 20), "Regular polygon must preserve the radius endpoint.");
+Check(Math.Abs(pentagonShape.Area - 237.76412907378838) < 1e-4, "Regular polygon must preserve the configured side count and radius.");
+var pentagonPreview = SketchConstruction.Preview(ConstructionMode.RegularPolygon, [new(10, 20)], new(20, 20), 5);
+Check(pentagonPreview.Closed && pentagonPreview.Points.SequenceEqual(pentagon), "Regular polygon preview must match the committed ring.");
+foreach (var mode in new[] { ConstructionMode.Rectangle, ConstructionMode.OrientedRectangle, ConstructionMode.Circle, ConstructionMode.Ellipse, ConstructionMode.RegularPolygon })
+{
+    Check(!SketchConstruction.Preview(mode, [], null).Closed, "Empty construction must stay incomplete.");
+    Check(!SketchConstruction.Preview(mode, [new(1, 1)], new(1, 1)).Closed, "Coincident controls must remain a guide, not a polygon.");
+    try { SketchConstruction.Build(mode, [new(0, 0)]); throw new Exception("Incomplete controls accepted"); }
+    catch (ArgumentException) { Check(true, "Incomplete construction rejected."); }
+}
+try { SketchConstruction.Build(ConstructionMode.Rectangle, [new(0, 0), new(0, 10)]); throw new Exception("Zero width accepted"); }
+catch (ArgumentException) { Check(true, "Zero width rejected."); }
+try { SketchConstruction.Build(ConstructionMode.OrientedRectangle, [new(0, 0), new(3, 4), new(6, 8)]); throw new Exception("Collinear controls accepted"); }
+catch (ArgumentException) { Check(true, "Collinear controls rejected."); }
+try { SketchConstruction.Build(ConstructionMode.Circle, [new(0, 0), new(float.NaN, 1)]); throw new Exception("NaN accepted"); }
+catch (ArgumentException) { Check(true, "Nonfinite controls rejected."); }
+try { SketchConstruction.Build(ConstructionMode.Ellipse, [new(0, 0), new(3, 0), new(6, 0)]); throw new Exception("Collinear ellipse accepted"); }
+catch (ArgumentException) { Check(true, "Collinear ellipse controls rejected."); }
+try { SketchConstruction.Build(ConstructionMode.RegularPolygon, [new(0, 0), new(3, 0)], 2); throw new Exception("Invalid side count accepted"); }
+catch (ArgumentOutOfRangeException) { Check(true, "Regular polygon side count rejected."); }
+var controlList = new List<SKPoint>();
+var controlHistory = new SketchVertexHistory<SKPoint>(controlList);
+controlHistory.Add(new(0, 0)); controlHistory.Add(new(10, 10));
+var ready = SketchConstruction.Build(ConstructionMode.Rectangle, controlList);
+controlHistory.Undo();
+Check(controlList.Count == 1 && !SketchConstruction.Preview(ConstructionMode.Rectangle, controlList, null).Closed,
+    "Undo must remove a control, not a generated corner.");
+controlHistory.Redo();
+Check(ready.SequenceEqual(SketchConstruction.Build(ConstructionMode.Rectangle, controlList)), "Redo must reconstruct the exact same polygon.");
+
+var polarMetric = measurements.ProjectGridVector(new(10, 20), 100, 90, "EPSG:31983");
+Check(Math.Abs(polarMetric.X - 110) < 1e-5 && Math.Abs(polarMetric.Y - 20) < 1e-5, "Polar input uses metre grid units and clockwise azimuth.");
+var polarFeet = measurements.ProjectGridVector(new(0, 0), 100, 0, "EPSG:2227");
+Check(Math.Abs(polarFeet.Y + 100 * 3937.0 / 1200.0) < 1e-4, "Polar metre input converts to US survey feet.");
+var polarWrapped = measurements.ProjectGridVector(new(10, 20), 100, 450, "EPSG:31983");
+Check(polarWrapped == polarMetric, "Azimuths normalize full rotations.");
+Check(Math.Abs(measurements.MetresToGridUnits(50, "EPSG:2227") - 50 * 3937d / 1200d) < 1e-8, "Distance constraint uses CRS units.");
+foreach (double invalidDistance in new[] { 0d, -1d, double.NaN, double.PositiveInfinity })
+{
+    try { measurements.ProjectGridVector(new(0, 0), invalidDistance, 90, "EPSG:31983"); throw new Exception("Invalid distance accepted"); }
+    catch (ArgumentException) { Check(true, "Invalid polar distance rejected."); }
+}
+try { measurements.ProjectGridVector(new(0, 0), 100, double.NaN, "EPSG:31983"); throw new Exception("Invalid azimuth accepted"); }
+catch (ArgumentException) { Check(true, "Invalid azimuth rejected."); }
+try { measurements.ProjectGridVector(new(0, 0), 100, 90, "EPSG:4326"); throw new Exception("Geographic grid metres accepted"); }
+catch (ArgumentException) { Check(true, "Geographic CRS rejects planar metre construction."); }
+try { measurements.ProjectGridVector(new(float.MaxValue, 0), 1, 90, "EPSG:31983"); throw new Exception("Collapsed vector accepted"); }
+catch (ArgumentException) { Check(true, "Float precision collapse rejected."); }
+
 Console.WriteLine($"Digitizing core contracts passed: {passed} assertions.");

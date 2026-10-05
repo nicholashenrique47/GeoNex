@@ -1092,7 +1092,7 @@ namespace GeoNex.Services
                             // estava pronto anulava o ganho em camadas grandes.
                             SKPath? cachedPolygonPath = null;
                             bool polygonCacheHit = false;
-                            if (!estiloCamada.ExibirRotulos && shp != null &&
+                            if (!estiloCamada.ExibirRotulos && shp != null && spatialIndexLease?.Resource.HasInMemoryFeatures != true &&
                                  layerFeaturesForRender is { Count: > 0 } && layerFeaturesForRender[0].Kind == GeometryKind.Polygon)
                             using (trace?.Measure("geometry", camadaAtual))
                             {
@@ -1160,6 +1160,29 @@ namespace GeoNex.Services
                                 // Consumir a lista diretamente remove uma copia/alocacao por frame
                                 // e, principalmente, nao elimina feicoes arbitrariamente.
                                 var feicoesList = feicoesVisiveis;
+
+                                if (arvores.HasInMemoryFeatures)
+                                {
+                                    // Owned editing paths have no SHP offset; never send them to the file parser.
+                                    canvas.SetMatrix(matriz);
+                                    foreach (var edited in feicoesVisiveis.Where(f => f.DataOffset < 100))
+                                    {
+                                        cancellationToken.ThrowIfCancellationRequested();
+                                        if (edited.Path is not { } ownedPath) continue;
+                                        if (edited.Kind == GeometryKind.Polygon)
+                                        {
+                                            if (!estiloCamada.PreenchimentoTransparente) canvas.DrawPath(ownedPath, pincelDinamicoFill);
+                                            if (!estiloCamada.BordaTransparente) canvas.DrawPath(ownedPath, pincelDinamicoBorda);
+                                        }
+                                        else if (edited.Kind == GeometryKind.Line) canvas.DrawPath(ownedPath, pincelDinamicoBorda);
+                                        else
+                                        {
+                                            using var dot = new SKPaint { Color = pincelDinamicoFill.Color, IsAntialias = true };
+                                            canvas.DrawCircle(edited.CentroidLocal, 4f / zoomReal, dot);
+                                        }
+                                    }
+                                    feicoesList = feicoesVisiveis.Where(f => f.DataOffset >= 100).ToList();
+                                }
                                 
                                 if (feicoesList.Count == 0) continue;
                                 
