@@ -40,8 +40,8 @@ public class ProjetoService
                     x[cursor + 1] = envelope.MinX; y[cursor + 1] = envelope.MaxY;
                     x[cursor + 2] = envelope.MaxX; y[cursor + 2] = envelope.MinY;
                     x[cursor + 3] = envelope.MaxX; y[cursor + 3] = envelope.MaxY;
-                    x[cursor + 4] = feature.CentroidLocal.X + offsetX;
-                    y[cursor + 4] = -feature.CentroidLocal.Y + offsetY;
+                    x[cursor + 4] = feature.CentroidLocalPrecise.X + offsetX;
+                    y[cursor + 4] = -feature.CentroidLocalPrecise.Y + offsetY;
                 }
 
                 Array.Clear(z, 0, pointCount);
@@ -61,9 +61,9 @@ public class ProjetoService
                     double maxY = Math.Max(Math.Max(y[cursor], y[cursor + 1]), Math.Max(y[cursor + 2], y[cursor + 3]));
                     var feature = features[first + local];
                     feature.EnvelopeWorld.Init(minX, maxX, minY, maxY);
-                    feature.CentroidLocal = new SkiaSharp.SKPoint(
-                        (float)(x[cursor + 4] - offsetX),
-                        -(float)(y[cursor + 4] - offsetY));
+                    feature.SetCentroidLocalPrecise(
+                        x[cursor + 4] - offsetX,
+                        offsetY - y[cursor + 4]);
                 }
             });
         Console.WriteLine($"[GEONEX PERF] Metadados reprojetados: features={features.Count}, workers={workers}, elapsed_ms={projectionTimer.Elapsed.TotalMilliseconds:F2}");

@@ -11,6 +11,7 @@ internal static class ExactPalettePngEncoder
     private const int MaximumColors = 256;
     private const int ProbeRows = 16;
     private const int MinimumRunLength = 16;
+    private const int StagingMaximumAverageRun = 128;
     private const long MinimumPixels = 2L * 1024 * 1024;
     private const long MaximumPixels = 32L * 1024 * 1024;
     private const long MaximumBudget = 16L * 1024 * 1024;
@@ -28,12 +29,12 @@ internal static class ExactPalettePngEncoder
             pixels.ColorType is not (SKColorType.Rgba8888 or SKColorType.Bgra8888)) return null;
         // MemoryStream capacity is at most twice its bounded payload; SKData
         // receives one exact-size copy. Reserve native codec/scratch overhead.
-        try { return Encode(pixels, (int)(remaining / 3), token); }
+        try { return Encode(pixels, remaining, token); }
         catch (PaletteBudgetException) { return null; }
         catch (OutOfMemoryException) { return null; }
     }
 
-    private static unsafe SKData? Encode(SKPixmap pixels, int maximumCompressedBytes, CancellationToken token)
+    private static unsafe SKData? Encode(SKPixmap pixels, long remainingBudget, CancellationToken token)
     {
         var indexes = new Dictionary<uint, byte>(MaximumColors);
         bool Index(uint color, out byte index)
@@ -59,23 +60,49 @@ internal static class ExactPalettePngEncoder
                 x += run < 0 ? row.Length - x : run;
             }
         }
+        // Retain exact indexes when the transient budget permits it. This avoids
+        // scanning RGBA and looking up every run twice, without retaining frames.
+        // Low-memory/large frames keep the bounded scanline path below.
+        int indexedBytes = checked((pixels.Width + 1) * pixels.Height);
+        // Sparse high-zoom frames already have cheap run lookup; avoid touching
+        // another full-frame allocation unless the probe predicts enough work.
+        bool stageIndexes = remainingBudget - indexedBytes >= EncoderOverhead &&
+            probeRuns > (long)pixels.Width * ProbeRows / StagingMaximumAverageRun;
+        using var staged = stageIndexes ? SKData.Create(indexedBytes) : null;
+        if (stageIndexes && staged == null) throw new OutOfMemoryException();
+        var indexed = staged == null ? Span<byte>.Empty : new Span<byte>((void*)staged.Data, indexedBytes);
+        int maximumCompressedBytes = (int)((remainingBudget - indexed.Length) / 3);
         // Validate the entire palette before spending CPU on compression.
         for (int y = 0; y < pixels.Height; y++)
         {
             token.ThrowIfCancellationRequested();
             var row = new ReadOnlySpan<uint>((byte*)address + (long)y * pixels.RowBytes, pixels.Width);
+            var target = staged == null ? Span<byte>.Empty : indexed.Slice(y * (pixels.Width + 1), pixels.Width + 1);
+            if (!target.IsEmpty) target[0] = 0;
             for (int x = 0; x < row.Length;)
             {
                 uint color = row[x];
-                if (!Index(color, out _)) return null;
+                if (!Index(color, out byte index)) return null;
                 int run = row[x..].IndexOfAnyExcept(color);
-                x += run < 0 ? row.Length - x : run;
+                if (run < 0) run = row.Length - x;
+                if (!target.IsEmpty) target.Slice(x + 1, run).Fill(index);
+                x += run;
             }
         }
         byte[] scanline = new byte[pixels.Width + 1]; // Filter None, followed by exact palette indexes.
         using var compressed = new BoundedMemoryStream(maximumCompressedBytes);
         using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
         {
+            if (staged != null)
+            {
+                const int compressionBlockBytes = 64 * 1024;
+                for (int offset = 0; offset < indexed.Length; offset += compressionBlockBytes)
+                {
+                    token.ThrowIfCancellationRequested();
+                    zlib.Write(indexed.Slice(offset, Math.Min(compressionBlockBytes, indexed.Length - offset)));
+                }
+            }
+            else
             for (int y = 0; y < pixels.Height; y++)
             {
                 token.ThrowIfCancellationRequested();

@@ -27,6 +27,7 @@ public static class GdalRuntimeBootstrap
 
             if (!OperatingSystem.IsWindows())
             {
+                GdalRuntimeConfiguration.Apply();
                 Gdal.AllRegister();
                 Ogr.RegisterAll();
                 _ecwReadAvailable = Gdal.GetDriverByName("ECW") != null;
@@ -58,6 +59,9 @@ public static class GdalRuntimeBootstrap
                 // O SDK ECW fica ao lado do plugin e precisa estar no diretório de
                 // busca enquanto o GDAL carrega os drivers dinâmicos.
                 RequireDllDirectory(pluginPath, "plugins GDAL");
+                // Configure o cache ECW antes de carregar o plugin: o SDK lê
+                // ECW_CACHE_MAXMEM durante a inicialização do driver.
+                GdalRuntimeConfiguration.Apply();
                 Gdal.AllRegister();
                 Ogr.RegisterAll();
             }

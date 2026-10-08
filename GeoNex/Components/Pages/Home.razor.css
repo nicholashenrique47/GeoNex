@@ -75,29 +75,99 @@
 .geonex-ui .tool-panels-toggle { display: none; }
 .measurement-workbench { display: grid; gap: 12px; }
 .precision-hud {
-    position: fixed; top: 0; left: 0; z-index: 4100; width: min(400px, calc(100vw - 16px));
-    max-height: calc(100vh - 72px); box-sizing: border-box; overflow: auto; padding: 12px;
-    pointer-events: auto; color: var(--tool-text); background: rgba(15, 24, 34, .98);
-    border: 1px solid #405367; border-radius: 11px; box-shadow: 0 16px 38px #0009;
+    --hud-accent: #79cffa;
+    --hud-accent-soft: rgba(80, 174, 225, .12);
+    position: fixed; top: 0; left: 0; z-index: 4100; width: min(320px, calc(100vw - 16px));
+    box-sizing: border-box; padding: 11px;
+    pointer-events: auto; color: var(--tool-text);
+    background: linear-gradient(145deg, rgba(20, 31, 44, .985), rgba(13, 21, 31, .985));
+    border: 1px solid #405367; border-radius: 13px; box-shadow: 0 18px 42px #0008, 0 2px 8px #0005, inset 0 1px #ffffff0a;
     backdrop-filter: blur(14px); will-change: transform;
 }
-.precision-hud-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -2px -2px 12px; cursor: grab; touch-action: none; user-select: none; }
+.precision-hud, .precision-hud * { box-sizing: border-box; }
+.precision-hud::before { position: absolute; top: 0; left: 24px; right: 24px; height: 1px; content: ""; background: linear-gradient(90deg, transparent, var(--hud-accent), transparent); opacity: .8; }
+.precision-hud-coordinate { --hud-accent: #77caff; --hud-accent-soft: rgba(76, 165, 228, .12); }
+.precision-hud-cogo { --hud-accent: #71dfbd; --hud-accent-soft: rgba(70, 190, 151, .11); }
+.precision-hud-heading { position: relative; display: flex; align-items: center; gap: 9px; margin: 0 0 8px; padding: 3px 0 9px; border-bottom: 1px solid #ffffff12; cursor: grab; touch-action: none; user-select: none; }
+.precision-hud-heading::before { position: absolute; top: -7px; left: calc(50% - 13px); width: 26px; height: 2px; border-radius: 99px; background: #71839766; content: ""; }
 .precision-hud-heading:active { cursor: grabbing; }
-.precision-hud-heading > div { display: grid; gap: 3px; }
-.precision-hud-heading strong { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; }
-.precision-eyebrow { color: var(--tool-muted); font-size: 9px; font-weight: 650; letter-spacing: .8px; }
-.precision-hud kbd { padding: 2px 5px; border: 1px solid #42576c; border-radius: 4px; background: #202e3d; color: #c8d7e5; font: 10px 'Segoe UI', sans-serif; }
-.precision-close { display: grid; flex: 0 0 30px; width: 30px; height: 30px; place-items: center; border: 1px solid var(--tool-line); border-radius: 7px; color: var(--tool-muted); background: #182431; font: 20px/1 'Segoe UI', sans-serif; cursor: pointer; }
-.precision-close:hover { color: #fff; border-color: #8b5860; background: #39272c; }
-.precision-form, .precision-constraint { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto; gap: 10px; align-items: end; }
-.precision-form label, .precision-constraint label { display: grid; gap: 6px; color: var(--tool-muted); font-size: 11px; }
-.precision-hud input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 36px; padding: 7px 10px; font: 13px 'Segoe UI', sans-serif; color: var(--tool-text); border: 1px solid #42576c; border-radius: 7px; background: #0e1721; }
-.precision-form small { grid-column: 1 / -1; color: var(--tool-muted); font-size: 11px; }
-.precision-constraint { margin-top: 14px; border-top: 1px solid var(--tool-line); padding-top: 12px; }
+.precision-heading-icon { display: grid; flex: 0 0 34px; width: 34px; height: 34px; place-items: center; color: var(--hud-accent); border: 1px solid color-mix(in srgb, var(--hud-accent) 28%, transparent); border-radius: 10px; background: var(--hud-accent-soft); }
+.precision-heading-icon svg { width: 18px; height: 18px; }
+.precision-heading-copy { display: grid; flex: 1 1 auto; min-width: 0; gap: 3px; }
+.precision-heading-copy strong { display: flex; align-items: center; gap: 7px; color: #f0f5f9; font-size: 12px; font-weight: 650; line-height: 1.2; }
+.precision-heading-copy small { overflow: hidden; color: var(--tool-muted); font-size: 9px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.precision-eyebrow { color: var(--hud-accent); font-size: 8px; font-weight: 700; letter-spacing: .9px; }
+.precision-hud kbd { padding: 2px 5px; border: 1px solid #506175; border-radius: 5px; background: #202d3b; color: #d4e0eb; font: 9px 'Segoe UI', sans-serif; box-shadow: inset 0 -1px #0005; }
+.precision-close { display: grid; flex: 0 0 26px; width: 26px; height: 26px; place-items: center; border: 1px solid transparent; border-radius: 8px; color: #9aabba; background: transparent; font: 19px/1 'Segoe UI', sans-serif; cursor: pointer; transition: color .14s, border-color .14s, background .14s; }
+.precision-close:hover { color: #fff; border-color: #8b586055; background: #39272c; }
+.precision-form { display: grid; gap: 6px; }
+.precision-hud-coordinate .precision-form,
+.precision-hud-cogo .precision-form { grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 6px; }
+.precision-srs-picker { display: grid; min-width: 0; gap: 4px; padding: 0 1px 2px; color: #a9bac8; font-size: 9px; font-weight: 650; }
+.precision-srs-value { display: flex; min-width: 0; min-height: 30px; align-items: center; overflow: hidden; padding: 5px 9px; border: 1px solid #344959; border-radius: 7px; background: linear-gradient(180deg, #14212c, #101a23); color: #dce8ef; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.precision-hud-coordinate .precision-form-actions,
+.precision-hud-cogo .precision-form-actions { align-items: stretch; }
+.precision-hud-coordinate .precision-form-actions .workbench-button,
+.precision-hud-cogo .precision-form-actions .workbench-button { width: 100%; min-width: 0; min-height: 33px; padding: 6px 10px; }
+.precision-lock-state { display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid #4ab99455; border-radius: 8px; background: #18372f; color: #a9eed8; }
+.precision-lock-state strong { overflow: hidden; flex: 1 1 auto; font-size: 9px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.precision-lock-indicator { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #3de69e; box-shadow: 0 0 0 3px #3de69e1c, 0 0 10px #3de69e88; }
+.precision-unlock { min-height: 25px; padding: 3px 8px; border: 1px solid #4ab99455; border-radius: 6px; background: #0d231e; color: #c2f3e2; font: 600 9px 'Segoe UI', sans-serif; cursor: pointer; }
+.precision-unlock:hover { border-color: #71dfbd; background: #20483c; }
+.precision-hint.is-locked { border-color: #4ab99435; background: #18372f44; }
+.precision-hint.is-locked .precision-hint-icon { color: #71dfbd; border-color: #71dfbd66; }
+.precision-field-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
+.precision-field { display: grid; grid-template-columns: minmax(92px, .62fr) minmax(0, 1fr); align-items: center; min-width: 0; gap: 8px; padding: 5px 8px; border: 1px solid #ffffff12; border-radius: 9px; background: #ffffff04; transition: border-color .14s, background .14s, box-shadow .14s; }
+.precision-field:focus-within { border-color: color-mix(in srgb, var(--hud-accent) 60%, #405367); background: var(--hud-accent-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hud-accent) 12%, transparent); }
+.precision-field-label { display: grid; align-content: center; gap: 2px; min-width: 0; }
+.precision-field-label strong { overflow: hidden; color: #e8eef4; font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.precision-field-label small { overflow: hidden; color: #8fa1b2; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.precision-input-shell { position: relative; display: flex; min-width: 0; align-items: center; }
+.precision-hud input { display: block; width: 100%; min-width: 0; box-sizing: border-box; min-height: 34px; padding: 6px 9px; font: 500 12px 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; color: #f1f6fa; border: 1px solid #34475a; border-radius: 7px; background: #0a121b; transition: border-color .14s, background .14s; }
+.precision-hud input:hover:not(:disabled) { border-color: #536b80; }
+.precision-hud input:disabled { color: #758493; background: #111a24; opacity: .7; }
+.precision-input-shell:focus-within input { border-color: var(--hud-accent); background: #0b1720; }
+.precision-axis, .precision-unit { position: absolute; z-index: 1; display: grid; min-width: 18px; height: 18px; place-items: center; color: var(--hud-accent); border-radius: 5px; background: var(--hud-accent-soft); font-size: 9px; font-weight: 700; pointer-events: none; }
+.precision-axis { left: 9px; }
+.precision-axis + input { padding-left: 37px; }
+.precision-unit { right: 9px; min-width: 22px; color: #9aabba; background: #263544; font-weight: 600; }
+.precision-input-shell:has(.precision-unit) input { padding-right: 38px; }
+.precision-form-actions { display: flex; justify-content: flex-end; }
+.precision-hud .workbench-button.primary { display: inline-flex; min-height: 33px; align-items: center; justify-content: center; gap: 7px; padding: 6px 10px; border-radius: 8px; box-shadow: 0 4px 12px color-mix(in srgb, var(--hud-accent) 14%, transparent); font-size: 10px; }
+.precision-hud .workbench-button.primary svg { width: 14px; height: 14px; }
+.precision-hud .workbench-button.primary:disabled { box-shadow: none; }
+.precision-hint { display: flex; align-items: flex-start; gap: 7px; min-width: 0; padding: 6px 8px; color: #a9bac8; border: 1px solid transparent; border-radius: 8px; background: #ffffff05; font-size: 9px; line-height: 1.35; }
+.precision-hint strong { color: #d9e6ee; font-weight: 600; }
+.precision-hint-copy { display: grid; flex: 1 1 auto; min-width: 0; gap: 2px; }
+.precision-srs-row { display: flex; min-width: 0; align-items: center; gap: 5px; color: #8da4b6; font-size: 8px; }
+.precision-srs { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; color: #d9e6ee; text-overflow: ellipsis; white-space: nowrap; }
+.precision-hint-secondary { overflow: hidden; color: #9aabba; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.precision-hint-icon { display: grid; flex: 0 0 15px; width: 15px; height: 15px; place-items: center; color: var(--hud-accent); border: 1px solid color-mix(in srgb, var(--hud-accent) 35%, transparent); border-radius: 50%; font: 700 9px/1 'Segoe UI', sans-serif; }
+.precision-hint-divider { padding: 0 5px; color: #627588; }
+.precision-hint.is-prompt { color: #e4c998; border-color: #c3944229; background: #7e581a17; }
+.precision-hint.is-prompt .precision-hint-icon { color: #efc46e; border-color: #efc46e55; }
+.precision-constraint { display: block; margin-top: 7px; overflow: hidden; border: 1px solid #ffffff12; border-radius: 9px; background: #ffffff03; }
+.precision-constraint-heading { display: flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #ffffff12; }
+.precision-constraint-heading > div { display: grid; gap: 2px; }
+.precision-constraint-heading strong { color: #dce6ee; font-size: 10px; font-weight: 650; }
+.precision-constraint-heading small { color: #8fa1b2; font-size: 8px; }
+.constraint-state { padding: 4px 7px; color: #9aaaba; border: 1px solid #ffffff14; border-radius: 99px; background: #ffffff05; font-size: 8px; font-weight: 700; letter-spacing: .7px; }
+.constraint-state.active { color: #9ee8cf; border-color: #4ab99445; background: #2f8b6c20; }
+.precision-constraint-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 7px 8px 8px; }
+.precision-field.compact-field { padding: 4px 7px; }
+.precision-constraint .gis-select { width: 100%; min-width: 0; min-height: 33px; box-sizing: border-box; padding: 6px 24px 6px 8px; color: #e8eef4; border: 1px solid #34475a; border-radius: 7px; background-color: #0a121b; font: 10px 'Segoe UI', sans-serif; }
+.geonex-ui .precision-hud .constraint-toggle { width: 100%; min-height: 32px; justify-content: center; padding: 5px 8px; font-size: 9px; }
+.geonex-ui .precision-hud .constraint-toggle.is-active { color: #a9eed8; border-color: #4ab99455; background: #18372f; }
 @media (max-width: 600px) {
-    .precision-hud { padding: 10px; }
-    .precision-form, .precision-constraint { grid-template-columns: 1fr; }
-    .precision-form small { grid-column: 1; }
+    .precision-hud { padding: 9px; }
+    .precision-field { grid-template-columns: minmax(74px, .52fr) minmax(0, 1fr); gap: 6px; padding: 4px 6px; }
+    .precision-heading-copy small { max-width: 210px; }
+}
+@media (max-height: 680px) {
+    .precision-hud { padding: 8px; }
+    .precision-hud-heading { margin-bottom: 6px; padding-bottom: 6px; }
+    .precision-field { min-height: 39px; }
+    .precision-constraint { margin-top: 5px; }
 }
 .measurement-state { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; font-size: 11px; color: var(--tool-muted); padding: 8px 10px; background: #0e1721; border-radius: 6px; }
 .measurement-state.confirmed { color: #a6ecd7; background: #1c3f35; }
@@ -251,6 +321,7 @@
 .geonex-ui.identify-panel-open .workspace-area > .right-panel .properties-content { display: block; min-width: 0; min-height: 0; flex: 1 1 auto; overflow: auto; }
 .geonex-ui.layers-panel-open .workspace-area > .left-panel .layer-list { padding: 8px; }
 .geonex-ui .workspace-area > .left-panel .layer-item {
+    position: relative;
     min-width: 0; min-height: 36px; gap: 7px; margin-bottom: 5px; padding: 6px;
     border: 1px solid #1d2b39; border-radius: 7px; background: #121d28; font-size: 11px;
 }
@@ -346,3 +417,809 @@
 @media (prefers-reduced-motion: reduce) {
     .geonex-ui .workspace-area > .side-panel { transition: none; }
 }
+
+/* Painéis compactos com redimensionamento independente do mapa. */
+.geonex-ui.layers-panel-open .workspace-area > .left-panel,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel {
+    top: auto;
+    bottom: 0;
+    height: var(--dock-panel-height, 50%);
+    min-height: min(180px, calc(100% - 8px));
+    max-height: calc(100% - 8px) !important;
+    overflow: visible;
+    transition: width .16s ease, box-shadow .16s ease;
+}
+.geonex-ui .panel-resize-handle { display: none; }
+.geonex-ui.layers-panel-open .left-panel > .panel-resize-handle,
+.geonex-ui.identify-panel-open .right-panel > .panel-resize-handle {
+    position: absolute;
+    z-index: 2;
+    left: 50%;
+    top: -6px;
+    bottom: auto;
+    display: block;
+    width: 64px;
+    height: 12px;
+    box-sizing: border-box;
+    appearance: none;
+    transform: translateX(-50%);
+    border: 1px solid #43596d;
+    border-radius: 999px;
+    background: #192735;
+    box-shadow: 0 3px 10px #0005;
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+}
+.geonex-ui .panel-resize-handle::before {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    width: 24px;
+    height: 2px;
+    transform: translateX(-50%);
+    border-radius: 2px;
+    background: #91a6b8;
+    content: "";
+}
+.geonex-ui .panel-resize-handle:hover,
+.geonex-ui .panel-resize-handle.is-resizing,
+.geonex-ui .panel-resize-handle:focus-visible {
+    border-color: #70e2bf;
+    background: #1c3f35;
+}
+.geonex-ui .panel-resize-handle:hover::before,
+.geonex-ui .panel-resize-handle.is-resizing::before,
+.geonex-ui .panel-resize-handle:focus-visible::before { background: #b2f5df; }
+
+/* Menus exclusivos e submenus em fluxo, sem cascatas que cubram outras ferramentas. */
+.geonex-ui .top-bar { position: relative; z-index: 4300; overflow: visible; }
+.geonex-ui .menu-dismiss-layer {
+    position: fixed;
+    z-index: 4200;
+    inset: 64px 0 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: default;
+}
+.geonex-ui .main-menu > .dropdown:not(.is-open) > .dropdown-content { display: none !important; }
+.geonex-ui .main-menu > .dropdown.is-open > .dropdown-content { display: block !important; }
+.geonex-ui.app-dropdown-open.is-digitizing .tool-workbench { top: 250px; }
+.geonex-ui .main-menu > .dropdown > .dropdown-content {
+    top: calc(100% + 5px);
+    z-index: 4400;
+    width: min(260px, calc(100vw - 24px));
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    box-sizing: border-box;
+    max-height: calc(100vh - 76px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid #34495d;
+    border-radius: 9px;
+    box-shadow: 0 14px 32px #0008;
+    scrollbar-color: #526b7d transparent;
+    scrollbar-width: thin;
+}
+.geonex-ui .dropdown-submenu::after { display: none; }
+.geonex-ui .dropdown-content .dropdown-submenu,
+.geonex-ui .dropdown-content button,
+.geonex-ui .dropdown-content .drop-item,
+.geonex-ui .dropdown-content .submenu-btn {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.geonex-ui .dropdown-content .dropdown-submenu { width: 100%; }
+.geonex-ui .dropdown-content .dropdown-submenu > .submenu-content {
+    position: static;
+    display: none !important;
+    width: calc(100% - 10px);
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    max-height: none;
+    margin: 2px 0 7px 10px;
+    padding: 4px;
+    overflow: hidden;
+    border: 0;
+    border-left: 1px solid #3c5368;
+    border-radius: 0 7px 7px 0;
+    background: #101923;
+    box-shadow: none;
+}
+.geonex-ui .dropdown-content .dropdown-submenu:hover > .submenu-content,
+.geonex-ui .dropdown-content .dropdown-submenu:focus-within > .submenu-content { display: block !important; }
+.geonex-ui .dropdown-content .dropdown-submenu > .submenu-btn { min-height: 38px; border-radius: 6px; }
+.geonex-ui .menu-btn[aria-expanded="true"] { color: #b9f5e3; background: #1a2a35; }
+
+/* O modo simples prioriza destino e conclusão; controles avançados ficam no modo avançado. */
+.geonex-ui.is-digitizing.digitizing-simple .sketch-actions .workbench-button:disabled,
+.geonex-ui.is-digitizing.digitizing-simple .sketch-actions .precision-shortcut { display: none; }
+.geonex-ui.is-digitizing.digitizing-simple .workbench-heading { gap: 10px; }
+.geonex-ui.is-digitizing.digitizing-simple .tool-identity > div { display: grid; gap: 2px; }
+.geonex-ui.is-digitizing.digitizing-simple .tool-identity h2 { font-size: 13px; line-height: 1.1; }
+.geonex-ui.is-digitizing.digitizing-simple .tool-identity span:not(.tool-symbol) { font-size: 10px; }
+.geonex-ui.is-digitizing.digitizing-simple .destination-field { gap: 3px; color: #b5c3d0; font-size: 10px; }
+.geonex-ui.is-digitizing.digitizing-simple .destination-field .gis-select { min-height: 32px; }
+.geonex-ui.is-digitizing.digitizing-simple .workbench-button.primary { box-shadow: 0 2px 10px #70e2bf24; }
+
+/* Modo avançado: operações no topo e controles agrupados como uma bancada de GIS. */
+.geonex-ui.is-digitizing.digitizing-advanced .tool-workbench {
+    width: min(1220px, calc(100vw - var(--digitizing-left-inset) - var(--digitizing-right-inset)));
+    max-height: none;
+    overflow: visible;
+    border-color: #3b5266;
+    background: linear-gradient(155deg, rgba(17, 28, 40, .98), rgba(12, 20, 30, .98));
+}
+.geonex-ui.is-digitizing.digitizing-advanced .workbench-heading {
+    display: grid;
+    grid-template-columns: auto auto minmax(170px, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: linear-gradient(105deg, #162632, #111b26 68%);
+}
+.geonex-ui.is-digitizing.digitizing-advanced .tool-identity { min-width: 130px; }
+.geonex-ui.is-digitizing.digitizing-advanced .digitizing-mode { grid-column: 2; grid-row: 1; }
+.geonex-ui.is-digitizing.digitizing-advanced .destination-field {
+    grid-column: 3;
+    grid-row: 1;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+}
+.geonex-ui.is-digitizing.digitizing-advanced .sketch-actions {
+    grid-column: 4;
+    grid-row: 1;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    margin: 0;
+}
+.sketch-history-actions { display: flex; align-items: center; gap: 4px; }
+.geonex-ui.is-digitizing.digitizing-advanced .history-icon-button { width: 32px; min-width: 32px; padding: 4px; font-size: 18px; line-height: 1; }
+.workbench-action-divider { width: 1px; height: 23px; margin: 0 3px; background: #405366; }
+.geonex-ui.is-digitizing.digitizing-advanced .precision-shortcut { display: inline-flex; align-items: center; gap: 5px; }
+.geonex-ui .workbench-button kbd { padding: 2px 4px; border: 1px solid #52667a; border-radius: 4px; background: #111b26; color: #d4e1eb; font: 9px 'Segoe UI', sans-serif; }
+.geonex-ui.is-digitizing.digitizing-advanced .workbench-button.primary kbd { border-color: #184f46; background: #b4f2dd; color: #164237; }
+.geonex-ui.is-digitizing.digitizing-advanced .workbench-controls.advanced-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(180px, .8fr) minmax(230px, 1fr);
+    align-items: stretch;
+    gap: 9px;
+    padding: 11px 12px;
+    background: #0f1822;
+}
+.advanced-control-group {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 9px;
+    padding: 10px;
+    border: 1px solid #2c4051;
+    border-radius: 9px;
+    background: linear-gradient(155deg, #162330, #121d28);
+}
+.advanced-group-heading { display: flex; min-width: 0; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #ffffff0d; }
+.advanced-group-index { display: grid; flex: 0 0 25px; width: 25px; height: 25px; place-items: center; border: 1px solid #40576b; border-radius: 7px; background: #1b2b39; color: #8ba3b5; font-size: 9px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.advanced-group-heading > div { display: grid; min-width: 0; gap: 2px; }
+.advanced-group-heading strong { color: #e4edf4; font-size: 11px; font-weight: 700; }
+.advanced-group-heading small, .advanced-control-help { color: #91a5b6; font-size: 9px; line-height: 1.35; }
+.advanced-construction-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.advanced-construction-fields .construction-field { width: auto; min-width: 0; flex: 1 1 auto; }
+.advanced-fixed-geometry { display: grid; min-height: 37px; align-content: center; gap: 3px; padding: 0 10px; border: 1px solid #33485a; border-radius: 7px; background: #0d1721; }
+.advanced-fixed-geometry strong { color: #e3edf4; font-size: 11px; }
+.advanced-fixed-geometry small { color: #91a5b6; font-size: 9px; }
+.advanced-control-help { margin-top: auto; }
+.geonex-ui.is-digitizing.digitizing-advanced .advanced-cogo-button { display: inline-flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 8px; padding-inline: 10px; border-color: #356257; background: #18352f; color: #c9f5e6; }
+.advanced-cogo-icon { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 6px; background: #245044; color: #8de8c9; font-size: 17px; }
+.geonex-ui.is-digitizing.digitizing-advanced .workbench-details { width: 100%; min-width: 0; }
+.geonex-ui.is-digitizing.digitizing-advanced .workbench-details summary { min-height: 38px; border-color: #354b5e; background: #172634; }
+.advanced-snap-icon { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 6px; background: #203b4c; color: #84d5f0; font-size: 16px; }
+.geonex-ui.is-digitizing.digitizing-advanced .setting-count { margin-left: auto; padding: 3px 7px; border: 1px solid #397b68; border-radius: 99px; background: #19392f; color: #a8f0d6; font-variant-numeric: tabular-nums; }
+.geonex-ui.is-digitizing.digitizing-advanced .workbench-details[open] { flex-basis: auto; }
+.geonex-ui.is-digitizing.digitizing-advanced .snap-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    left: auto;
+    z-index: 3600;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 5px;
+    width: min(320px, calc(100vw - 32px));
+    max-height: min(62vh, 430px);
+    margin: 0;
+    overflow: auto;
+    border-color: #40566a;
+    border-radius: 10px;
+    background: #111c28;
+    box-shadow: 0 16px 38px #0009;
+}
+.geonex-ui.is-digitizing.digitizing-advanced .snap-menu .settings-title { padding: 3px 2px 7px; }
+.geonex-ui.is-digitizing.digitizing-advanced .snap-menu .snap-toggle,
+.geonex-ui.is-digitizing.digitizing-advanced .snap-menu label { min-height: 34px; }
+.geonex-ui.is-digitizing.digitizing-advanced .snap-menu .tolerance-field { display: grid; grid-template-columns: minmax(0, 1fr) 126px; align-items: center; gap: 10px; }
+.geonex-ui.is-digitizing.digitizing-advanced .construction-hint { grid-column: 1 / -1; }
+.geonex-ui.is-digitizing.digitizing-advanced .workbench-footer { padding: 7px 12px; }
+
+@media (max-width: 1100px) {
+    .geonex-ui.is-digitizing.digitizing-advanced .workbench-heading { grid-template-columns: minmax(0, 1fr) auto; }
+    .geonex-ui.is-digitizing.digitizing-advanced .tool-identity { grid-column: 1; grid-row: 1; }
+    .geonex-ui.is-digitizing.digitizing-advanced .digitizing-mode { grid-column: 2; grid-row: 1; }
+    .geonex-ui.is-digitizing.digitizing-advanced .destination-field { grid-column: 1 / -1; grid-row: 2; }
+    .geonex-ui.is-digitizing.digitizing-advanced .sketch-actions { grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; padding-top: 8px; border-top: 1px solid #263746; }
+    .geonex-ui.is-digitizing.digitizing-advanced .workbench-controls.advanced-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .geonex-ui.is-digitizing.digitizing-advanced .advanced-snap-group { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+    .geonex-ui.layers-panel-open.is-digitizing .workspace-area > .left-panel,
+    .geonex-ui.identify-panel-open.is-digitizing .workspace-area > .right-panel {
+        top: auto;
+        bottom: 0;
+        height: var(--dock-panel-height, calc((100% - 84px) / 2));
+        min-height: min(180px, calc(100% - 84px));
+        max-height: calc(100% - 84px) !important;
+    }
+    .geonex-ui.is-digitizing.digitizing-advanced .tool-workbench { top: 64px; width: calc(100vw - 100px); max-width: calc(100vw - 100px); max-height: calc(100vh - 84px); overflow: auto; }
+    .geonex-ui.is-digitizing.digitizing-advanced .workbench-controls.advanced-controls { grid-template-columns: minmax(0, 1fr); }
+    .geonex-ui.is-digitizing.digitizing-advanced .advanced-snap-group { grid-column: 1; }
+    .geonex-ui.is-digitizing.digitizing-advanced .snap-options[open] .snap-menu { position: static; width: auto; max-height: 42vh; margin-top: 8px; box-shadow: none; }
+}
+@media (max-width: 520px) {
+    .geonex-ui.is-digitizing.digitizing-advanced .workbench-heading { grid-template-columns: minmax(0, 1fr) auto; }
+    .geonex-ui.is-digitizing.digitizing-advanced .tool-identity { min-width: 0; }
+    .geonex-ui.is-digitizing.digitizing-advanced .sketch-actions { display: flex; flex-wrap: wrap; }
+    .geonex-ui.is-digitizing.digitizing-advanced .sketch-actions .workbench-button { flex: 1 1 auto; }
+    .geonex-ui.is-digitizing.digitizing-advanced .advanced-construction-fields { grid-template-columns: minmax(0, 1fr) 66px; }
+}
+@media (max-width: 1000px) {
+    .geonex-ui.show-app-menu .main-menu > .dropdown.is-open {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+    .geonex-ui.show-app-menu .main-menu > .dropdown.is-open > .dropdown-content {
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .geonex-ui.app-dropdown-open.is-digitizing .tool-workbench,
+    .geonex-ui.show-app-menu.is-digitizing .tool-workbench {
+        top: calc(60px + 55vh + 8px);
+        max-height: calc(100vh - 60px - 55vh - 36px);
+    }
+}
+@media (max-width: 520px) {
+    .geonex-ui.is-digitizing.digitizing-advanced .workbench-heading { grid-template-columns: minmax(0, 1fr) auto; }
+    .geonex-ui.is-digitizing.digitizing-advanced .tool-identity { min-width: 0; }
+    .geonex-ui.is-digitizing.digitizing-advanced .sketch-actions { display: flex; flex-wrap: wrap; justify-content: flex-start; }
+    .geonex-ui.is-digitizing.digitizing-advanced .sketch-actions .workbench-button { flex: 1 1 auto; }
+    .geonex-ui.is-digitizing.digitizing-advanced .workbench-controls { grid-template-columns: minmax(0, 1fr); }
+    .geonex-ui.is-digitizing.digitizing-advanced .construction-field,
+    .geonex-ui.is-digitizing.digitizing-advanced .construction-hint,
+    .geonex-ui.is-digitizing.digitizing-advanced .workbench-details[open] { grid-column: 1; }
+}
+
+/* Docks e navegação com hierarquia visual de um GIS de produção. */
+.geonex-ui {
+    --dock-surface: #111b26;
+    --dock-raised: #172431;
+    --dock-outline: rgba(138, 164, 185, .2);
+    --dock-accent-soft: rgba(112, 226, 191, .1);
+}
+.geonex-ui .workspace-area > .side-panel {
+    border: 1px solid var(--dock-outline);
+    border-radius: 12px;
+    background: linear-gradient(160deg, rgba(19, 31, 43, .98), rgba(13, 21, 30, .98));
+}
+.geonex-ui.layers-panel-open .workspace-area > .left-panel,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel {
+    border-color: rgba(132, 160, 181, .25);
+    border-radius: 12px;
+    box-shadow: 0 18px 46px rgba(1, 7, 12, .42), 0 2px 10px rgba(1, 7, 12, .22);
+    backdrop-filter: blur(16px) saturate(120%);
+}
+.geonex-ui.layers-panel-open .workspace-area > .left-panel > .panel-header,
+.geonex-ui.identify-panel-open .workspace-area > .right-panel > .panel-header {
+    height: 56px;
+    min-height: 56px;
+    gap: 10px;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(138, 164, 185, .16);
+    background: linear-gradient(180deg, rgba(25, 39, 53, .96), rgba(19, 31, 43, .96));
+}
+.geonex-ui.layers-panel-open .panel-dock-toggle,
+.geonex-ui.identify-panel-open .panel-dock-toggle {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 30px;
+    color: #91a6b7;
+    border: 1px solid rgba(138, 164, 185, .14);
+    border-radius: 8px;
+    background: rgba(8, 15, 22, .38);
+    transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.geonex-ui.layers-panel-open .panel-dock-toggle:hover,
+.geonex-ui.identify-panel-open .panel-dock-toggle:hover {
+    color: #dce8ef;
+    border-color: rgba(112, 226, 191, .34);
+    background: var(--dock-accent-soft);
+}
+.geonex-ui .workspace-area > .left-panel .panel-heading-copy { display: none; }
+.geonex-ui.layers-panel-open .workspace-area > .left-panel .panel-heading-copy { display: flex; }
+.geonex-ui .panel-heading-copy { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: 8px; }
+.geonex-ui.layers-panel-open .panel-heading-copy h2,
+.geonex-ui.identify-panel-open .panel-header h2 {
+    display: block;
+    min-width: 0;
+    margin: 0;
+    color: #e6eef4;
+    font: 650 13px/1.2 'Segoe UI', system-ui, sans-serif;
+    letter-spacing: -.01em;
+    text-transform: none;
+}
+.geonex-ui .panel-count {
+    display: inline-grid;
+    min-width: 22px;
+    height: 22px;
+    box-sizing: border-box;
+    place-items: center;
+    padding: 0 6px;
+    border: 1px solid rgba(138, 164, 185, .16);
+    border-radius: 7px;
+    background: rgba(5, 12, 18, .34);
+    color: #9cafbd;
+    font: 600 10px/1 'Segoe UI', system-ui, sans-serif;
+}
+.geonex-ui.layers-panel-open .header-actions { display: flex; align-items: center; margin-left: auto; }
+.geonex-ui.layers-panel-open .header-actions .icon-action-btn {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(112, 226, 191, .25);
+    border-radius: 8px;
+    background: var(--dock-accent-soft);
+    color: #8de3c8;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.geonex-ui.layers-panel-open .header-actions .icon-action-btn:hover {
+    transform: translateY(-1px);
+    border-color: rgba(112, 226, 191, .55);
+    background: rgba(112, 226, 191, .16);
+}
+.geonex-ui.layers-panel-open .workspace-area > .left-panel .layer-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    padding: 10px;
+    overflow: auto;
+    background: rgba(7, 13, 19, .2);
+}
+.geonex-ui .workspace-area > .left-panel .layer-item {
+    min-height: 42px;
+    box-sizing: border-box;
+    gap: 8px;
+    margin: 0;
+    padding: 5px 7px;
+    border: 1px solid rgba(138, 164, 185, .14);
+    border-radius: 9px;
+    background: rgba(20, 32, 44, .86);
+    transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+}
+.geonex-ui .workspace-area > .left-panel .layer-item:hover,
+.geonex-ui .workspace-area > .left-panel .layer-item:focus-within {
+    border-color: rgba(112, 226, 191, .3);
+    background: #192a38;
+    box-shadow: 0 3px 12px rgba(1, 6, 11, .18);
+}
+.geonex-ui .workspace-area > .left-panel .layer-item input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: #70d9b6; }
+.geonex-ui .workspace-area > .left-panel .type-tag {
+    display: inline-grid;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, .08);
+    border-radius: 6px;
+    font: 700 10px/1 'Segoe UI', system-ui, sans-serif;
+}
+.geonex-ui .workspace-area > .left-panel .layer-title { flex: 1 1 auto; color: #dce6ed; font-size: 11.5px; font-weight: 550; }
+.geonex-ui .workspace-area > .left-panel .drag-handle { color: #617789; opacity: .58; transition: color .14s ease, opacity .14s ease; }
+.geonex-ui .workspace-area > .left-panel .layer-item:hover .drag-handle,
+.geonex-ui .workspace-area > .left-panel .layer-item:focus-within .drag-handle { color: #a9bdca; opacity: 1; }
+.geonex-ui .workspace-area > .left-panel .layer-actions {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    z-index: 1;
+    align-items: center;
+    padding-left: 18px;
+    transform: translateY(-50%);
+    background: linear-gradient(90deg, rgba(25, 42, 56, 0), #192a38 18px);
+}
+.geonex-ui .workspace-area > .left-panel .layer-action-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: #8fa4b4;
+    background: transparent;
+    transition: color .14s ease, background .14s ease, border-color .14s ease;
+}
+.geonex-ui .workspace-area > .left-panel .layer-action-btn:hover {
+    color: #e5f1f5;
+    border-color: rgba(138, 164, 185, .2);
+    background: rgba(255, 255, 255, .06);
+}
+@media (hover: hover) and (pointer: fine) {
+    .geonex-ui .workspace-area > .left-panel .layer-actions { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+    .geonex-ui .workspace-area > .left-panel .layer-item:hover .layer-actions,
+    .geonex-ui .workspace-area > .left-panel .layer-item:focus-within .layer-actions { opacity: 1; pointer-events: auto; }
+}
+.geonex-ui .layer-empty-state,
+.geonex-ui .identify-empty-state {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 18px 20px;
+    color: #9aabba;
+    text-align: center;
+}
+.geonex-ui .layer-empty-icon,
+.geonex-ui .identify-empty-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    margin-bottom: 3px;
+    border: 1px solid rgba(112, 226, 191, .2);
+    border-radius: 12px;
+    background: rgba(112, 226, 191, .07);
+    color: #82dabb;
+}
+.geonex-ui .layer-empty-state strong,
+.geonex-ui .identify-empty-state strong { color: #dbe6ed; font-size: 12px; font-weight: 600; }
+.geonex-ui .layer-empty-state > span:not(.layer-empty-icon),
+.geonex-ui .identify-empty-state > span:not(.identify-empty-icon) { max-width: 220px; color: #8398a8; font-size: 10.5px; line-height: 1.5; }
+.geonex-ui .layer-empty-action {
+    min-height: 32px;
+    margin-top: 4px;
+    padding: 0 12px;
+    border: 1px solid rgba(112, 226, 191, .32);
+    border-radius: 8px;
+    background: rgba(112, 226, 191, .1);
+    color: #a1ead2;
+    font: 600 11px 'Segoe UI', system-ui, sans-serif;
+    cursor: pointer;
+}
+.geonex-ui .layer-empty-action:hover { background: rgba(112, 226, 191, .17); border-color: rgba(112, 226, 191, .55); }
+.geonex-ui.identify-panel-open .workspace-area > .right-panel > .properties-content { padding: 12px !important; background: rgba(7, 13, 19, .2); }
+.geonex-ui .identify-empty-state { min-height: 150px; border: 1px dashed rgba(138, 164, 185, .17); border-radius: 10px; background: rgba(20, 32, 44, .34); }
+
+/* O menu Dados apresenta ações claras, sem cascatas nem escolhas escondidas. */
+.geonex-ui .main-menu > .dropdown > .dropdown-content {
+    border-color: rgba(132, 160, 181, .22);
+    border-radius: 11px;
+    background: rgba(17, 27, 38, .985);
+    box-shadow: 0 20px 48px rgba(0, 0, 0, .46), 0 2px 8px rgba(0, 0, 0, .18);
+    backdrop-filter: blur(18px) saturate(125%);
+}
+.geonex-ui .main-menu > .dropdown > .dropdown-content > button:not(.data-menu-action) {
+    min-height: 36px;
+    padding: 8px 11px;
+    border-radius: 7px;
+    color: #c1ced8;
+    font-size: 11.5px;
+}
+.geonex-ui .main-menu > .dropdown > .dropdown-content > button:not(.data-menu-action):hover:not(:disabled) {
+    color: #e7f1f5;
+    background: rgba(112, 226, 191, .09);
+}
+.geonex-ui .main-menu > .dropdown > .dropdown-content > button:disabled { color: #71818f; opacity: .6; cursor: not-allowed; }
+.geonex-ui .main-menu > .dropdown > .dropdown-content.data-menu-popover {
+    width: min(316px, calc(100vw - 24px));
+    padding: 8px;
+}
+.geonex-ui .data-menu-view { display: flex; min-width: 0; flex-direction: column; }
+.geonex-ui .data-menu-overview { gap: 4px; }
+.geonex-ui .data-menu-overview .data-menu-section-label { padding: 3px 8px 6px; }
+.geonex-ui .data-menu-overview .data-menu-entry { min-height: 62px; padding: 8px 9px !important; }
+.geonex-ui .data-menu-overview .data-menu-icon { width: 38px; height: 38px; flex-basis: 38px; }
+.geonex-ui .data-menu-page-header {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 3px;
+    padding: 0 2px 8px;
+    border-bottom: 1px solid rgba(138, 164, 185, .13);
+}
+.geonex-ui .data-menu-back {
+    display: grid;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(138, 164, 185, .16);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .035);
+    color: #a8bbc8;
+    cursor: pointer;
+    transition: background .14s ease, border-color .14s ease, color .14s ease;
+}
+.geonex-ui .data-menu-back svg { width: 16px; height: 16px; }
+.geonex-ui .data-menu-back:hover,
+.geonex-ui .data-menu-back:focus-visible { border-color: rgba(112, 226, 191, .34); background: var(--dock-accent-soft); color: #d8f4e9; }
+.geonex-ui .data-menu-page-title { display: grid; min-width: 0; gap: 2px; }
+.geonex-ui .data-menu-page-title strong { color: #e4edf2; font: 650 13px/1.2 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .data-menu-page-title small { color: #8398a8; font: 400 10px/1.35 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .data-menu-section { display: grid; gap: 3px; }
+.geonex-ui .data-menu-section + .data-menu-section { margin-top: 7px; padding-top: 8px; border-top: 1px solid rgba(138, 164, 185, .13); }
+.geonex-ui .data-menu-section-label {
+    padding: 2px 8px 4px;
+    color: #8195a5;
+    font: 700 9px/1.25 'Segoe UI', system-ui, sans-serif;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+}
+.geonex-ui .data-menu-action {
+    display: flex !important;
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    align-items: center;
+    gap: 10px;
+    box-sizing: border-box;
+    padding: 6px 8px !important;
+    border: 1px solid transparent !important;
+    border-radius: 9px;
+    background: transparent !important;
+    color: #d5e1e8 !important;
+    text-align: left;
+    cursor: pointer;
+    transition: background .14s ease, border-color .14s ease, transform .14s ease;
+}
+.geonex-ui .data-menu-action:hover:not(:disabled),
+.geonex-ui .data-menu-action:focus-visible {
+    transform: translateX(1px);
+    border-color: rgba(112, 226, 191, .2) !important;
+    background: rgba(112, 226, 191, .075) !important;
+}
+.geonex-ui .data-menu-icon {
+    display: grid;
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid rgba(138, 164, 185, .14);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .035);
+    color: #a9bdc9;
+}
+.geonex-ui .data-menu-icon svg { width: 18px; height: 18px; }
+.geonex-ui .data-menu-icon.raster { color: #b8a6ff; background: rgba(147, 117, 255, .09); border-color: rgba(147, 117, 255, .18); }
+.geonex-ui .data-menu-icon.vector { color: #8de0be; background: rgba(87, 197, 145, .085); border-color: rgba(87, 197, 145, .17); }
+.geonex-ui .data-menu-icon.points { color: #f2c779; background: rgba(242, 199, 121, .08); border-color: rgba(242, 199, 121, .16); }
+.geonex-ui .data-menu-icon.basemap { color: #90c9e8; background: rgba(91, 165, 204, .08); border-color: rgba(91, 165, 204, .16); }
+.geonex-ui .data-menu-icon.connection { color: #a1b0bc; }
+.geonex-ui .data-menu-copy { display: grid; min-width: 0; flex: 1 1 auto; gap: 2px; }
+.geonex-ui .data-menu-copy strong { overflow: hidden; color: inherit; font: 600 11.5px/1.25 'Segoe UI', system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.geonex-ui .data-menu-copy small { overflow: hidden; color: #879aa8; font: 400 10px/1.3 'Segoe UI', system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.geonex-ui .data-menu-arrow { margin-left: auto; color: #718a99; font: 400 21px/1 'Segoe UI', sans-serif; }
+.geonex-ui .data-menu-status { margin-left: auto; color: #91a3b0; font: 600 9px/1 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .data-format-badge {
+    display: inline-grid;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 30px;
+    place-items: center;
+    border: 1px solid rgba(138, 164, 185, .18);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, .04);
+    color: #b8cad5;
+    font: 700 9px/1 'Segoe UI', system-ui, sans-serif;
+    letter-spacing: .04em;
+}
+.geonex-ui .data-menu-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 9px 10px;
+    border: 1px solid rgba(138, 164, 185, .12);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .025);
+    color: #879ba9;
+    font: 400 10px/1.45 'Segoe UI', system-ui, sans-serif;
+}
+.geonex-ui .data-menu-note > span:first-child {
+    display: grid;
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    place-items: center;
+    border: 1px solid rgba(112, 226, 191, .24);
+    border-radius: 50%;
+    color: #8cdac0;
+    font: 700 10px/1 'Segoe UI', system-ui, sans-serif;
+}
+.geonex-ui .data-menu-action:disabled { opacity: .48; cursor: not-allowed; }
+.geonex-ui .menu-btn[aria-expanded="true"] { color: #d7f4e9; background: rgba(112, 226, 191, .07); box-shadow: inset 0 -2px 0 rgba(112, 226, 191, .65); }
+.geonex-ui .menu-btn:focus-visible { outline: 1px solid rgba(112, 226, 191, .72); outline-offset: 1px; }
+.geonex-ui .postgis-workspace { display: grid; gap: 13px; min-width: 0; }
+.geonex-ui .postgis-intro { display: grid; gap: 4px; }
+.geonex-ui .postgis-intro strong,
+.geonex-ui .postgis-layer-heading strong { color: #e2ebf1; font: 650 13px/1.25 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .postgis-intro span,
+.geonex-ui .postgis-layer-heading small { color: #8fa2b0; font: 400 10.5px/1.4 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .postgis-connection-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(110px, .7fr); gap: 10px; }
+.geonex-ui .postgis-connection-grid label { display: grid; min-width: 0; gap: 5px; color: #b7c5cf; font: 600 10px/1.2 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .postgis-connection-grid .glass-input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 34px; padding: 7px 9px; font-size: 11px; }
+.geonex-ui .postgis-connect-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid rgba(138, 164, 185, .14); }
+.geonex-ui .postgis-session-status { min-width: 0; color: #9db2bf; font: 500 10px/1.4 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .postgis-session-status.error { color: #f0a5a5; }
+.geonex-ui .postgis-layer-browser { display: grid; gap: 8px; min-width: 0; padding-top: 11px; border-top: 1px solid rgba(138, 164, 185, .16); }
+.geonex-ui .postgis-layer-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.geonex-ui .postgis-layer-heading > div { display: grid; gap: 3px; }
+.geonex-ui .postgis-empty { padding: 14px; border: 1px dashed rgba(138, 164, 185, .2); border-radius: 8px; color: #91a4b1; font: 400 10.5px/1.5 'Segoe UI', system-ui, sans-serif; }
+.geonex-ui .postgis-layer-list { display: grid; gap: 5px; max-height: min(30vh, 300px); overflow: auto; padding-right: 3px; overscroll-behavior: contain; }
+.geonex-ui .postgis-layer-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 7px; border: 1px solid rgba(138, 164, 185, .12); border-radius: 8px; background: rgba(20, 32, 44, .64); }
+.geonex-ui .postgis-layer-row .data-menu-icon { width: 32px; height: 32px; flex-basis: 32px; }
+.geonex-ui .postgis-layer-copy { display: grid; min-width: 0; gap: 3px; }
+.geonex-ui .postgis-layer-copy strong { overflow: hidden; color: #dce7ed; font: 600 10.5px/1.25 'Segoe UI', system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.geonex-ui .postgis-layer-copy small { overflow: hidden; color: #8499a8; font: 400 9.5px/1.3 'Segoe UI', system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.geonex-ui .postgis-layer-row .workbench-button { min-height: 29px; padding: 5px 8px; font-size: 9px; }
+.geonex-ui .import-modal.postgis-open { width: min(900px, calc(100vw - 32px)); height: min(780px, calc(100vh - 32px)); max-height: calc(100vh - 32px); }
+.geonex-ui .import-modal.postgis-open .modal-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); height: auto; min-height: 0; max-height: none; flex: 1 1 auto; overflow: hidden; }
+.geonex-ui .import-modal.postgis-open .modal-tabs { width: auto; flex: 0 0 auto; min-height: 0; overflow-y: auto; }
+.geonex-ui .import-modal.postgis-open .modal-content { min-width: 0; min-height: 0; height: auto; justify-content: flex-start; overflow-y: auto; padding: 18px 20px; }
+.geonex-ui .import-modal.postgis-open .postgis-layer-list { min-height: 48px; max-height: min(30vh, 250px); overflow-y: auto; }
+.geonex-ui .import-modal.point-table-open {
+    width: min(920px, calc(100vw - 32px)); height: auto; min-height: 0;
+    max-height: min(780px, calc(100dvh - 24px)); box-sizing: border-box;
+}
+.geonex-ui .import-modal.point-table-open .modal-header { flex: 0 0 auto; }
+.geonex-ui .import-modal.point-table-open .modal-body {
+    display: grid; grid-template-columns: 220px minmax(0, 1fr); flex: 1 1 auto;
+    width: 100%; height: auto; min-height: 0; max-height: none; overflow: hidden;
+}
+.geonex-ui .import-modal.point-table-open .modal-tabs {
+    width: auto; min-height: 0; flex: 0 0 auto; overflow-x: hidden; overflow-y: auto;
+}
+.geonex-ui .import-modal.point-table-open .modal-content {
+    display: block; width: auto; height: auto; min-width: 0; min-height: 0;
+    overflow-x: hidden; overflow-y: auto; padding: 16px 18px; overscroll-behavior: contain;
+}
+.geonex-ui .import-modal.point-table-open .point-table-import { gap: 10px; }
+.geonex-ui .import-modal.point-table-open .point-table-preview-scroll { max-height: min(20vh, 145px); }
+.point-table-options { align-items: start; }
+.point-table-options > label, .point-table-options > .point-table-crs-picker { align-self: start; }
+.point-table-crs-picker { display: grid; min-width: 0; gap: 6px; }
+.point-table-crs-picker > label { color: #aebdca; font-size: 11px; }
+.point-table-crs-picker > .glass-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.point-table-crs-selected { overflow: hidden; color: #9aacbb; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.point-table-crs-selected strong { color: #b7ead9; font-weight: 650; }
+.point-table-crs-presets { display: flex; min-width: 0; flex-wrap: wrap; gap: 4px; }
+.point-table-crs-preset { padding: 4px 6px; color: #aab9c5; border: 1px solid #31485b; border-radius: 5px; background: #111c27; font-size: 9px; cursor: pointer; }
+.point-table-crs-preset:hover, .point-table-crs-preset.active { color: #b7ead9; border-color: #3a806a; background: #15352d; }
+.point-table-crs-results { display: grid; max-height: 132px; overflow: auto; border: 1px solid #31485b; border-radius: 7px; background: #0e1721; overscroll-behavior: contain; }
+.point-table-crs-option { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; color: #cdd9e2; border: 0; border-bottom: 1px solid #ffffff0c; background: transparent; text-align: left; cursor: pointer; }
+.point-table-crs-option:last-child { border-bottom: 0; }
+.point-table-crs-option:hover { background: #1b3040; }
+.point-table-crs-option > span { display: grid; min-width: 0; gap: 2px; }
+.point-table-crs-option strong { color: #a8e6d1; font-size: 10px; }
+.point-table-crs-option small { overflow: hidden; color: #aab9c5; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.point-table-crs-option > small { flex: 0 0 auto; color: #8498a8; }
+.point-table-crs-empty, .point-table-crs-hint { color: #879baa; font-size: 9px; line-height: 1.4; }
+.point-table-crs-custom { justify-self: start; max-width: 100%; overflow: hidden; padding: 5px 7px; color: #c0e9dc; border: 1px solid #3a806a; border-radius: 6px; background: #15352d; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+@media (max-height: 560px) {
+    .geonex-ui .main-menu > .dropdown > .dropdown-content { max-height: calc(100vh - 82px); }
+    .geonex-ui .data-menu-action { min-height: 42px; }
+    .geonex-ui .data-menu-icon { width: 30px; height: 30px; flex-basis: 30px; }
+    .geonex-ui .import-modal.postgis-open { height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
+    .geonex-ui .import-modal.postgis-open .modal-body { max-height: none; }
+    .geonex-ui .import-modal.point-table-open { max-height: calc(100dvh - 16px); }
+    .geonex-ui .import-modal.point-table-open .modal-content { padding-block: 10px; }
+}
+@media (max-width: 700px) {
+    .geonex-ui .postgis-connection-grid { grid-template-columns: minmax(0, 1fr); }
+    .geonex-ui .postgis-connect-actions { align-items: stretch; flex-direction: column; }
+    .geonex-ui .import-modal.point-table-open { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+    .geonex-ui .import-modal.point-table-open .modal-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    .geonex-ui .import-modal.point-table-open .modal-tabs { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+    .geonex-ui .import-modal.point-table-open .tab-btn { flex: 0 0 auto; padding: 9px 12px; }
+    .geonex-ui .import-modal.point-table-open .modal-content { padding: 12px; }
+}
+@media (hover: none) {
+    .geonex-ui .workspace-area > .left-panel .layer-actions { position: static; padding-left: 0; transform: none; background: none; opacity: 1; pointer-events: auto; }
+}
+
+/* A ferramenta de medição fica sobre o mapa como um painel do QGIS, sem
+   reservar largura no layout e sem reduzir a área de desenho. */
+.geonex-ui.is-measuring .workspace-area > .measurement-floating-panel {
+    position: fixed !important; inset: 0 auto auto 0 !important; z-index: 4400 !important;
+    display: flex !important; flex-direction: column; width: min(360px, calc(100vw - 16px)) !important;
+    height: auto !important; min-width: 0; min-height: 0; max-height: calc(100vh - 88px) !important;
+    margin: 0 !important; overflow: hidden; border: 1px solid #405367;
+    border-radius: 12px; background: linear-gradient(150deg, rgba(20, 31, 44, .985), rgba(13, 21, 31, .985));
+    box-shadow: 0 18px 42px #0008, 0 2px 8px #0005; backdrop-filter: blur(14px); transition: none;
+}
+.geonex-ui.is-measuring .measurement-panel-header {
+    display: flex !important; flex: 0 0 48px; height: 48px; min-height: 48px; align-items: center;
+    gap: 10px; padding: 7px 10px; border-bottom: 1px solid #ffffff12;
+    background: linear-gradient(180deg, #192735f5, #131f2bf5); cursor: grab; touch-action: none; user-select: none;
+}
+.geonex-ui.is-measuring .measurement-panel-header:active { cursor: grabbing; }
+.measurement-panel-icon { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; color: #71c8ff; border: 1px solid #71c8ff44; border-radius: 9px; background: #71c8ff12; font: 700 20px/1 'Segoe UI', sans-serif; }
+.measurement-panel-heading { display: grid; flex: 1 1 auto; min-width: 0; gap: 3px; }
+.measurement-panel-heading strong { color: #eef5fa; font-size: 12px; font-weight: 650; }
+.measurement-panel-heading small { overflow: hidden; color: #9aabba; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.measurement-panel-close { display: grid; flex: 0 0 28px; width: 28px; height: 28px; place-items: center; padding: 0; color: #a7b6c3; border: 1px solid #ffffff14; border-radius: 7px; background: #ffffff05; font: 20px/1 'Segoe UI', sans-serif; cursor: pointer; }
+.measurement-panel-close:hover { color: #fff; border-color: #8b586055; background: #39272c; }
+.geonex-ui.is-measuring .workspace-area > .measurement-floating-panel > .properties-content {
+    display: block !important; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto;
+    overscroll-behavior: contain; padding: 12px !important; scrollbar-color: #526b7d transparent; scrollbar-width: thin;
+}
+.geonex-ui.is-measuring .measurement-floating-panel .panel-resize-handle { display: none; }
+@media (max-width: 700px) {
+    .geonex-ui.is-measuring .workspace-area > .measurement-floating-panel { width: min(320px, calc(100vw - 16px)) !important; max-height: min(620px, calc(100dvh - 72px)) !important; }
+}
+.geonex-ui.is-measuring .workspace-area > .measurement-floating-panel {
+    width: min(320px, calc(100vw - 16px)) !important;
+    max-height: min(620px, calc(100dvh - 72px)) !important;
+}
+.geonex-ui.is-measuring .measurement-panel-header {
+    flex-basis: 42px; height: 42px; min-height: 42px; gap: 8px; padding: 5px 8px;
+}
+.geonex-ui.is-measuring .measurement-panel-icon { flex-basis: 28px; width: 28px; height: 28px; font-size: 18px; }
+.geonex-ui.is-measuring .workspace-area > .measurement-floating-panel > .properties-content { padding: 9px !important; }
+.geonex-ui.is-measuring .measurement-workbench { gap: 6px; }
+.geonex-ui.is-measuring .measurement-title .eyebrow { font-size: 8px; letter-spacing: .7px; }
+.geonex-ui.is-measuring .measurement-title h3 { margin: 0; font-size: 16px; }
+.geonex-ui.is-measuring .measurement-title p { font-size: 10px; line-height: 1.25; }
+.geonex-ui.is-measuring .measurement-state { gap: 4px; padding: 6px 8px; font-size: 10px; }
+.geonex-ui.is-measuring .measurement-modes .workbench-button { min-height: 30px; padding: 5px 8px; font-size: 10px; }
+.geonex-ui.is-measuring .measurement-result { gap: 4px; padding: 8px; }
+.geonex-ui.is-measuring .measurement-result label { font-size: 9px; }
+.geonex-ui.is-measuring .measurement-result .result-number { font-size: 22px; }
+.geonex-ui.is-measuring .measurement-result .result-number span { font-size: 12px; }
+.geonex-ui.is-measuring .measurement-result .gis-select { min-height: 31px; padding: 5px 24px 5px 8px; font-size: 10px; }
+.geonex-ui.is-measuring .bearing-result { font-size: 10px; }
+.geonex-ui.is-measuring .measurement-method { font-size: 9px; line-height: 1.25; }
+.geonex-ui.is-measuring .measurement-actions { gap: 5px; }
+.geonex-ui.is-measuring .measurement-actions .workbench-button { min-height: 30px; padding: 5px 8px; font-size: 10px; }
+.geonex-ui.is-measuring .measurement-settings { padding-top: 8px; }
+.geonex-ui.is-measuring .measurement-settings summary { min-height: 32px; padding: 5px 9px; font-size: 10px; }
+.geonex-ui.is-measuring .measurement-settings label { min-height: 28px; gap: 6px; font-size: 10px; }
+.geonex-ui.is-measuring .measurement-settings .gis-select { min-height: 30px; padding: 5px 22px 5px 8px; font-size: 10px; }
+.point-table-import { display: grid; gap: 14px; min-width: 0; }
+.point-table-intro { display: grid; gap: 5px; padding: 12px; color: #dce7ef; border: 1px solid #31485b; border-radius: 9px; background: #12202c; }
+.point-table-intro strong { font-size: 14px; }
+.point-table-intro span { color: #9aacbb; font-size: 11px; line-height: 1.45; }
+.point-table-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.point-table-options label { display: grid; gap: 5px; min-width: 0; color: #aebdca; font-size: 11px; }
+.point-table-options .glass-input { min-width: 0; width: 100%; box-sizing: border-box; }
+.point-table-preview-wrap { min-width: 0; border: 1px solid #31485b; border-radius: 8px; background: #0e1721; overflow: hidden; }
+.point-table-preview-heading { padding: 8px 10px; color: #aebdca; border-bottom: 1px solid #263746; font-size: 10px; font-weight: 650; }
+.point-table-preview-scroll { max-height: 185px; overflow: auto; }
+.point-table-preview { width: 100%; border-collapse: collapse; color: #dce7ef; font-size: 10px; white-space: nowrap; }
+.point-table-preview th, .point-table-preview td { max-width: 190px; padding: 6px 8px; overflow: hidden; border-bottom: 1px solid #ffffff0d; text-align: left; text-overflow: ellipsis; }
+.point-table-preview th { position: sticky; top: 0; color: #9ee8cf; background: #172632; font-weight: 650; }
+.point-table-message { padding: 9px 10px; color: #a6ecd7; border: 1px solid #3a806a; border-radius: 7px; background: #15352d; font-size: 11px; line-height: 1.4; }
+.point-table-message.error { color: #ffc2b9; border-color: #8c4545; background: #3a2025; }
+@media (max-width: 560px) { .point-table-options { grid-template-columns: minmax(0, 1fr); } }

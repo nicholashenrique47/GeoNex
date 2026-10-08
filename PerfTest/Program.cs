@@ -14,11 +14,22 @@ if (!string.IsNullOrEmpty(nativeOverride))
 }
 
 if (args.Contains("--index-contracts")) { IndexContracts.Run(); return; }
+if (args.Contains("--raster-frame-painter-contracts")) { RasterFramePainterContracts.Run(); return; }
+if (args.Length == 3 && args[0] == "--production-raster-metrics") { await ProductionRasterMetrics.Run(args[1], args[2]); return; }
+if (args.Contains("--tile-fixture-server"))
+{
+    using var fixture = new DelayedTileServer { CacheControl = "public, max-age=86400" };
+    fixture.Release();
+    Console.WriteLine(fixture.Url);
+    await Task.Delay(Timeout.InfiniteTimeSpan);
+    return;
+}
 if (args.Contains("--encoded-frame-cache-contracts")) { EncodedFrameCacheContracts.Run(); return; }
 if (args.Contains("--frame-pixel-fingerprint-contracts")) { FramePixelFingerprintContracts.Run(); return; }
 if (args.Length == 2 && args[0] == "--frame-pixel-hash-metrics") { FramePixelFingerprintContracts.Measure(args[1]); return; }
 if (args.Length == 2 && args[0] == "--lossless-encoding-metrics") { LosslessEncodingMetrics.Run(args[1]); return; }
 if (args.Contains("--exact-palette-png-contracts")) { ExactPalettePngContracts.Run(); return; }
+if (args.Contains("--opaque-png-contracts")) { OpaquePngContracts.Run(); return; }
 if (args.Contains("--online-scheduler-contracts")) { await OnlineSchedulerContracts.Run(); return; }
 if (args.Contains("--polygon-image-cache-contracts")) { PolygonImageCacheContracts.Run(); return; }
 if (args.Contains("--online-session-contracts")) { await OnlineSessionContracts.Run(); return; }
@@ -26,6 +37,7 @@ if (args.Contains("--online-transport-contracts")) { await OnlineTileTransportCo
 if (args.Contains("--online-progressive-contracts")) { await OnlineProgressiveContracts.Run(); return; }
 if (args.Contains("--online-projected-zoom-contracts")) { OnlineProjectedZoomContracts.Run(); return; }
 if (args.Contains("--online-alignment-contracts")) { OnlineAlignmentContracts.Run(); return; }
+if (args.Length == 3 && args[0] == "--digitizing-snap-metrics") { DigitizingSnapMetrics.Run(args[1], args[2]); return; }
 if (args.Length >= 2 && args[0] == "--online-provider-diagnostics") { OnlineProviderDiagnostics.Run(args[1], args.Length > 2 ? args[2] : "EPSG:3857", args.Length > 3 && args[3] == "direct"); return; }
 if (args.Length == 2 && args[0] == "--online-progressive-production") { await OnlineProgressiveProductionContracts.Run(args[1]); return; }
 if (args.Length == 2 && args[0] == "--high-zoom-preview-contracts") { await HighZoomPreviewContracts.Run(args[1]); return; }
@@ -66,6 +78,8 @@ if (Array.IndexOf(args, "--captured-polygon-metrics") is int captureIndex && cap
         float.Parse(args[captureIndex + 5], System.Globalization.CultureInfo.InvariantCulture)); return;
 }
 if (args.Contains("--parallel-polygon-contracts")) { ParallelPolygonContracts.Run(); return; }
+if (args.Contains("--vector-edit-persistence-contracts")) { VectorEditPersistenceContracts.Run(); return; }
+if (args.Length == 2 && args[0] == "--vector-edit-persistence-shapefile") { VectorEditPersistenceContracts.RunOnShapefileCopy(args[1]); return; }
 if (args.Length == 6 && args[0] == "--polygon-blitter-metrics")
 { PolygonBlitterMetrics.Run(args[1], int.Parse(args[2]), int.Parse(args[3]), float.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture), float.Parse(args[5], System.Globalization.CultureInfo.InvariantCulture)); return; }
 if (args.Length == 6 && args[0] == "--raster-surface-metrics")

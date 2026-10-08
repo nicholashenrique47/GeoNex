@@ -9,6 +9,23 @@ public readonly record struct RasterDatasetSemantics(
 
 public static class RasterDatasetPolicy
 {
+    public static int[] GetRgbaBandMap(Dataset dataset)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        int bandCount = Math.Min(dataset.RasterCount, 3);
+        if (bandCount < 3)
+            return Enumerable.Range(1, bandCount).ToArray();
+
+        for (int index = 4; index <= dataset.RasterCount; index++)
+        {
+            using Band band = dataset.GetRasterBand(index);
+            if (band.GetRasterColorInterpretation() == ColorInterp.GCI_AlphaBand)
+                return [1, 2, 3, index];
+        }
+
+        return [1, 2, 3];
+    }
+
     public static bool SupportsExternalOverviews(Dataset dataset)
     {
         ArgumentNullException.ThrowIfNull(dataset);

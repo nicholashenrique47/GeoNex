@@ -9,15 +9,63 @@ public partial class LocalMapServer
         float zoomReal, List<SKPoint> ptsMedicao, List<SKPoint> ptsAquisicao)
     {
         using var restore = new SKAutoCanvasRestore(canvas);
-        // 8. FERRAMENTA DE MEDIÇÃO
-        if (_mapService.PontosMedicao.Count > 0 || _mapService.PontoCursorMundo.HasValue)
+        bool clientRenderedDigitizingPreview = _mapService.ClientRenderedDigitizingPreview;
+        // The browser canvas owns this marker while client preview is active.
+        // Drawing it here too used an older camera matrix and produced a second,
+        // offset crosshair over the correctly anchored coordinate.
+        if (!clientRenderedDigitizingPreview && _mapService.PontoRestricaoAbsoluta is { } lockedPoint)
         {
             canvas.SetMatrix(matriz);
-            using var pincelLinha = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 2.5f / zoomReal, IsAntialias = true };
+            float screenUnit = 1f / Math.Max(zoomReal, 0.0001f);
+            using var guides = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = new SKColor(89, 197, 210, 82),
+                StrokeWidth = screenUnit,
+                IsAntialias = true
+            };
+            using var cross = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = new SKColor(34, 200, 173),
+                StrokeWidth = 1.5f * screenUnit,
+                IsAntialias = true
+            };
+            using var centerFill = new SKPaint
+            {
+                Style = SKPaintStyle.Fill,
+                Color = new SKColor(9, 20, 28, 235),
+                IsAntialias = true
+            };
+            using var centerBorder = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = SKColors.White,
+                StrokeWidth = 1.4f * screenUnit,
+                IsAntialias = true
+            };
+
+            canvas.DrawLine(viewportMundo.Left, lockedPoint.Y, viewportMundo.Right, lockedPoint.Y, guides);
+            canvas.DrawLine(lockedPoint.X, viewportMundo.Top, lockedPoint.X, viewportMundo.Bottom, guides);
+            float arm = 6f * screenUnit;
+            canvas.DrawLine(lockedPoint.X - arm, lockedPoint.Y, lockedPoint.X + arm, lockedPoint.Y, cross);
+            canvas.DrawLine(lockedPoint.X, lockedPoint.Y - arm, lockedPoint.X, lockedPoint.Y + arm, cross);
+            canvas.DrawCircle(lockedPoint, 4f * screenUnit, centerFill);
+            canvas.DrawCircle(lockedPoint, 4f * screenUnit, centerBorder);
+            using var center = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(34, 200, 173), IsAntialias = true };
+            canvas.DrawCircle(lockedPoint, 1.35f * screenUnit, center);
+        }
+
+        // 8. FERRAMENTA DE MEDIÇÃO
+        if (!clientRenderedDigitizingPreview && !_mapService.ClientRenderedMeasurementPreview &&
+            (_mapService.PontosMedicao.Count > 0 || _mapService.PontoCursorMundo.HasValue))
+        {
+            canvas.SetMatrix(matriz);
+            using var pincelLinha = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.DodgerBlue, StrokeWidth = 2.5f / zoomReal, IsAntialias = true };
             using var pincelLinhaTracejada = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(180), StrokeWidth = 1.5f / zoomReal, PathEffect = SKPathEffect.CreateDash(new float[] { 10f / zoomReal, 10f / zoomReal }, 0), IsAntialias = true };
-            using var pincelPontoMed = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
-            using var pincelBordaPontoMed = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Cyan, StrokeWidth = 1.5f / zoomReal, IsAntialias = true };
-            using var pincelArea = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(40), IsAntialias = true };
+            using var pincelPontoMed = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.DarkOrange, IsAntialias = true };
+            using var pincelBordaPontoMed = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.FloralWhite, StrokeWidth = 1.5f / zoomReal, IsAntialias = true };
+            using var pincelArea = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(239, 68, 68, 97), IsAntialias = true };
 
             using var pathMedicao = new SKPath();
             for (int i = 0; i < ptsMedicao.Count; i++)
@@ -47,9 +95,11 @@ public partial class LocalMapServer
             }
         }
         // 8.1. FERRAMENTA DE AQUISIÇÃO (DESENHO DE LOTE)
-        if (ptsAquisicao.Count > 0 && _mapService.ConstrucaoAtiva != ConstructionMode.Vertices)
+        if (!clientRenderedDigitizingPreview && ptsAquisicao.Count > 0 &&
+            _mapService.ConstrucaoAtiva != ConstructionMode.Vertices)
             DrawConstructionOverlay(canvas, matriz, zoomReal, ptsAquisicao);
-        if (ptsAquisicao.Count > 0 && _mapService.ConstrucaoAtiva == ConstructionMode.Vertices)
+        if (!clientRenderedDigitizingPreview && ptsAquisicao.Count > 0 &&
+            _mapService.ConstrucaoAtiva == ConstructionMode.Vertices)
         {
             canvas.SetMatrix(matriz);
 
@@ -94,12 +144,17 @@ public partial class LocalMapServer
             // ==========================================================
             // ==========================================================
 
-            // Estética Profissional para o modo de Desenho (Verde Primavera)
-            using var pincelLinhaAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen, StrokeWidth = 2.5f / zoomReal, IsAntialias = true };
-            using var pincelTracejadoAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen.WithAlpha(180), StrokeWidth = 1.5f / zoomReal, PathEffect = SKPathEffect.CreateDash(new float[] { 10f / zoomReal, 10f / zoomReal }, 0), IsAntialias = true };
-            using var pincelPontoAq = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
-            using var pincelBordaPontoAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen, StrokeWidth = 1.5f / zoomReal, IsAntialias = true };
-            using var pincelAreaAq = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.SpringGreen.WithAlpha(60), IsAntialias = true };
+            // Traço azul com halo branco para manter contraste sobre o mapa.
+            using var pincelHaloLinhaAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(235), StrokeWidth = 3.2f / zoomReal, StrokeJoin = SKStrokeJoin.Round, StrokeCap = SKStrokeCap.Round, IsAntialias = true };
+            using var pincelLinhaAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(37, 99, 235), StrokeWidth = 1.8f / zoomReal, StrokeJoin = SKStrokeJoin.Round, StrokeCap = SKStrokeCap.Round, IsAntialias = true };
+            using var pincelHaloPreviaAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(235), StrokeWidth = 3.2f / zoomReal, StrokeJoin = SKStrokeJoin.Round, StrokeCap = SKStrokeCap.Round, IsAntialias = true };
+            using var pincelPreviaAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(37, 99, 235), StrokeWidth = 1.8f / zoomReal, StrokeJoin = SKStrokeJoin.Round, StrokeCap = SKStrokeCap.Round, IsAntialias = true };
+            using var pincelHaloPontoAq = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(9, 18, 28, 235), IsAntialias = true };
+            using var pincelPontoAq = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(230, 79, 93), IsAntialias = true };
+            using var pincelPontoInicialAq = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(245, 158, 11), IsAntialias = true };
+            using var pincelBordaPontoAq = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White, StrokeWidth = 1.4f / zoomReal, IsAntialias = true };
+            using var pincelCentroPontoAq = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
+            using var pincelAreaAq = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(168, 85, 247, 46), IsAntialias = true };
 
             using var pathAq = new SKPath();
             for (int i = 0; i < ptsAquisicao.Count; i++)
@@ -111,19 +166,20 @@ public partial class LocalMapServer
             // ==========================================================
             // >>> UPGRADE PROFISSIONAL: CROSSHAIR E HUD DINÂMICO <<<
             // ==========================================================
-            if (_mapService.PontoCursorMundo.HasValue)
+            if (_mapService.PontoCursorMundo.HasValue && !_mapService.ClientRenderedMeasurementPreview)
             {
                 var cursorPts = _mapService.PontoCursorMundo.Value;
 
-                // 1. MIRA ORTOGONAL (CROSSHAIR ESTILO AUTOCAD)
-                using var paintMira = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(100), StrokeWidth = 1f / zoomReal, IsAntialias = false };
-                // Linha Horizontal infinita
-                canvas.DrawLine(viewportMundo.Left, cursorPts.Y, viewportMundo.Right, cursorPts.Y, paintMira);
-                // Linha Vertical infinita
-                canvas.DrawLine(cursorPts.X, viewportMundo.Top, cursorPts.X, viewportMundo.Bottom, paintMira);
+                if (!_mapService.PontoRestricaoAbsoluta.HasValue)
+                {
+                    // 1. MIRA ORTOGONAL (CROSSHAIR ESTILO AUTOCAD)
+                    using var paintMira = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(100), StrokeWidth = 1f / zoomReal, IsAntialias = false };
+                    canvas.DrawLine(viewportMundo.Left, cursorPts.Y, viewportMundo.Right, cursorPts.Y, paintMira);
+                    canvas.DrawLine(cursorPts.X, viewportMundo.Top, cursorPts.X, viewportMundo.Bottom, paintMira);
+                }
 
                 // 2. HUD DINÂMICO NO CURSOR (LIVE TOOLTIP)
-                if (ptsAquisicao.Count > 0)
+                if (ptsAquisicao.Count > 0 && !_mapService.PontoRestricaoAbsoluta.HasValue)
                 {
                     var ultimoPt = ptsAquisicao.Last();
 
@@ -181,32 +237,27 @@ public partial class LocalMapServer
                 canvas.DrawPath(pathAreaAq, pincelAreaAq);
             }
 
+            canvas.DrawPath(pathAq, pincelHaloLinhaAq);
             canvas.DrawPath(pathAq, pincelLinhaAq);
             if (_mapService.PontoCursorMundo is { } cursor)
-                canvas.DrawLine(ptsAquisicao[^1], cursor, pincelTracejadoAq);
+            {
+                canvas.DrawLine(ptsAquisicao[^1], cursor, pincelHaloPreviaAq);
+                canvas.DrawLine(ptsAquisicao[^1], cursor, pincelPreviaAq);
+            }
 
             for (int i = 0; i < ptsAquisicao.Count; i++)
             {
                 var pt = ptsAquisicao[i];
-
-                if (i == 0) // PONTO DE ORIGEM LARANJA LIMPO
-                {
-                    using var pincelOrigemFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Orange, IsAntialias = true };
-                    using var pincelOrigemBorda = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White, StrokeWidth = 2f / zoomReal, IsAntialias = true };
-
-                    canvas.DrawCircle(pt, 5.5f / zoomReal, pincelOrigemFill);
-                    canvas.DrawCircle(pt, 5.5f / zoomReal, pincelOrigemBorda);
-                }
-                else // RESTANTES VÉRTICES
-                {
-                    canvas.DrawCircle(pt, 4.5f / zoomReal, pincelPontoAq);
-                    canvas.DrawCircle(pt, 4.5f / zoomReal, pincelBordaPontoAq);
-                }
+                bool pontoInicial = i == 0 && _mapService.TipoGeometriaAtiva != "PONTO";
+                canvas.DrawCircle(pt, 6.25f / zoomReal, pincelHaloPontoAq);
+                canvas.DrawCircle(pt, 5f / zoomReal, pontoInicial ? pincelPontoInicialAq : pincelPontoAq);
+                canvas.DrawCircle(pt, 5f / zoomReal, pincelBordaPontoAq);
+                canvas.DrawCircle(pt, 1.45f / zoomReal, pincelCentroPontoAq);
             }
         } // Fim do bloco if (ptsAquisicao.Count > 0)
 
         // 9. SNAP HOVER MAGNÉTICO
-        if (_mapService.PontoCursorSnap.HasValue)
+        if (!clientRenderedDigitizingPreview && !_mapService.ClientRenderedMeasurementPreview && _mapService.PontoCursorSnap.HasValue)
         {
             canvas.SetMatrix(matriz);
             var snapPt = _mapService.PontoCursorSnap.Value;
@@ -299,9 +350,9 @@ public partial class LocalMapServer
             else path.LineTo(preview.Points[i]);
         }
         if (preview.Closed) path.Close();
-        using var stroke = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.SpringGreen,
+        using var stroke = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(59, 130, 246),
             StrokeWidth = 2.5f / zoom, IsAntialias = true };
-        using var fill = new SKPaint { Color = SKColors.SpringGreen.WithAlpha(40), IsAntialias = true };
+        using var fill = new SKPaint { Color = new SKColor(168, 85, 247, 46), IsAntialias = true };
         if (preview.Closed) canvas.DrawPath(path, fill);
         canvas.DrawPath(path, stroke);
         using var guide = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.White.WithAlpha(150),

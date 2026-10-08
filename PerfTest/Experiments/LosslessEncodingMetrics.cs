@@ -18,15 +18,28 @@ internal static class LosslessEncodingMetrics
             if (color != previous) colors.Add(color);
             previous = color;
         }
-        Console.WriteLine($"LOSSLESS size={bitmap.Width}x{bitmap.Height} premultiplied_colors={colors.Count}");
-        string[] modes = { "png", "palette" };
+        bool opaque = colors.All(c => (c & 0xff000000u) == 0xff000000u);
+        Console.WriteLine($"LOSSLESS size={bitmap.Width}x{bitmap.Height} premultiplied_colors={colors.Count} opaque={opaque}");
+        using var opaquePixels = new SKPixmap(pixels.Info.WithAlphaType(SKAlphaType.Opaque), pixels.GetPixels(), pixels.RowBytes);
+        string[] modes = opaque
+            ? ["png", "png0", "opaque0", "opaque1", "opaque3", "opaque6", "palette"]
+            : ["png", "png0", "palette"];
         var samples = modes.ToDictionary(m => m, _ => new List<(double Encode, double Total, long Size, int Delta)>());
         byte[] expected = bitmap.Bytes;
         for (int round = 0; round < 5; round++)
         foreach (string mode in round % 2 == 0 ? modes : modes.Reverse())
         {
             long start = Stopwatch.GetTimestamp();
-            using var encoded = mode == "palette" ? ExactPalettePngEncoder.TryEncode(pixels, 16L * 1024 * 1024, default) : MapFrameEncoding.EncodePng(image, 1);
+            using var encoded = mode switch
+            {
+                "palette" => ExactPalettePngEncoder.TryEncode(pixels, 16L * 1024 * 1024, default),
+                "png0" => MapFrameEncoding.EncodePng(image, 0),
+                "opaque0" => opaquePixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 0)),
+                "opaque1" => opaquePixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 1)),
+                "opaque3" => opaquePixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 3)),
+                "opaque6" => opaquePixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 6)),
+                _ => MapFrameEncoding.EncodePng(image, 1)
+            };
             double ms = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             if (encoded == null)
             {

@@ -86,7 +86,12 @@ public readonly record struct MapViewportMetrics
 public readonly record struct MapWorldCoordinate(double X, double Y);
 // Project-local coordinates: world origin removed and Y inverted. Keep these
 // distinct from geographic/world coordinates even though both use doubles.
-public readonly record struct MapLocalCoordinate(double X, double Y);
+public readonly record struct MapLocalCoordinate(double X, double Y)
+{
+    // Existing vector/cache callers may supply a float Skia point. Widening it
+    // preserves the old value while precise camera paths retain their doubles.
+    public static implicit operator MapLocalCoordinate(SKPoint point) => new(point.X, point.Y);
+}
 
 /// <summary>
 /// Immutable transformation frame shared by the live map and print renderer.

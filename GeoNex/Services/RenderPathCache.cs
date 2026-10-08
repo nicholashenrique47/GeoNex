@@ -14,7 +14,7 @@ public sealed class RenderPathCache : IDisposable
     private long _bytes, _clock;
     private bool _disposed;
 
-    private sealed record Entry(SKPath Path, SKRect Coverage, float Zoom, bool Compact, long Bytes, bool ScaleIndependent, SKPoint? Origin)
+    private sealed record Entry(SKPath Path, SKRect Coverage, float Zoom, bool Compact, long Bytes, bool ScaleIndependent, MapLocalCoordinate? Origin)
     {
         public long LastUse { get; set; }
         public ProjectedPathGeometry? Projected { get; init; }
@@ -34,7 +34,7 @@ public sealed class RenderPathCache : IDisposable
     public long BudgetBytes { get { lock (_gate) return _budget; } }
 
     public bool TryGet(long owner, SKRect viewport, float zoom, bool interactive, bool compact, out SKPath? path,
-        SKPoint? origin = null)
+        MapLocalCoordinate? origin = null)
     {
         lock (_gate)
         {
@@ -55,7 +55,7 @@ public sealed class RenderPathCache : IDisposable
     }
 
     public void Store(long owner, SKPath path, SKRect coverage, float zoom, bool interactive, bool compact,
-        bool scaleIndependent = false, SKPoint? origin = null, ProjectedPathGeometry? projected = null)
+        bool scaleIndependent = false, MapLocalCoordinate? origin = null, ProjectedPathGeometry? projected = null)
     {
         if (interactive || compact || !scaleIndependent || !origin.HasValue) projected = null;
         long bytes = EstimateBytes(path) + (projected?.RetainedBytes ?? 0);
@@ -70,7 +70,7 @@ public sealed class RenderPathCache : IDisposable
             { bytes -= projected.RetainedBytes; projected = null; }
             // Never retain a stale entry for this quality after an uncacheable replacement.
             if (!Valid(coverage, zoom) || (origin.HasValue &&
-                (!float.IsFinite(origin.Value.X) || !float.IsFinite(origin.Value.Y))) || bytes > _budget)
+                (!double.IsFinite(origin.Value.X) || !double.IsFinite(origin.Value.Y))) || bytes > _budget)
             {
                 Remove(key);
                 return;
@@ -98,7 +98,7 @@ public sealed class RenderPathCache : IDisposable
 
     // Rebase retained doubles, never an already rounded SKPath. Release the cache
     // lock before rebuilding; the immutable managed geometry survives eviction.
-    public bool TryGetProjected(long owner, SKRect viewport, SKPoint cameraOrigin, float zoom,
+    public bool TryGetProjected(long owner, SKRect viewport, MapLocalCoordinate cameraOrigin, float zoom,
         double baseX, double baseY, out SKPath? path, CancellationToken token = default)
     {
         ProjectedPathGeometry geometry;
@@ -108,13 +108,13 @@ public sealed class RenderPathCache : IDisposable
             path = null;
             RefreshBudget();
             if (_disposed || !Valid(viewport, zoom) ||
-                !float.IsFinite(cameraOrigin.X) || !float.IsFinite(cameraOrigin.Y) ||
+                !double.IsFinite(cameraOrigin.X) || !double.IsFinite(cameraOrigin.Y) ||
                 !_entries.TryGetValue((owner, false), out var entry) ||
                 !entry.ScaleIndependent || entry.Compact || !entry.Origin.HasValue || entry.Projected == null ||
                 entry.Projected.BaseX != baseX || entry.Projected.BaseY != baseY ||
                 zoom / entry.Zoom > 4 || zoom / entry.Zoom < .25f) return false;
             var anchor = entry.Origin.Value;
-            double dx = (double)cameraOrigin.X - anchor.X, dy = (double)cameraOrigin.Y - anchor.Y;
+            double dx = cameraOrigin.X - anchor.X, dy = cameraOrigin.Y - anchor.Y;
             // Compare in double: adding offsets to float bounds can round an
             // uncovered sliver back inside the retained query's coverage.
             if (viewport.Left + dx < entry.Coverage.Left || viewport.Right + dx > entry.Coverage.Right ||

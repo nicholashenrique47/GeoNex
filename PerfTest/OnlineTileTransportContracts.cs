@@ -44,10 +44,30 @@ internal static class OnlineTileTransportContracts
             string rewritten = transport.Register(xml);
             Check((await client.GetByteArrayAsync(TileUrl(rewritten))).SequenceEqual(tile), "restart cache image differs");
             Check(transport.Downloads == 0 && transport.CacheHits == 1, "loopback port changed cache identity");
+            Check((await client.GetByteArrayAsync(TileUrl(rewritten))).SequenceEqual(tile), "validated cache image differs");
+            Check(transport.CacheHits == 2 && transport.ValidationSkips == 1, "unchanged tile was decoded again for cache validation");
+
+            string cachedTilePath = Directory.GetFiles(cache, "*", SearchOption.AllDirectories)
+                .Single(path => Path.GetFileName(path).Length == 32 && Path.GetFileName(path).All(Uri.IsHexDigit));
+            int requestsBeforeCorruption = server.RequestedPaths.Count;
+            DateTime originalTimestamp = File.GetLastWriteTimeUtc(cachedTilePath);
+            byte[] sameLengthCorruption = new byte[tile.Length];
+            tile.AsSpan(0, tile.Length / 2).CopyTo(sameLengthCorruption);
+            await File.WriteAllBytesAsync(cachedTilePath, sameLengthCorruption);
+            File.SetLastWriteTimeUtc(cachedTilePath, originalTimestamp);
+            Check((await client.GetByteArrayAsync(TileUrl(rewritten))).SequenceEqual(tile), "validated memory tile changed after disk corruption");
+            Check(server.RequestedPaths.Count == requestsBeforeCorruption, "trusted memory tile unnecessarily downloaded again");
+            using (var freshTransport = new OnlineTileTransport())
+            {
+                string freshUrl = TileUrl(freshTransport.Register(xml));
+                Check((await client.GetByteArrayAsync(freshUrl)).SequenceEqual(tile), "corrupt disk tile was not repaired after restart");
+                Check(server.RequestedPaths.Count == requestsBeforeCorruption + 1, "corrupt disk tile bypassed fresh validation");
+            }
 
             const double m = 20037508.342789244;
             SKRect Bounds(int x) => new((float)(-m + x * m / 2 + m / 8), (float)(-m * .375),
                 (float)(-m + x * m / 2 + 3 * m / 8), (float)(-m * .125));
+            long downloadsBeforeGdalCacheCheck = transport.Downloads;
             int fetched = server.RequestedPaths.Count;
             using (var native = OnlineRasterFrameReader.Read(xml, "EPSG:3857", Bounds(1), 0, 0, 128, 128, CancellationToken.None))
                 Check(native.Pixels.Any(p => p.Alpha > 0), "native cache read empty");
@@ -55,7 +75,8 @@ internal static class OnlineTileTransportContracts
             using (var native = OnlineRasterFrameReader.Read(xml, "EPSG:3857", Bounds(2), 0, 0, 128, 128, CancellationToken.None)) { }
             Check(server.RequestedPaths.Count == fetched + 1, "native fixture should read one new tile");
             await client.GetByteArrayAsync(TileUrl(rewritten, 2));
-            Check(server.RequestedPaths.Count == fetched + 1 && transport.Downloads == 0, "transport cannot reuse GDAL cache");
+            Check(server.RequestedPaths.Count == fetched + 1 && transport.Downloads == downloadsBeforeGdalCacheCheck,
+                "transport cannot reuse GDAL cache");
 
             server.BeforeResponse = _ => Task.Delay(80);
             var distinct = Enumerable.Range(0, 4).Select(x => client.GetByteArrayAsync(TileUrl(rewritten, x, 3)));

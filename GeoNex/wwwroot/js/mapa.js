@@ -583,14 +583,14 @@ window.desenharAquisicaoAvancada = function (nomeCamada, jsonPontos, tipoGeometr
     } else if (tipoGeometria === "LINHA") {
 
         listaPontos.forEach(pt => arrayCoordenadas.push([parseFloat(pt.Lat), parseFloat(pt.Lng)]));
-        let linha = L.polyline(arrayCoordenadas, { color: '#f59e0b', weight: 4 });
+        let linha = L.polyline(arrayCoordenadas, { color: '#3b82f6', weight: 4 });
         linha.feature = { type: "Feature", properties: { ID: "Eixo_" + Math.floor(Math.random() * 1000) } };
         camadaAlvo.addLayer(linha);
 
     } else if (tipoGeometria === "POLIGONO") {
 
         listaPontos.forEach(pt => arrayCoordenadas.push([parseFloat(pt.Lat), parseFloat(pt.Lng)]));
-        let poligono = L.polygon(arrayCoordenadas, { color: '#10b981', weight: 2, fillColor: '#34d399', fillOpacity: 0.4 });
+        let poligono = L.polygon(arrayCoordenadas, { color: '#3b82f6', weight: 2, fillColor: '#a855f7', fillOpacity: 0.2 });
         poligono.feature = { type: "Feature", properties: { ID: "Area_" + Math.floor(Math.random() * 1000) } };
         camadaAlvo.addLayer(poligono);
 
@@ -951,8 +951,11 @@ window.mapEngine = {
     toolPointerLatest: null,
     toolPointerFrame: null,
     toolPointerSettleTimer: null,
+    toolPointerThrottleTimer: null,
+    toolPointerLastSentAt: 0,
     toolPointerPendingInteractive: true,
     toolPointerInFlight: false,
+    toolPointerSequence: 0,
     lastPointerClientX: -1,
     lastPointerClientY: -1,
 
@@ -1170,6 +1173,24 @@ window.mapEngine = {
         };
     },
 
+    scheduleToolPointerFlush: function () {
+        if (this.toolPointerFrame !== null || this.toolPointerInFlight ||
+            !this.toolPointerPending || !this.dotNetHelper) return;
+        if (this.ferramentaAtual === 'Medicao' && window.GeoNexGraphics?._medicaoCursorAtiva) {
+            const wait = 34 - (performance.now() - this.toolPointerLastSentAt);
+            if (wait > 0) {
+                if (this.toolPointerThrottleTimer === null) {
+                    this.toolPointerThrottleTimer = setTimeout(() => {
+                        this.toolPointerThrottleTimer = null;
+                        this.scheduleToolPointerFlush();
+                    }, wait);
+                }
+                return;
+            }
+        }
+        this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
+    },
+
     resetToolPointer: function () {
         this.toolPointerPending = null;
         this.toolPointerLatest = null;
@@ -1177,7 +1198,12 @@ window.mapEngine = {
         this.toolPointerFrame = null;
         if (this.toolPointerSettleTimer !== null) clearTimeout(this.toolPointerSettleTimer);
         this.toolPointerSettleTimer = null;
+        if (this.toolPointerThrottleTimer !== null) clearTimeout(this.toolPointerThrottleTimer);
+        this.toolPointerThrottleTimer = null;
         this.toolPointerPendingInteractive = true;
+        this.toolPointerSequence++;
+        if (window.GeoNexGraphics)
+            window.GeoNexGraphics.invalidarCursorAquisicao(this.toolPointerSequence);
     },
 
     queueToolPointer: function (clientX, clientY) {
@@ -1185,21 +1211,25 @@ window.mapEngine = {
             this.resetToolPointer();
             return;
         }
-        const sample = { clientX, clientY };
+        const point = this.obterPontoImagem(clientX, clientY);
+        const sequence = ++this.toolPointerSequence;
+        const sample = { clientX, clientY, point, sequence };
         this.toolPointerLatest = sample;
         this.toolPointerPending = sample;
         this.toolPointerPendingInteractive = true;
+        if (this.ferramentaAtual === 'Medicao' && window.GeoNexGraphics)
+            window.GeoNexGraphics.atualizarCursorMedicao(point.x, point.y, sequence);
+        if (window.GeoNexGraphics)
+            window.GeoNexGraphics.atualizarCursorAquisicao(point.x, point.y, sequence);
         if (this.toolPointerSettleTimer !== null) clearTimeout(this.toolPointerSettleTimer);
         this.toolPointerSettleTimer = setTimeout(() => {
             this.toolPointerSettleTimer = null;
             if (!this.toolPointerLatest || !this.dotNetHelper) return;
             this.toolPointerPending = this.toolPointerLatest;
             this.toolPointerPendingInteractive = false;
-            if (this.toolPointerFrame === null && !this.toolPointerInFlight)
-                this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
+            this.scheduleToolPointerFlush();
         }, 120);
-        if (this.toolPointerFrame === null && !this.toolPointerInFlight)
-            this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
+        this.scheduleToolPointerFlush();
     },
 
     flushToolPointer: function () {
@@ -1208,14 +1238,19 @@ window.mapEngine = {
         const sample = this.toolPointerPending;
         const interacaoRapida = this.toolPointerPendingInteractive;
         this.toolPointerPending = null;
-        const point = this.obterPontoImagem(sample.clientX, sample.clientY);
+        if (this.ferramentaAtual === 'Medicao' && !window.GeoNexGraphics?._medicaoCursorAtiva) return;
+        if (this.ferramentaAtual === 'Medicao') this.toolPointerLastSentAt = performance.now();
+        const point = sample.point || this.obterPontoImagem(sample.clientX, sample.clientY);
+        const digitizingMatrix = window.GeoNexGraphics
+            ? window.GeoNexGraphics.obterMatrizApresentada()
+            : null;
         this.toolPointerInFlight = true;
-        this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas', point.x, point.y, interacaoRapida)
+        this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas',
+            point.x, point.y, interacaoRapida, sample.sequence, digitizingMatrix)
             .catch(err => console.warn('Erro na prévia da ferramenta:', err))
             .finally(() => {
                 this.toolPointerInFlight = false;
-                if (this.toolPointerPending && this.toolPointerFrame === null)
-                    this.toolPointerFrame = requestAnimationFrame(() => this.flushToolPointer());
+                this.scheduleToolPointerFlush();
             });
     },
 
@@ -1444,7 +1479,10 @@ window.mapEngine = {
         if (!this.dotNetHelper) return;
         this.resetToolPointer();
         const point = this.obterPontoImagem(clientX, clientY);
-        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y)
+        const digitizingMatrix = window.GeoNexGraphics
+            ? window.GeoNexGraphics.obterMatrizApresentada()
+            : null;
+        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y, digitizingMatrix)
             .catch(err => console.warn("Erro no Túnel:", err));
     },
 
@@ -1643,7 +1681,7 @@ window.mapEngine = {
         }
     },
 
-    carregarNovoFrame: function (url, frameId, requestIdCamera, telemetryEnabled, padding = 0, visibleWidth = 0, visibleHeight = 0, cameraPanX = 0, cameraPanY = 0, cameraZoom = 1, refineOnline = false) {
+    carregarNovoFrame: function (url, frameId, requestIdCamera, telemetryEnabled, padding = 0, visibleWidth = 0, visibleHeight = 0, cameraPanX = 0, cameraPanY = 0, cameraZoom = 1, refineOnline = false, digitizingMatrix = null, clearPreviewAfterFrameId = 0, clearPreviewRevision = 0) {
         frameId = Number(frameId) || 0;
         requestIdCamera = Number(requestIdCamera) || 0;
         telemetryEnabled = telemetryEnabled === true;
@@ -1782,6 +1820,9 @@ window.mapEngine = {
             this.latestFramePresented = Math.max(this.latestFramePresented, frameId);
             this.decodedPayload = loadedFrame.payloadId ? loadedFrame : null;
             this.aplicarTransformacao();
+            if (window.GeoNexGraphics && digitizingMatrix)
+                window.GeoNexGraphics.apresentarFrameAquisicao(
+                    digitizingMatrix, frameId, clearPreviewAfterFrameId, clearPreviewRevision);
             this.solicitarAnimacao();
 
             // A scene update may present sharp vectors before online tiles arrive.
@@ -1976,7 +2017,32 @@ window.GeoNexGraphics = {
     _destaque: [], _medicao: [], _mouse: null, _snap: null,
     _futuroDestaque: null, _futuroMedicao: null,
     _mostrarArea: false, _futuroMostrarArea: null,
+    _medicaoCursorAtiva: false, _medicaoCursorFrame: null,
+    _medicaoPointerSequence: 0, _medicaoSnapTipo: null,
+    _medicaoStaticCanvas: null, _medicaoStaticCtx: null,
+    _medicaoCursorCanvas: null, _medicaoCursorCtx: null,
     _fase: 0, _animId: null,
+    _aquisicao: {
+        pontos: [], ativa: false, tipo: 'POLIGONO',
+        matriz: [1, 0, 0, 1, 0, 0, 0, 0], revisao: 0,
+        matrizApresentada: false,
+        restricaoAtiva: false, restricaoRaio: 0, restricaoFixa: true,
+        coordenadaAbsolutaFixa: false,
+        cursorImagem: null, cursorLocal: null, snap: null,
+        sequenciaPonteiro: 0, revisaoLimpaConfirmada: 0
+    },
+    _aquisicaoPath: null,
+    _aquisicaoCacheSuja: true,
+    _aquisicaoStaticNeedsComposition: true,
+    _aquisicaoFillCanvas: null,
+    _aquisicaoFillCtx: null,
+    _aquisicaoLineCanvas: null,
+    _aquisicaoLineCtx: null,
+    _aquisicaoStaticCanvas: null,
+    _aquisicaoStaticCtx: null,
+    _aquisicaoCursorCanvas: null,
+    _aquisicaoCursorCtx: null,
+    _aquisicaoCursorAnterior: null,
 
     redimensionar: function () {
         const cvs = document.getElementById('overlayCanvas');
@@ -1986,8 +2052,905 @@ window.GeoNexGraphics = {
             const dpi = window.dimensoesJanela ? window.dimensoesJanela.obterDpi() : 1;
             cvs.width = Math.max(1, Math.round(larguraCss * dpi));
             cvs.height = Math.max(1, Math.round(alturaCss * dpi));
+            if (this._aquisicao.ativa || this._aquisicao.pontos.length > 0 ||
+                this._aquisicaoFillCanvas || this._aquisicaoLineCanvas)
+                this._garantirCachesAquisicao(cvs);
+            if (this._medicaoStaticCanvas || this._medicao.length > 0)
+                this._garantirCamadasMedicao(cvs);
+            this._aquisicaoCacheSuja = true;
             this.desenharFrameEstatico();
+            if (this._medicaoStaticCanvas) this._desenharMedicaoEstatico();
+            this._agendarCursorMedicao();
         }
+    },
+
+    _lerMatrizAquisicao: function (matriz) {
+        if (!Array.isArray(matriz) || (matriz.length !== 6 && matriz.length !== 8)) return null;
+        const result = matriz.map(Number);
+        if (!result.every(Number.isFinite)) return null;
+        const determinante = result[0] * result[3] - result[1] * result[2];
+        if (Math.abs(determinante) <= 1e-18) return null;
+        if (result.length === 6) result.push(0, 0);
+        return result;
+    },
+
+    _pontoRelativoAquisicao: function (point) {
+        const matrix = this._aquisicao.matriz;
+        return { x: point.x - (matrix[6] || 0), y: point.y - (matrix[7] || 0) };
+    },
+
+    _localParaImagemAquisicao: function (point) {
+        const [a, b, c, d, e, f] = this._aquisicao.matriz;
+        const relative = this._pontoRelativoAquisicao(point);
+        return { x: a * relative.x + c * relative.y + e,
+            y: b * relative.x + d * relative.y + f };
+    },
+
+    _garantirCachesAquisicao: function (referencia) {
+        if (!this._aquisicaoFillCanvas) {
+            this._aquisicaoFillCanvas = document.createElement('canvas');
+            this._aquisicaoFillCtx = this._aquisicaoFillCanvas.getContext('2d');
+        }
+        if (!this._aquisicaoLineCanvas) {
+            this._aquisicaoLineCanvas = document.createElement('canvas');
+            this._aquisicaoLineCtx = this._aquisicaoLineCanvas.getContext('2d');
+        }
+        let resized = false;
+        for (const canvas of [this._aquisicaoFillCanvas, this._aquisicaoLineCanvas]) {
+            if (canvas.width !== referencia.width || canvas.height !== referencia.height) {
+                canvas.width = referencia.width;
+                canvas.height = referencia.height;
+                resized = true;
+            }
+        }
+        if (resized) this._aquisicaoCacheSuja = true;
+        return resized;
+    },
+
+    _garantirCamadasVisiveisAquisicao: function (referencia) {
+        const parent = referencia?.parentElement;
+        if (!parent) return false;
+        let created = false;
+        if (!this._aquisicaoStaticCanvas) {
+            this._aquisicaoStaticCanvas = document.createElement('canvas');
+            this._aquisicaoStaticCanvas.id = 'digitizing-static-preview';
+            this._aquisicaoStaticCanvas.style.cssText =
+                'width:100%;height:100%;position:absolute;left:0;top:0;pointer-events:none;z-index:11;';
+            this._aquisicaoStaticCtx = this._aquisicaoStaticCanvas.getContext('2d');
+            parent.appendChild(this._aquisicaoStaticCanvas);
+            created = true;
+        } else if (this._aquisicaoStaticCanvas.parentElement !== parent) {
+            parent.appendChild(this._aquisicaoStaticCanvas);
+            created = true;
+        }
+        if (!this._aquisicaoCursorCanvas) {
+            this._aquisicaoCursorCanvas = document.createElement('canvas');
+            this._aquisicaoCursorCanvas.id = 'digitizing-cursor-preview';
+            this._aquisicaoCursorCanvas.style.cssText =
+                'width:100%;height:100%;position:absolute;left:0;top:0;pointer-events:none;z-index:12;';
+            this._aquisicaoCursorCtx = this._aquisicaoCursorCanvas.getContext('2d');
+            parent.appendChild(this._aquisicaoCursorCanvas);
+            created = true;
+        } else if (this._aquisicaoCursorCanvas.parentElement !== parent) {
+            parent.appendChild(this._aquisicaoCursorCanvas);
+            created = true;
+        }
+
+        let resized = false;
+        for (const canvas of [this._aquisicaoStaticCanvas, this._aquisicaoCursorCanvas]) {
+            if (canvas.width !== referencia.width || canvas.height !== referencia.height) {
+                canvas.width = referencia.width;
+                canvas.height = referencia.height;
+                resized = true;
+            }
+        }
+        if (created || resized) {
+            this._aquisicaoCacheSuja = true;
+            this._aquisicaoStaticNeedsComposition = true;
+            this._aquisicaoCursorAnterior = null;
+        }
+        this._aquisicaoStaticCanvas.style.display = this._aquisicao.pontos.length > 0 ? '' : 'none';
+        this._aquisicaoCursorCanvas.style.display = this._aquisicao.ativa ? '' : 'none';
+        return resized;
+    },
+
+    _garantirCamadasMedicao: function (referencia) {
+        const parent = referencia?.parentElement;
+        if (!parent) return false;
+        let changed = false;
+        if (!this._medicaoStaticCanvas) {
+            this._medicaoStaticCanvas = document.createElement('canvas');
+            this._medicaoStaticCanvas.id = 'measurement-static-preview';
+            this._medicaoStaticCanvas.style.cssText =
+                'width:100%;height:100%;position:absolute;left:0;top:0;pointer-events:none;z-index:13;';
+            this._medicaoStaticCtx = this._medicaoStaticCanvas.getContext('2d');
+            parent.appendChild(this._medicaoStaticCanvas);
+            changed = true;
+        } else if (this._medicaoStaticCanvas.parentElement !== parent) {
+            parent.appendChild(this._medicaoStaticCanvas);
+            changed = true;
+        }
+        if (!this._medicaoCursorCanvas) {
+            this._medicaoCursorCanvas = document.createElement('canvas');
+            this._medicaoCursorCanvas.id = 'measurement-cursor-preview';
+            this._medicaoCursorCanvas.style.cssText =
+                'width:100%;height:100%;position:absolute;left:0;top:0;pointer-events:none;z-index:14;';
+            this._medicaoCursorCtx = this._medicaoCursorCanvas.getContext('2d');
+            parent.appendChild(this._medicaoCursorCanvas);
+            changed = true;
+        } else if (this._medicaoCursorCanvas.parentElement !== parent) {
+            parent.appendChild(this._medicaoCursorCanvas);
+            changed = true;
+        }
+
+        let resized = false;
+        for (const canvas of [this._medicaoStaticCanvas, this._medicaoCursorCanvas]) {
+            if (canvas.width !== referencia.width || canvas.height !== referencia.height) {
+                canvas.width = referencia.width;
+                canvas.height = referencia.height;
+                resized = true;
+            }
+        }
+        this._medicaoStaticCanvas.style.display = this._medicao.length > 0 ? '' : 'none';
+        this._medicaoCursorCanvas.style.display = this._medicaoCursorAtiva ? '' : 'none';
+        return changed || resized;
+    },
+
+    _desenharMedicaoEstatico: function () {
+        const referencia = document.getElementById('overlayCanvas');
+        if (!referencia || !this._garantirCamadasMedicao(referencia)) {
+            if (!this._medicaoStaticCanvas) return;
+        }
+        const canvas = this._medicaoStaticCanvas;
+        const ctx = this._medicaoStaticCtx;
+        if (!canvas || !ctx) return;
+        const cssWidth = Math.max(1, canvas.clientWidth);
+        const cssHeight = Math.max(1, canvas.clientHeight);
+        const scaleX = canvas.width / cssWidth;
+        const scaleY = canvas.height / cssHeight;
+        const mapScale = Math.max(0.05, Math.abs(window.mapEngine?.currentScale || 1));
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+        if (this._medicao.length === 0) return;
+
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(this._medicao[0].x, this._medicao[0].y);
+        for (let i = 1; i < this._medicao.length; i++)
+            ctx.lineTo(this._medicao[i].x, this._medicao[i].y);
+
+        if (this._mostrarArea && this._medicao.length > 2) {
+            ctx.save();
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(239, 68, 68, .38)';
+            ctx.fill();
+            ctx.restore();
+
+            ctx.beginPath();
+            ctx.moveTo(this._medicao[this._medicao.length - 1].x, this._medicao[this._medicao.length - 1].y);
+            ctx.lineTo(this._medicao[0].x, this._medicao[0].y);
+            ctx.strokeStyle = 'rgba(255,255,255,.72)';
+            ctx.lineWidth = 1.5 / mapScale;
+            ctx.setLineDash([10 / mapScale, 10 / mapScale]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(this._medicao[0].x, this._medicao[0].y);
+        for (let i = 1; i < this._medicao.length; i++)
+            ctx.lineTo(this._medicao[i].x, this._medicao[i].y);
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2.5 / mapScale;
+        ctx.stroke();
+        for (const point of this._medicao) {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 5 / mapScale, 0, Math.PI * 2);
+            ctx.fillStyle = '#f59e0b';
+            ctx.fill();
+            ctx.lineWidth = 1.5 / mapScale;
+            ctx.strokeStyle = '#fff7ed';
+            ctx.stroke();
+        }
+        ctx.restore();
+    },
+
+    _agendarCursorMedicao: function () {
+        if (this._medicaoCursorFrame !== null) return;
+        this._medicaoCursorFrame = requestAnimationFrame(() => {
+            this._medicaoCursorFrame = null;
+            this._desenharCursorMedicao();
+        });
+    },
+
+    _desenharCursorMedicao: function () {
+        const referencia = document.getElementById('overlayCanvas');
+        if (!referencia || !this._medicaoCursorCanvas) return;
+        this._garantirCamadasMedicao(referencia);
+        const canvas = this._medicaoCursorCanvas;
+        const ctx = this._medicaoCursorCtx;
+        if (!ctx) return;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!this._medicaoCursorAtiva || !this._mouse) return;
+
+        const scaleX = canvas.width / Math.max(1, canvas.clientWidth);
+        const scaleY = canvas.height / Math.max(1, canvas.clientHeight);
+        const cssWidth = Math.max(1, canvas.clientWidth);
+        const cssHeight = Math.max(1, canvas.clientHeight);
+        const mapScale = Math.max(0.05, Math.abs(window.mapEngine?.currentScale || 1));
+        const cursor = this._snap || this._mouse;
+        ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+        ctx.save();
+        if (this._medicao.length > 0) {
+            const anchor = this._medicao[this._medicao.length - 1];
+            ctx.beginPath();
+            ctx.moveTo(anchor.x, anchor.y);
+            ctx.lineTo(cursor.x, cursor.y);
+            ctx.strokeStyle = 'rgba(37,99,235,.86)';
+            ctx.lineWidth = 1.5 / mapScale;
+            ctx.setLineDash([10 / mapScale, 10 / mapScale]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(0, cursor.y);
+        ctx.lineTo(cssWidth, cursor.y);
+        ctx.moveTo(cursor.x, 0);
+        ctx.lineTo(cursor.x, cssHeight);
+        ctx.strokeStyle = 'rgba(255,255,255,.20)';
+        ctx.lineWidth = 1 / mapScale;
+        ctx.stroke();
+
+        if (this._snap) {
+            const size = 7 / mapScale;
+            const type = this._medicaoSnapTipo;
+            const colors = { Vertex: '#fde047', Midpoint: '#22d3ee', Edge: '#fb923c', Intersection: '#e879f9' };
+            ctx.strokeStyle = colors[type] || '#fde047';
+            ctx.fillStyle = type === 'Vertex' ? 'rgba(253,224,71,.2)' : 'rgba(34,211,238,.18)';
+            ctx.lineWidth = 2 / mapScale;
+            if (type === 'Edge') {
+                ctx.beginPath();
+                ctx.moveTo(cursor.x, cursor.y - size);
+                ctx.lineTo(cursor.x + size, cursor.y);
+                ctx.lineTo(cursor.x, cursor.y + size);
+                ctx.lineTo(cursor.x - size, cursor.y);
+                ctx.closePath();
+                ctx.fill(); ctx.stroke();
+            } else {
+                ctx.beginPath();
+                ctx.arc(cursor.x, cursor.y, size * .58, 0, Math.PI * 2);
+                ctx.fill(); ctx.stroke();
+                if (type === 'Intersection') {
+                    ctx.beginPath();
+                    ctx.moveTo(cursor.x - size, cursor.y - size); ctx.lineTo(cursor.x + size, cursor.y + size);
+                    ctx.moveTo(cursor.x + size, cursor.y - size); ctx.lineTo(cursor.x - size, cursor.y + size);
+                    ctx.stroke();
+                }
+            }
+        } else {
+            ctx.beginPath();
+            ctx.arc(cursor.x, cursor.y, 3.5 / mapScale, 0, Math.PI * 2);
+            ctx.fillStyle = '#f8fafc';
+            ctx.fill();
+            ctx.lineWidth = 1.6 / mapScale;
+            ctx.strokeStyle = '#2563eb';
+            ctx.stroke();
+        }
+        ctx.restore();
+    },
+
+    _definirTransformacaoAquisicao: function (ctx, referencia) {
+        const larguraCss = Math.max(1, referencia.clientWidth);
+        const alturaCss = Math.max(1, referencia.clientHeight);
+        const escalaX = referencia.width / larguraCss;
+        const escalaY = referencia.height / alturaCss;
+        const [a, b, c, d, e, f] = this._aquisicao.matriz;
+        ctx.setTransform(escalaX * a, escalaY * b, escalaX * c, escalaY * d,
+            escalaX * e, escalaY * f);
+        return Math.max(1e-8, (Math.hypot(a, b) + Math.hypot(c, d)) / 2);
+    },
+
+    _limparCanvasAquisicao: function (ctx, canvas) {
+        if (!ctx || !canvas) return;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    },
+
+    _criarPathAquisicao: function () {
+        const pontos = this._aquisicao.pontos;
+        if (typeof Path2D !== 'function' || pontos.length === 0) return null;
+        const primeiro = this._pontoRelativoAquisicao(pontos[0]);
+        const path = new Path2D();
+        path.moveTo(primeiro.x, primeiro.y);
+        for (let i = 1; i < pontos.length; i++) {
+            const point = this._pontoRelativoAquisicao(pontos[i]);
+            path.lineTo(point.x, point.y);
+        }
+        return path;
+    },
+
+    _desenharMarcadorAquisicao: function (ctx, point, index, escalaMapa) {
+        const raio = 5 / escalaMapa;
+        const cor = index === 0 && this._aquisicao.tipo !== 'PONTO' ? '#f59e0b' : '#e64f5d';
+        const relative = this._pontoRelativoAquisicao(point);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(relative.x, relative.y, 6.25 / escalaMapa, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(9, 18, 28, .92)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(relative.x, relative.y, raio, 0, Math.PI * 2);
+        ctx.fillStyle = cor;
+        ctx.fill();
+        ctx.lineWidth = 1.4 / escalaMapa;
+        ctx.strokeStyle = '#f8fafc';
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(relative.x, relative.y, 1.45 / escalaMapa, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.restore();
+    },
+
+    _desenharPathAquisicao: function (ctx, path, fechar = false) {
+        const pontos = this._aquisicao.pontos;
+        if (path) {
+            if (fechar) {
+                ctx.fill(path, 'evenodd');
+            } else {
+                ctx.stroke(path);
+            }
+            return;
+        }
+        if (pontos.length === 0) return;
+        const first = this._pontoRelativoAquisicao(pontos[0]);
+        ctx.beginPath();
+        ctx.moveTo(first.x, first.y);
+        for (let i = 1; i < pontos.length; i++) {
+            const point = this._pontoRelativoAquisicao(pontos[i]);
+            ctx.lineTo(point.x, point.y);
+        }
+        if (fechar) {
+            ctx.closePath();
+            ctx.fill('evenodd');
+        } else {
+            ctx.stroke();
+        }
+    },
+
+    _reconstruirCacheAquisicao: function (referencia) {
+        this._garantirCachesAquisicao(referencia);
+        this._limparCanvasAquisicao(this._aquisicaoFillCtx, this._aquisicaoFillCanvas);
+        this._limparCanvasAquisicao(this._aquisicaoLineCtx, this._aquisicaoLineCanvas);
+        const pontos = this._aquisicao.pontos;
+        if (pontos.length === 0) {
+            this._aquisicaoPath = null;
+            this._aquisicaoCacheSuja = false;
+            return;
+        }
+        if (!this._aquisicaoPath) this._aquisicaoPath = this._criarPathAquisicao();
+
+        const ctxFill = this._aquisicaoFillCtx;
+        const ctxLine = this._aquisicaoLineCtx;
+        const escalaMapa = this._definirTransformacaoAquisicao(ctxLine, referencia);
+        if (this._aquisicao.tipo === 'POLIGONO' && pontos.length >= 3) {
+            this._definirTransformacaoAquisicao(ctxFill, referencia);
+            ctxFill.fillStyle = 'rgba(168, 85, 247, 0.18)';
+            this._desenharPathAquisicao(ctxFill, this._aquisicaoPath, true);
+        }
+
+        ctxLine.lineWidth = 3.2 / escalaMapa;
+        ctxLine.lineJoin = 'round';
+        ctxLine.lineCap = 'round';
+        ctxLine.strokeStyle = 'rgba(255,255,255,.94)';
+        this._desenharPathAquisicao(ctxLine, this._aquisicaoPath);
+        ctxLine.lineWidth = 1.8 / escalaMapa;
+        ctxLine.strokeStyle = '#2563eb';
+        this._desenharPathAquisicao(ctxLine, this._aquisicaoPath);
+
+        const passoMarcador = Math.max(1, Math.ceil(pontos.length / 2048));
+        for (let i = 0; i < pontos.length; i += passoMarcador)
+            this._desenharMarcadorAquisicao(ctxLine, pontos[i], i, escalaMapa);
+        if ((pontos.length - 1) % passoMarcador !== 0)
+            this._desenharMarcadorAquisicao(ctxLine, pontos[pontos.length - 1], pontos.length - 1, escalaMapa);
+        this._aquisicaoCacheSuja = false;
+    },
+
+    _atualizarCachePreenchimentoAquisicao: function (referencia) {
+        this._limparCanvasAquisicao(this._aquisicaoFillCtx, this._aquisicaoFillCanvas);
+        if (this._aquisicao.tipo !== 'POLIGONO' || this._aquisicao.pontos.length < 3) return;
+        this._definirTransformacaoAquisicao(this._aquisicaoFillCtx, referencia);
+        this._aquisicaoFillCtx.fillStyle = 'rgba(168, 85, 247, 0.18)';
+        this._desenharPathAquisicao(this._aquisicaoFillCtx, this._aquisicaoPath, true);
+    },
+
+    definirAquisicao: function (points, active, matrix, revision, geometryType,
+        restrictionActive, restrictionRadius, fixedRestriction) {
+        const parsedMatrix = this._lerMatrizAquisicao(matrix);
+        const aq = this._aquisicao;
+        this._aquisicao.pontos = Array.isArray(points)
+            ? points.filter(p => p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)))
+                .map(p => ({ x: Number(p.x), y: Number(p.y) }))
+            : [];
+        this._aquisicao.ativa = active === true;
+        this._aquisicao.tipo = geometryType || 'POLIGONO';
+        if (restrictionActive !== undefined) aq.restricaoAtiva = restrictionActive === true;
+        if (restrictionRadius !== undefined) aq.restricaoRaio = Number(restrictionRadius);
+        if (fixedRestriction !== undefined) aq.restricaoFixa = fixedRestriction === true;
+        if (parsedMatrix) this._aquisicao.matriz = parsedMatrix;
+        this._aquisicao.revisao = Number(revision) || 0;
+        this._aquisicao.cursorImagem = null;
+        this._aquisicao.cursorLocal = null;
+        this._aquisicao.snap = null;
+        this._aquisicao.coordenadaAbsolutaFixa = false;
+        this._aquisicaoPath = null;
+        this._aquisicaoCacheSuja = true;
+        this.desenharFrameEstatico();
+    },
+
+    definirRestricaoDistanciaAquisicao: function (active, radius, fixed) {
+        const aq = this._aquisicao;
+        aq.restricaoAtiva = active === true;
+        aq.restricaoRaio = Number(radius);
+        aq.restricaoFixa = fixed === true;
+        aq.cursorImagem = null;
+        aq.cursorLocal = null;
+        aq.snap = null;
+        this._aquisicaoStaticNeedsComposition = true;
+        this.desenharFrameEstatico();
+
+        const engine = window.mapEngine;
+        if (aq.ativa && engine?.container && !engine.isDragging && !engine.uiModalAberto()) {
+            const x = engine.lastPointerClientX;
+            const y = engine.lastPointerClientY;
+            const rect = engine.container.getBoundingClientRect();
+            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+                requestAnimationFrame(() => engine.queueToolPointer(x, y));
+        }
+    },
+
+    definirCoordenadaAbsolutaAquisicao: function (active, x, y) {
+        const aq = this._aquisicao;
+        const ponto = { x: Number(x), y: Number(y) };
+        if (active && (!Number.isFinite(ponto.x) || !Number.isFinite(ponto.y))) return;
+        aq.coordenadaAbsolutaFixa = active === true;
+        aq.snap = null;
+        if (!aq.coordenadaAbsolutaFixa) {
+            aq.cursorImagem = null;
+            aq.cursorLocal = null;
+            this._desenharCursorAquisicao();
+            return;
+        }
+        aq.cursorLocal = ponto;
+        aq.cursorImagem = this._localParaImagemAquisicao(ponto);
+        this._desenharCursorAquisicao();
+    },
+
+    definirAquisicaoAtiva: function (active) {
+        this._aquisicao.ativa = active === true;
+        this._aquisicao.cursorImagem = null;
+        this._aquisicao.cursorLocal = null;
+        this._aquisicao.snap = null;
+        this._aquisicaoStaticNeedsComposition = true;
+        this.desenharFrameEstatico();
+    },
+
+    obterMatrizAquisicao: function () {
+        return this._aquisicao.ativa ? this._aquisicao.matriz.slice() : null;
+    },
+
+    obterMatrizApresentada: function () {
+        return this._aquisicao.matrizApresentada ? this._aquisicao.matriz.slice() : null;
+    },
+
+    adicionarVerticeAquisicao: function (revision, x, y) {
+        const point = { x: Number(x), y: Number(y) };
+        revision = Number(revision) || 0;
+        if (!this._aquisicao.ativa || revision <= this._aquisicao.revisao ||
+            !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+        const anterior = this._aquisicao.pontos[this._aquisicao.pontos.length - 1];
+        this._aquisicao.pontos.push(point);
+        this._aquisicao.revisao = revision;
+        const relativePoint = this._pontoRelativoAquisicao(point);
+        if (this._aquisicaoPath) this._aquisicaoPath.lineTo(relativePoint.x, relativePoint.y);
+        else this._aquisicaoPath = this._criarPathAquisicao();
+
+        const referencia = document.getElementById('overlayCanvas');
+        if (referencia && !this._aquisicaoCacheSuja && this._aquisicaoLineCtx) {
+            const ctx = this._aquisicaoLineCtx;
+            const escalaMapa = this._definirTransformacaoAquisicao(ctx, referencia);
+            const relativePrevious = anterior ? this._pontoRelativoAquisicao(anterior) : null;
+            ctx.lineWidth = 3.2 / escalaMapa;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = 'rgba(255,255,255,.94)';
+            if (anterior) {
+                ctx.beginPath();
+                ctx.moveTo(relativePrevious.x, relativePrevious.y);
+                ctx.lineTo(relativePoint.x, relativePoint.y);
+                ctx.stroke();
+                ctx.lineWidth = 1.8 / escalaMapa;
+                ctx.strokeStyle = '#2563eb';
+                ctx.stroke();
+            }
+            this._desenharMarcadorAquisicao(ctx, point, this._aquisicao.pontos.length - 1, escalaMapa);
+            this._atualizarCachePreenchimentoAquisicao(referencia);
+            this._aquisicaoStaticNeedsComposition = true;
+        } else {
+            this._aquisicaoCacheSuja = true;
+            this._aquisicaoStaticNeedsComposition = true;
+        }
+        this._aquisicao.cursorImagem = null;
+        this._aquisicao.cursorLocal = null;
+        this._aquisicao.snap = null;
+        this.desenharFrameEstatico();
+        this._desenharCursorAquisicao();
+    },
+
+    atualizarMatrizAquisicao: function (matrix) {
+        const parsedMatrix = this._lerMatrizAquisicao(matrix);
+        if (!parsedMatrix) return;
+        this._aquisicao.matriz = parsedMatrix;
+        this._aquisicaoPath = null;
+        this._aquisicao.cursorImagem = null;
+        this._aquisicao.cursorLocal = null;
+        this._aquisicao.snap = null;
+        this._aquisicaoCacheSuja = true;
+        this.desenharFrameEstatico();
+    },
+
+    apresentarFrameAquisicao: function (matrix, frameId, clearAfterFrameId, clearRevision) {
+        const parsedMatrix = this._lerMatrizAquisicao(matrix);
+        let matrizAlterada = false;
+        if (parsedMatrix) {
+            matrizAlterada = parsedMatrix.some((value, index) => value !== this._aquisicao.matriz[index]);
+            this._aquisicao.matriz = parsedMatrix;
+            this._aquisicao.matrizApresentada = true;
+            if (matrizAlterada) {
+                this._aquisicaoPath = null;
+                this._aquisicao.cursorImagem = null;
+                this._aquisicao.cursorLocal = null;
+                this._aquisicao.snap = null;
+                this._aquisicaoCacheSuja = true;
+            }
+        }
+
+        frameId = Number(frameId) || 0;
+        clearAfterFrameId = Number(clearAfterFrameId) || 0;
+        clearRevision = Number(clearRevision) || 0;
+        let estadoPreviaAlterado = false;
+        if (clearAfterFrameId > 0 && frameId >= clearAfterFrameId && clearRevision > 0 &&
+            this._aquisicao.revisaoLimpaConfirmada !== clearRevision) {
+            if (this._aquisicao.revisao === clearRevision) {
+                this._aquisicao.pontos = [];
+                this._aquisicaoPath = null;
+                this._aquisicaoCacheSuja = true;
+            }
+            this._aquisicao.cursorImagem = null;
+            this._aquisicao.cursorLocal = null;
+            this._aquisicao.snap = null;
+            this._aquisicao.revisaoLimpaConfirmada = clearRevision;
+            estadoPreviaAlterado = true;
+            if (window.mapEngine && window.mapEngine.dotNetHelper)
+                window.mapEngine.dotNetHelper.invokeMethodAsync(
+                    'ConfirmarPreviaVetorizacaoApresentada', frameId, clearRevision).catch(() => { });
+        }
+        if (!this._aquisicao.ativa && this._aquisicao.pontos.length === 0 &&
+            !estadoPreviaAlterado) {
+            if (matrizAlterada && this._medicaoCursorAtiva)
+                this._recalcularCursorFerramentaApresentado();
+            return;
+        }
+        this.desenharFrameEstatico();
+        if (matrizAlterada && (this._aquisicao.ativa || this._medicaoCursorAtiva))
+            this._recalcularCursorFerramentaApresentado();
+    },
+
+    _recalcularCursorFerramentaApresentado: function () {
+        const engine = window.mapEngine;
+        if (!engine?.container || engine.isDragging || engine.uiModalAberto()) return;
+        const x = engine.lastPointerClientX;
+        const y = engine.lastPointerClientY;
+        const rect = engine.container.getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+            requestAnimationFrame(() => engine.queueToolPointer(x, y));
+    },
+
+    invalidarCursorAquisicao: function (sequence) {
+        sequence = Number(sequence) || 0;
+        if (sequence < this._aquisicao.sequenciaPonteiro) return;
+        this._aquisicao.sequenciaPonteiro = sequence;
+        this._aquisicao.cursorImagem = null;
+        this._aquisicao.cursorLocal = null;
+        this._aquisicao.snap = null;
+        this._desenharCursorAquisicao();
+    },
+
+    _aplicarRestricaoCursorAquisicao: function (point) {
+        const aq = this._aquisicao;
+        if (!aq.restricaoAtiva || !Number.isFinite(aq.restricaoRaio) ||
+            aq.restricaoRaio <= 0 || aq.pontos.length === 0) return point;
+
+        const anchor = aq.pontos[aq.pontos.length - 1];
+        const dx = point.x - anchor.x;
+        const dy = point.y - anchor.y;
+        const length = Math.hypot(dx, dy);
+        if (!Number.isFinite(length) || length <= 0 || (!aq.restricaoFixa && length <= aq.restricaoRaio))
+            return point;
+
+        const factor = aq.restricaoRaio / length;
+        return { x: anchor.x + dx * factor, y: anchor.y + dy * factor };
+    },
+
+    atualizarCursorAquisicao: function (x, y, sequence) {
+        const aq = this._aquisicao;
+        if (!aq.ativa) return;
+        if (aq.coordenadaAbsolutaFixa) return;
+        sequence = Number(sequence) || 0;
+        if (sequence < aq.sequenciaPonteiro) return;
+        const ponto = { x: Number(x), y: Number(y) };
+        if (!Number.isFinite(ponto.x) || !Number.isFinite(ponto.y)) return;
+        const [a, b, c, d, e, f] = aq.matriz;
+        const det = a * d - b * c;
+        if (!Number.isFinite(det) || Math.abs(det) <= 1e-18) return;
+        const dx = ponto.x - e;
+        const dy = ponto.y - f;
+        const originX = aq.matriz[6] || 0;
+        const originY = aq.matriz[7] || 0;
+        aq.sequenciaPonteiro = sequence;
+        aq.cursorLocal = this._aplicarRestricaoCursorAquisicao({
+            x: originX + (d * dx - c * dy) / det,
+            y: originY + (-b * dx + a * dy) / det
+        });
+        aq.cursorImagem = this._localParaImagemAquisicao(aq.cursorLocal);
+        aq.snap = null;
+        this._desenharCursorAquisicao();
+    },
+
+    definirCursorResolvidoAquisicao: function (sequence, x, y, snapX, snapY, snapKind) {
+        const aq = this._aquisicao;
+        if (aq.coordenadaAbsolutaFixa) return;
+        sequence = Number(sequence) || 0;
+        if (!aq.ativa || sequence !== aq.sequenciaPonteiro ||
+            !Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) return;
+        aq.cursorLocal = { x: Number(x), y: Number(y) };
+        aq.cursorImagem = this._localParaImagemAquisicao(aq.cursorLocal);
+        aq.snap = snapX !== null && snapX !== undefined && snapY !== null && snapY !== undefined
+            ? { x: Number(snapX), y: Number(snapY), kind: snapKind || 'Vertex' }
+            : null;
+        this._desenharCursorAquisicao();
+    },
+
+    _desenharSnapAquisicao: function (ctx, snap, escalaMapa) {
+        if (!snap) return;
+        const size = 14 / escalaMapa;
+        const color = snap.kind === 'Midpoint' ? '#22d3ee' :
+            snap.kind === 'Edge' ? '#fb923c' :
+                snap.kind === 'Intersection' ? '#e879f9' : '#facc15';
+        const relative = this._pontoRelativoAquisicao(snap);
+        ctx.save();
+        ctx.lineWidth = 2 / escalaMapa;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = `${color}55`;
+        ctx.beginPath();
+        if (snap.kind === 'Edge') {
+            ctx.moveTo(relative.x, relative.y - size * 0.55);
+            ctx.lineTo(relative.x + size * 0.55, relative.y);
+            ctx.lineTo(relative.x, relative.y + size * 0.55);
+            ctx.lineTo(relative.x - size * 0.55, relative.y);
+            ctx.closePath();
+        } else if (snap.kind === 'Midpoint') {
+            ctx.arc(relative.x, relative.y, size * 0.45, 0, Math.PI * 2);
+        } else {
+            ctx.rect(relative.x - size / 2, relative.y - size / 2, size, size);
+        }
+        ctx.fill();
+        ctx.stroke();
+        if (snap.kind === 'Intersection') {
+            ctx.beginPath();
+            ctx.moveTo(relative.x - size, relative.y - size);
+            ctx.lineTo(relative.x + size, relative.y + size);
+            ctx.moveTo(relative.x + size, relative.y - size);
+            ctx.lineTo(relative.x - size, relative.y + size);
+            ctx.stroke();
+        } else if (snap.kind === 'Vertex') {
+            ctx.beginPath();
+            ctx.moveTo(relative.x - size, relative.y);
+            ctx.lineTo(relative.x + size, relative.y);
+            ctx.moveTo(relative.x, relative.y - size);
+            ctx.lineTo(relative.x, relative.y + size);
+            ctx.stroke();
+        }
+        ctx.restore();
+    },
+
+    _desenharGuiaRestricaoAquisicao: function (ctx, referencia) {
+        const aq = this._aquisicao;
+        if (!aq.ativa || !aq.restricaoAtiva || !Number.isFinite(aq.restricaoRaio) ||
+            aq.restricaoRaio <= 0 || aq.pontos.length === 0) return;
+
+        const escalaMapa = this._definirTransformacaoAquisicao(ctx, referencia);
+        const ancora = aq.pontos[aq.pontos.length - 1];
+        const relativeAnchor = this._pontoRelativoAquisicao(ancora);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(relativeAnchor.x, relativeAnchor.y, aq.restricaoRaio, 0, Math.PI * 2);
+        ctx.setLineDash([]);
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = aq.restricaoFixa ? 'rgba(72,218,255,.96)' : 'rgba(115,205,237,.86)';
+        ctx.lineWidth = 1.8 / escalaMapa;
+        ctx.shadowColor = 'rgba(2,12,20,.78)';
+        ctx.shadowBlur = 2;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    },
+
+    _comporPreviaEstaticoAquisicao: function (referencia) {
+        if (!this._aquisicao.ativa && this._aquisicao.pontos.length === 0 &&
+            !this._aquisicaoStaticCanvas) return;
+        this._garantirCamadasVisiveisAquisicao(referencia);
+        const cacheRedraw = this._aquisicaoCacheSuja;
+        if (cacheRedraw) this._reconstruirCacheAquisicao(referencia);
+        if (!cacheRedraw && !this._aquisicaoStaticNeedsComposition) return;
+
+        const canvas = this._aquisicaoStaticCanvas;
+        const ctx = this._aquisicaoStaticCtx;
+        if (!canvas || !ctx) return;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (this._aquisicao.pontos.length > 0) {
+            if (this._aquisicaoFillCanvas) ctx.drawImage(this._aquisicaoFillCanvas, 0, 0);
+            if (this._aquisicaoLineCanvas) ctx.drawImage(this._aquisicaoLineCanvas, 0, 0);
+        }
+        this._desenharGuiaRestricaoAquisicao(ctx, referencia);
+        this._aquisicaoStaticNeedsComposition = false;
+    },
+
+    _limparRetanguloCursorAquisicao: function (ctx, escalaX, escalaY, x, y, largura, altura) {
+        ctx.clearRect(x * escalaX, y * escalaY, largura * escalaX, altura * escalaY);
+    },
+
+    _desenharCursorAquisicao: function () {
+        const referencia = document.getElementById('overlayCanvas');
+        if (!referencia) return;
+        if (!this._aquisicaoCursorCanvas && !this._aquisicao.ativa) return;
+        if (!this._aquisicaoCursorCanvas) this._garantirCamadasVisiveisAquisicao(referencia);
+        const canvasCursor = this._aquisicaoCursorCanvas;
+        const ctx = this._aquisicaoCursorCtx;
+        if (!canvasCursor || !ctx) return;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const escalaX = canvasCursor.width / Math.max(1, referencia.clientWidth);
+        const escalaY = canvasCursor.height / Math.max(1, referencia.clientHeight);
+        const anterior = this._aquisicaoCursorAnterior;
+        if (anterior) {
+            if (Number.isFinite(anterior.x) && Number.isFinite(anterior.y)) {
+                // Snap glyphs can extend 14 CSS px from their anchor (intersection
+                // and vertex markers). Clear their full footprint before repainting,
+                // otherwise old arms remain as stray marks while the cursor moves.
+                const margemMarcador = 18;
+                this._limparRetanguloCursorAquisicao(ctx, escalaX, escalaY,
+                    anterior.x - 2, 0, 4, referencia.clientHeight);
+                this._limparRetanguloCursorAquisicao(ctx, escalaX, escalaY,
+                    0, anterior.y - 2, referencia.clientWidth, 4);
+                this._limparRetanguloCursorAquisicao(ctx, escalaX, escalaY,
+                    anterior.x - margemMarcador, anterior.y - margemMarcador,
+                    margemMarcador * 2, margemMarcador * 2);
+            }
+            if (anterior.segment) {
+                const segment = anterior.segment;
+                this._limparRetanguloCursorAquisicao(ctx, escalaX, escalaY,
+                    segment.left, segment.top, segment.width, segment.height);
+            }
+        }
+        this._aquisicaoCursorAnterior = null;
+        const aq = this._aquisicao;
+        if (!aq.ativa) return;
+
+        const pontos = aq.pontos;
+        const escalaMapa = this._definirTransformacaoAquisicao(ctx, referencia);
+        if (aq.coordenadaAbsolutaFixa && aq.cursorLocal) {
+            aq.cursorImagem = this._localParaImagemAquisicao(aq.cursorLocal);
+        }
+        if (!aq.cursorImagem) return;
+
+        ctx.save();
+        ctx.setTransform(escalaX, 0, 0, escalaY, 0, 0);
+        ctx.beginPath();
+        ctx.strokeStyle = aq.coordenadaAbsolutaFixa ? 'rgba(89,197,210,.32)' : 'rgba(255,255,255,.28)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.moveTo(aq.cursorImagem.x, 0);
+        ctx.lineTo(aq.cursorImagem.x, referencia.clientHeight);
+        ctx.moveTo(0, aq.cursorImagem.y);
+        ctx.lineTo(referencia.clientWidth, aq.cursorImagem.y);
+        ctx.stroke();
+        if (aq.coordenadaAbsolutaFixa) {
+            const arm = 6;
+            ctx.beginPath();
+            ctx.moveTo(aq.cursorImagem.x - arm, aq.cursorImagem.y);
+            ctx.lineTo(aq.cursorImagem.x + arm, aq.cursorImagem.y);
+            ctx.moveTo(aq.cursorImagem.x, aq.cursorImagem.y - arm);
+            ctx.lineTo(aq.cursorImagem.x, aq.cursorImagem.y + arm);
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#22c8ad';
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(aq.cursorImagem.x, aq.cursorImagem.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(9,20,28,.92)';
+            ctx.fill();
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#f8fafc';
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(aq.cursorImagem.x, aq.cursorImagem.y, 1.35, 0, Math.PI * 2);
+            ctx.fillStyle = '#22c8ad';
+            ctx.fill();
+        }
+        ctx.restore();
+
+        this._aquisicaoCursorAnterior = {
+            x: aq.cursorImagem.x, y: aq.cursorImagem.y, segment: null
+        };
+        if (!aq.cursorLocal) return;
+        let segmentBounds = null;
+        if (pontos.length > 0) {
+            const ancora = pontos[pontos.length - 1];
+            const relativeAnchor = this._pontoRelativoAquisicao(ancora);
+            const relativeCursor = this._pontoRelativoAquisicao(aq.cursorLocal);
+            const anchorImage = this._localParaImagemAquisicao(ancora);
+            const startX = anchorImage.x;
+            const startY = anchorImage.y;
+            segmentBounds = {
+                left: Math.min(startX, aq.cursorImagem.x) - 4,
+                top: Math.min(startY, aq.cursorImagem.y) - 4,
+                width: Math.abs(aq.cursorImagem.x - startX) + 8,
+                height: Math.abs(aq.cursorImagem.y - startY) + 8
+            };
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(relativeAnchor.x, relativeAnchor.y);
+            ctx.lineTo(relativeCursor.x, relativeCursor.y);
+            ctx.lineWidth = 3.2 / escalaMapa;
+            ctx.strokeStyle = 'rgba(255,255,255,.94)';
+            ctx.lineCap = 'round';
+            ctx.setLineDash([]);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(relativeAnchor.x, relativeAnchor.y);
+            ctx.lineTo(relativeCursor.x, relativeCursor.y);
+            ctx.lineWidth = 1.8 / escalaMapa;
+            ctx.strokeStyle = '#2563eb';
+            ctx.stroke();
+            ctx.restore();
+        }
+        if (aq.coordenadaAbsolutaFixa) {
+            // The crosshair above already marks the exact point; drawing a second
+            // cursor dot at the same coordinate creates a doubled, blurry node.
+        } else if (aq.snap) {
+            this._desenharSnapAquisicao(ctx, aq.snap, escalaMapa);
+        } else {
+            const relativeCursor = this._pontoRelativoAquisicao(aq.cursorLocal);
+            ctx.beginPath();
+            ctx.arc(relativeCursor.x, relativeCursor.y, 3.5 / escalaMapa, 0, Math.PI * 2);
+            ctx.fillStyle = '#f8fafc';
+            ctx.fill();
+            ctx.lineWidth = 1.6 / escalaMapa;
+            ctx.strokeStyle = '#2563eb';
+            ctx.stroke();
+        }
+        this._aquisicaoCursorAnterior = {
+            x: aq.cursorImagem.x,
+            y: aq.cursorImagem.y,
+            segment: segmentBounds
+        };
     },
 
     definirAtivos: function (destaque, medicao, mostrarArea) {
@@ -1995,6 +2958,8 @@ window.GeoNexGraphics = {
         this._medicao = medicao || [];
         this._mostrarArea = mostrarArea || false;
         this.iniciar();
+        this._desenharMedicaoEstatico();
+        this._agendarCursorMedicao();
     },
 
     prepararFuturo: function (destaque, medicao, mostrarArea) {
@@ -2008,19 +2973,45 @@ window.GeoNexGraphics = {
         if (this._futuroMedicao !== null) { this._medicao = this._futuroMedicao; this._futuroMedicao = null; }
         if (this._futuroMostrarArea !== null) { this._mostrarArea = this._futuroMostrarArea; this._futuroMostrarArea = null; }
         this.redimensionar();
+        this._desenharMedicaoEstatico();
+        this._agendarCursorMedicao();
     },
 
-    definirMouseESnap: function (mx, my, sx, sy) {
+    definirCursorMedicaoAtivo: function (ativo) {
+        this._medicaoCursorAtiva = !!ativo;
+        const referencia = document.getElementById('overlayCanvas');
+        if (referencia) this._garantirCamadasMedicao(referencia);
+        this._agendarCursorMedicao();
+    },
+
+    atualizarCursorMedicao: function (mx, my, pointerSequence) {
+        if (!this._medicaoCursorAtiva) return;
+        if (pointerSequence > 0 && pointerSequence < this._medicaoPointerSequence) return;
+        if (pointerSequence > 0) this._medicaoPointerSequence = pointerSequence;
+        this._mouse = Number.isFinite(mx) && Number.isFinite(my) ? { x: mx, y: my } : null;
+        this._snap = null;
+        this._medicaoSnapTipo = null;
+        this._agendarCursorMedicao();
+    },
+
+    definirMouseESnap: function (mx, my, sx, sy, snapTipo, pointerSequence) {
+        const limpar = mx === null || my === null;
+        if (!limpar && pointerSequence > 0 && pointerSequence < this._medicaoPointerSequence) return;
+        if (pointerSequence > 0) this._medicaoPointerSequence = pointerSequence;
         this._mouse = (mx !== null && my !== null) ? { x: mx, y: my } : null;
         this._snap = (sx !== null && sy !== null) ? { x: sx, y: sy } : null;
-        this.desenharFrameEstatico();
+        this._medicaoSnapTipo = this._snap ? snapTipo : null;
+        this._agendarCursorMedicao();
     },
 
     limpar: function () {
         this._destaque = []; this._medicao = []; this._mouse = null; this._snap = null;
         this._futuroDestaque = null; this._futuroMedicao = null; this._mostrarArea = false;
+        this._medicaoCursorAtiva = false; this._medicaoSnapTipo = null;
         if (this._animId) { cancelAnimationFrame(this._animId); this._animId = null; }
         this.desenharFrameEstatico();
+        this._desenharMedicaoEstatico();
+        this._agendarCursorMedicao();
     },
 
     iniciar: function () {
@@ -2065,6 +3056,10 @@ window.GeoNexGraphics = {
             });
             ctx.stroke(); ctx.restore();
         }
+        if (this._aquisicao.ativa || this._aquisicao.pontos.length > 0 || this._aquisicaoStaticCanvas)
+            this._comporPreviaEstaticoAquisicao(cvs);
+        if (this._aquisicao.ativa || this._aquisicaoCursorCanvas)
+            this._desenharCursorAquisicao();
     }
 };
 
@@ -2078,20 +3073,55 @@ document.addEventListener('keydown', function (event) {
     if (!engine?.dotNetHelper) return;
 
     const key = event.key.toLowerCase();
-    const drawing = ['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(engine.ferramentaAtual);
-    const preciseCoordinateShortcut = drawing && key === 'f6';
-    if (!preciseCoordinateShortcut && target instanceof Element &&
-        (target.closest('input, textarea, select, button, a, summary, [role="dialog"]') || target.isContentEditable)) return;
+    const elementTarget = target instanceof Element ? target : null;
+    const drawing = ['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(engine.ferramentaAtual) ||
+        !!document.querySelector('.geonex-ui.is-digitizing');
+    const hasModifier = event.ctrlKey || event.altKey || event.metaKey || event.shiftKey;
+    const insideDialog = !!elementTarget?.closest('[role="dialog"], [aria-modal="true"]');
+    const insideMenu = !!elementTarget?.closest('.dropdown-content, [role="menu"]');
+    const insideTextField = !!elementTarget?.closest('input, textarea, select, [contenteditable="true"]');
+    const insideHud = !!elementTarget?.closest('.precision-hud');
+        const historyCommand = event.ctrlKey && !event.altKey && !event.metaKey &&
+            (key === 'z' || key === 'y');
+        if (drawing && insideHud && historyCommand) {
+            const command = key === 'y' || event.shiftKey ? 'ctrl+shift+z' : 'ctrl+z';
+            event.preventDefault();
+            event.stopPropagation();
+            if (!event.repeat)
+                engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', command,
+                    engine.lastPointerClientX, engine.lastPointerClientY)
+                    .catch(err => console.warn('Erro no histórico da vetorização:', err));
+            return;
+        }
+    // Enter inside a precision HUD belongs to its active form (for example,
+    // locking absolute coordinates), not to the global finish-sketch shortcut.
+    if (drawing && insideHud && key === 'enter') return;
+    const cogoShortcut = drawing && key === 'tab' && !hasModifier && !insideDialog && !insideMenu && !insideTextField && !insideHud;
+    const coordinateShortcut = drawing && key === 'f6' && !hasModifier && !insideDialog && !insideMenu;
+
+    // Tab e F6 pertencem à vetorização mesmo com o foco retido em um botão
+    // da barra de ferramentas. Dentro de campos e dos próprios HUDs, Tab segue
+    // navegando pelos controles como de costume.
+    if (cogoShortcut || coordinateShortcut) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', key, engine.lastPointerClientX, engine.lastPointerClientY)
+            .catch(err => console.warn('Erro no atalho:', err));
+        return;
+    }
+
+    if (elementTarget && (elementTarget.closest('input, textarea, select, button, a, summary, [role="dialog"]') || elementTarget.isContentEditable)) return;
     const command = event.ctrlKey && event.shiftKey && key === 'z' ? 'ctrl+shift+z' :
         event.ctrlKey && key === 'z' ? 'ctrl+z' :
         event.ctrlKey && key === 'y' ? 'ctrl+y' : key;
     const measuring = engine.ferramentaAtual === 'Medicao';
     const global = ['escape', 'm', 'i', 'd', 'p'].includes(command);
     const edit = ['ctrl+z', 'ctrl+y', 'ctrl+shift+z', 'z', 'backspace'].includes(command);
-    const construction = (drawing && ['enter', 'c', 'tab', 'f6'].includes(command)) ||
+    const construction = (drawing && ['enter', 'c'].includes(command)) ||
         (measuring && command === 'enter');
     if (!global && !(edit && (drawing || measuring)) && !construction) return;
-    if (event.repeat && ['enter', 'c', 'f6'].includes(command)) return;
+    if (event.repeat && ['enter', 'c'].includes(command)) return;
 
     event.preventDefault();
     engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', command, engine.lastPointerClientX, engine.lastPointerClientY)
@@ -2121,9 +3151,33 @@ window.mapEngine.soltarRato = function (pointerId) {
 
 function reposicionarHudFlutuante() {
     const dotNet = window.dotnetReferencia || window.mapEngine?.dotNetHelper;
+    const cogo = document.getElementById('hud-cogo');
+    const f6 = document.getElementById('hud-f6');
+    if (cogo && f6) {
+        const gap = 8;
+        const cogoTransform = new DOMMatrix(window.getComputedStyle(cogo).transform);
+        const f6Transform = new DOMMatrix(window.getComputedStyle(f6).transform);
+        const stackWidth = Math.max(cogo.offsetWidth, f6.offsetWidth);
+        const x = Math.max(8, Math.min(Math.min(cogoTransform.m41, f6Transform.m41), window.innerWidth - stackWidth - 8));
+        const stackHeight = cogo.offsetHeight + gap + f6.offsetHeight;
+        const cogoY = Math.max(8, Math.min(64, window.innerHeight - stackHeight - 8));
+        const f6Y = cogoY + cogo.offsetHeight + gap;
+
+        cogo.style.maxHeight = '';
+        f6.style.maxHeight = '';
+        cogo.style.transform = `translate3d(${x}px, ${cogoY}px, 0)`;
+        f6.style.transform = `translate3d(${x}px, ${f6Y}px, 0)`;
+        if (dotNet) {
+            dotNet.invokeMethodAsync('AtualizarMemoriaHUD', 'hud-cogo', x, cogoY).catch(() => {});
+            dotNet.invokeMethodAsync('AtualizarMemoriaHUD', 'hud-f6', x, f6Y).catch(() => {});
+        }
+        return;
+    }
+
     for (const id of ['hud-f6', 'hud-cogo']) {
         const el = document.getElementById(id);
         if (!el) continue;
+        el.style.maxHeight = '';
         const matrix = new DOMMatrix(window.getComputedStyle(el).transform);
         const x = Math.max(8, Math.min(matrix.m41, window.innerWidth - el.offsetWidth - 8));
         const y = Math.max(64, Math.min(matrix.m42, window.innerHeight - el.offsetHeight - 8));
@@ -2131,7 +3185,22 @@ function reposicionarHudFlutuante() {
         if (dotNet) dotNet.invokeMethodAsync('AtualizarMemoriaHUD', id, x, y).catch(() => {});
     }
 }
-window.addEventListener('resize', () => requestAnimationFrame(reposicionarHudFlutuante));
+window.addEventListener('resize', () => requestAnimationFrame(() => {
+    reposicionarHudFlutuante();
+    reposicionarPainelMedicaoFlutuante();
+}));
+
+function reposicionarPainelMedicaoFlutuante() {
+    const panel = document.getElementById('measurement-floating-panel');
+    if (!panel) return;
+    const matrix = new DOMMatrix(window.getComputedStyle(panel).transform);
+    const x = Math.max(8, Math.min(matrix.m41, window.innerWidth - panel.offsetWidth - 8));
+    const y = Math.max(64, Math.min(matrix.m42, window.innerHeight - panel.offsetHeight - 8));
+    panel.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    const dotNet = window.dotnetReferencia || window.mapEngine?.dotNetHelper;
+    if (dotNet)
+        dotNet.invokeMethodAsync('AtualizarMemoriaHUD', 'measurement-floating-panel', x, y).catch(() => {});
+}
 
 // =========================================================================
 // MOTOR DE ARRASTO DE JANELAS (HARDWARE ACCELERATION BYPASS BLAZOR)
@@ -2182,4 +3251,63 @@ window.iniciarArrasteHUD = function (e, elementId) {
     window.addEventListener('pointermove', onMouseMove);
     window.addEventListener('pointerup', onMouseUp);
     window.addEventListener('pointercancel', onMouseUp);
+};
+
+// Redimensionamento dos painéis laterais sem alterar a área do mapa.
+function geonexDockPanelAvailableHeight(panel, workspace) {
+    const workspaceHeight = workspace.getBoundingClientRect().height;
+    const workspaceLimit = Math.max(1, workspaceHeight - 8);
+    const panelLimit = Number.parseFloat(window.getComputedStyle(panel).maxHeight);
+    return Number.isFinite(panelLimit) ? Math.max(1, Math.min(workspaceLimit, panelLimit)) : workspaceLimit;
+}
+
+window.geonexResizeDockStart = function (event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    const handle = event.currentTarget;
+    const panel = handle && handle.closest('.side-panel');
+    const workspace = panel && panel.closest('.workspace-area');
+    if (!handle || !panel || !workspace) return;
+
+    event.preventDefault();
+    const startY = event.clientY;
+    const panelBounds = panel.getBoundingClientRect();
+    const startHeight = panelBounds.height;
+    const available = geonexDockPanelAvailableHeight(panel, workspace);
+    const min = Math.min(180, available);
+    const max = Math.max(min, available);
+    const applyHeight = height => {
+        const bounded = Math.max(min, Math.min(max, height));
+        panel.style.setProperty('--dock-panel-height', `${Math.round(bounded)}px`);
+        handle.setAttribute('aria-valuenow', String(Math.round((bounded / available) * 100)));
+    };
+    const onMove = moveEvent => applyHeight(startHeight - (moveEvent.clientY - startY));
+    const onFinish = () => {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onFinish);
+        handle.removeEventListener('pointercancel', onFinish);
+        handle.classList.remove('is-resizing');
+    };
+
+    handle.classList.add('is-resizing');
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onFinish);
+    handle.addEventListener('pointercancel', onFinish);
+    if (handle.setPointerCapture) handle.setPointerCapture(event.pointerId);
+};
+
+window.geonexResizeDockKeydown = function (event) {
+    const increments = { ArrowUp: 24, ArrowDown: -24 };
+    if (!(event.key in increments) && event.key !== 'Home' && event.key !== 'End') return;
+    const handle = event.currentTarget;
+    const panel = handle && handle.closest('.side-panel');
+    const workspace = panel && panel.closest('.workspace-area');
+    if (!handle || !panel || !workspace) return;
+    event.preventDefault();
+    const available = geonexDockPanelAvailableHeight(panel, workspace);
+    const min = Math.min(180, available);
+    const current = panel.getBoundingClientRect().height;
+    const next = event.key === 'Home' ? min : event.key === 'End' ? available : current + increments[event.key];
+    const bounded = Math.max(min, Math.min(available, next));
+    panel.style.setProperty('--dock-panel-height', `${Math.round(bounded)}px`);
+    handle.setAttribute('aria-valuenow', String(Math.round((bounded / available) * 100)));
 };

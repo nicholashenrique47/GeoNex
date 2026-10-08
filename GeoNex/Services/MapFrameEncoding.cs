@@ -1,11 +1,13 @@
 using SkiaSharp;
 using System.IO.Compression;
+using System.Numerics;
 
 namespace GeoNex.Services;
 
 public static class MapFrameEncoding
 {
     internal static bool PaletteEnabled => Environment.GetEnvironmentVariable("GEONEX_PALETTE_PNG") != "0";
+    internal static bool OpaquePngEnabled => Environment.GetEnvironmentVariable("GEONEX_OPAQUE_PNG") != "0";
 
     // Only navigation opts into exact indexed PNG. Print/export keeps its encoder.
     internal static SKData EncodeNavigationPng(SKImage image, int compressionLevel, CancellationToken token)
@@ -21,7 +23,40 @@ public static class MapFrameEncoding
             }
         }
         token.ThrowIfCancellationRequested();
+        using (var pixels = image.PeekPixels())
+        {
+            if (pixels != null && IsFullyOpaque(pixels, token))
+            {
+                // RGB PNG decodes to precisely the same RGBA when every alpha
+                // is 255. The view borrows immutable image storage; no pixel copy.
+                using var opaque = new SKPixmap(pixels.Info.WithAlphaType(SKAlphaType.Opaque), pixels.GetPixels(), pixels.RowBytes);
+                return opaque.Encode(new SKPngEncoderOptions(SelectFilter(opaque, compressionLevel), compressionLevel))
+                    ?? EncodePng(image, 1);
+            }
+        }
         return EncodePng(image, compressionLevel);
+    }
+
+    internal static unsafe bool IsFullyOpaque(SKPixmap pixels, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (!OpaquePngEnabled || (long)pixels.Width * pixels.Height < 1024 * 1024 ||
+            pixels.ColorSpace != null || pixels.GetPixels() == IntPtr.Zero ||
+            pixels.ColorType is not (SKColorType.Rgba8888 or SKColorType.Bgra8888) ||
+            pixels.AlphaType is not (SKAlphaType.Premul or SKAlphaType.Unpremul or SKAlphaType.Opaque)) return false;
+        if (pixels.AlphaType == SKAlphaType.Opaque) return true;
+        var alphaMask = new Vector<uint>(0xff000000u);
+        nint address = pixels.GetPixels();
+        for (int y = 0; y < pixels.Height; y++)
+        {
+            token.ThrowIfCancellationRequested();
+            var row = new ReadOnlySpan<uint>((byte*)address + (long)y * pixels.RowBytes, pixels.Width);
+            int x = 0;
+            for (; x <= row.Length - Vector<uint>.Count; x += Vector<uint>.Count)
+                if (!Vector.EqualsAll(new Vector<uint>(row.Slice(x, Vector<uint>.Count)) & alphaMask, alphaMask)) return false;
+            for (; x < row.Length; x++) if ((row[x] & 0xff000000u) != 0xff000000u) return false;
+        }
+        return true;
     }
 
     // Localhost frames favor latency over minimum file size. Still lossless RGBA.
@@ -71,14 +106,22 @@ public static class MapFrameEncoding
     // Only the local navigation endpoint opts in. A stored-deflate PNG trades
     // transfer bytes for latency, never geometry, resolution, RGB or alpha.
     // Bound transient server/browser buffers before sampling image complexity.
-    public static unsafe int NavigationCompressionLevel(SKImage image, int availableMemoryMb)
+    public static unsafe int NavigationCompressionLevel(SKImage image, int availableMemoryMb,
+        CancellationToken token = default, bool rasterContent = false)
     {
+        token.ThrowIfCancellationRequested();
         long pixelCount = (long)image.Width * image.Height;
-        long byteBudget = Math.Min(32L * 1024 * 1024, Math.Max(0L, availableMemoryMb) * 1024 * 1024 / 32);
-        if (pixelCount < 512 * 512 || pixelCount * 4 + image.Height + 65536 > byteBudget) return 1;
+        long budgetCeiling = (rasterContent ? 48L : 32L) * 1024 * 1024;
+        long byteBudget = Math.Min(budgetCeiling, Math.Max(0L, availableMemoryMb) * 1024 * 1024 / 32);
+        long overhead = image.Height + 65536L;
+        if (pixelCount < 512 * 512 || pixelCount * 3 + overhead > byteBudget) return 1;
         using var pixels = image.PeekPixels();
         if (pixels == null || pixels.GetPixels() == IntPtr.Zero ||
             (pixels.ColorType != SKColorType.Rgba8888 && pixels.ColorType != SKColorType.Bgra8888)) return 1;
+        if (pixelCount * 4 + overhead > byteBudget && !IsFullyOpaque(pixels, token)) return 1;
+        // Full-HD raster frames are local navigation responses. Avoid DEFLATE
+        // when the complete uncompressed payload fits the transient budget.
+        if (rasterContent && pixelCount >= 2L * 1024 * 1024) return 0;
         int changed = 0, samples = 0;
         int stepX = Math.Max(1, image.Width / 512);
         int stepY = Math.Max(1, image.Height / 32);
@@ -94,7 +137,7 @@ public static class MapFrameEncoding
         if (changed * 5 <= samples) return 1;
         // Experimental: LOTES saves transfer bytes but currently costs more CPU
         // latency. Keep the measured navigation fast path as the default.
-        if (Environment.GetEnvironmentVariable("GEONEX_PNG_COMPRESSION_PROBE") != "1") return 0;
+        if (!rasterContent && Environment.GetEnvironmentVariable("GEONEX_PNG_COMPRESSION_PROBE") != "1") return 0;
 
         // Adjacent colors can vary everywhere while gradients, parcel fills and
         // repeated rows still compress well. Probe bounded Sub-filtered windows

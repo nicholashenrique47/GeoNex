@@ -12,31 +12,54 @@
 @using GeoNex.Services
 <PageTitle>GeoNex - Professional GIS</PageTitle>
 
-@if (exibirResumoCarregamentoVetor)
+@if (exibirResumoCarregamentoVetor || exibirNotificacaoSalvamento)
 {
-    <div class="vector-load-toast" role="status" aria-live="polite">
-        <div class="vector-load-toast-title">VETOR</div>
-        <div class="vector-load-toast-name" title="@nomeVetorCarregando">@nomeVetorCarregando</div>
-        <div class="vector-load-toast-data">
-            <span>Feições <strong>@(numeroFeicoesCarregamento < 0 ? "carregando..." : numeroFeicoesCarregamento.ToString("N0"))</strong></span>
-            <span>Tempo <strong>@tempoCarregamentoVetor</strong></span>
-        </div>
-        @if (carregamentoVetorEmAndamento)
+    <div class="map-notification-stack">
+        @if (exibirResumoCarregamentoVetor)
         {
-            <div class="vector-load-progress" aria-label="Carregando vetor">
-                <div class="vector-load-progress-bar"></div>
+            <div class="vector-load-toast" role="status" aria-live="polite">
+                <div class="vector-load-toast-title">VETOR</div>
+                <div class="vector-load-toast-name" title="@nomeVetorCarregando">@nomeVetorCarregando</div>
+                <div class="vector-load-toast-data">
+                    <span>Feições <strong>@(numeroFeicoesCarregamento < 0 ? "carregando..." : numeroFeicoesCarregamento.ToString("N0"))</strong></span>
+                    <span>Tempo <strong>@tempoCarregamentoVetor</strong></span>
+                </div>
+                @if (carregamentoVetorEmAndamento)
+                {
+                    <div class="vector-load-progress" aria-label="Carregando vetor">
+                        <div class="vector-load-progress-bar"></div>
+                    </div>
+                }
+            </div>
+        }
+        @if (exibirNotificacaoSalvamento)
+        {
+            <div class="vector-load-toast save-feedback-toast @(notificacaoSalvamentoErro ? "is-error" : "")" role="status" aria-live="@(notificacaoSalvamentoErro ? "assertive" : "polite")">
+                <span class="save-feedback-mark" aria-hidden="true">@(notificacaoSalvamentoErro ? "!" : "✓")</span>
+                <div class="save-feedback-copy">
+                    <div class="vector-load-toast-title">@tituloNotificacaoSalvamento</div>
+                    <div class="vector-load-toast-name">@mensagemNotificacaoSalvamento</div>
+                </div>
             </div>
         }
     </div>
 }
 
 <style>
-    .vector-load-toast {
+    .map-notification-stack {
         position: fixed;
         right: 22px;
         bottom: 74px;
         z-index: 10000;
-        width: min(310px, calc(100vw - 32px));
+        display: grid;
+        gap: 9px;
+        width: min(330px, calc(100vw - 32px));
+        pointer-events: none;
+    }
+
+    .vector-load-toast {
+        width: 100%;
+        box-sizing: border-box;
         padding: 11px 14px;
         color: #e2e8f0;
         background: rgba(15, 23, 42, 0.94);
@@ -48,6 +71,14 @@
         font: 12px 'Inter', 'Segoe UI', sans-serif;
         pointer-events: none;
     }
+
+    .save-feedback-toast { display: flex; align-items: flex-start; gap: 11px; border-color: rgba(16,185,129,.42); }
+    .save-feedback-toast.is-error { border-color: rgba(248,113,113,.48); border-left-color: #f87171; }
+    .save-feedback-mark { display: grid; flex: 0 0 22px; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: #8ff0ce; background: rgba(16,185,129,.16); font-size: 13px; font-weight: 800; }
+    .save-feedback-toast.is-error .save-feedback-mark { color: #fecaca; background: rgba(248,113,113,.16); }
+    .save-feedback-copy { min-width: 0; }
+    .save-feedback-toast .vector-load-toast-name { max-height: 170px; overflow: auto; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.45; }
+    .save-feedback-toast.is-error .vector-load-toast-title { color: #fca5a5; }
 
     .vector-load-toast-title { color: #6ee7b7; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
     .vector-load-toast-name { margin-top: 3px; overflow: hidden; color: #fff; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
@@ -99,7 +130,7 @@
 
 
 <!-- A INTERFACE FLUTUANTE -->
-<div class="geonex-ui @(FerramentaDesenhoAtiva ? "is-digitizing" : _ferramentaAtiva == ModoFerramenta.Medicao ? "is-measuring" : "") @(_painelCamadasAberto ? "layers-panel-open" : "") @(_painelIdentificarAberto ? "identify-panel-open" : "") @(_mostrarMenuPrincipal ? "show-app-menu" : "") @(FerramentaDesenhoAtiva ? (_modoAvancadoVetorizacao ? "digitizing-advanced" : "digitizing-simple") : "")">
+<div class="geonex-ui @(FerramentaDesenhoAtiva ? "is-digitizing" : _ferramentaAtiva == ModoFerramenta.Medicao ? "is-measuring" : "") @(_painelCamadasAberto ? "layers-panel-open" : "") @(_painelIdentificarAberto ? "identify-panel-open" : "") @(_mostrarMenuPrincipal ? "show-app-menu" : "") @(!string.IsNullOrEmpty(_menuSuperiorAberto) ? "app-dropdown-open" : "") @(FerramentaDesenhoAtiva ? (_modoAvancadoVetorizacao ? "digitizing-advanced" : "digitizing-simple") : "")">
     
     <!-- HUD DE TELEMETRIA DE HARDWARE -->
     <div class="glass-panel" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 10px 20px; display: flex; gap: 20px; font-family: 'Consolas', monospace; font-size: 0.85rem; color: #00ffcc; pointer-events: none; border-radius: 8px;">
@@ -125,17 +156,22 @@
     </div>
 
     <!-- BARRA SUPERIOR (HEADER & RIBBON) -->
-    <header class="glass-panel top-bar" style="display: flex; align-items: center; justify-content: flex-start; padding: 0 20px; gap: 15px;">
+    @if (_mostrarMenuPrincipal || _menuSuperiorAberto is not null)
+    {
+        <button type="button" class="menu-dismiss-layer" aria-label="Fechar menu e voltar ao mapa" tabindex="-1" @onclick="FecharMenusSuperiores"></button>
+    }
+
+    <header class="glass-panel top-bar" @onclick="FecharMenusSuperiores" style="display: flex; align-items: center; justify-content: flex-start; padding: 0 20px; gap: 15px;">
 
         <div class="brand-group" style="margin-right: 15px;">
             <h1>GEONEX</h1>
             <span class="sub-brand">PRO</span>
         </div>
 
-        <button class="app-menu-toggle workbench-button" aria-controls="geonex-main-menu" aria-expanded="@_mostrarMenuPrincipal" @onclick="() => _mostrarMenuPrincipal = !_mostrarMenuPrincipal">Menu</button>
-        <nav id="geonex-main-menu" class="main-menu" aria-label="Comandos do aplicativo" style="display: flex; height: 100%; align-items: stretch; margin-right: auto;">
-            <div class="dropdown" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true">Arquivo ▾</button>
+        <button class="app-menu-toggle workbench-button" aria-controls="geonex-main-menu" aria-expanded="@_mostrarMenuPrincipal" @onclick="AlternarMenuPrincipal" @onclick:stopPropagation="true">Menu</button>
+        <nav id="geonex-main-menu" class="main-menu" aria-label="Comandos do aplicativo" @onkeydown="TecladoMenuSuperior" style="display: flex; height: 100%; align-items: stretch; margin-right: auto;">
+            <div class="dropdown @(_menuSuperiorAberto == "arquivo" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "arquivo")" @onclick='() => AlternarMenuSuperior("arquivo")' @onclick:stopPropagation="true">Arquivo ▾</button>
                 <div class="dropdown-content">
                     <button @onclick="CriarNovoProjeto">Novo Projeto</button>
                     <button disabled title="Ainda não implementado">Abrir Projeto…</button>
@@ -143,36 +179,107 @@
                     <button disabled title="Ainda não implementado">Salvar Projeto</button>
                 </div>
             </div>
-            <div class="dropdown" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true">Dados ▾</button>
-                <div class="dropdown-content">
-                    <div class="dropdown-submenu">
-                        <button class="submenu-btn"><span>Importar fontes locais</span><span aria-hidden="true">▸</span></button>
-                        <div class="submenu-content">
-                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); }'>Raster (ECW, TIF)</button>
-                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>Vetor (SHP, GeoJSON)</button>
-                            <button class="drop-item" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Texto"); }'>Pontos (CSV, TXT)</button>
+            <div class="dropdown @(_menuSuperiorAberto == "dados" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "dados")" @onclick='() => AlternarMenuSuperior("dados")' @onclick:stopPropagation="true">Dados ▾</button>
+                <div class="dropdown-content data-menu-popover">
+                    @if (_submenuDadosAberto is null)
+                    {
+                        <div class="data-menu-view data-menu-overview">
+                            <span class="data-menu-section-label">Dados do projeto</span>
+                            <button type="button" class="data-menu-action data-menu-entry" aria-haspopup="true" aria-expanded="@(_submenuDadosAberto == "adicionar")" @ref="_menuDadosAdicionarRef" @onclick='() => AbrirSubmenuDados("adicionar")' @onclick:stopPropagation="true">
+                                <span class="data-menu-icon source" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg></span>
+                                <span class="data-menu-copy"><strong>Adicionar camada</strong><small>Arquivo, mapa base ou conexão</small></span>
+                                <span class="data-menu-arrow" aria-hidden="true">›</span>
+                            </button>
+                            <button type="button" class="data-menu-action data-menu-entry" aria-haspopup="true" aria-expanded="@(_submenuDadosAberto == "criar")" @ref="_menuDadosCriarRef" @onclick='() => AbrirSubmenuDados("criar")' @onclick:stopPropagation="true">
+                                <span class="data-menu-icon vector" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 5 14 2-3 12-11-4V5Z"/><circle cx="5" cy="5" r="1.5"/><circle cx="19" cy="7" r="1.5"/><circle cx="16" cy="19" r="1.5"/></svg></span>
+                                <span class="data-menu-copy"><strong>Criar camada</strong><small>Novo arquivo vetorial e geometria</small></span>
+                                <span class="data-menu-arrow" aria-hidden="true">›</span>
+                            </button>
                         </div>
-                    </div>
-                    <div class="dropdown-submenu">
-                        <button class="submenu-btn"><span>Importar fontes online</span><span aria-hidden="true">▸</span></button>
-                        <div class="submenu-content">
-                            <div class="dropdown-submenu" style="width:100%">
-                                <button class="submenu-btn"><span>Mapa base</span><span aria-hidden="true">▸</span></button>
-                                <div class="submenu-content" style="left:100%;top:0;margin-top:-5px">
-                                    <button class="drop-item" @onclick='() => CarregarMapaBaseOnline("OSM")'>OpenStreetMap</button>
-                                    <button class="drop-item" @onclick='() => CarregarMapaBaseOnline("ESRI")'>ESRI Satellite</button>
-                                    <button class="drop-item" @onclick='() => CarregarMapaBaseOnline("Google")'>Google Satellite</button>
-                                </div>
+                    }
+                    else if (_submenuDadosAberto == "adicionar")
+                    {
+                        <div class="data-menu-view">
+                            <div class="data-menu-page-header">
+                                <button type="button" class="data-menu-back" aria-label="Voltar ao menu Dados" title="Voltar" @ref="_menuDadosVoltarRef" @onclick="VoltarMenuDados" @onclick:stopPropagation="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+                                <div class="data-menu-page-title"><strong>Adicionar camada</strong><small>Escolha a origem dos dados</small></div>
                             </div>
+                            <section class="data-menu-section" aria-label="Adicionar dados locais">
+                                <span class="data-menu-section-label">Arquivo local</span>
+                                <button type="button" class="data-menu-action" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); }'>
+                                    <span class="data-menu-icon raster" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg></span>
+                                    <span class="data-menu-copy"><strong>Imagem raster</strong><small>ECW · GeoTIFF</small></span>
+                                    <span class="data-menu-arrow" aria-hidden="true">›</span>
+                                </button>
+                                <button type="button" class="data-menu-action" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>
+                                    <span class="data-menu-icon vector" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 5 14 2-3 12-11-4V5Z"/><circle cx="5" cy="5" r="1.5"/><circle cx="19" cy="7" r="1.5"/><circle cx="16" cy="19" r="1.5"/></svg></span>
+                                    <span class="data-menu-copy"><strong>Dados vetoriais</strong><small>SHP · KML · GeoJSON</small></span>
+                                    <span class="data-menu-arrow" aria-hidden="true">›</span>
+                                </button>
+                                <button type="button" class="data-menu-action" @onclick="AbrirImportacaoTabelaPontos">
+                                    <span class="data-menu-icon points" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.2 7-12a7 7 0 1 0-14 0c0 6.8 7 12 7 12Z"/><circle cx="12" cy="9" r="2.2"/></svg></span>
+                                    <span class="data-menu-copy"><strong>Tabela de pontos</strong><small>CSV · texto delimitado</small></span>
+                                    <span class="data-menu-arrow" aria-hidden="true">›</span>
+                                </button>
+                            </section>
+                            <section class="data-menu-section" aria-label="Mapas base online">
+                                <span class="data-menu-section-label">Mapa base online</span>
+                                <button type="button" class="data-menu-action compact" @onclick='() => CarregarMapaBaseOnline("OSM")'>
+                                    <span class="data-menu-icon basemap" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>
+                                    <span class="data-menu-copy"><strong>OpenStreetMap</strong><small>Mapa de ruas e lugares</small></span>
+                                </button>
+                                <button type="button" class="data-menu-action compact" @onclick='() => CarregarMapaBaseOnline("ESRI")'>
+                                    <span class="data-menu-icon basemap" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15m6-12v15"/></svg></span>
+                                    <span class="data-menu-copy"><strong>Esri Satellite</strong><small>Imagem de satélite</small></span>
+                                </button>
+                                <button type="button" class="data-menu-action compact" @onclick='() => CarregarMapaBaseOnline("Google")'>
+                                    <span class="data-menu-icon basemap" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4"/><circle cx="12" cy="12" r="8.5"/></svg></span>
+                                    <span class="data-menu-copy"><strong>Google Satellite</strong><small>Imagem de satélite</small></span>
+                                </button>
+                            </section>
+                            <section class="data-menu-section connections" aria-label="Conexões de dados">
+                                <span class="data-menu-section-label">Conexão</span>
+                                <button type="button" class="data-menu-action compact" @onclick="AbrirConexaoPostgis" @onclick:stopPropagation="true">
+                                    <span class="data-menu-icon connection" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M12 7h4M12 17h4"/></svg></span>
+                                    <span class="data-menu-copy"><strong>PostGIS</strong><small>Conectar e adicionar camada espacial</small></span>
+                                    <span class="data-menu-arrow" aria-hidden="true">›</span>
+                                </button>
+                            </section>
                         </div>
-                    </div>
-                    <div class="drop-divider"></div>
-                    <button class="drop-item" disabled title="Ainda não implementado">Conectar PostGIS</button>
+                    }
+                    else
+                    {
+                        <div class="data-menu-view">
+                            <div class="data-menu-page-header">
+                                <button type="button" class="data-menu-back" aria-label="Voltar ao menu Dados" title="Voltar" @ref="_menuDadosVoltarRef" @onclick="VoltarMenuDados" @onclick:stopPropagation="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+                                <div class="data-menu-page-title"><strong>Criar camada</strong><small>Defina o formato do novo arquivo</small></div>
+                            </div>
+                            <section class="data-menu-section" aria-label="Formatos de camada vetorial">
+                                <span class="data-menu-section-label">Nova camada vetorial</span>
+                                <button type="button" class="data-menu-action" @onclick='() => AbrirModalNovaCamadaFormato("SHP")'>
+                                    <span class="data-format-badge">SHP</span>
+                                    <span class="data-menu-copy"><strong>Shapefile</strong><small>Compatibilidade ampla</small></span>
+                                    <span class="data-menu-arrow" aria-hidden="true">›</span>
+                                </button>
+                                <button type="button" class="data-menu-action" @onclick='() => AbrirModalNovaCamadaFormato("GEOJSON")'>
+                                    <span class="data-format-badge">JSON</span>
+                                    <span class="data-menu-copy"><strong>GeoJSON</strong><small>Formato aberto e portátil</small></span>
+                                    <span class="data-menu-arrow" aria-hidden="true">›</span>
+                                </button>
+                                <button type="button" class="data-menu-action" @onclick='() => AbrirModalNovaCamadaFormato("GPKG")'>
+                                    <span class="data-format-badge">GPKG</span>
+                                    <span class="data-menu-copy"><strong>GeoPackage</strong><small>Camada espacial em um arquivo</small></span>
+                                    <span class="data-menu-arrow" aria-hidden="true">›</span>
+                                </button>
+                            </section>
+                            <div class="data-menu-note"><span aria-hidden="true">i</span><span>O próximo passo permite definir geometria, CRS e pasta de destino.</span></div>
+                        </div>
+                    }
                 </div>
             </div>
-            <div class="dropdown" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" style="@(_ferramentaAtiva != ModoFerramenta.Navegacao ? "color:#38bdf8" : "")">Ferramentas ▾</button>
+            <div class="dropdown @(_menuSuperiorAberto == "ferramentas" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "ferramentas")" @onclick='() => AlternarMenuSuperior("ferramentas")' @onclick:stopPropagation="true" style="@(_ferramentaAtiva != ModoFerramenta.Navegacao ? "color:#38bdf8" : "")">Ferramentas ▾</button>
                 <div class="dropdown-content">
                     <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Navegacao)">Mover mapa</button>
                     <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)">Identificar feição</button>
@@ -181,16 +288,16 @@
                     <button class="drop-item" @onclick="AtivarModoVetorizacao">Vetorizar feição</button>
                 </div>
             </div>
-            <div class="dropdown" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" style="@(modoEdicaoVerticeLigado ? "color:#38bdf8;font-weight:bold" : "")">Edição ▾</button>
+            <div class="dropdown @(_menuSuperiorAberto == "edicao" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "edicao")" @onclick='() => AlternarMenuSuperior("edicao")' @onclick:stopPropagation="true" style="@(modoEdicaoVerticeLigado ? "color:#38bdf8;font-weight:bold" : "")">Edição ▾</button>
                 <div class="dropdown-content">
                     <button class="drop-item" @onclick="AlternarEdicaoVertices">@(modoEdicaoVerticeLigado ? "Desativar edição de vértices" : "Editar vértices")</button>
                     <button class="drop-item" disabled title="Ainda não implementado">Cortar geometria</button>
                     <button class="drop-item" disabled title="Ainda não implementado">Mesclar polígonos</button>
                 </div>
             </div>
-            <div class="dropdown" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true">Exportar ▾</button>
+            <div class="dropdown @(_menuSuperiorAberto == "exportar" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "exportar")" @onclick='() => AlternarMenuSuperior("exportar")' @onclick:stopPropagation="true">Exportar ▾</button>
                 <div class="dropdown-content">
                     <button class="drop-item" @onclick="AbrirCompositorImpressao">Compositor de impressão</button>
                     <div class="drop-divider"></div>
@@ -198,8 +305,8 @@
                     <button class="drop-item" disabled title="Ainda não implementado">Exportar tabela (CSV)</button>
                 </div>
             </div>
-            <div class="dropdown" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true">GNSS / RTK ▾</button>
+            <div class="dropdown @(_menuSuperiorAberto == "gnss" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "gnss")" @onclick='() => AlternarMenuSuperior("gnss")' @onclick:stopPropagation="true">GNSS / RTK ▾</button>
                 <div class="dropdown-content">
                     <button class="drop-item" disabled title="Ainda não implementado">Gerenciador de conexão</button>
                     <button class="drop-item" disabled title="Ainda não implementado">Monitor NMEA</button>
@@ -210,10 +317,11 @@
         <div style="display: flex; align-items: center; gap: 15px;">
 
             <button class="tool-btn"
-                    style="@(temEdicoesPendentes ? "color: #facc15; border: 1px solid #facc15; font-weight: bold; background: rgba(250, 204, 21, 0.1);" : "opacity: 0.3; cursor: not-allowed; border: 1px solid rgba(255,255,255,0.1);")"
+                    style="@(temEdicoesPendentes || MapService.PontosAquisicao.Count > 0 ? "color: #facc15; border: 1px solid #facc15; font-weight: bold; background: rgba(250, 204, 21, 0.1);" : "opacity: 0.3; cursor: not-allowed; border: 1px solid rgba(255,255,255,0.1);")"
                     @onclick="ConfirmarTodasEdicoes"
-                    disabled="@(!temEdicoesPendentes)">
-                SALVAR EDIÇÕES
+                    disabled="@((!temEdicoesPendentes && MapService.PontosAquisicao.Count == 0) || _salvandoEdicoes)"
+                    title="@(MapService.PontosAquisicao.Count >= MinimoPontosAquisicao && MapService.PontosAquisicao.Count > 0 ? "Finalizar o desenho atual e gravar as edições da camada." : MapService.PontosAquisicao.Count > 0 ? "Complete os vértices do desenho para gravá-lo." : temEdicoesPendentes ? "Gravar as feições concluídas no arquivo da camada." : "Nenhuma edição pendente.")">
+                @(_salvandoEdicoes ? "SALVANDO…" : "SALVAR EDIÇÕES")
             </button>
 
             <div class="vertical-divider" style="height: 20px;"></div>
@@ -254,9 +362,8 @@
                     <button class="@(_modoAvancadoVetorizacao ? "selected" : "")" aria-pressed="@_modoAvancadoVetorizacao" @onclick="() => DefinirModoVetorizacaoAvancado(true)">Avançada</button>
                 </div>
                 <label class="destination-field">Camada de destino
-                    <select class="gis-select" value="@_camadaDestinoAquisicao" @onchange="AoMudarCamadaDestino" disabled="@(MapService.PontosAquisicao.Count > 0)" aria-label="Camada de destino da vetorização">
+                    <select class="gis-select" value="@_camadaDestinoAquisicao" @onchange="AoMudarCamadaDestino" disabled="@(MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada)" aria-label="Camada de destino da vetorização">
                         <option value="" disabled>Selecione uma camada</option>
-                        <option value="NOVA">+ Criar nova camada…</option>
                         @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
                         {
                             <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
@@ -264,60 +371,79 @@
                     </select>
                 </label>
                 <div class="sketch-actions" role="group" aria-label="Ações do esboço">
-                    <button class="workbench-button" @onclick="DesfazerUltimoPontoAquisicao" disabled="@(!HistoricoAquisicao.CanUndo)" title="Desfazer · Ctrl+Z">Desfazer</button>
-                    <button class="workbench-button" @onclick="RefazerUltimoPontoAquisicao" disabled="@(!HistoricoAquisicao.CanRedo)" title="Refazer · Ctrl+Y">Refazer</button>
+                    <div class="sketch-history-actions" role="group" aria-label="Histórico do desenho">
+                        <button class="workbench-button history-icon-button" aria-label="Desfazer último ponto" @onclick="DesfazerUltimoPontoAquisicao" disabled="@(!HistoricoAquisicao.CanUndo)" title="Desfazer · Ctrl+Z"><span aria-hidden="true">↶</span></button>
+                        <button class="workbench-button history-icon-button" aria-label="Refazer último ponto" @onclick="RefazerUltimoPontoAquisicao" disabled="@(!HistoricoAquisicao.CanRedo)" title="Refazer · Ctrl+Y"><span aria-hidden="true">↷</span></button>
+                    </div>
+                    <span class="workbench-action-divider" aria-hidden="true"></span>
                     <button class="workbench-button danger" @onclick="CancelarAquisicao" title="Cancelar · Esc">Cancelar</button>
-                    <button class="workbench-button precision-shortcut" aria-label="Inserir coordenadas (F6)" aria-keyshortcuts="F6" title="Coordenadas absolutas · F6" @onclick="(Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => AbrirEntradaPrecisa(false, e.ClientX, e.ClientY)">XY · F6</button>
-                    <button class="workbench-button primary" @onclick="ConcluirAquisicaoGeometrica" disabled="@(MapService.PontosAquisicao.Count < MinimoPontosAquisicao)" title="Concluir · Enter">Concluir <span aria-hidden="true">↵</span></button>
+                    <button class="workbench-button precision-shortcut" aria-label="Inserir coordenadas (F6)" aria-keyshortcuts="F6" title="Coordenadas absolutas · F6" @onclick="(Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => AbrirEntradaPrecisa(false, e.ClientX, e.ClientY)"><span>XY</span><kbd>F6</kbd></button>
+                    <button class="workbench-button primary" @onclick="ConcluirAquisicaoGeometrica" disabled="@(MapService.PontosAquisicao.Count < MinimoPontosAquisicao)" title="Concluir · Enter">Concluir <kbd>↵</kbd></button>
                 </div>
             </div>
-            <div class="workbench-controls">
-                @if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono && _modoAvancadoVetorizacao)
-                {
-                    <label class="construction-field">Construção
-                        <select class="gis-select" aria-label="Modo de construção" @bind="ModoConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">
-                            <option value="@ConstructionMode.Vertices">Vértice a vértice</option>
-                            <option value="@ConstructionMode.Rectangle">Retângulo · 2 cantos</option>
-                            <option value="@ConstructionMode.OrientedRectangle">Retângulo orientado · 3 pontos</option>
-                            <option value="@ConstructionMode.Circle">Círculo · centro e raio</option>
-                            <option value="@ConstructionMode.Ellipse">Elipse · centro e 2 eixos</option>
-                            <option value="@ConstructionMode.RegularPolygon">Polígono regular · centro e raio</option>
-                        </select>
-                    </label>
-                    @if (ModoConstrucao == ConstructionMode.RegularPolygon)
-                    {
-                        <label class="sides-field">Lados
-                            <select class="gis-select" aria-label="Lados do polígono regular" @bind="LadosConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">
-                                @for (int lados = 3; lados <= 32; lados++) { <option value="@lados">@lados</option> }
-                            </select>
-                        </label>
-                    }
-                }
-                @if (_modoAvancadoVetorizacao)
-                {
-                    <button class="workbench-button precision-shortcut" aria-label="Abrir COGO (Tab)" aria-keyshortcuts="Tab" title="Vetor polar COGO · Tab" @onclick="(Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => AbrirEntradaPrecisa(true, e.ClientX, e.ClientY)">COGO · Tab</button>
-                }
-                @if (_modoAvancadoVetorizacao)
-                {
-                    <details class="snap-options workbench-details">
-                        <summary>Encaixes <span class="setting-count">@NumeroEncaixesAtivos</span></summary>
-                        <div class="snap-menu">
-                        <div class="settings-title">Atração do cursor</div>
-                        <button class="snap-toggle" aria-pressed="@_snapAquisicaoVertice" @onclick="() => _snapAquisicaoVertice = !_snapAquisicaoVertice"><i class="snap-key vertex"></i>Atrair Vértices<span>@(_snapAquisicaoVertice ? "Ligado" : "Desligado")</span></button>
-                        <button class="snap-toggle" aria-pressed="@_snapAquisicaoAresta" @onclick="() => _snapAquisicaoAresta = !_snapAquisicaoAresta"><i class="snap-key edge"></i>Atrair Arestas<span>@(_snapAquisicaoAresta ? "Ligado" : "Desligado")</span></button>
-                        <label><input type="checkbox" @bind="_snapAquisicaoMeio" /><i class="snap-key midpoint"></i>Meio das arestas</label>
-                        <label><input type="checkbox" @bind="_snapAquisicaoIntersecao" /><i class="snap-key intersection"></i>Interseções</label>
-                        <label><input type="checkbox" @bind="_modoOrtogonalAquisicao" disabled="@ConstrucaoParametrica" />Ortogonal (90°) · vértices</label>
-                        <label class="tolerance-field">Tolerância em tela
-                            <select class="gis-select" aria-label="Tolerância do snap" @bind="ToleranciaSnapPixels">
-                                <option value="6">6 px · precisa</option><option value="10">10 px</option><option value="15">15 px · padrão</option><option value="20">20 px</option><option value="30">30 px · ampla</option>
-                            </select>
-                        </label>
-                        </div>
-                    </details>
-                }
-                <span class="construction-hint">@InstrucaoConstrucao</span>
-            </div>
+            @if (_modoAvancadoVetorizacao)
+            {
+                <div class="workbench-controls advanced-controls">
+                    <section class="advanced-control-group advanced-construction-group" aria-label="Construção da geometria">
+                        <div class="advanced-group-heading"><span class="advanced-group-index">01</span><div><strong>Construção</strong><small>Forma da geometria</small></div></div>
+                        @if (_ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
+                        {
+                            <div class="advanced-construction-fields">
+                                <label class="construction-field"><span>Modo de construção</span>
+                                    <select class="gis-select" aria-label="Modo de construção" @bind="ModoConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">
+                                        <option value="@ConstructionMode.Vertices">Vértice a vértice</option>
+                                        <option value="@ConstructionMode.Rectangle">Retângulo · 2 cantos</option>
+                                        <option value="@ConstructionMode.OrientedRectangle">Retângulo orientado · 3 pontos</option>
+                                        <option value="@ConstructionMode.Circle">Círculo · centro e raio</option>
+                                        <option value="@ConstructionMode.Ellipse">Elipse · centro e 2 eixos</option>
+                                        <option value="@ConstructionMode.RegularPolygon">Polígono regular · centro e raio</option>
+                                    </select>
+                                </label>
+                                @if (ModoConstrucao == ConstructionMode.RegularPolygon)
+                                {
+                                    <label class="sides-field"><span>Lados</span>
+                                        <select class="gis-select" aria-label="Lados do polígono regular" @bind="LadosConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">
+                                            @for (int lados = 3; lados <= 32; lados++) { <option value="@lados">@lados</option> }
+                                        </select>
+                                    </label>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="advanced-fixed-geometry"><strong>@(_ferramentaAtiva == ModoFerramenta.AquisicaoLinha ? "Linha" : "Ponto")</strong><small>Geometria definida pela camada de destino</small></div>
+                        }
+                        <small class="advanced-control-help">@InstrucaoConstrucao</small>
+                    </section>
+
+                    <section class="advanced-control-group advanced-precision-group" aria-label="Ferramentas de precisão">
+                        <div class="advanced-group-heading"><span class="advanced-group-index">02</span><div><strong>Precisão</strong><small>Coordenadas e vetor polar</small></div></div>
+                        <button class="workbench-button precision-shortcut advanced-cogo-button" aria-label="Abrir COGO (Tab)" aria-keyshortcuts="Tab" title="Vetor polar COGO · Tab" @onclick="(Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => AbrirEntradaPrecisa(true, e.ClientX, e.ClientY)"><span class="advanced-cogo-icon" aria-hidden="true">∠</span><span>Vetor polar COGO</span><kbd>Tab</kbd></button>
+                        <small class="advanced-control-help">Informe distância e azimute a partir do último ponto.</small>
+                    </section>
+
+                    <section class="advanced-control-group advanced-snap-group" aria-label="Captura e encaixes">
+                        <div class="advanced-group-heading"><span class="advanced-group-index">03</span><div><strong>Captura</strong><small>Alinhamento inteligente</small></div></div>
+                        <details class="snap-options workbench-details">
+                            <summary><span class="advanced-snap-icon" aria-hidden="true">⌖</span><span>Encaixes ativos</span><span class="setting-count">@NumeroEncaixesAtivos</span></summary>
+                            <div class="snap-menu">
+                                <div class="settings-title">Atração do cursor</div>
+                                <button class="snap-toggle" aria-pressed="@_snapAquisicaoVertice" @onclick="() => _snapAquisicaoVertice = !_snapAquisicaoVertice"><i class="snap-key vertex"></i>Atrair vértices<span>@(_snapAquisicaoVertice ? "Ligado" : "Desligado")</span></button>
+                                <button class="snap-toggle" aria-pressed="@_snapAquisicaoAresta" @onclick="() => _snapAquisicaoAresta = !_snapAquisicaoAresta"><i class="snap-key edge"></i>Atrair arestas<span>@(_snapAquisicaoAresta ? "Ligado" : "Desligado")</span></button>
+                                <label><input type="checkbox" @bind="_snapAquisicaoMeio" /><i class="snap-key midpoint"></i>Meio das arestas</label>
+                                <label><input type="checkbox" @bind="_snapAquisicaoIntersecao" /><i class="snap-key intersection"></i>Interseções</label>
+                                <label><input type="checkbox" @bind="_modoOrtogonalAquisicao" disabled="@ConstrucaoParametrica" />Ortogonal (90°) · vértices</label>
+                                <label class="tolerance-field">Tolerância em tela
+                                    <select class="gis-select" aria-label="Tolerância do snap" @bind="ToleranciaSnapPixels">
+                                        <option value="6">6 px · precisa</option><option value="10">10 px</option><option value="15">15 px · padrão</option><option value="20">20 px</option><option value="30">30 px · ampla</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </details>
+                        <small class="advanced-control-help">@NumeroEncaixesAtivos opção(ões) de captura ativada(s).</small>
+                    </section>
+                </div>
+            }
             @if (_mostrarMenuContexto)
             {
                 <div class="digitizing-context-controls" role="group" aria-label="Ações rápidas da vetorização" @onkeydown="TecladoContextoVetorizacao">
@@ -351,14 +477,38 @@
     {
         <section id="hud-f6" class="precision-hud precision-hud-coordinate" style="@EstiloHud(_hudX, _hudY)" role="region" aria-labelledby="hud-f6-title">
             <header class="precision-hud-heading" onpointerdown="window.iniciarArrasteHUD(event,'hud-f6')">
-                <div><span class="precision-eyebrow">ENTRADA ABSOLUTA</span><strong id="hud-f6-title">Coordenadas <kbd>F6</kbd></strong></div>
+                <span class="precision-heading-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4m10 0h4"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>
+                </span>
+                <div class="precision-heading-copy"><span class="precision-eyebrow">COORDENADAS ABSOLUTAS</span><strong id="hud-f6-title">Posicionar vértice <kbd>F6</kbd></strong><small>Fixe X e Y e clique no mapa para inserir</small></div>
                 <button type="button" class="precision-close" aria-label="Fechar coordenadas F6" title="Fechar" @onpointerdown:stopPropagation="true" @onclick="FecharEntradaAbsoluta">×</button>
             </header>
-            <form class="precision-form" @onsubmit="AplicarCoordenadaAbsoluta" @onsubmit:preventDefault="true">
-                <label>X / Este / Longitude<input @ref="_inputAbsolutoXRef" type="number" step="any" required @bind="_absolutoX" @bind:event="oninput" aria-label="Coordenada X" /></label>
-                <label>Y / Norte / Latitude<input type="number" step="any" required @bind="_absolutoY" @bind:event="oninput" aria-label="Coordenada Y" /></label>
-                <button type="submit" class="workbench-button primary" disabled="@(!_absolutoX.HasValue || !_absolutoY.HasValue)">Adicionar coordenada</button>
-                <small>SRC do projeto: @MapService.ProjetoSRS · Enter adiciona um ponto, sem concluir o desenho.</small>
+            <form class="precision-form" @onsubmit="TravarCoordenadaAbsoluta" @onsubmit:preventDefault="true">
+                <div class="precision-srs-picker">
+                    <span>SRC das coordenadas</span>
+                    <span class="precision-srs-value" title="@TextoSrsEntradaAbsoluta">@TextoSrsEntradaAbsoluta</span>
+                </div>
+                <div class="precision-field-grid">
+                    <label class="precision-field">
+                        <span class="precision-field-label"><strong>X</strong><small>@(_entradaAbsolutaGeografica ? "Longitude" : "Este")</small></span>
+                        <span class="precision-input-shell"><span class="precision-axis" aria-hidden="true">X</span><input @ref="_inputAbsolutoXRef" type="number" step="any" required disabled="@_coordenadaAbsolutaTravada" @bind="_absolutoX" @bind:event="oninput" aria-label="Coordenada X" /></span>
+                    </label>
+                    <label class="precision-field">
+                        <span class="precision-field-label"><strong>Y</strong><small>@(_entradaAbsolutaGeografica ? "Latitude" : "Norte")</small></span>
+                        <span class="precision-input-shell"><span class="precision-axis" aria-hidden="true">Y</span><input type="number" step="any" required disabled="@_coordenadaAbsolutaTravada" @bind="_absolutoY" @bind:event="oninput" aria-label="Coordenada Y" /></span>
+                    </label>
+                </div>
+                <div class="precision-form-actions">
+                    @if (_coordenadaAbsolutaTravada)
+                    {
+                        <div class="precision-lock-state is-active"><span class="precision-lock-indicator" aria-hidden="true"></span><strong>Posição fixada no mapa</strong><button type="button" class="precision-unlock" @onclick="() => DestravarCoordenadaAbsoluta()">Liberar</button></div>
+                    }
+                    else
+                    {
+                        <button type="submit" class="workbench-button primary" disabled="@(!_absolutoX.HasValue || !_absolutoY.HasValue)"><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 3v14M3 10h14"/></svg>Fixar posição</button>
+                    }
+                </div>
+                <div class="precision-hint @(_coordenadaAbsolutaTravada ? "is-locked" : "")"><span class="precision-hint-icon" aria-hidden="true">i</span><span class="precision-hint-copy"><span class="precision-srs-row"><span>Mapa</span><strong class="precision-srs" title="@MapService.ProjetoSRS">@_textoSrsProjetoEntrada</strong></span><span class="precision-hint-secondary">@(_coordenadaAbsolutaTravada ? "Clique no mapa para adicionar o vértice na cruz verde." : "Os valores serão convertidos para o SRC do projeto antes de fixar.")</span></span></div>
             </form>
         </section>
     }
@@ -366,20 +516,42 @@
     {
         <section id="hud-cogo" class="precision-hud precision-hud-cogo" style="@EstiloHud(_hudCogoX, _hudCogoY)" role="region" aria-labelledby="hud-cogo-title">
             <header class="precision-hud-heading" onpointerdown="window.iniciarArrasteHUD(event,'hud-cogo')">
-                <div><span class="precision-eyebrow">DIGITAÇÃO POLAR</span><strong id="hud-cogo-title">COGO <kbd>Tab</kbd></strong></div>
+                <span class="precision-heading-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="m14.8 9.2-2 5.6-3.6 1.4 2-5.6 3.6-1.4Z"/><path d="M12 2v2M22 12h-2"/></svg>
+                </span>
+                <div class="precision-heading-copy"><span class="precision-eyebrow">DIGITAÇÃO POLAR</span><strong id="hud-cogo-title">Projetar vértice <kbd>Tab</kbd></strong><small>Distância e azimute a partir do último ponto</small></div>
                 <button type="button" class="precision-close" aria-label="Fechar COGO" title="Fechar" @onpointerdown:stopPropagation="true" @onclick="FecharEntradaCogo">×</button>
             </header>
             <form class="precision-form" @onsubmit="AplicarVetorRestritoCogo" @onsubmit:preventDefault="true">
-                <label>Distância de grade (m)<input @ref="_inputDistanciaRef" type="number" step="any" min="0.000001" required @bind="_cogoDistancia" @bind:event="oninput" aria-label="Distância polar em metros" /></label>
-                <label>Azimute de grade (°)<input type="number" step="any" required @bind="_cogoAzimute" @bind:event="oninput" aria-label="Azimute polar em graus" /></label>
-                <button type="submit" class="workbench-button primary" disabled="@(MapService.PontosAquisicao.Count == 0 || !(_cogoDistancia > 0) || !_cogoAzimute.HasValue)">Projetar ponto</button>
-                <small>@(MapService.PontosAquisicao.Count == 0 ? "Marque o primeiro ponto ou informe uma coordenada." : "A partir do último ponto · 0° norte da grade · 90° leste. Requer SRC projetado.")</small>
+                <div class="precision-field-grid">
+                    <label class="precision-field">
+                        <span class="precision-field-label"><strong>Distância</strong><small>Comprimento do segmento</small></span>
+                        <span class="precision-input-shell"><input @ref="_inputDistanciaRef" type="number" step="any" min="0.000001" required @bind="_cogoDistancia" @bind:event="oninput" aria-label="Distância polar em metros" /><span class="precision-unit" aria-hidden="true">m</span></span>
+                    </label>
+                    <label class="precision-field">
+                        <span class="precision-field-label"><strong>Azimute</strong><small>Ângulo a partir do norte</small></span>
+                        <span class="precision-input-shell"><input type="number" step="any" required @bind="_cogoAzimute" @bind:event="oninput" aria-label="Azimute polar em graus" /><span class="precision-unit" aria-hidden="true">°</span></span>
+                    </label>
+                </div>
+                <div class="precision-form-actions">
+                    <button type="submit" class="workbench-button primary" disabled="@(MapService.PontosAquisicao.Count == 0 || !(_cogoDistancia > 0) || !_cogoAzimute.HasValue)"><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15.5 15.5 3M6 3h9.5v9.5"/></svg>Projetar ponto</button>
+                </div>
+                <div class="precision-hint @(MapService.PontosAquisicao.Count == 0 ? "is-prompt" : "")"><span class="precision-hint-icon" aria-hidden="true">@(MapService.PontosAquisicao.Count == 0 ? "!" : "i")</span><span>@(MapService.PontosAquisicao.Count == 0 ? "Marque o primeiro ponto ou informe uma coordenada." : "0° norte da grade · 90° leste · requer SRC projetado")</span></div>
             </form>
-            <div class="precision-constraint">
-                <label>Restrição de distância (m)<input type="number" step="any" min="0.000001" @bind="_restricaoDistanciaMetros" @bind:event="oninput" aria-label="Distância da restrição em metros" disabled="@MapService.TravaDistanciaAtiva" /></label>
-                <label>Comportamento<select class="gis-select" value="@MapService.TravaModoFixo.ToString().ToLowerInvariant()" @onchange='e => MapService.TravaModoFixo = e.Value?.ToString() == "true"' aria-label="Modo da restrição"><option value="false">Máximo</option><option value="true">Fixo</option></select></label>
-                <button class="workbench-button" disabled="@ConstrucaoParametrica" aria-pressed="@MapService.TravaDistanciaAtiva" @onclick="AlternarRestricaoPrecisa">@(MapService.TravaDistanciaAtiva ? "Desativar restrição" : "Ativar restrição")</button>
-            </div>
+            <section class="precision-constraint" aria-label="Restrição de distância">
+                <header class="precision-constraint-heading"><div><strong>Restrição e raio</strong><small>Limite o segmento e visualize o raio no mapa</small></div><span class="constraint-state @(MapService.TravaDistanciaAtiva ? "active" : "")">@(MapService.TravaDistanciaAtiva ? "RAIO ATIVO" : "OPCIONAL")</span></header>
+                <div class="precision-constraint-grid">
+                    <label class="precision-field compact-field">
+                        <span class="precision-field-label"><strong>Medida</strong><small>Metros de grade</small></span>
+                        <span class="precision-input-shell"><input type="number" step="any" min="0.000001" @bind="_restricaoDistanciaMetros" @bind:event="oninput" aria-label="Distância da restrição em metros" disabled="@MapService.TravaDistanciaAtiva" /><span class="precision-unit" aria-hidden="true">m</span></span>
+                    </label>
+                    <label class="precision-field compact-field">
+                        <span class="precision-field-label"><strong>Comportamento</strong><small>Como usar o raio</small></span>
+                        <select class="gis-select" value="@MapService.TravaModoFixo.ToString().ToLowerInvariant()" @onchange='e => AlterarModoRestricaoDistancia(e.Value?.ToString())' aria-label="Modo da restrição"><option value="false">Máxima · até o raio</option><option value="true">Fixa · sobre o raio</option></select>
+                    </label>
+                    <button class="workbench-button constraint-toggle @(MapService.TravaDistanciaAtiva ? "is-active" : "")" disabled="@ConstrucaoParametrica" aria-pressed="@MapService.TravaDistanciaAtiva" @onclick="AlternarRestricaoPrecisa">@(MapService.TravaDistanciaAtiva ? "Desativar raio" : "Ativar raio e restrição")</button>
+                </div>
+            </section>
         </section>
     }
     <!-- PAINÉIS LATERAIS E ÁREA DE TRABALHO -->
@@ -393,15 +565,33 @@
                     else { <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg> }
                 </button>
                 <span class="panel-rail-label" aria-hidden="true">Camadas</span>
-                <h2>CAMADAS</h2>
+                <div class="panel-heading-copy">
+                    <h2>Camadas</h2>
+                    <span class="panel-count" title="Camadas carregadas">@CamadasAtivas.Count</span>
+                </div>
                 <div class="header-actions">
-                    <button class="icon-action-btn">+</button>
+                    <button type="button" class="icon-action-btn" aria-label="Adicionar camada" title="Adicionar camada" @onclick="AbrirModalImportacao">
+                        <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    </button>
                 </div>
             </div>
 
             <div class="layer-list custom-scrollbar" @onpointerup="FinalizarArraste">
-                @foreach (var camada in CamadasAtivas)
+                @if (CamadasAtivas.Count == 0)
                 {
+                    <div class="layer-empty-state">
+                        <span class="layer-empty-icon" aria-hidden="true">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg>
+                        </span>
+                        <strong>Nenhuma camada ainda</strong>
+                        <span>Adicione dados para começar seu mapa.</span>
+                        <button type="button" class="layer-empty-action" @onclick="AbrirModalImportacao">Adicionar dados</button>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var camada in CamadasAtivas)
+                    {
                     var camadaAtual = camada;
 
                     // Deteta se esta é a camada que o utilizador tem agarrada neste momento
@@ -447,8 +637,20 @@
                             </div>
                         }
                     </div>
+                    }
                 }
             </div>
+            <button type="button" class="panel-resize-handle"
+                 role="separator"
+                 aria-orientation="horizontal"
+                 aria-label="Ajustar altura do painel de camadas"
+                 aria-valuemin="20"
+                 aria-valuemax="100"
+                 aria-valuenow="50"
+                 tabindex="0"
+                 title="Arraste para ajustar a altura · use ↑ e ↓"
+                 onpointerdown="window.geonexResizeDockStart(event)"
+                 onkeydown="window.geonexResizeDockKeydown(event)"></button>
         </aside>
 
 <div id="map-container"
@@ -470,15 +672,28 @@
 </div>
        
         <!-- PAINEL DIREITO: ATRIBUTOS -->
-        <aside class="glass-panel side-panel right-panel">
-            <div class="panel-header">
-                <button type="button" class="panel-dock-toggle" aria-expanded="@_painelIdentificarAberto" aria-label="@(_painelIdentificarAberto ? "Recolher painel de identificação" : "Abrir painel de identificação")" title="@(_painelIdentificarAberto ? "Recolher identificação" : "Abrir identificação")" @onclick="() => _painelIdentificarAberto = !_painelIdentificarAberto">
-                    @if (_painelIdentificarAberto) { <span aria-hidden="true">›</span> }
-                    else { <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg> }
-                </button>
-                <span class="panel-rail-label" aria-hidden="true">@(_ferramentaAtiva == ModoFerramenta.Medicao ? "Medição" : "Identificar")</span>
-                <h2>@(_ferramentaAtiva == ModoFerramenta.Medicao ? "FERRAMENTAS DE MEDIÇÃO" : "ATRIBUTOS DA FEIÇÃO")</h2>
-            </div>
+        <aside id="@(_ferramentaAtiva == ModoFerramenta.Medicao ? "measurement-floating-panel" : null)"
+               class="glass-panel side-panel right-panel @(_ferramentaAtiva == ModoFerramenta.Medicao ? "measurement-floating-panel" : "")"
+               style="@(_ferramentaAtiva == ModoFerramenta.Medicao ? EstiloHud(_measurementPanelX, _measurementPanelY) : null)">
+            @if (_ferramentaAtiva == ModoFerramenta.Medicao)
+            {
+                <div class="panel-header measurement-panel-header" onpointerdown="window.iniciarArrasteHUD(event,'measurement-floating-panel')">
+                    <span class="measurement-panel-icon" aria-hidden="true">⌖</span>
+                    <div class="measurement-panel-heading"><strong>Medição</strong><small>@MapService.PontosMedicao.Count ponto(s) · arraste para mover</small></div>
+                    <button type="button" class="measurement-panel-close" aria-label="Fechar ferramenta de medição" title="Voltar para identificação" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)" @onclick:stopPropagation="true">×</button>
+                </div>
+            }
+            else
+            {
+                <div class="panel-header">
+                    <button type="button" class="panel-dock-toggle" aria-expanded="@_painelIdentificarAberto" aria-label="@(_painelIdentificarAberto ? "Recolher painel de identificação" : "Abrir painel de identificação")" title="@(_painelIdentificarAberto ? "Recolher identificação" : "Abrir identificação")" @onclick="() => _painelIdentificarAberto = !_painelIdentificarAberto">
+                        @if (_painelIdentificarAberto) { <span aria-hidden="true">›</span> }
+                        else { <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg> }
+                    </button>
+                    <span class="panel-rail-label" aria-hidden="true">Identificar</span>
+                    <h2>Identificar</h2>
+                </div>
+            }
 
             <div class="properties-content custom-scrollbar" style="padding: 15px;">
 
@@ -575,13 +790,25 @@
                     }
                     else
                     {
-                        <div style="display: flex; height: 100%; align-items: center; justify-content: center; color: #64748b; font-size: 0.85rem; text-align: center; padding: 20px; flex-direction: column; gap: 10px;">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                            <span>Selecione um polígono no mapa para inspecionar seus atributos.</span>
+                        <div class="identify-empty-state" role="status">
+                            <span class="identify-empty-icon" aria-hidden="true"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.8" cy="10.8" r="7.3"/><path d="m16.2 16.2 4.3 4.3M8 10.8h5.6M10.8 8v5.6"/></svg></span>
+                            <strong>Nenhuma feição selecionada</strong>
+                            <span>Clique em uma feição no mapa para consultar seus atributos.</span>
                         </div>
                     }
                 }
             </div>
+            <button type="button" class="panel-resize-handle"
+                 role="separator"
+                 aria-orientation="horizontal"
+                 aria-label="Ajustar altura do painel de identificação"
+                 aria-valuemin="20"
+                 aria-valuemax="100"
+                 aria-valuenow="50"
+                 tabindex="0"
+                 title="Arraste para ajustar a altura · use ↑ e ↓"
+                 onpointerdown="window.geonexResizeDockStart(event)"
+                 onkeydown="window.geonexResizeDockKeydown(event)"></button>
         </aside>
 
     </main>
@@ -641,7 +868,7 @@
     @if (exibirModalImportacao)
     {
         <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
-            <div class="glass-panel import-modal">
+            <div class="glass-panel import-modal @(AbaModalAtiva == "Nuvem" ? "postgis-open" : AbaModalAtiva == "Texto" ? "point-table-open" : "")">
                 <div class="modal-header">
                     <h2>GERENCIADOR DE FONTES DE DADOS</h2>
                     <button class="close-modal-btn" @onclick="FecharModalImportacao">✕</button>
@@ -650,8 +877,8 @@
                     <div class="modal-tabs">
                         <button class="tab-btn @(AbaModalAtiva == "Raster" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Raster"))">Raster (ECW, TIF)</button>
                         <button class="tab-btn @(AbaModalAtiva == "Vetor" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Vetor"))">Vetor (SHP, GeoJSON)</button>
-                        <button class="tab-btn @(AbaModalAtiva == "Texto" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Texto"))">Texto Delimitado</button>
-                        <button class="tab-btn @(AbaModalAtiva == "Nuvem" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Nuvem"))">Nuvem (PostGIS)</button>
+                        <button class="tab-btn @(AbaModalAtiva == "Texto" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Texto"))">Tabela de pontos</button>
+                        <button class="tab-btn @(AbaModalAtiva == "Nuvem" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Nuvem"))">PostGIS</button>
                     </div>
 
                     <div class="modal-content">
@@ -696,6 +923,175 @@
                             <div class="import-actions">
                                 <button class="btn-save add-layer-btn" @onclick="AdicionarVetorAoMapa">ADICIONAR VETOR AO MAPA</button>
                                 <button class="btn-cancel" @onclick="FecharModalImportacao">CANCELAR</button>
+                            </div>
+                        }
+                        else if (AbaModalAtiva == "Texto")
+                        {
+                            <div class="point-table-import">
+                                <div class="point-table-intro">
+                                    <strong>Importar tabela como pontos</strong>
+                                    <span>CSV, TXT ou TSV com cabeçalho. Escolha as colunas X/Y e o EPSG das coordenadas.</span>
+                                </div>
+                                <div class="form-group mb-15">
+                                    <label>Arquivo de texto delimitado</label>
+                                    <div class="file-input-group">
+                                        <input type="text" class="glass-input file-path" value="@_tabelaPontosCaminho" placeholder="Selecione um arquivo CSV, TXT ou TSV" readonly />
+                                        <button class="btn-browse" @onclick="SelecionarArquivoTabelaPontos" disabled="@_tabelaPontosImportando">PROCURAR...</button>
+                                    </div>
+                                </div>
+                                @if (_tabelaPontosPreview is not null)
+                                {
+                                    <div class="point-table-options">
+                                        <label>Separador
+                                            <select class="glass-input" value="@DelimitadorTabelaPontosValor" @onchange="AlterarDelimitadorTabelaPontos" disabled="@_tabelaPontosImportando">
+                                                <option value=",">Vírgula (,)</option>
+                                                <option value=";">Ponto e vírgula (;)</option>
+                                                <option value="tab">Tabulação</option>
+                                                <option value="|">Barra vertical (|)</option>
+                                            </select>
+                                        </label>
+                                        <label>Coluna X
+                                            <select class="glass-input" @bind="_tabelaPontosColunaX" disabled="@_tabelaPontosImportando">
+                                                @foreach (var coluna in _tabelaPontosPreview.Columns)
+                                                {
+                                                    <option value="@coluna.Index">@coluna.Name</option>
+                                                }
+                                            </select>
+                                        </label>
+                                        <label>Coluna Y
+                                            <select class="glass-input" @bind="_tabelaPontosColunaY" disabled="@_tabelaPontosImportando">
+                                                @foreach (var coluna in _tabelaPontosPreview.Columns)
+                                                {
+                                                    <option value="@coluna.Index">@coluna.Name</option>
+                                                }
+                                            </select>
+                                        </label>
+                                        <div class="point-table-crs-picker">
+                                            <label for="point-table-crs-search">SRC das coordenadas</label>
+                                            <input id="point-table-crs-search" class="glass-input" value="@_tabelaPontosCrsBusca" @oninput="FiltrarCrsTabelaPontos" placeholder="Pesquisar por nome ou código (EPSG, ESRI…)" disabled="@_tabelaPontosImportando" />
+                                            <div class="point-table-crs-selected">Selecionado: <strong>@RotuloCrsTabelaPontosSelecionado</strong></div>
+                                            @if (string.IsNullOrWhiteSpace(_tabelaPontosCrsBusca) && _tabelaPontosCrsAtalhos.Count > 0)
+                                            {
+                                                <div class="point-table-crs-presets" aria-label="SRC usados com frequência">
+                                                    @foreach (var crs in _tabelaPontosCrsAtalhos)
+                                                    {
+                                                        <button type="button" class="point-table-crs-preset @(string.Equals(crs.Identifier, _tabelaPontosCrsSelecionado, StringComparison.OrdinalIgnoreCase) ? "active" : "")" @onclick="() => SelecionarCrsTabelaPontos(crs)" disabled="@_tabelaPontosImportando">@crs.Identifier</button>
+                                                    }
+                                                </div>
+                                            }
+                                            @if (_tabelaPontosCrsResultados.Count > 0)
+                                            {
+                                                <div class="point-table-crs-results" role="listbox" aria-label="Sistemas de referência encontrados">
+                                                    @foreach (var crs in _tabelaPontosCrsResultados)
+                                                    {
+                                                        <button type="button" class="point-table-crs-option" @onclick="() => SelecionarCrsTabelaPontos(crs)" disabled="@_tabelaPontosImportando">
+                                                            <span><strong>@crs.Identifier</strong><small>@crs.Name</small></span>
+                                                            <small>@crs.Kind</small>
+                                                        </button>
+                                                    }
+                                                </div>
+                                            }
+                                            else if (!string.IsNullOrWhiteSpace(_tabelaPontosCrsBusca) && !string.Equals(_tabelaPontosCrsBusca.Trim(), _tabelaPontosCrsSelecionado, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <div class="point-table-crs-empty">Nenhum SRC do catálogo corresponde à busca.</div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(_tabelaPontosCrsBusca) && !string.Equals(_tabelaPontosCrsBusca.Trim(), _tabelaPontosCrsSelecionado, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <button type="button" class="point-table-crs-custom" @onclick="UsarCrsDigitadoTabelaPontos" disabled="@_tabelaPontosImportando">Usar identificador informado: @_tabelaPontosCrsBusca</button>
+                                            }
+                                            <small class="point-table-crs-hint">@_tabelaPontosCrsCatalogo.Count SRC no catálogo · também aceita identificadores reconhecidos pelo PROJ, como EPSG:31982 ou ESRI:102033.</small>
+                                        </div>
+                                    </div>
+                                    <div class="point-table-preview-wrap">
+                                        <div class="point-table-preview-heading">Prévia · @_tabelaPontosPreview.Columns.Count coluna(s)</div>
+                                        <div class="point-table-preview-scroll">
+                                            <table class="point-table-preview">
+                                                <thead><tr>@foreach (var coluna in _tabelaPontosPreview.Columns) { <th>@coluna.Name</th> }</tr></thead>
+                                                <tbody>
+                                                    @foreach (var linha in _tabelaPontosPreview.Rows)
+                                                    {
+                                                        <tr>@foreach (var coluna in _tabelaPontosPreview.Columns) { <td>@(coluna.Index < linha.Length ? linha[coluna.Index] : "")</td> }</tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_tabelaPontosMensagem))
+                                {
+                                    <div class="point-table-message @(_tabelaPontosErro ? "error" : "")" role="status">@_tabelaPontosMensagem</div>
+                                }
+                                <div class="import-actions">
+                                    <button class="btn-save add-layer-btn" @onclick="AdicionarTabelaPontosAsync" disabled="@(_tabelaPontosImportando || _tabelaPontosPreview is null || _tabelaPontosColunaX == _tabelaPontosColunaY)">@(_tabelaPontosImportando ? "IMPORTANDO…" : "ADICIONAR PONTOS AO MAPA")</button>
+                                    <button class="btn-cancel" @onclick="FecharModalImportacao" disabled="@_tabelaPontosImportando">CANCELAR</button>
+                                </div>
+                            </div>
+                        }
+                        else if (AbaModalAtiva == "Nuvem")
+                        {
+                            <div class="postgis-workspace">
+                                <div class="postgis-intro">
+                                    <strong>Conexão PostGIS</strong>
+                                    <span>Use o hostname ou IP do servidor PostgreSQL. ‘localhost’ só funciona se o GeoNex estiver na mesma máquina. As credenciais ficam apenas nesta sessão.</span>
+                                </div>
+                                <div class="postgis-connection-grid">
+                                    <label>Servidor
+                                        <input class="glass-input" @bind="_postgisFormulario.Host" @bind:event="oninput" @bind:after="CredenciaisPostgisAlteradas" placeholder="Ex.: db.exemplo.com ou 127.0.0.1" autocomplete="off" required disabled="@(_postgisConectando || _postgisCamadaCarregando is not null)" />
+                                    </label>
+                                    <label>Porta
+                                        <input class="glass-input" type="number" min="1" max="65535" @bind="_postgisFormulario.Port" @bind:after="CredenciaisPostgisAlteradas" disabled="@(_postgisConectando || _postgisCamadaCarregando is not null)" />
+                                    </label>
+                                    <label>Banco de dados
+                                        <input class="glass-input" @bind="_postgisFormulario.Database" @bind:event="oninput" @bind:after="CredenciaisPostgisAlteradas" placeholder="Nome do banco PostgreSQL" autocomplete="off" required disabled="@(_postgisConectando || _postgisCamadaCarregando is not null)" />
+                                    </label>
+                                    <label>Usuário
+                                        <input class="glass-input" @bind="_postgisFormulario.Username" @bind:event="oninput" @bind:after="CredenciaisPostgisAlteradas" placeholder="Usuário do banco PostgreSQL" autocomplete="username" required disabled="@(_postgisConectando || _postgisCamadaCarregando is not null)" />
+                                    </label>
+                                    <label>Senha
+                                        <input class="glass-input" type="password" @bind="_postgisFormulario.Password" @bind:event="oninput" @bind:after="CredenciaisPostgisAlteradas" autocomplete="current-password" disabled="@(_postgisConectando || _postgisCamadaCarregando is not null)" />
+                                    </label>
+                                    <label>SSL
+                                        <select class="glass-input" @bind="_postgisFormulario.SslMode" @bind:after="CredenciaisPostgisAlteradas" disabled="@(_postgisConectando || _postgisCamadaCarregando is not null)">
+                                            <option value="Prefer">Preferir TLS</option>
+                                            <option value="Require">Exigir TLS</option>
+                                            <option value="Disable">Desativar TLS</option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <div class="postgis-connect-actions">
+                                    <span class="postgis-session-status @(_postgisStatusErro ? "error" : "")" role="status" aria-live="polite">
+                                        @if (_postgisConectando) { <span>Conectando ao PostGIS…</span> }
+                                        else if (!string.IsNullOrWhiteSpace(_postgisMensagem)) { <span>@_postgisMensagem</span> }
+                                        else { <span>Informe host, porta e credenciais cadastrados no servidor PostgreSQL.</span> }
+                                    </span>
+                                    <button class="btn-save" @onclick="ConectarPostgisAsync" disabled="@_postgisConectando">@(_postgisConectando ? "CONECTANDO…" : _postgisConnection is null ? "CONECTAR E LISTAR CAMADAS" : "ATUALIZAR CAMADAS")</button>
+                                </div>
+                                @if (_postgisConnection != null)
+                                {
+                                    <div class="postgis-layer-browser">
+                                        <div class="postgis-layer-heading">
+                                            <div><strong>Camadas espaciais</strong><small>@_postgisTabelas.Count tabela(s) · até @PostgisDataService.MaximumFeaturesPerLayer.ToString("N0") feições por camada</small></div>
+                                            <button class="workbench-button" @onclick="AtualizarListaPostgisAsync" disabled="@_postgisConectando">Atualizar lista</button>
+                                        </div>
+                                        @if (_postgisTabelas.Count == 0)
+                                        {
+                                            <div class="postgis-empty">Nenhuma coluna geometry foi encontrada em <code>geometry_columns</code>.</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="postgis-layer-list">
+                                                @foreach (var tabelaPostgis in _postgisTabelas)
+                                                {
+                                                    <div class="postgis-layer-row" @key="PostgisLayerKey(tabelaPostgis)">
+                                                        <span class="data-menu-icon vector" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 5 14 2-3 12-11-4V5Z"/><circle cx="5" cy="5" r="1.5"/><circle cx="19" cy="7" r="1.5"/><circle cx="16" cy="19" r="1.5"/></svg></span>
+                                                        <span class="postgis-layer-copy"><strong>@($"{tabelaPostgis.Schema}.{tabelaPostgis.Table}")</strong><small>@tabelaPostgis.GeometryColumn · @tabelaPostgis.GeometryType · EPSG:@tabelaPostgis.Srid</small></span>
+                                                        <button class="workbench-button primary" @onclick="() => AdicionarCamadaPostgisAsync(tabelaPostgis)" disabled="@(_postgisCamadaCarregando != null || tabelaPostgis.CoordinateDimension != 2)" title="@(tabelaPostgis.CoordinateDimension != 2 ? "Camadas com Z/M não são suportadas nesta versão" : "Adicionar esta camada ao mapa")">@(_postgisCamadaCarregando == PostgisLayerKey(tabelaPostgis) ? "CARREGANDO…" : "ADICIONAR")</button>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
                             </div>
                         }
                         else
@@ -1410,10 +1806,10 @@
     <!-- ========================================================= -->
     @if (exibirModalNovaCamada)
     {
-        <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
-            <div class="glass-panel import-modal" style="width: 550px; height: auto;">
+        <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-layer-dialog-title" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
+            <div class="glass-panel import-modal new-layer-modal" style="width: 550px; height: auto;">
                 <div class="modal-header">
-                    <h2>ALOCAÇÃO DE DATASET VETORIAL</h2>
+                    <h2 id="new-layer-dialog-title">Criar camada vetorial</h2>
                     <button class="close-btn-red" @onclick="FecharModalNovaCamada">✕</button>
                 </div>
                 <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 15px; height: auto;">
@@ -1469,8 +1865,8 @@
                     </div>
 
                     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 10px;">
-                        <button class="btn-cancel" @onclick="FecharModalNovaCamada">CANCELAR</button>
-                        <button class="btn-save" @onclick="ConfirmarCriacaoNovaCamada" disabled="@(!PermiteCriarCamada)" style="background: @(PermiteCriarCamada ? "#047857" : "rgba(255,255,255,0.1)"); border-color: @(PermiteCriarCamada ? "#059669" : "transparent"); color: @(PermiteCriarCamada ? "white" : "#64748b"); width: auto; margin: 0; transition: 0.2s;">PROCESSAR ALOCAÇÃO</button>
+                        <button class="btn-cancel" @onclick="FecharModalNovaCamada">Cancelar</button>
+                        <button class="btn-save" @onclick="ConfirmarCriacaoNovaCamada" disabled="@(!PermiteCriarCamada)" style="background: @(PermiteCriarCamada ? "#047857" : "rgba(255,255,255,0.1)"); border-color: @(PermiteCriarCamada ? "#059669" : "transparent"); color: @(PermiteCriarCamada ? "white" : "#64748b"); width: auto; margin: 0; transition: 0.2s;">Criar camada</button>
                     </div>
                 </div>
             </div>
@@ -3283,9 +3679,6 @@
                 MapService.RemoveWarpedRaster(nome);
                 MapService.RemoveRasterCache(nome);
                 MapService.PublishRaster(nome, dataset, xmlTMS);
-                // CORREÇÃO: Definir limites globais do mundo para o Basemap, senão a câmera colapsa (escala 0)
-                MapService.LimitesRasters[nome] = new SkiaSharp.SKRect(-20037508.34f, -20037508.34f, 20037508.34f, 20037508.34f);
-                
                 if (!MapService.OffsetMundoDefinido)
                 {
                     // Centro inicial: Paraná, Brasil (-48.5747, -25.8828) em EPSG:3857
@@ -3313,6 +3706,15 @@
                     MapService.OffsetMundoX = 0;
                     MapService.OffsetMundoY = 0;
                 }
+
+                // A extensão mundial do TMS existe em Web Mercator. Só a publica
+                // como limites do mapa quando esse também é o SRC do projeto;
+                // misturar esses milhões de metros com UTM/graus quebra o ajuste
+                // da câmera e desloca o raster em relação às feições.
+                MapService.LimitesRasters[nome] = SrsFactory.IsSame(
+                    MapService.ProjetoSRS, GeoNex.Services.OnlineBasemapPolicy.WebMercatorSrs)
+                    ? new SkiaSharp.SKRect(-20037508.34f, -20037508.34f, 20037508.34f, 20037508.34f)
+                    : SkiaSharp.SKRect.Empty;
                 
                 MapService.RequestRedraw();
                 SolicitarNovoFrame();
@@ -3375,35 +3777,26 @@
 
     private void AoMudarCamadaDestino(ChangeEventArgs e)
     {
-        if (MapService.PontosAquisicao.Count > 0)
+        if (MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada)
         {
-            mensagemVetorizacao = "Conclua ou cancele o desenho antes de trocar a camada de destino.";
+            mensagemVetorizacao = _coordenadaAbsolutaTravada
+                ? "Libere a posição F6 antes de trocar a camada de destino."
+                : "Conclua ou cancele o desenho antes de trocar a camada de destino.";
             StateHasChanged();
             return;
         }
         mensagemVetorizacao = "";
         string valor = e.Value?.ToString() ?? "";
-        if (valor == "NOVA")
-        {
-            novaCamadaNome = "";
-            pastaDestinoSelecionada = "";
-            exibirModalNovaCamada = true;
-            _camadaDestinoAquisicao = "";
-        }
-        else
-        {
-            _camadaDestinoAquisicao = valor;
+        _camadaDestinoAquisicao = valor;
+        if (_mostrarInputAbsoluto) PrepararSrsEntradaAbsoluta();
 
-            // =======================================================
-            // >>> O CÉREBRO HIERÁRQUICO: ADAPTA A FERRAMENTA À CAMADA
-            // =======================================================
-            var camadaSelecionada = CamadasAtivas.FirstOrDefault(c => c.Nome == valor);
-            if (camadaSelecionada != null)
-            {
-                if (camadaSelecionada.Geometria == "PONTO") TrocarFerramenta(ModoFerramenta.AquisicaoPonto);
-                else if (camadaSelecionada.Geometria == "LINHA") TrocarFerramenta(ModoFerramenta.AquisicaoLinha);
-                else TrocarFerramenta(ModoFerramenta.AquisicaoPoligono);
-            }
+        // Adapta a ferramenta à geometria da camada selecionada.
+        var camadaSelecionada = CamadasAtivas.FirstOrDefault(c => c.Nome == valor);
+        if (camadaSelecionada != null)
+        {
+            if (camadaSelecionada.Geometria == "PONTO") TrocarFerramenta(ModoFerramenta.AquisicaoPonto);
+            else if (camadaSelecionada.Geometria == "LINHA") TrocarFerramenta(ModoFerramenta.AquisicaoLinha);
+            else TrocarFerramenta(ModoFerramenta.AquisicaoPoligono);
         }
     }
 
@@ -3624,11 +4017,19 @@
     private bool _mostrarInputAbsoluto = false;
     private double? _absolutoX;
     private double? _absolutoY;
+    private bool _coordenadaAbsolutaTravada;
+    private string _srsCamadaDestinoEntrada = string.Empty;
+    private string _textoSrsProjetoEntrada = "SRC do projeto";
+    private string _textoSrsCamadaEntrada = string.Empty;
+    private bool _entradaAbsolutaGeografica;
 
     private double _hudX = 16;
     private double _hudY = 72;
     private double _hudCogoX = 430;
     private double _hudCogoY = 72;
+    private double _measurementPanelX = 16;
+    private double _measurementPanelY = 72;
+    private bool _measurementPanelPositionInitialized;
     private string EstiloHud(double x, double y) => FormattableString.Invariant($"transform:translate3d({x}px,{y}px,0)");
 
     // Referências para foco instantâneo do teclado
@@ -3644,7 +4045,7 @@
     private bool _mostrarInputCogo = false;
     private double? _cogoDistancia;
     private double? _cogoAzimute = 0;
-    private double? _restricaoDistanciaMetros;
+    private double? _restricaoDistanciaMetros = 50;
     // Define para que camada o polígono desenhado vai ser enviado
     private string _camadaDestinoAquisicao = "";
     // Lembra onde o último Snap foi desenhado para não renderizar à toa
@@ -3711,6 +4112,7 @@
         public bool Visivel { get; set; } = true;
         public string CaminhoArquivo { get; set; } = string.Empty;
         public string Geometria { get; set; } = "POLIGONO";
+        public PostgisLayerSource? FontePostgis { get; set; }
     }
 
     // Estrutura de dados para o payload de dimensionamento do viewport
@@ -3918,6 +4320,18 @@
             _painelIdentificarAberto = false;
 
         _ferramentaAtiva = novaFerramenta;
+        MapService.ClientRenderedMeasurementPreview = novaFerramenta == ModoFerramenta.Medicao;
+        JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirCursorMedicaoAtivo", novaFerramenta == ModoFerramenta.Medicao);
+        if (novaFerramenta == ModoFerramenta.Medicao)
+        {
+            if (!_measurementPanelPositionInitialized)
+            {
+                _measurementPanelX = Math.Max(8, _larguraTela - 376);
+                _measurementPanelY = 72;
+                _measurementPanelPositionInitialized = true;
+            }
+            JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirMouseESnap", null, null, null, null, null, 0);
+        }
         if (novaFerramenta != ModoFerramenta.AquisicaoPoligono)
             MapService.ConstrucaoAtiva = ConstructionMode.Vertices;
         mensagemVetorizacao = "";
@@ -3926,6 +4340,7 @@
         if (novaFerramenta == ModoFerramenta.AquisicaoLinha) MapService.TipoGeometriaAtiva = "LINHA";
         else if (novaFerramenta == ModoFerramenta.AquisicaoPonto) MapService.TipoGeometriaAtiva = "PONTO";
         else MapService.TipoGeometriaAtiva = "POLIGONO";
+        SincronizarPreviaVetorizacaoCliente();
 
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
@@ -3962,6 +4377,8 @@
         MapService.CameraZoom = 1.0f;
         MapService.CameraPanX = 0f;
         MapService.CameraPanY = 0f;
+        MapService.ClientRenderedDigitizingPreview = false;
+        MapService.ClientRenderedMeasurementPreview = false;
 
         objRef = DotNetObjectReference.Create(this);
 
@@ -3972,6 +4389,13 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_focoMenuDadosPendente is { } focoMenuDados)
+        {
+            _focoMenuDadosPendente = null;
+            if (focoMenuDados == "voltar") await _menuDadosVoltarRef.FocusAsync();
+            else if (focoMenuDados == "adicionar") await _menuDadosAdicionarRef.FocusAsync();
+            else if (focoMenuDados == "criar") await _menuDadosCriarRef.FocusAsync();
+        }
         if (_focoMapaPendente)
         {
             _focoMapaPendente = false;
@@ -4017,6 +4441,7 @@
             await JSRuntime.InvokeVoidAsync("dimensoesJanela.registrarResize", objRef);
             await JSRuntime.InvokeVoidAsync("mapEngine.init", objRef);
             await JSRuntime.InvokeVoidAsync("mapEngine.setFerramenta", _ferramentaAtiva.ToString()); // <-- ADICIONAR ESTA LINHA
+            SincronizarPreviaVetorizacaoCliente();
             SolicitarNovoFrame();
 
             // JAVASCRIPT REMOVIDO: O C# agora assume o controlo absoluto!
@@ -4036,11 +4461,14 @@
     public void Dispose()
     {
         _renderDisposed = true;
+        MapService.ClientRenderedDigitizingPreview = false;
         if (_server != null) _server.OnOnlineFrameReady -= AtualizarImagemOnline;
         foreach (var raster in CamadasAtivas.Where(c => c.Tipo == "Raster"))
             GeoNex.Services.RasterOverviewBuilder.Cancel(raster.CaminhoArquivo);
         ocultarResumoVetorCts?.Cancel();
         ocultarResumoVetorCts = null;
+        notificacaoSalvamentoCts?.Cancel();
+        notificacaoSalvamentoCts = null;
         objRef?.Dispose();
         _server?.Stop();
 
@@ -4048,10 +4476,18 @@
 
     // =========================================================================
     // 6. PIPELINE DE COMUNICAÇÃO DO MOTOR GRÁFICO (STREAMING BINÁRIO NATIVO)
-    private void SolicitarNovoFrame(bool interacaoRapida = false, long requisicaoCamera = 0)
+    private long SolicitarNovoFrame(
+        bool interacaoRapida = false,
+        long requisicaoCamera = 0,
+        bool limparPreviaVetorizacaoAoApresentar = false)
     {
-        if (_server == null) return;
+        if (_server == null) return 0;
         long frameId = System.Threading.Interlocked.Increment(ref _sequenciaFrame);
+        if (limparPreviaVetorizacaoAoApresentar)
+        {
+            _digitizingPreviewClearAfterFrameId = frameId;
+            _digitizingPreviewClearRevision = _digitizingPreviewRevision;
+        }
         // O C# não precisa de enviar fases de animação. O URL regressa à sua forma pura e leve.
         int frameWidth = _larguraTela, frameHeight = _alturaTela;
         float frameDpi = _dpiTela;
@@ -4059,12 +4495,15 @@
         var camera = new MapCameraState(MapService.CameraPanX, MapService.CameraPanY, MapService.CameraZoom);
         string cameraQuery = FormattableString.Invariant($"&panx={camera.PanX:R}&pany={camera.PanY:R}&zoom={camera.Zoom:R}");
         string url = $"{_server.BaseUrl}mapa/?w={frameWidth}&h={frameHeight}&dpi={dpi}&nav=1&i={(interacaoRapida ? 1 : 0)}&fid={frameId}&t={DateTime.Now.Ticks}{cameraQuery}";
+        object digitizingMatrix = MatrizPreviaVetorizacaoCliente();
 
         // Pede ao JS para trocar a imagem sem o Blazor piscar a tela
         InvokeAsync(() => JSRuntime.InvokeVoidAsync(
             "mapEngine.carregarNovoFrame", url, frameId, requisicaoCamera, _server.IsTelemetryEnabled,
             NavigationFramePolicy.Padding(frameWidth, frameHeight, frameDpi), frameWidth, frameHeight,
-            camera.PanX, camera.PanY, camera.Zoom));
+            camera.PanX, camera.PanY, camera.Zoom, false, digitizingMatrix,
+            _digitizingPreviewClearAfterFrameId, _digitizingPreviewClearRevision));
+        return frameId;
     }
 
     private bool _renderDisposed;
@@ -4580,9 +5019,9 @@
             long serial = await JSRuntime.InvokeAsync<long>("mapEngine.sincronizarCameraComBlazor",
                 camera.PanX, camera.PanY, camera.Zoom);
             _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
-            MapService.CameraPanX = (float)camera.PanX;
-            MapService.CameraPanY = (float)camera.PanY;
-            MapService.CameraZoom = (float)camera.Zoom;
+            MapService.CameraPanX = camera.PanX;
+            MapService.CameraPanY = camera.PanY;
+            MapService.CameraZoom = camera.Zoom;
             MapService.IsPanning = false;
 
             MapService.RequestRedraw();
@@ -4818,123 +5257,6 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task ConfirmarTodasEdicoes()
-    {
-        if (!temEdicoesPendentes) return;
-
-        try
-        {
-            // 1. Inicia o motor GDAL/OGR (Comunicação com o Disco Rígido)
-            OSGeo.OGR.Ogr.RegisterAll();
-            int totalGravados = 0;
-
-            // 2. Percorre as camadas vetoriais ativas no GeoNex
-            foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor"))
-            {
-                // Verifica se temos polígonos na Memória RAM para esta camada
-                if (MapService.FeicoesOriginais.TryGetValue(camada.Nome, out var colecaoRAM))
-                {
-                    // Tenta abrir o arquivo físico (Shapefile) no modo UPDATE (1)
-                    using var ds = OSGeo.OGR.Ogr.Open(camada.CaminhoArquivo, 1);
-                    if (ds == null) continue; // Pula ficheiros que não existam ou estejam bloqueados
-
-                    var layerOGR = ds.GetLayerByIndex(0);
-                    if (layerOGR == null) continue;
-
-                    // Inicia a transação segura (Se a luz cair, o ficheiro não corrompe)
-                    layerOGR.StartTransaction();
-
-                    // 3. Lê os lotes que desenhámos e injeta-os no ficheiro
-                    for (int i = 0; i < colecaoRAM.Count; i++)
-                    {
-                        var feicaoRAM = colecaoRAM[i];
-
-                        // SISTEMA ANTI-DUPLICAÇÃO: Se já foi gravado num "Save" anterior, ignora!
-                        if (feicaoRAM.Attributes != null && feicaoRAM.Attributes.Exists("_SYS_GRAVADO") && feicaoRAM.Attributes["_SYS_GRAVADO"].ToString() == "SIM")
-                        {
-                            continue;
-                        }
-
-                        // Traduz a Matemática Visual (NetTopologySuite -> WKT Texto -> OGR C++)
-                        string wkt = feicaoRAM.Geometry.ToText();
-                        using var geomOGR = OSGeo.OGR.Geometry.CreateFromWkt(wkt);
-
-                        // Prepara a "linha do Excel" (Feature) na Tabela de Atributos do Shapefile
-                        using var featureDefn = layerOGR.GetLayerDefn();
-                        using var novaFeicaoOGR = new OSGeo.OGR.Feature(featureDefn);
-
-                        novaFeicaoOGR.SetGeometry(geomOGR);
-
-                        // ==========================================================
-                        // >>> GEOPROCESSAMENTO AO VIVO (Cálculo de Área) <<<
-                        // ==========================================================
-                        // ==========================================================
-                        // >>> GEOPROCESSAMENTO AO VIVO (Área, Comprimento, Coords)
-                        // ==========================================================
-                        if (feicaoRAM.Geometry is NetTopologySuite.Geometries.Polygon || feicaoRAM.Geometry is NetTopologySuite.Geometries.MultiPolygon)
-                        {
-                            int idxArea = featureDefn.GetFieldIndex("AREA_M2");
-                            if (idxArea >= 0) novaFeicaoOGR.SetField(idxArea, feicaoRAM.Geometry.Area);
-                        }
-                        else if (feicaoRAM.Geometry is NetTopologySuite.Geometries.LineString || feicaoRAM.Geometry is NetTopologySuite.Geometries.MultiLineString)
-                        {
-                            // Para linhas, grava a extensão topográfica linear
-                            int idxComp = featureDefn.GetFieldIndex("COMPRIM_M");
-                            if (idxComp >= 0) novaFeicaoOGR.SetField(idxComp, feicaoRAM.Geometry.Length);
-                        }
-                        else if (feicaoRAM.Geometry is NetTopologySuite.Geometries.Point pontoNts)
-                        {
-                            // Para pontos, grava as ordenadas nativas absolutas
-                            int idxX = featureDefn.GetFieldIndex("COORD_X");
-                            int idxY = featureDefn.GetFieldIndex("COORD_Y");
-                            if (idxX >= 0) novaFeicaoOGR.SetField(idxX, pontoNts.X);
-                            if (idxY >= 0) novaFeicaoOGR.SetField(idxY, pontoNts.Y);
-                        }
-
-                        // Preenche a data de aquisição automaticamente
-                        int idxData = featureDefn.GetFieldIndex("DATA_CRIAC");
-                        if (idxData >= 0) novaFeicaoOGR.SetField(idxData, DateTime.Now.ToString("dd/MM/yyyy"));
-
-                        // 4. Grava fisicamente na base de dados!
-                        layerOGR.CreateFeature(novaFeicaoOGR);
-
-                        // Marca na Memória RAM que este lote já está a salvo
-                        if (feicaoRAM.Attributes != null)
-                        {
-                            if (!feicaoRAM.Attributes.Exists("_SYS_GRAVADO"))
-                                feicaoRAM.Attributes.Add("_SYS_GRAVADO", "SIM");
-                            else
-                                feicaoRAM.Attributes["_SYS_GRAVADO"] = "SIM";
-                        }
-
-                        totalGravados++;
-                    }
-
-                    // Sela a transação e força o HD/SSD a salvar os bytes
-                    layerOGR.CommitTransaction();
-                    layerOGR.SyncToDisk();
-                }
-            }
-
-            // Desliga a luz amarela do botão de "Salvar"
-            temEdicoesPendentes = false;
-            if (modoEdicaoVerticeLigado) await AlternarEdicaoVertices();
-            StateHasChanged();
-
-            if (totalGravados > 0)
-            {
-                await JSRuntime.InvokeVoidAsync("alert", $"TRANSAÇÃO CONCLUÍDA!\n\n{totalGravados} geometria(s) injetada(s) com sucesso na Base de Dados e na Tabela DBF.");
-            }
-            else
-            {
-                await JSRuntime.InvokeVoidAsync("console.log", "Nenhuma edição nova pendente para gravação.");
-            }
-        }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"Falha crítica de Input/Output (Disco):\n{ex.Message}");
-        }
-    }
 
     // =========================================================================
     // 13. CADERNETA DE CAMPO DIGITAL (AZIMUTES E GEOPROCESSAMENTO)
@@ -5156,12 +5478,11 @@
         if (solicitarFrame) SolicitarNovoFrame();
     }
     [JSInvokable]
-    public async Task ProcessarCliqueRaycast(double telaX, double telaY)
+    public async Task ProcessarCliqueRaycast(double telaX, double telaY, double[]? displayedMatrix = null)
     {
-        var matriz = ObterMatrizMatematica();
-        if (matriz.TryInvert(out var matrizInversa))
+        var matriz = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
+        if (TentarMapearPontoTelaParaLocal(telaX, telaY, displayedMatrix, matriz, out var ptMundo))
         {
-            var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)telaX, (float)telaY));
             double xMundo = ptMundo.X + MapService.OffsetMundoX;
             double yMundo = (-ptMundo.Y) + MapService.OffsetMundoY;
 
@@ -5206,15 +5527,23 @@
                 case ModoFerramenta.AquisicaoPonto:
                 case ModoFerramenta.AquisicaoLinha:
                 case ModoFerramenta.AquisicaoPoligono:
-                    if (string.IsNullOrEmpty(_camadaDestinoAquisicao) || _camadaDestinoAquisicao == "NOVA")
+                    if (string.IsNullOrEmpty(_camadaDestinoAquisicao))
                     {
                         JSRuntime.InvokeVoidAsync("alert", "⚠️ SELECIONE UM DESTINO!\n\nPor favor, selecione uma camada no menu superior ou conclua a criação do Novo Ficheiro antes de vetorizar.");
                         return; // Aborta o clique imediatamente! A linha não é desenhada.
                     }
 
-                    var ptFinalAq = ResolverCursorFerramenta(ptMundo, matriz).Position;
-                    if (CliqueFechaPoligono(new SkiaSharp.SKPoint((float)telaX, (float)telaY), matriz))
+                    bool usarCoordenadaAbsoluta = _coordenadaAbsolutaTravada &&
+                        MapService.PontoRestricaoAbsoluta is SkiaSharp.SKPoint;
+                    var ptFinalAq = usarCoordenadaAbsoluta
+                        ? MapService.PontoRestricaoAbsoluta!.Value
+                        : ResolverCursorFerramenta(ptMundo, matriz).Position;
+                    var posicaoFechamento = usarCoordenadaAbsoluta
+                        ? MapearPontoLocalParaTela(ptFinalAq, displayedMatrix, matriz)
+                        : new SkiaSharp.SKPoint((float)telaX, (float)telaY);
+                    if (CliqueFechaPoligono(posicaoFechamento, matriz, displayedMatrix))
                     {
+                        if (usarCoordenadaAbsoluta) DestravarCoordenadaAbsoluta(solicitarRedesenho: false);
                         ConcluirAquisicaoGeometrica();
                         return;
                     }
@@ -5235,6 +5564,11 @@
 
                     // 3. INJETA O VÉRTICE BLINDADO NA MEMÓRIA
                     if (!AdicionarControleAquisicao(ptFinalAq)) return;
+                    if (usarCoordenadaAbsoluta)
+                    {
+                        DestravarCoordenadaAbsoluta(solicitarRedesenho: false);
+                        _focoMapaPendente = true;
+                    }
                     RecalcularMetricasAquisicao(true);
                     mensagemVetorizacao = "";
                     if (_ferramentaAtiva == ModoFerramenta.AquisicaoPonto)
@@ -5242,7 +5576,7 @@
                         ConcluirAquisicaoGeometrica();
                         return; // Aborta o resto, o modal já vai abrir!
                     }
-                    SolicitarNovoFrame();
+                    if (usarCoordenadaAbsoluta || !PreviaVetorizacaoClienteAtiva) SolicitarNovoFrame();
                     break;
             }
             await InvokeAsync(StateHasChanged);
@@ -5429,6 +5763,13 @@
                     return;
                 }
 
+                if (tecla == "escape" && _coordenadaAbsolutaTravada)
+                {
+                    DestravarCoordenadaAbsoluta();
+                    mensagemVetorizacao = "Posição liberada.";
+                    StateHasChanged();
+                    return;
+                }
                 if (tecla == "escape") { CancelarAquisicao(); return; }
                 if (tecla == "ctrl+y" || tecla == "ctrl+shift+z") { RefazerUltimoPontoAquisicao(); return; }
                 if (tecla == "z" || tecla == "ctrl+z" || tecla == "backspace") { DesfazerUltimoPontoAquisicao(); return; }
@@ -5477,11 +5818,9 @@
         _medicaoAreaErro = null;
         _medicaoAzimuteGraus = null;
 
-        // Limpa o rastro animado do JS (se houver)
-        _ = JSRuntime.InvokeVoidAsync("GeoNexGraphics.limparTudo");
-
-        // A CORREÇÃO: Força o C# a gerar a imagem limpa sem a régua!
-        SolicitarNovoFrame();
+        JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirCursorMedicaoAtivo", true);
+        JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirMouseESnap", null, null, null, null, null, 0);
+        _ = SincronizarOverlay(false);
 
         StateHasChanged();
     }
@@ -5562,6 +5901,15 @@
             if (matriz.TryInvert(out var matrizInversa))
             {
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)e.OffsetX, (float)e.OffsetY));
+
+                if (_coordenadaAbsolutaTravada && FerramentaDesenhoAtiva &&
+                    MapService.PontoRestricaoAbsoluta is { } absolutePoint)
+                {
+                    MapService.PontoCursorMundo = absolutePoint;
+                    MapService.PontoCursorSnap = null;
+                    MapService.PontoCursorSnapTipo = null;
+                    return;
+                }
 
                 // 1. A MATEMÁTICA DA RESTRIÇÃO DOMINA PRIMEIRO
                 // 1. A MATEMÁTICA DA RESTRIÇÃO DOMINA PRIMEIRO
@@ -5710,6 +6058,19 @@
             transferBytes);
     }
 
+    [JSInvokable]
+    public void ConfirmarPreviaVetorizacaoApresentada(long frameId, long revision)
+    {
+        if (_digitizingPreviewClearAfterFrameId <= 0 ||
+            frameId < _digitizingPreviewClearAfterFrameId ||
+            revision != _digitizingPreviewClearRevision)
+            return;
+
+        _digitizingPreviewClearAfterFrameId = 0;
+        _digitizingPreviewClearRevision = 0;
+        MapService.ClientRenderedDigitizingPreview = PreviaVetorizacaoClienteAtiva;
+    }
+
     private long _ultimaRequisicaoCamera;
 
     [JSInvokable]
@@ -5748,9 +6109,9 @@
             return;
 
         _ultimaRequisicaoCamera = requisicaoCamera;
-        MapService.CameraPanX = (float)novaCamera.PanX;
-        MapService.CameraPanY = (float)novaCamera.PanY;
-        MapService.CameraZoom = (float)novaCamera.Zoom;
+        MapService.CameraPanX = novaCamera.PanX;
+        MapService.CameraPanY = novaCamera.PanY;
+        MapService.CameraZoom = novaCamera.Zoom;
 
         _ = SincronizarOverlay(true); // Envia para a sala de espera antes da imagem carregar
         SolicitarNovoFrame(interacaoRapida, requisicaoCamera);
@@ -5770,6 +6131,16 @@
             if (matrizCompleta.TryInvert(out var matrizInversa))
             {
                 var ptMundo = matrizInversa.MapPoint(new SkiaSharp.SKPoint((float)pixelX, (float)pixelY));
+
+                if (_coordenadaAbsolutaTravada && FerramentaDesenhoAtiva &&
+                    MapService.PontoRestricaoAbsoluta is { } absolutePoint)
+                {
+                    MapService.PontoCursorMundo = absolutePoint;
+                    MapService.PontoCursorSnap = null;
+                    MapService.PontoCursorSnapTipo = null;
+                    return;
+                }
+
                 MapService.PontoCursorMundo = ptMundo;
 
                 // --- ISOLAMENTO MAGNÉTICO (Vértices e Arestas 100% Independentes) ---
@@ -6004,7 +6375,8 @@
     SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
     bool primeiro = true;
 
-    if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+    SkiaSharp.SKRect rasterBounds = MapService.LimitesRasterGlobal;
+    if (MapService.TemRaster && !rasterBounds.IsEmpty) { limitesTotais = rasterBounds; primeiro = false; }
     if (!MapService.LimitesGlobaisVetor.IsEmpty) {
         if (primeiro) limitesTotais = MapService.LimitesGlobaisVetor;
         else limitesTotais.Union(MapService.LimitesGlobaisVetor);
@@ -6027,13 +6399,13 @@
         _ultimaEscalaUI = escalaAutoFit; _ultimoMidXUI = midX; _ultimoMidYUI = midY;
     }
 
-    float zoomReal = escalaAutoFit * Math.Clamp(MapService.CameraZoom, 0.05f, 1_000_000f);
-    var centroAtual = MapCoordinateSpace.ApplyCssPanToLocalCenter(
-        new SkiaSharp.SKPoint(midX, midY),
+    float zoomReal = (float)(escalaAutoFit * Math.Clamp(MapService.CameraZoom, 0.05, 1_000_000));
+    var centroAtual = MapCoordinateSpace.ApplyCssPanToPreciseLocalCenter(
+        new MapLocalCoordinate(midX, midY),
         zoomReal,
         MapService.CameraPanX,
         MapService.CameraPanY);
-    return MapCoordinateFrame.Create(
+    return MapCoordinateFrame.CreatePrecise(
         ObterMetricasViewport(),
         centroAtual,
         zoomReal).LocalToCssMatrix;
@@ -6069,7 +6441,8 @@
         // Esta matriz ignora o CameraPan e Zoom. Representa a "folha de papel" no estado zero.
         SkiaSharp.SKRect limitesTotais = new SkiaSharp.SKRect();
         bool primeiro = true;
-        if (MapService.TemRaster) { limitesTotais = MapService.LimitesRasterGlobal; primeiro = false; }
+        SkiaSharp.SKRect rasterBounds = MapService.LimitesRasterGlobal;
+        if (MapService.TemRaster && !rasterBounds.IsEmpty) { limitesTotais = rasterBounds; primeiro = false; }
         if (!MapService.LimitesGlobaisVetor.IsEmpty) {
             if (primeiro) limitesTotais = MapService.LimitesGlobaisVetor;
             else limitesTotais.Union(MapService.LimitesGlobaisVetor);
@@ -6096,9 +6469,11 @@
         if (_geometriaDestacada != null && !_geometriaDestacada.IsEmpty)
             ExtrairAneisMultiplos(_geometriaDestacada, destaque);
 
+        var matrizMedicao = MatrizPreviaVetorizacaoCliente();
+        var matrizMedicaoFallback = ObterMatrizMatematica();
         var medicao = MapService.PontosMedicao.Select(p =>
         {
-            var pt = ObterMatrizBaseSemMover().MapPoint(p);
+            var pt = MapearPontoLocalParaTela(p, matrizMedicao, matrizMedicaoFallback);
             return (object)new { x = pt.X, y = pt.Y };
         }).ToList();
 
@@ -6195,6 +6570,9 @@
                     geometriaNts.EnvelopeInternal.MinX, geometriaNts.EnvelopeInternal.MaxX,
                     geometriaNts.EnvelopeInternal.MinY, geometriaNts.EnvelopeInternal.MaxY)
             };
+            novaFeicaoVisual.SetCentroidLocalPrecise(
+                geometriaNts.Centroid.X - MapService.OffsetMundoX,
+                MapService.OffsetMundoY - geometriaNts.Centroid.Y);
 
             if (!MapService.FeaturesPorCamada.TryGetValue(camadaAlvo, out var featList))
             {
@@ -6244,7 +6622,8 @@
         LimparMetricasAquisicao();
         mensagemVetorizacao = "";
 
-        SolicitarNovoFrame();
+        bool manterPreviaAteFrameFinal = PreviaVetorizacaoClienteAtiva;
+        SolicitarNovoFrame(limparPreviaVetorizacaoAoApresentar: manterPreviaAteFrameFinal);
         StateHasChanged();
     }
 
@@ -6255,7 +6634,8 @@
         LimparCursorDesenho();
         LimparMetricasAquisicao();
         mensagemVetorizacao = "";
-        SolicitarNovoFrame();
+        if (PreviaVetorizacaoClienteAtiva) SincronizarPreviaVetorizacaoCliente();
+        else SolicitarNovoFrame();
         StateHasChanged();
     }
 
@@ -6272,26 +6652,47 @@
                 _cogoDistancia ?? 0, _cogoAzimute.Value, MapService.ProjetoSRS);
             if (!AdicionarControleAquisicao(point)) return;
             RecalcularMetricasAquisicao(true);
-            SolicitarNovoFrame();
+            if (!PreviaVetorizacaoClienteAtiva) SolicitarNovoFrame();
             _focoCogoPendente = true;
         }
         catch (ArgumentException ex) { mensagemVetorizacao = ex.Message; }
         StateHasChanged();
     }
 
-    private void AplicarCoordenadaAbsoluta()
+    private void TravarCoordenadaAbsoluta()
     {
         if (_absolutoX is not { } x || _absolutoY is not { } y || !double.IsFinite(x) || !double.IsFinite(y))
         {
-            mensagemVetorizacao = "Informe X e Y válidos no SRC do projeto.";
+            mensagemVetorizacao = "Informe valores X e Y válidos.";
             return;
         }
-        var point = new SkiaSharp.SKPoint((float)(x - MapService.OffsetMundoX), (float)(MapService.OffsetMundoY - y));
-        if (!AdicionarControleAquisicao(point)) return;
-        RecalcularMetricasAquisicao(true);
-        SolicitarNovoFrame();
-        _focoCoordenadaPendente = true;
-        StateHasChanged();
+
+        string srsEntrada = ObterSrsEntradaAbsoluta();
+        try
+        {
+            string srsProjeto = string.IsNullOrWhiteSpace(MapService.ProjetoSRS)
+                ? "EPSG:4326"
+                : MapService.ProjetoSRS;
+            SkiaSharp.SKPoint point = GeoNex.Services.DigitizingCoordinateProjection.ToMapLocal(
+                x, y, srsEntrada, srsProjeto, MapService.OffsetMundoX, MapService.OffsetMundoY);
+            MapService.PontoRestricaoAbsoluta = point;
+            MapService.PontoCursorMundo = point;
+            MapService.PontoCursorSnap = null;
+            MapService.PontoCursorSnapTipo = null;
+            _ultimoSnapRenderizado = null;
+            _coordenadaAbsolutaTravada = true;
+            JSRuntime.InvokeVoidAsyncSafe(
+                "GeoNexGraphics.definirCoordenadaAbsolutaAquisicao", true, point.X, point.Y);
+            mensagemVetorizacao = "Posição fixada. Clique no mapa para inserir o vértice.";
+            SolicitarNovoFrame();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Falha ao transformar coordenada F6 de '{srsEntrada}' para '{MapService.ProjetoSRS}': {ex.Message}");
+            mensagemVetorizacao = "Não foi possível fixar esse ponto. Confira o SRC e os valores X/Y.";
+            return;
+        }
     }
     public double ConverterAzimuteParaGrausDecimais(string entrada)
     {
@@ -6323,7 +6724,13 @@
     [JSInvokable]
     public void AtualizarMemoriaHUD(string hudId, double novoX, double novoY)
     {
-        if (hudId == "hud-cogo")
+        if (hudId == "measurement-floating-panel")
+        {
+            _measurementPanelX = novoX;
+            _measurementPanelY = novoY;
+            _measurementPanelPositionInitialized = true;
+        }
+        else if (hudId == "hud-cogo")
         {
             _hudCogoX = novoX;
             _hudCogoY = novoY;

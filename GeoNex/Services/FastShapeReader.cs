@@ -70,7 +70,12 @@ namespace GeoNex.Services
             }
             
             // 2. Carrega o SHP via MemoryMappedFile
-            var shpMmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateFromFile(filePath, FileMode.Open, null, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
+            // The live map keeps this view open between frames. Share writes so GDAL can append
+            // newly digitized features to the same Shapefile on Windows while this read map lives.
+            var shpStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var shpMmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateFromFile(
+                shpStream, null, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read,
+                System.IO.HandleInheritability.None, leaveOpen: false);
             var shpAccessor = shpMmf.CreateViewAccessor(0, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
             byte* ptr = null;
             shpAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
@@ -174,7 +179,7 @@ namespace GeoNex.Services
                         double x = *(double*)(dataPtr + 4);
                         double y = *(double*)(dataPtr + 12);
                         feature.EnvelopeWorld.ExpandToInclude(x, y);
-                        feature.CentroidLocal = new SKPoint((float)(x - offsetX), -(float)(y - offsetY));
+                        feature.SetCentroidLocalPrecise(x - offsetX, offsetY - y);
                     }
                     else if (shapeType == 3 || shapeType == 13 || shapeType == 23) // PolyLine
                     {

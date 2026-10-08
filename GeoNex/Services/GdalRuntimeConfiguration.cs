@@ -42,6 +42,17 @@ public static class GdalRuntimeConfiguration
             // known siblings such as .ovr/.msk/.aux.xml. EMPTY_DIR hides them.
             Gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "TRUE");
             Gdal.SetConfigOption("GDAL_NUM_THREADS", Current.GdalThreads.ToString());
+            string? ecwCacheSetting = Environment.GetEnvironmentVariable("ECW_CACHE_MAXMEM");
+            if (!long.TryParse(ecwCacheSetting, out long ecwCacheBytes) || ecwCacheBytes <= 0)
+            {
+                long ecwCacheMb = Math.Max(64L, Math.Min(
+                    Current.TotalPhysicalMb / 4L,
+                    Current.AvailablePhysicalMb / 2L));
+                ecwCacheBytes = checked(ecwCacheMb * Mebibyte);
+                ecwCacheSetting = ecwCacheBytes.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                Environment.SetEnvironmentVariable("ECW_CACHE_MAXMEM", ecwCacheSetting, EnvironmentVariableTarget.Process);
+            }
+            Gdal.SetConfigOption("ECW_CACHE_MAXMEM", ecwCacheSetting);
             Gdal.SetConfigOption("VSI_CACHE", "TRUE");
             Gdal.SetConfigOption("VSI_CACHE_SIZE", checked(Current.VsiCacheMb * Mebibyte).ToString());
             Gdal.SetConfigOption("GDAL_SWATH_SIZE", checked(Current.GdalSwathMb * Mebibyte).ToString());
@@ -64,7 +75,8 @@ public static class GdalRuntimeConfiguration
                 $"GDAL budget total_mb={Current.TotalPhysicalMb} available_mb={Current.AvailablePhysicalMb} " +
                 $"cache_mb={Current.GdalCacheMb} vsi_mb={Current.VsiCacheMb} swath_mb={Current.GdalSwathMb} " +
                 $"warp_mb={Current.GdalWarpMb} " +
-                $"threads={Current.GdalThreads} dataset_pool={Current.GdalDatasetPoolSize} " +
+                $"threads={Current.GdalThreads} ecw_cache_mb={ecwCacheBytes / Mebibyte} " +
+                $"dataset_pool={Current.GdalDatasetPoolSize} " +
                 $"basemap_cache_mb={BasemapCache.MaximumSizeMb} basemap_cache={BasemapCache.Path}");
             return Current;
         }

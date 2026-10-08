@@ -142,6 +142,31 @@ public static class OnlineRasterFrameReader
         catch { output.Dispose(); throw; }
     }
 
+    internal static bool CanUseCompleteTileMosaic(string xml, string targetSrs,
+        SKRect localBounds, double offsetX, double offsetY, int requestedWidth, int requestedHeight,
+        int mosaicWidth, int mosaicHeight)
+    {
+        if (mosaicWidth != requestedWidth || mosaicHeight != requestedHeight ||
+            !SrsFactory.IsSame(targetSrs, OnlineBasemapPolicy.WebMercatorSrs)) return false;
+        try
+        {
+            var config = XDocument.Parse(xml);
+            if (!string.Equals(config.Root?.Element("Service")?.Attribute("name")?.Value,
+                    "TMS", StringComparison.OrdinalIgnoreCase)) return false;
+            using var source = OpenSource(xml);
+            if (source.RasterCount != 3 || !SrsFactory.IsSame(source.GetProjection(), targetSrs)) return false;
+            double[] geo = new double[6];
+            source.GetGeoTransform(geo);
+            if (!RasterGeometry.IsAxisAligned(geo) || geo[1] <= 0 || geo[5] >= 0) return false;
+
+            double left = localBounds.Left + offsetX, right = localBounds.Right + offsetX;
+            double top = offsetY - localBounds.Top, bottom = offsetY - localBounds.Bottom;
+            return left >= geo[0] && right <= geo[0] + source.RasterXSize * geo[1] &&
+                top <= geo[3] && bottom >= geo[3] + source.RasterYSize * geo[5];
+        }
+        catch { return false; }
+    }
+
     private static SKBitmap ReadPixels(Dataset source, int x, int y, int w, int h, int width, int height, CancellationToken token,
         double? sourceY = null, double sourceHeight = 0, double sourceX = 0, double sourceWidth = 0)
     {
@@ -151,7 +176,8 @@ public static class OnlineRasterFrameReader
         try
         {
             bitmap.Erase(SKColors.Black); // RGB tiles retain opaque alpha; RGBA overwrites it.
-            int bands = Math.Min(source.RasterCount, 4);
+            int[] bandMap = RasterDatasetPolicy.GetRgbaBandMap(source);
+            int bands = bandMap.Length;
             if (bands < 3) throw new InvalidDataException("Online imagery must provide RGB/RGBA bands.");
             using var extra = new RasterIOExtraArg { eResampleAlg = RIOResampleAlg.GRIORA_Bilinear };
             if (sourceY.HasValue)
@@ -162,7 +188,7 @@ public static class OnlineRasterFrameReader
             }
             token.ThrowIfCancellationRequested();
             CPLErr result = source.ReadRaster(x, y, w, h, bitmap.GetPixels(), width, height, DataType.GDT_Byte,
-                bands, Enumerable.Range(1, bands).ToArray(), 4, bitmap.RowBytes, 1, extra);
+                bands, bandMap, 4, bitmap.RowBytes, 1, extra);
             if (result != CPLErr.CE_None) throw new IOException($"Online RasterIO failed: {Gdal.GetLastErrorMsg()}");
             token.ThrowIfCancellationRequested();
             return bitmap;

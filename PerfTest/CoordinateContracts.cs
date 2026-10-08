@@ -10,10 +10,11 @@ internal static class CoordinateContracts
     {
         VerifyViewportMetrics();
         VerifyWorldLocalRoundTrip();
+        VerifyUtmAbsoluteCoordinateReprojection();
         VerifyMatrixRoundTripsAndDpiInvariantViewport();
         VerifyScreenAlignedPan();
         VerifyCursorAnchor();
-        Console.WriteLine("Coordinate contracts: PASS (world/local/CSS/physical, DPI, rotation, cursor anchor)");
+        Console.WriteLine("Coordinate contracts: PASS (CRS input, world/local/CSS/physical, DPI, rotation, cursor anchor)");
     }
 
     private static void VerifyViewportMetrics()
@@ -44,6 +45,34 @@ internal static class CoordinateContracts
         AssertNear(restored.X, world.X, 0.0001, "world/local X round-trip");
         AssertNear(restored.Y, world.Y, 0.0001, "world/local Y round-trip");
         Assert(local.Y > 0, "local Y axis is screen-oriented");
+    }
+
+    private static void VerifyUtmAbsoluteCoordinateReprojection()
+    {
+        // Regression: meter-valued UTM coordinates must not be consumed as
+        // EPSG:3857 merely because that is the current project CRS.
+        const double utmX = 725_590.82;
+        const double utmY = 7_136_808.03;
+        const double originX = -5_400_000;
+        const double originY = -3_000_000;
+        SKPoint local = DigitizingCoordinateProjection.ToMapLocal(
+            utmX, utmY, "EPSG:31982", "EPSG:3857", originX, originY);
+        MapWorldCoordinate projectCoordinate = MapCoordinateSpace.LocalToWorld(local, originX, originY);
+
+        Assert(double.IsFinite(projectCoordinate.X) && double.IsFinite(projectCoordinate.Y),
+            "UTM input reprojection produces finite project coordinates");
+        Assert(projectCoordinate.X is > -6_000_000 and < -5_000_000 &&
+            projectCoordinate.Y is > -4_000_000 and < -2_000_000,
+            "UTM 22S Guaratuba point lands in Web Mercator near Brazil");
+
+        SKPoint restoredLocal = MapCoordinateSpace.WorldToLocal(
+            projectCoordinate.X, projectCoordinate.Y, originX, originY);
+        MapWorldCoordinate restoredProject = MapCoordinateSpace.LocalToWorld(restoredLocal, originX, originY);
+        SKPoint restoredUtm = DigitizingCoordinateProjection.ToMapLocal(
+            restoredProject.X, restoredProject.Y, "EPSG:3857", "EPSG:31982", 0, 0);
+
+        AssertNear(restoredUtm.X, utmX, 0.05, "project/local round-trip preserves UTM X");
+        AssertNear(-restoredUtm.Y, utmY, 0.05, "project/local round-trip preserves UTM Y");
     }
 
     private static void VerifyMatrixRoundTripsAndDpiInvariantViewport()

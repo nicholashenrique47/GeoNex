@@ -11,21 +11,22 @@ namespace GeoNex.Services
 {
     public readonly record struct RasterCacheMetadata(
         string CacheKey,
-        float PanX,
-        float PanY,
+        double PanX,
+        double PanY,
         float Zoom,
-        MapCoordinateFrame? Frame = null);
+        MapCoordinateFrame? Frame = null,
+        SKRect? RasterDestination = null);
 
     public readonly record struct GlobalCacheMetadata(
-        float Zoom,
-        float PanX,
-        float PanY,
+        double Zoom,
+        double PanX,
+        double PanY,
         int CssWidth,
         int CssHeight,
         int PhysicalWidth,
         int PhysicalHeight,
         MapCoordinateFrame Frame = default,
-        float CameraZoom = 1)
+        double CameraZoom = 1)
     {
         public bool Matches(MapViewportMetrics viewport) =>
             CssWidth == viewport.CssWidth &&
@@ -107,19 +108,19 @@ namespace GeoNex.Services
             => SharedRenderPaths.Invalidate(_renderPathOwner);
 
         // Separate names preserve reflection consumers of the original methods.
-        public bool TryGetPreciseRenderPath(SKRect viewport, SKPoint origin, float zoom, bool interactive,
+        public bool TryGetPreciseRenderPath(SKRect viewport, MapLocalCoordinate origin, float zoom, bool interactive,
             out SKPath? path, bool compact = false)
             => SharedRenderPaths.TryGet(_renderPathOwner, viewport, zoom, interactive, compact, out path, origin);
 
-        public void StorePreciseRenderPath(SKPath path, SKRect coverage, SKPoint origin, float zoom,
+        public void StorePreciseRenderPath(SKPath path, SKRect coverage, MapLocalCoordinate origin, float zoom,
             bool interactive, bool compact, bool scaleIndependent)
             => SharedRenderPaths.Store(_renderPathOwner, path, coverage, zoom, interactive, compact, scaleIndependent, origin);
 
-        public bool TryGetProjectedRenderPath(SKRect viewport, SKPoint cameraOrigin, float zoom,
+        public bool TryGetProjectedRenderPath(SKRect viewport, MapLocalCoordinate cameraOrigin, float zoom,
             double baseX, double baseY, out SKPath? path, CancellationToken token)
             => SharedRenderPaths.TryGetProjected(_renderPathOwner, viewport, cameraOrigin, zoom, baseX, baseY, out path, token);
 
-        public void StoreProjectedRenderPath(SKPath path, SKRect coverage, SKPoint origin, float zoom,
+        public void StoreProjectedRenderPath(SKPath path, SKRect coverage, MapLocalCoordinate origin, float zoom,
             ProjectedPathGeometry? projected)
             => SharedRenderPaths.Store(_renderPathOwner, path, coverage, zoom, false, false, true, origin, projected);
 
@@ -209,9 +210,9 @@ namespace GeoNex.Services
         public bool TravaDistanciaAtiva { get; set; } = false;
         public double TravaDistanciaValor { get; set; } = 50;
         public bool TravaModoFixo { get; set; } = true;
-        public float CameraZoom { get; set; } = 1.0f;
-        public float CameraPanX { get; set; } = 0f;
-        public float CameraPanY { get; set; } = 0f;
+        public double CameraZoom { get; set; } = 1.0;
+        public double CameraPanX { get; set; } = 0.0;
+        public double CameraPanY { get; set; } = 0.0;
         
         // Dados do Viewport atual (alimentados pelo LocalMapServer)
         public float ViewportEscalaAutoFit { get; set; } = 1f;
@@ -255,9 +256,12 @@ namespace GeoNex.Services
         public List<string> OrdemCamadas { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosAquisicao { get; set; } = new();
+        public volatile bool ClientRenderedDigitizingPreview;
+        public volatile bool ClientRenderedMeasurementPreview;
         public SkiaSharp.SKPoint? PontoCursorSnap { get; set; }
         public SnapKind? PontoCursorSnapTipo { get; set; }
         public SkiaSharp.SKPoint? PontoCursorMundo { get; set; }
+        public SkiaSharp.SKPoint? PontoRestricaoAbsoluta { get; set; }
         public bool MostrarAreaMedicao { get; set; } = false; 
         
         private STRtree<SkiaSharp.SKPath> _indiceEspacialEstatico = new STRtree<SkiaSharp.SKPath>();
@@ -518,7 +522,8 @@ namespace GeoNex.Services
                 foreach (var kvp in LimitesRasters)
                 {
                     // Ignora mapas base do cálculo do Bounding Box, para que o Auto-Fit respeite os arquivos locais!
-                    if (kvp.Key.Contains("Satellite", StringComparison.OrdinalIgnoreCase) || 
+                    if (IsOnlineRaster(kvp.Key) ||
+                        kvp.Key.Contains("Satellite", StringComparison.OrdinalIgnoreCase) || 
                         kvp.Key.Contains("Satelite", StringComparison.OrdinalIgnoreCase) || 
                         kvp.Key.Contains("Satélite", StringComparison.OrdinalIgnoreCase) || 
                         kvp.Key.Contains("OpenStreetMap", StringComparison.OrdinalIgnoreCase)) continue;
@@ -527,13 +532,17 @@ namespace GeoNex.Services
                     else union.Union(kvp.Value);
                 }
                 
-                // Se só tem mapas base, retorna o mundo inteiro
-                if (first && LimitesRasters.Count > 0)
+                // Só usa a extensão mundial dos basemaps quando eles são a única
+                // referência da cena. Com vetores carregados, seus limites estão
+                // em Web Mercator e não podem ser misturados aos limites locais
+                // do projeto (que podem estar em UTM, graus ou outro SRC).
+                if (first && LimitesRasters.Count > 0 && FeaturesPorCamada.Count == 0)
                 {
-                    return LimitesRasters.First().Value;
+                    foreach (var raster in LimitesRasters.Values)
+                        if (!raster.IsEmpty) return raster;
                 }
 
-                return union;
+                return first ? SkiaSharp.SKRect.Empty : union;
             }
         }
         
@@ -689,9 +698,9 @@ namespace GeoNex.Services
             Dataset source,
             SKBitmap bitmap,
             string cacheKey,
-            float panX,
-            float panY,
-            float zoom, MapCoordinateFrame? frame = null)
+            double panX,
+            double panY,
+            float zoom, MapCoordinateFrame? frame = null, SKRect? rasterDestination = null)
         {
             lock (_rasterResourceGate)
             {
@@ -702,7 +711,7 @@ namespace GeoNex.Services
                     return false;
                 }
                 _rasterCacheResources.Publish(layerName, bitmap);
-                _rasterCacheMetadata[layerName] = new RasterCacheMetadata(cacheKey, panX, panY, zoom, frame);
+                _rasterCacheMetadata[layerName] = new RasterCacheMetadata(cacheKey, panX, panY, zoom, frame, rasterDestination);
                 return true;
             }
         }
@@ -748,18 +757,18 @@ namespace GeoNex.Services
 
         public void PublishGlobalCache(
             SKBitmap bitmap,
-            float zoom,
-            float panX,
-            float panY,
-            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, float cameraZoom)
+            double zoom,
+            double panX,
+            double panY,
+            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, double cameraZoom)
             => PublishSceneImage(bitmap, zoom, panX, panY, viewport, frame, sceneRevision, cameraZoom, true);
 
-        public void PublishGlobalPreviewCache(SKBitmap bitmap, float zoom, float panX, float panY,
-            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, float cameraZoom)
+        public void PublishGlobalPreviewCache(SKBitmap bitmap, double zoom, double panX, double panY,
+            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, double cameraZoom)
             => PublishSceneImage(bitmap, zoom, panX, panY, viewport, frame, sceneRevision, cameraZoom, false);
 
-        private void PublishSceneImage(SKBitmap bitmap, float zoom, float panX, float panY,
-            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, float cameraZoom, bool final)
+        private void PublishSceneImage(SKBitmap bitmap, double zoom, double panX, double panY,
+            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, double cameraZoom, bool final)
         {
             lock (_rasterResourceGate)
             {

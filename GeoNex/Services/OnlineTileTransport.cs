@@ -13,6 +13,10 @@ public sealed class OnlineTileTransport : IDisposable
 {
     private const int MaximumTileBytes = 2 * 1024 * 1024;
     private const int MaximumSources = 16;
+    private const int MaximumValidatedTiles = 4096;
+    private const long MaximumValidatedTileBytes = 32L * 1024 * 1024;
+    private readonly record struct CachedTile(byte[] Bytes, long LastWriteUtcTicks,
+        string ContentType, long LastAccess);
     private sealed record Tile(int Status, byte[] Bytes, string ContentType);
     private sealed class Source : IDisposable
     {
@@ -31,13 +35,16 @@ public sealed class OnlineTileTransport : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly Dictionary<string, Source> _sources = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _xml = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CachedTile> _validatedTiles = new(StringComparer.Ordinal);
     private readonly string _prefix;
     private bool _disposed;
     private long _downloads, _merged, _hits, _failures;
+    private long _validationSkips, _validatedTileBytes, _validatedTileClock;
     public long Downloads => Interlocked.Read(ref _downloads);
     public long MergedRequests => Interlocked.Read(ref _merged);
     public long CacheHits => Interlocked.Read(ref _hits);
     public long Failures => Interlocked.Read(ref _failures);
+    public long ValidationSkips => Interlocked.Read(ref _validationSkips);
 
     public OnlineTileTransport()
     {
@@ -185,7 +192,9 @@ public sealed class OnlineTileTransport : IDisposable
         catch (Exception error)
         {
             Interlocked.Increment(ref _failures);
-            DebugLogger.Log($"Tile transport: {error.GetType().Name}: {error.Message}");
+            Exception cause = error.GetBaseException();
+            DebugLogger.Log($"Tile transport: {error.GetType().Name}: {error.Message}" +
+                (ReferenceEquals(cause, error) ? string.Empty : $" (cause {cause.GetType().Name}: {cause.Message})"));
             ready.TrySetResult(new Tile(502, Array.Empty<byte>(), "text/plain"));
         }
         finally { lock (_gate) source.Flights.Remove(url); }
@@ -196,13 +205,21 @@ public sealed class OnlineTileTransport : IDisposable
         string hash = Hash(url), path = source.CachePath;
         for (int i = 0; i < source.Depth; i++) path = Path.Combine(path, hash[i].ToString());
         path = Path.Combine(path, hash);
+        if (TryGetValidatedTile(path, source.Expiry, out Tile? validated))
+        {
+            Interlocked.Increment(ref _hits);
+            Interlocked.Increment(ref _validationSkips);
+            return validated;
+        }
         try
         {
             var info = new FileInfo(path);
             if (info.Exists && info.Length <= MaximumTileBytes && DateTime.UtcNow - info.LastWriteTimeUtc < TimeSpan.FromSeconds(source.Expiry))
             {
                 byte[] cached = await File.ReadAllBytesAsync(path, _stop.Token).ConfigureAwait(false);
-                if (ContentType(cached) is string type)
+                string? type = ContentType(cached);
+                if (type != null) RememberValidatedTile(path, info, cached, type);
+                if (type != null)
                 { Interlocked.Increment(ref _hits); return new Tile(200, cached, type); }
             }
         }
@@ -236,14 +253,56 @@ public sealed class OnlineTileTransport : IDisposable
             double ttl = Math.Min(source.Expiry, lifetime - age);
             if (control?.NoStore != true && control?.NoCache != true && ttl > 0)
             {
-                await Save(source, path, bytes, ttl).ConfigureAwait(false);
+                if (await Save(source, path, bytes, ttl).ConfigureAwait(false))
+                    RememberValidatedTile(path, new FileInfo(path), bytes, type);
             }
             return new Tile(200, bytes, type);
         }
         finally { source.Slots.Release(); }
     }
 
-    private async Task Save(Source source, string path, byte[] bytes, double ttl)
+    private bool TryGetValidatedTile(string path, int expirySeconds, out Tile? tile)
+    {
+        lock (_gate)
+        {
+            if (_validatedTiles.TryGetValue(path, out var cached))
+            {
+                if (DateTime.UtcNow.Ticks - cached.LastWriteUtcTicks < TimeSpan.FromSeconds(expirySeconds).Ticks)
+                {
+                    _validatedTiles[path] = cached with { LastAccess = ++_validatedTileClock };
+                    tile = new Tile(200, cached.Bytes, cached.ContentType);
+                    return true;
+                }
+                _validatedTiles.Remove(path);
+                _validatedTileBytes -= cached.Bytes.LongLength;
+            }
+        }
+        tile = null;
+        return false;
+    }
+
+    private void RememberValidatedTile(string path, FileInfo info, byte[] bytes, string contentType)
+    {
+        info.Refresh();
+        if (!info.Exists || info.Length != bytes.LongLength || bytes.LongLength > MaximumValidatedTileBytes) return;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            if (_validatedTiles.Remove(path, out var replaced)) _validatedTileBytes -= replaced.Bytes.LongLength;
+            while (_validatedTiles.Count >= MaximumValidatedTiles ||
+                   _validatedTileBytes + bytes.LongLength > MaximumValidatedTileBytes)
+            {
+                string oldestPath = _validatedTiles.MinBy(pair => pair.Value.LastAccess).Key;
+                _validatedTileBytes -= _validatedTiles[oldestPath].Bytes.LongLength;
+                _validatedTiles.Remove(oldestPath);
+            }
+            _validatedTiles[path] = new CachedTile(bytes, info.LastWriteTimeUtc.Ticks,
+                contentType, ++_validatedTileClock);
+            _validatedTileBytes += bytes.LongLength;
+        }
+    }
+
+    private async Task<bool> Save(Source source, string path, byte[] bytes, double ttl)
     {
         string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -255,9 +314,10 @@ public sealed class OnlineTileTransport : IDisposable
             File.Move(temporary, path, overwrite: true);
             Interlocked.Add(ref source.WrittenBytes, bytes.Length);
             ScheduleTrim(source, force: false);
+            return true;
         }
-        catch (IOException error) { DebugLogger.Log("Tile cache write: " + error.Message); }
-        catch (UnauthorizedAccessException error) { DebugLogger.Log("Tile cache write: " + error.Message); }
+        catch (IOException error) { DebugLogger.Log("Tile cache write: " + error.Message); return false; }
+        catch (UnauthorizedAccessException error) { DebugLogger.Log("Tile cache write: " + error.Message); return false; }
         finally { if (File.Exists(temporary)) { try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { } } }
     }
 
@@ -288,6 +348,7 @@ public sealed class OnlineTileTransport : IDisposable
     }
 
     private static string Hash(string value) => Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
     private static string? ContentType(byte[] bytes)
     {
         using var data = SKData.CreateCopy(bytes);
@@ -304,5 +365,6 @@ public sealed class OnlineTileTransport : IDisposable
         lock (_gate) { if (_disposed) return; _disposed = true; }
         _stop.Cancel(); _listener.Close();
         foreach (var source in _sources.Values) source.Dispose();
+        lock (_gate) { _validatedTiles.Clear(); _validatedTileBytes = 0; }
     }
 }

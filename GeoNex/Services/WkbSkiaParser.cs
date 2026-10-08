@@ -62,7 +62,15 @@ namespace GeoNex.Services
         public GeometryKind Kind;
         public SKPath? Path;
         public long DataOffset; // Offset de 64 bits: SHP pode ultrapassar o limite de 2 GB
-        public SKPoint CentroidLocal;
+        private MapLocalCoordinate _centroidLocalPrecise;
+        public SKPoint CentroidLocal
+        {
+            get => new((float)_centroidLocalPrecise.X, (float)_centroidLocalPrecise.Y);
+            set => _centroidLocalPrecise = new MapLocalCoordinate(value.X, value.Y);
+        }
+        public MapLocalCoordinate CentroidLocalPrecise => _centroidLocalPrecise;
+        public void SetCentroidLocalPrecise(double x, double y) =>
+            _centroidLocalPrecise = new MapLocalCoordinate(x, y);
         public FeatureEnvelope EnvelopeWorld;
         public string? CategoryValue; // Opcional, apenas quando Symbology ativa
         public string LayerName = ""; // Referência à camada para lazy loading
@@ -940,7 +948,7 @@ namespace GeoNex.Services
             if (hasM) current += 8;
 
             feature.EnvelopeWorld.ExpandToInclude(x, y);
-            feature.CentroidLocal = new SKPoint((float)(x - offsetX), -(float)(y - offsetY));
+            feature.SetCentroidLocalPrecise(x - offsetX, offsetY - y);
         }
 
         private static void ParseLineString(ref byte* current, double offsetX, double offsetY, SKPath path, ref FeatureEnvelope env, bool hasZ, bool hasM)

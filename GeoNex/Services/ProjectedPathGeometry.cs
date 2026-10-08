@@ -18,7 +18,7 @@ public sealed class ProjectedPathGeometry
     public double BaseX { get; }
     public double BaseY { get; }
 
-    public SKPath CreatePath(SKPoint origin, SKPathFillType fillType, CancellationToken token)
+    public SKPath CreatePath(MapLocalCoordinate origin, SKPathFillType fillType, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         var path = new SKPath { FillType = fillType };
@@ -26,7 +26,7 @@ public sealed class ProjectedPathGeometry
         try
         {
             points = ArrayPool<SKPoint>.Shared.Rent(_maximumRing);
-            double ox = BaseX + (double)origin.X, oy = BaseY - (double)origin.Y;
+            double ox = BaseX + origin.X, oy = BaseY - origin.Y;
             foreach (var ring in _rings)
             {
                 token.ThrowIfCancellationRequested();

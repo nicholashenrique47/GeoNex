@@ -22,9 +22,13 @@ internal static class ExactPalettePngContracts
                 canvas.Clear(SKColors.Transparent);
                 for (int i = 0; i < colors; i++)
                 {
-                    paint.Color = new SKColor((byte)(i * 37), (byte)(i * 73), (byte)(i * 13), (byte)i);
                     int top = i * info.Height / colors, bottom = (i + 1) * info.Height / colors;
-                    canvas.DrawRect(0, top, info.Width, bottom - top, paint);
+                    for (int x = 0; x < info.Width; x += 64)
+                    {
+                        int color = (i + x / 64) % colors;
+                        paint.Color = new SKColor((byte)(color * 37), (byte)(color * 73), (byte)(color * 13), (byte)color);
+                        canvas.DrawRect(x, top, 64, bottom - top, paint);
+                    }
                 }
             }
             using var pixels = bitmap.PeekPixels();
@@ -34,6 +38,13 @@ internal static class ExactPalettePngContracts
             using var native = pixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 1));
             using var a = SKBitmap.Decode(native); using var b = SKBitmap.Decode(encoded);
             Require(a.Bytes.SequenceEqual(b.Bytes), $"Palette changed decoded RGBA: {format}, padded={padded}, colors={colors}");
+            // Three MiB permits row streaming but cannot retain this frame's
+            // indexes. Both resource policies must preserve identical pixels.
+            using var streamed = ExactPalettePngEncoder.TryEncode(pixels, 3L * 1024 * 1024, default)
+                ?? throw new InvalidOperationException("Bounded scanline path was rejected");
+            ValidatePng(streamed.ToArray(), info.Width, info.Height);
+            using var c = SKBitmap.Decode(streamed);
+            Require(a.Bytes.SequenceEqual(c.Bytes), "Staging budget changed decoded RGBA");
             foreach (long lowBudget in new[] { -1L, 0, 1, 2L * 1024 * 1024 })
                 using (var ignored = ExactPalettePngEncoder.TryEncode(pixels, lowBudget, default))
                     Require(ignored == null, "Low-memory frame attempted palette encoding");
@@ -47,7 +58,10 @@ internal static class ExactPalettePngContracts
         using var image = SKImage.FromBitmap(excess);
         using var fallback = MapFrameEncoding.EncodeNavigationPng(image, 1, default);
         using var original = MapFrameEncoding.EncodePng(image, 1);
-        Require(fallback.ToArray().SequenceEqual(original.ToArray()), "Too many colors changed fallback encoder");
+        using var fallbackPixels = SKBitmap.Decode(fallback);
+        using var originalPixels = SKBitmap.Decode(original);
+        Require(fallback.ToArray()[25] != 3 && fallbackPixels.Bytes.SequenceEqual(originalPixels.Bytes),
+            "Too many colors were quantized or changed by native PNG fallback");
         var checker = MemoryMarshal.Cast<byte, uint>(excess.GetPixelSpan());
         for (int i = 0; i < checker.Length; i++) checker[i] = (i & 1) == 0 ? 0xff000000u : 0xffffffffu;
         using (var dense = ExactPalettePngEncoder.TryEncode(excessPixels, Budget, default))
@@ -72,7 +86,7 @@ internal static class ExactPalettePngContracts
         using (var ignored = ExactPalettePngEncoder.TryEncode(pixels, Budget, default))
             Require(ignored == null, "Small frame entered palette encoder");
         CheckOutputBudget();
-        Console.WriteLine("Exact palette PNG: PASS (16 exact frames, 1/2/255/256 colors, RGBA/BGRA/padding/alpha 0..255, independent CRC/zlib/index validation, late 257th color, CPU/RAM guards, fallback, cancellation)");
+        Console.WriteLine("Exact palette PNG: PASS (32 exact staged/streamed frames, 1/2/255/256 colors, RGBA/BGRA/padding/alpha 0..255, independent CRC/zlib/index validation, late 257th color, CPU/RAM guards, fallback, cancellation)");
     }
 
     private static void CheckOutputBudget()

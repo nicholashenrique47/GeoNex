@@ -13,7 +13,7 @@ public sealed class EncodedFrameCache : IDisposable
     private readonly object _gate = new();
     private readonly LeasedResourceRegistry<byte, SKData> _data = new();
     private sealed record Key(int Width, int Height, SKColorType Color, SKAlphaType Alpha,
-        int Compression, bool Palette, string Digest);
+        int Compression, bool Palette, bool Opaque, string Digest);
     private Key? _key;
     private string? _payloadId;
     private long _bytes, _hits, _encodes;
@@ -92,7 +92,7 @@ public sealed class EncodedFrameCache : IDisposable
         string digest = PixelDigest(pixels, VectorRuntimeResources.Current.Workers, token,
             Environment.GetEnvironmentVariable("GEONEX_PARALLEL_FRAME_HASH") != "0");
         return new Key(image.Width, image.Height, pixels.ColorType, pixels.AlphaType, compression,
-            compression == 1 && MapFrameEncoding.PaletteEnabled, digest);
+            compression == 1 && MapFrameEncoding.PaletteEnabled, MapFrameEncoding.OpaquePngEnabled, digest);
     }
 
     // Fixed row groups make the digest independent of worker count and row padding.

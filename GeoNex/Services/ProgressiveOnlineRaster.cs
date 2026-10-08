@@ -18,6 +18,7 @@ public sealed class ProgressiveOnlineRaster : IDisposable
     public long TileDownloads => _transport.IsValueCreated ? _transport.Value.Downloads : 0;
     public long SharedTileRequests => _transport.IsValueCreated ? _transport.Value.MergedRequests : 0;
     public long TileCacheHits => _transport.IsValueCreated ? _transport.Value.CacheHits : 0;
+    public long TileCacheValidationSkips => _transport.IsValueCreated ? _transport.Value.ValidationSkips : 0;
 
     public SKBitmap Read(OnlineRasterSession finalSession, string xml, string srs, SKRect bounds,
         double offsetX, double offsetY, int width, int height, CancellationToken token,
@@ -32,8 +33,6 @@ public sealed class ProgressiveOnlineRaster : IDisposable
             config = XDocument.Parse(xml);
         }
         bool sharedTransport = config.Root?.Element("GeoNexTileTransport")?.Value == "shared";
-        if ((!sharedTransport && config.Root?.Element("Cache") == null) || (long)width * height <= RegionSize * RegionSize)
-            return finalSession.Read(xml, srs, bounds, offsetX, offsetY, width, height, token);
         int connections = int.TryParse(config.Root?.Element("MaxConnections")?.Value, out int count) ? count : 2;
         var available = GdalRuntimeConfiguration.Apply().AvailablePhysicalMb;
         int laneCount = Math.Clamp(connections, 1, available < 2048 ? 2 : _lanes.Length);
@@ -44,6 +43,9 @@ public sealed class ProgressiveOnlineRaster : IDisposable
         var readSize = SrsFactory.IsSame(OnlineBasemapPolicy.WebMercatorSrs, srs)
             ? OnlineBasemapPolicy.CalculateDirectRenderDimensions(width, height, available)
             : OnlineBasemapPolicy.CalculateRenderDimensions(width, height, available, false);
+        if ((!sharedTransport && config.Root?.Element("Cache") == null) ||
+            (long)readSize.Width * readSize.Height <= RegionSize * RegionSize)
+            return finalSession.Read(xml, srs, bounds, offsetX, offsetY, width, height, token);
         // Preserve physical pixels on HiDPI displays. The transient-memory budget
         // covers the mutable surface plus published copies instead of imposing a
         // fixed 4MP ceiling that blurred even machines with ample available RAM.
@@ -55,7 +57,11 @@ public sealed class ProgressiveOnlineRaster : IDisposable
         canvas.ResetMatrix();
         var regions = new ConcurrentQueue<SKRectI>(Regions(readSize.Width, readSize.Height));
         var errors = new ConcurrentQueue<Exception>();
+        bool measureReadMetrics = Environment.GetEnvironmentVariable("GEONEX_RENDER_METRICS") == "1";
+        var readDurations = measureReadMetrics ? new ConcurrentBag<double>() : null;
         var composition = new object();
+        long totalReadTicks = 0, maximumReadTicks = 0;
+        int readCount = 0;
         long lastUpdate = 0;
         bool first = true;
         bool dirty = false;
@@ -75,8 +81,19 @@ public sealed class ProgressiveOnlineRaster : IDisposable
                     var patchBounds = new SKRect(0, 0,
                         (float)(bounds.Width * (region.Width / (double)readSize.Width)),
                         (float)(bounds.Height * (region.Height / (double)readSize.Height)));
+                    long readStarted = measureReadMetrics ? Stopwatch.GetTimestamp() : 0;
                     using var patch = _lanes[lane].Read(laneXml, srs, patchBounds,
                         offsetX + x, offsetY - y, region.Width, region.Height, token);
+                    if (measureReadMetrics)
+                    {
+                        long readTicks = Stopwatch.GetTimestamp() - readStarted;
+                        Interlocked.Add(ref totalReadTicks, readTicks);
+                        Interlocked.Increment(ref readCount);
+                        readDurations!.Add(readTicks * 1000d / Stopwatch.Frequency);
+                        long currentMaximum;
+                        while (readTicks > (currentMaximum = Volatile.Read(ref maximumReadTicks)) &&
+                            Interlocked.CompareExchange(ref maximumReadTicks, readTicks, currentMaximum) != currentMaximum) { }
+                    }
                     lock (composition)
                     {
                         token.ThrowIfCancellationRequested();
@@ -102,6 +119,13 @@ public sealed class ProgressiveOnlineRaster : IDisposable
             }
         })).ToArray();
         Task.WaitAll(workers); // Only the background online worker waits; never the scene/UI gate.
+        if (readDurations is { IsEmpty: false })
+        {
+            double[] durations = readDurations.Order().ToArray();
+            double Percentile(double p) => durations[Math.Clamp((int)Math.Ceiling(p * durations.Length) - 1, 0, durations.Length - 1)];
+            Console.WriteLine(FormattableString.Invariant(
+                $"[GEONEX RASTER TILES] regions={readCount} workers={laneCount} read_sum_ms={totalReadTicks * 1000d / Stopwatch.Frequency:F3} read_p50_ms={Percentile(.50):F3} read_p95_ms={Percentile(.95):F3} read_max_ms={maximumReadTicks * 1000d / Stopwatch.Frequency:F3} wall_ms={clock.Elapsed.TotalMilliseconds:F3}"));
+        }
         token.ThrowIfCancellationRequested();
         if (dirty)
         {
@@ -111,6 +135,16 @@ public sealed class ProgressiveOnlineRaster : IDisposable
         if (!errors.IsEmpty)
         {
             throw new IOException("Incomplete online imagery; retaining available regions.", errors.First());
+        }
+        // A fully covered RGB TMS mosaic already consists of exact, one-to-one
+        // output patches. Re-reading the entire grid would repeat GDAL work and
+        // network-cache lookups without changing pixels; conservatively keep the
+        // canonical full-frame read for reprojection, alpha, clipping and downscaling.
+        if (OnlineRasterFrameReader.CanUseCompleteTileMosaic(xml, srs, bounds, offsetX, offsetY,
+                width, height, readSize.Width, readSize.Height) && size.Width == width && size.Height == height)
+        {
+            token.ThrowIfCancellationRequested();
+            return preview.Copy() ?? throw new IOException("Cannot allocate the completed tile mosaic.");
         }
         // One full-grid pass removes preview seams and preserves the existing Warp,
         // interpolation, fractional zoom and HiDPI contracts. Disk cache is shared by URL.

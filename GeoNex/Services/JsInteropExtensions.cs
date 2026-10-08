@@ -10,7 +10,7 @@ namespace GeoNex.Services // Ajuste o namespace se necessário
         /// Executa uma chamada JSInterop em background (Fire-and-Forget) capturando e logando falhas,
         /// sem bloquear a Thread de UI do Blazor.
         /// </summary>
-        public static void InvokeVoidAsyncSafe(this IJSRuntime jsRuntime, string identifier, params object[] args)
+        public static void InvokeVoidAsyncSafe(this IJSRuntime jsRuntime, string identifier, params object?[] args)
         {
             _ = jsRuntime.InvokeVoidAsync(identifier, args).AsTask().ContinueWith(t =>
             {

@@ -4,7 +4,7 @@ namespace GeoNex.Services;
 
 // Exact physical camera only; never resample this final-quality layer image.
 internal readonly record struct PolygonImageContext(object Source, long Revision,
-    SKRect Viewport, SKPoint Origin, string Crs, double OffsetX, double OffsetY);
+    SKRect Viewport, MapLocalCoordinate Origin, string Crs, double OffsetX, double OffsetY);
 
 internal sealed class PolygonImageCache : IDisposable
 {
