@@ -1,0 +1,107 @@
+name: Windows build and release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install MAUI Windows workload
+        run: dotnet workload install maui-windows
+
+      - name: Publish self-contained Windows x64 app
+        run: >-
+          dotnet publish GeoNex/GeoNex.csproj
+          -f net10.0-windows10.0.19041.0
+          -c Release
+          -p:RuntimeIdentifierOverride=win-x64
+          -p:WindowsPackageType=None
+          -p:WindowsAppSDKSelfContained=true
+          --self-contained true
+          -p:GeoNexBuildNative=true
+          -o artifacts/GeoNex-win-x64
+
+      - name: Create ZIP and SHA-256 checksum
+        id: package
+        shell: pwsh
+        run: |
+          $publishDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts\GeoNex-win-x64'
+          foreach ($requiredFile in @('GeoNex.exe', 'GeoNexNative.dll', 'GeoNex.Core.dll')) {
+            if (-not (Test-Path (Join-Path $publishDirectory $requiredFile))) {
+              throw "Publish output is missing required file: $requiredFile"
+            }
+          }
+
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $assetName = "GeoNex-$env:GITHUB_REF_NAME-win-x64"
+          } else {
+            $assetName = 'GeoNex-win-x64'
+          }
+
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE "artifacts\$assetName.zip"
+          $checksumPath = Join-Path $env:GITHUB_WORKSPACE "artifacts\$assetName.sha256"
+          Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $zipPath -CompressionLevel Optimal -Force
+          $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $([System.IO.Path]::GetFileName($zipPath))" | Set-Content -LiteralPath $checksumPath -Encoding ascii
+          "asset_name=$assetName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: geonex-windows-x64
+          path: |
+            artifacts/${{ steps.package.outputs.asset_name }}.zip
+            artifacts/${{ steps.package.outputs.asset_name }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: geonex-windows-x64
+          path: artifacts
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_NAME: ${{ needs.build.outputs.asset_name }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              "artifacts/$ASSET_NAME.zip" \
+              "artifacts/$ASSET_NAME.sha256" \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "artifacts/$ASSET_NAME.zip" \
+              "artifacts/$ASSET_NAME.sha256" \
+              --title "GeoNex $GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag \
+              --repo "$GITHUB_REPOSITORY"
+          fi
