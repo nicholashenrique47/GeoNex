@@ -69,6 +69,23 @@ public static class OnlineBasemapPolicy
         return false;
     }
 
+    public static bool TryGetKeyForLayerName(string? layerName, out string key)
+    {
+        if (!string.IsNullOrWhiteSpace(layerName))
+        {
+            foreach (var definition in Definitions.Values)
+            {
+                if (!string.Equals(definition.LayerName, layerName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                key = definition.Key;
+                return true;
+            }
+        }
+
+        key = string.Empty;
+        return false;
+    }
+
     public static OnlineBasemapCacheSettings CreateCacheSettings(
         int availablePhysicalMb,
         Func<string, string?>? readEnvironment = null,

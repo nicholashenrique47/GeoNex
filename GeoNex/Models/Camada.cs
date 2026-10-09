@@ -11,6 +11,8 @@ public class Camada
     public bool Visivel { get; set; } = true;
     public int Ordem { get; set; } // Z-Index (quem fica por cima no mapa)
     public string? CaminhoFonteOriginal { get; set; }
+    public string? FonteJson { get; set; }
+    public string? EstiloJson { get; set; }
 
     // Chave Estrangeira: A qual projeto esta camada pertence?
     public Guid ProjetoId { get; set; }

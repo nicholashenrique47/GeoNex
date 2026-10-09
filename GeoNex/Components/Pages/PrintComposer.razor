@@ -5,6 +5,7 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JSRuntime
 @inject GeoNex.Services.MapRenderingService MapService
+@inject GeoNex.Services.ProjetoService ProjetoService
 
 <div class="composer-overlay @(_exportando || _importando ? "is-exporting" : "")" aria-busy="@(_exportando || _importando)">
         <!-- BARRA SUPERIOR -->
@@ -656,6 +657,10 @@
     /* Removed IsVisible and OnClose parameters as this is now a standalone page */
 
     private bool _isInitialized = false;
+    private bool _layoutInicializado;
+    private bool _disposed;
+    private CancellationTokenSource? _layoutPersistCts;
+    private readonly SemaphoreSlim _layoutPersistGate = new(1, 1);
     private DotNetObjectReference<PrintComposer> _objRef;
 
     // Propriedades da Página
@@ -908,13 +913,15 @@
     public Task OnItemPasted() => JSRuntime.InvokeVoidAsync("composerPasteItem").AsTask();
 
     [JSInvokable]
-    public void OnLayoutChanged(List<ComposerItemModel> items, string? selectedId, bool canUndo, bool canRedo)
+    public Task OnLayoutChanged(List<ComposerItemModel> items, string? selectedId, bool canUndo, bool canRedo)
     {
         if (selectedId != null && selectedId != _itemSelecionado?.Id) { _activePanel = "item"; _panelOpen = true; }
         _itensDoCompositor = items.ToDictionary(i => i.Id);
         _itemSelecionado = selectedId != null && _itensDoCompositor.TryGetValue(selectedId, out var item) ? item : null;
         _canUndo = canUndo; _canRedo = canRedo;
+        ProgramarPersistenciaLayout();
         StateHasChanged();
+        return Task.CompletedTask;
     }
 
     protected override void OnInitialized()
@@ -925,9 +932,22 @@
 
     public async ValueTask DisposeAsync()
     {
-        try { if (_isInitialized) await JSRuntime.InvokeVoidAsync("composerDispose"); }
+        _disposed = true;
+        _layoutPersistCts?.Cancel();
+        try
+        {
+            if (_isInitialized)
+            {
+                if (_layoutInicializado)
+                {
+                    try { await PersistirLayoutAtualAsync(); }
+                    catch (Exception ex) { Console.Error.WriteLine($"Não foi possível salvar o layout ao fechar: {ex.Message}"); }
+                }
+                await JSRuntime.InvokeVoidAsync("composerDispose");
+            }
+        }
         catch (JSDisconnectedException) { }
-        finally { _objRef?.Dispose(); }
+        finally { _layoutPersistCts?.Dispose(); _objRef?.Dispose(); }
     }
 
     /* Removed Fechar() since we use OS window close */
@@ -941,6 +961,22 @@
             await JSRuntime.InvokeVoidAsync("import", "./js/composer_document.js");
             await JSRuntime.InvokeVoidAsync("import", "./js/composer_exchange.js");
             _isInitialized = true;
+
+            if (!string.IsNullOrWhiteSpace(ProjetoService.LayoutJsonEmMemoria))
+            {
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("composerValidateLayout", ProjetoService.LayoutJsonEmMemoria);
+                    bool imported = await JSRuntime.InvokeAsync<bool>("composerImportLayout", ProjetoService.LayoutJsonEmMemoria);
+                    _mensagem = imported ? "Layout do projeto carregado." : "O layout salvo não foi aplicado.";
+                    _layoutInicializado = imported;
+                }
+                catch (Exception ex) when (ex is JSException or InvalidOperationException)
+                {
+                    _mensagem = $"O layout salvo não pôde ser aberto: {ex.Message.Split('\n')[0]}";
+                }
+            }
+            else _layoutInicializado = true;
         }
         if (_pageChanged)
         {
@@ -1271,8 +1307,69 @@
     }
     private async Task SalvarLayout()
     {
-        try { await JSRuntime.InvokeVoidAsync("composerSaveLayout"); _mensagem = "Layout enviado para salvamento; os dados geográficos permanecem no projeto."; }
-        catch (JSException e) { _mensagem = e.Message.Split('\n')[0]; }
+        try
+        {
+            await PersistirLayoutAtualAsync();
+            await JSRuntime.InvokeVoidAsync("composerSaveLayout");
+            _mensagem = ProjetoService.TemProjetoAberto
+                ? "Layout salvo dentro do projeto e exportado como JSON."
+                : "Layout exportado como JSON. Abra um projeto para salvá-lo dentro do .gnx.";
+        }
+        catch (Exception e) when (e is JSException or InvalidOperationException or System.IO.IOException)
+        { _mensagem = e.Message.Split('\n')[0]; }
+    }
+
+    private async Task PersistirLayoutAtualAsync(CancellationToken cancellationToken = default)
+    {
+        await _layoutPersistGate.WaitAsync(cancellationToken);
+        try
+        {
+            string json = await JSRuntime.InvokeAsync<string>("composerSerializeLayout", cancellationToken);
+            await JSRuntime.InvokeVoidAsync("composerValidateLayout", json);
+            if (string.Equals(json, ProjetoService.LayoutJsonEmMemoria, StringComparison.Ordinal))
+            {
+                _layoutInicializado = true;
+                return;
+            }
+            ProjetoService.AtualizarLayoutEmMemoria(json);
+            if (ProjetoService.TemProjetoAberto)
+                await ProjetoService.SalvarLayoutNoProjetoAsync(json);
+            _layoutInicializado = true;
+        }
+        finally { _layoutPersistGate.Release(); }
+    }
+
+    private void ProgramarPersistenciaLayout()
+    {
+        if (!_isInitialized || !_layoutInicializado || _disposed) return;
+        var atual = new CancellationTokenSource();
+        var anterior = Interlocked.Exchange(ref _layoutPersistCts, atual);
+        anterior?.Cancel();
+        _ = PersistirLayoutComDebounceAsync(atual);
+    }
+
+    private async Task PersistirLayoutComDebounceAsync(CancellationTokenSource cts)
+    {
+        try
+        {
+            await Task.Delay(700, cts.Token);
+            if (_disposed || !_isInitialized) return;
+            await PersistirLayoutAtualAsync(cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            if (!_disposed)
+            {
+                _mensagem = $"O layout ainda não foi salvo no projeto: {ex.Message.Split('\n')[0]}";
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _layoutPersistCts, null, cts), cts))
+                cts.Dispose();
+        }
     }
     private async Task AbrirLayout(InputFileChangeEventArgs e)
     {
@@ -1299,7 +1396,13 @@
                 warning = result.Warning + " Use Arquivo > Salvar modelo HTML para reutilizar.";
             }
             else throw new InvalidOperationException("Formato não suportado.");
-            _mensagem = await JSRuntime.InvokeAsync<bool>("composerImportLayout", json) ? warning : "Importação cancelada. Composição preservada.";
+            bool imported = await JSRuntime.InvokeAsync<bool>("composerImportLayout", json);
+            if (imported)
+            {
+                await PersistirLayoutAtualAsync();
+                _mensagem = warning;
+            }
+            else _mensagem = "Importação cancelada. Composição preservada.";
         }
         catch (Exception error) when (error is JSException or System.IO.IOException or InvalidOperationException or ArgumentException or System.Runtime.InteropServices.COMException)
         { _mensagem = $"Não foi possível abrir: {error.Message.Split('\n')[0]}"; }

@@ -189,12 +189,18 @@ public partial class Home
         string layerKey = PostgisLayerKey(table);
         string layerName = $"{table.Schema}.{table.Table} · {table.GeometryColumn}";
         bool firstVectorLayer = !CamadasAtivas.Any(layer => layer.Tipo == "Vetor");
-        if (CamadasAtivas.Any(layer => string.Equals(layer.Nome, layerName, StringComparison.OrdinalIgnoreCase)))
+        Camada? offlinePlaceholder = CamadasAtivas.FirstOrDefault(layer =>
+            string.Equals(layer.Nome, layerName, StringComparison.OrdinalIgnoreCase));
+        if (offlinePlaceholder is not null && !offlinePlaceholder.PendenteReconexao)
         {
             _postgisMensagem = $"A camada {layerName} já está no mapa.";
             _postgisStatusErro = false;
             return;
         }
+        int placeholderIndex = offlinePlaceholder is null ? -1 : CamadasAtivas.IndexOf(offlinePlaceholder);
+        EstiloCamada? estiloOffline = null;
+        if (offlinePlaceholder is not null && MapService.EstilosPorCamada.TryGetValue(layerName, out var estiloSalvo))
+            estiloOffline = estiloSalvo;
 
         _postgisCamadaCarregando = layerKey;
         _postgisStatusErro = false;
@@ -226,26 +232,32 @@ public partial class Home
             {
                 Nome = layerName,
                 Tipo = "Vetor",
-                Visivel = true,
+                Visivel = offlinePlaceholder?.Visivel ?? true,
                 Geometria = table.GeometryType.Contains("POINT", StringComparison.OrdinalIgnoreCase) ? "PONTO"
                     : table.GeometryType.Contains("LINE", StringComparison.OrdinalIgnoreCase) ? "LINHA"
                     : "POLIGONO",
-                FontePostgis = new PostgisLayerSource(ClonarConexao(_postgisConnection), table)
+                FontePostgis = new PostgisLayerSource(ClonarConexao(_postgisConnection), table),
+                FonteJson = offlinePlaceholder?.FonteJson
             };
-            if (!RegistrarNovaCamada(camada, inserirNoInicio: true))
-                throw new InvalidOperationException($"A camada {layerName} já está no mapa.");
-            layerRegistered = true;
-
-            MapService.EstilosPorCamada[layerName] = new EstiloCamada
+            if (offlinePlaceholder is not null && placeholderIndex >= 0)
             {
-                CorPreenchimento = "#10b981",
-                CorBorda = "#047857",
-                Tamanho = 2,
-                TipoSimbologia = "UNICA",
-                Opacidade = 0.5f
+                CamadasAtivas[placeholderIndex] = camada;
+                layerRegistered = true;
+            }
+            else if (!RegistrarNovaCamada(camada, inserirNoInicio: true))
+                throw new InvalidOperationException($"A camada {layerName} já está no mapa.");
+            else layerRegistered = true;
+
+            MapService.EstilosPorCamada[layerName] = estiloOffline ?? new EstiloCamada
+            {
+                CorPreenchimento = "#10b981", CorBorda = "#047857", Tamanho = 2,
+                TipoSimbologia = "UNICA", Opacidade = 0.5f
             };
             if (!MapService.OrdemCamadas.Contains(layerName, StringComparer.Ordinal))
                 MapService.OrdemCamadas.Insert(0, layerName);
+            if (camada.Visivel) MapService.CamadasInvisiveis.Remove(layerName);
+            else MapService.CamadasInvisiveis.Add(layerName);
+            SincronizarHierarquia(solicitarFrame: false);
             renderFeatures = loaded.Features.ToList();
             MapService.PreCompilarPoligonos(layerName, renderFeatures);
             _camadaDestinoAquisicao = layerName;
@@ -257,7 +269,11 @@ public partial class Home
         catch (Exception ex)
         {
             if (layerRegistered)
+            {
                 CamadasAtivas.RemoveAll(layer => string.Equals(layer.Nome, layerName, StringComparison.Ordinal));
+                if (offlinePlaceholder is not null)
+                    CamadasAtivas.Insert(Math.Clamp(placeholderIndex, 0, CamadasAtivas.Count), offlinePlaceholder);
+            }
             MapService.RemoveVectorResources(layerName);
             bool disposedPublishedFeatures = false;
             if (MapService.FeaturesPorCamada.Remove(layerName, out List<CompiledFeature>? publishedFeatures))
@@ -274,7 +290,10 @@ public partial class Home
             MapService.PontosPorCamada.Remove(layerName);
             MapService.VetoresCategorizados.Remove(layerName);
             MapService.LinhasCategorizadas.Remove(layerName);
-            MapService.EstilosPorCamada.TryRemove(layerName, out _);
+            if (offlinePlaceholder is not null && estiloOffline is not null)
+                MapService.EstilosPorCamada[layerName] = estiloOffline;
+            else
+                MapService.EstilosPorCamada.TryRemove(layerName, out _);
             MapService.OrdemCamadas.RemoveAll(name => string.Equals(name, layerName, StringComparison.Ordinal));
             _postgisStatusErro = true;
             _postgisMensagem = MensagemPostgisSegura(ex);

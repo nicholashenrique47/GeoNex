@@ -1,6 +1,7 @@
 using GeoNex.Data;
 using GeoNex.Models;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using OSGeo.OGR;
 using NetTopologySuite.Features;
 using NetTopologySuite.IO;
@@ -13,7 +14,10 @@ public class ProjetoService
     // Guarda o projeto que está aberto na tela no momento
     public Projeto? ProjetoAtual { get; private set; }
 
-    private GeoNexContext? _bancoDeDados;
+    private string? _layoutJsonEmMemoria;
+    public string? LayoutJsonEmMemoria => _layoutJsonEmMemoria;
+
+    public bool TemProjetoAberto => ProjetoAtual is not null;
 
     private static void ReprojetarMetadadosEmLotes(
         List<CompiledFeature> features,
@@ -72,45 +76,69 @@ public class ProjetoService
     /// <summary>
     /// Cria um novo arquivo .gnx físico no computador e injeta as tabelas básicas.
     /// </summary>
-    public async Task<bool> CriarNovoProjetoAsync(string caminhoCompleto, string nomeProjeto)
+    public async Task<Projeto> CriarNovoProjetoAsync(string caminhoCompleto, string nomeProjeto)
     {
-        try
-        {
-            // 1. Aponta o motor para o caminho que o usuário escolheu (Ex: C:\Mapas\Guaratuba.gnx)
-            _bancoDeDados = new GeoNexContext(caminhoCompleto);
-
-            // 2. A mágica acontece aqui: Cria o arquivo físico e todas as tabelas!
-            await _bancoDeDados.Database.EnsureCreatedAsync();
-
-            // 3. Cria o registro inicial do projeto
-            var novoProjeto = new Projeto
-            {
-                Nome = nomeProjeto,
-                CaminhoArquivo = caminhoCompleto
-            };
-
-            _bancoDeDados.Projetos.Add(novoProjeto);
-            await _bancoDeDados.SaveChangesAsync();
-
-            // 4. Define este como o projeto ativo do sistema
-            ProjetoAtual = novoProjeto;
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            // Em um software real, aqui gravaríamos um log de erro
-            Console.WriteLine($"Erro ao criar projeto: {ex.Message}");
-            return false;
-        }
+        return await GnxProjectStore.CriarAsync(caminhoCompleto, nomeProjeto);
     }
+
+    public async Task<Projeto> CarregarProjetoAsync(string caminhoCompleto)
+    {
+        return await GnxProjectStore.AbrirAsync(caminhoCompleto);
+    }
+
+    public void AtivarProjeto(Projeto projeto)
+    {
+        ProjetoAtual = projeto ?? throw new ArgumentNullException(nameof(projeto));
+        _layoutJsonEmMemoria = projeto.LayoutJson;
+    }
+
+    public void FecharProjeto()
+    {
+        ProjetoAtual = null;
+        _layoutJsonEmMemoria = null;
+    }
+
+    public void AtualizarLayoutEmMemoria(string? layoutJson)
+    {
+        if (layoutJson is not null && System.Text.Encoding.UTF8.GetByteCount(layoutJson) > 20_000_000)
+            throw new InvalidDataException("O layout excede o limite de 20 MB.");
+        _layoutJsonEmMemoria = layoutJson;
+    }
+
+    public async Task SalvarProjetoAsync(
+        IEnumerable<CamadaProjetoSnapshot> camadas,
+        string crsProjeto,
+        string? camadaBase,
+        double offsetMundoX,
+        double offsetMundoY,
+        bool offsetMundoDefinido,
+        double cameraPanX,
+        double cameraPanY,
+        double cameraZoom)
+    {
+        Projeto projetoAtual = ProjetoAtual ?? throw new InvalidOperationException("Crie ou abra um projeto antes de salvar.");
+        await GnxProjectStore.SalvarAsync(
+            projetoAtual, camadas, crsProjeto, camadaBase,
+            offsetMundoX, offsetMundoY, offsetMundoDefinido,
+            cameraPanX, cameraPanY, cameraZoom, _layoutJsonEmMemoria);
+    }
+
+    public async Task SalvarLayoutNoProjetoAsync(string layoutJson)
+    {
+        Projeto projetoAtual = ProjetoAtual ?? throw new InvalidOperationException("Abra um projeto antes de salvar o layout.");
+        await GnxProjectStore.SalvarLayoutAsync(projetoAtual, layoutJson);
+        _layoutJsonEmMemoria = layoutJson;
+    }
+
+    public static string ResolverCaminhoFonte(string caminhoProjeto, string? caminhoFonte)
+        => GnxProjectStore.ResolverCaminhoFonte(caminhoProjeto, caminhoFonte);
 
     /// <summary>
     /// Retorna o nome do projeto atual para exibir na barra de status inferior
     /// </summary>
     public string ObterNomeProjetoAtivo()
     {
-        return ProjetoAtual != null ? ProjetoAtual.Nome : "Nenhum projeto aberto";
+        return ProjetoAtual?.Nome ?? "Nenhum projeto aberto";
     }
     public async Task<bool> ImportarCamadaVetorParaGnxAsync(string caminhoGnx, string caminhoShp)
     {

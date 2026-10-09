@@ -173,10 +173,10 @@
             <div class="dropdown @(_menuSuperiorAberto == "arquivo" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
                 <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "arquivo")" @onclick='() => AlternarMenuSuperior("arquivo")' @onclick:stopPropagation="true">Arquivo ▾</button>
                 <div class="dropdown-content">
-                    <button @onclick="CriarNovoProjeto">Novo Projeto</button>
-                    <button disabled title="Ainda não implementado">Abrir Projeto…</button>
+                    <button type="button" @onclick="CriarNovoProjeto">Novo Projeto</button>
+                    <button type="button" @onclick="AbrirProjeto">Abrir Projeto…</button>
                     <div class="drop-divider"></div>
-                    <button disabled title="Ainda não implementado">Salvar Projeto</button>
+                    <button type="button" @onclick="SalvarProjeto" disabled="@(!ProjetoService.TemProjetoAberto)" title="@(ProjetoService.TemProjetoAberto ? "Salvar camadas e SRC do projeto atual" : "Crie ou abra um projeto primeiro")">Salvar Projeto</button>
                 </div>
             </div>
             <div class="dropdown @(_menuSuperiorAberto == "dados" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
@@ -621,8 +621,12 @@
                             @(camadaAtual.Tipo == "Raster" ? "R" : "V")
                         </span>
                         <span class="layer-title no-select" title="@camadaAtual.Nome">@camadaAtual.Nome</span>
+                        @if (camadaAtual.PendenteReconexao)
+                        {
+                            <span class="type-tag" style="background:#78350f;color:#fde68a" title="A fonte está offline. Reabra a fonte ou reconecte o serviço.">OFFLINE</span>
+                        }
 
-                        @if (camadaAtual.Tipo == "Vetor")
+                        @if (camadaAtual.Tipo == "Vetor" && !camadaAtual.PendenteReconexao)
                         {
                             <div class="layer-actions" style="display: flex; gap: 5px; margin-left: auto;">
                                 <button type="button" class="layer-action-btn" title="Abrir Tabela de Atributos" @onclick="() => AbrirTabela(camadaAtual.Nome)" @onclick:stopPropagation="true">
@@ -853,7 +857,7 @@
     <!-- RODAPÉ DE TELEMETRIA -->
     <footer class="bottom-status-bar">
         <div class="status-left">
-            <span><strong>PROJETO:</strong> Guaratuba_ZonaSul.gnx</span>
+            <span title="@(ProjetoService.ProjetoAtual?.CaminhoArquivo ?? "Nenhum arquivo de projeto aberto")"><strong>PROJETO:</strong> @ProjetoService.ObterNomeProjetoAtivo()</span>
         </div>
         <div class="status-right">
             <span><strong>X:</strong> <span class="mono">@longitude</span></span>
@@ -3662,6 +3666,9 @@
 
         GeoNex.Services.GdalRuntimeConfiguration.Apply();
         string nome = basemap.LayerName;
+        Camada? existente = CamadasAtivas.FirstOrDefault(camada =>
+            string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase));
+        if (existente is not null && !existente.PendenteReconexao) return;
         string xmlTMS = GeoNex.Services.OnlineBasemapPolicy.BuildGdalTmsXml(
             basemap,
             GeoNex.Services.GdalRuntimeConfiguration.BasemapCache);
@@ -3691,11 +3698,26 @@
                     MapService.ProjetoSRS = "EPSG:3857";
                 }
                 
-                bool isFirstLayer = CamadasAtivas.Count == 0;
-                
                 // Adicionar a camada à lista
-                if (RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true }))
+                var anterior = CamadasAtivas.FirstOrDefault(camada =>
+                    string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase));
+                bool isFirstLayer = anterior is null && !CamadasAtivas.Any(camada => !camada.PendenteReconexao);
+                if (anterior?.PendenteReconexao == true)
+                {
+                    int indice = CamadasAtivas.IndexOf(anterior);
+                    CamadasAtivas[indice] = new Camada
+                    {
+                        Nome = nome, Tipo = "Raster", Visivel = anterior.Visivel,
+                        FonteJson = anterior.FonteJson
+                    };
+                    if (anterior.Visivel) MapService.CamadasInvisiveis.Remove(nome);
                     SincronizarHierarquia();
+                }
+                else if (anterior is null && RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true }))
+                {
+                    MapService.CamadasInvisiveis.Remove(nome);
+                    SincronizarHierarquia();
+                }
 
                 if (isFirstLayer)
                 {
@@ -4089,9 +4111,12 @@
     private string AbaModalAtiva = "Raster";
     private DotNetObjectReference<Home>? objRef;
     private List<Camada> CamadasAtivas = new List<Camada>();
+    private string? _camadaBaseProjeto;
     private bool RegistrarNovaCamada(Camada camada, bool inserirNoInicio = false)
     {
-        if (CamadasAtivas.Any(c => c.Nome == camada.Nome)) return false;
+        if (string.IsNullOrWhiteSpace(camada.Nome) ||
+            CamadasAtivas.Any(c => string.Equals(c.Nome, camada.Nome, StringComparison.OrdinalIgnoreCase)))
+            return false;
 
         bool primeiraCamada = CamadasAtivas.Count == 0;
         if (inserirNoInicio) CamadasAtivas.Insert(0, camada);
@@ -4111,6 +4136,8 @@
         public string Tipo { get; set; } = string.Empty;
         public bool Visivel { get; set; } = true;
         public string CaminhoArquivo { get; set; } = string.Empty;
+        public string? FonteJson { get; set; }
+        public bool PendenteReconexao { get; set; }
         public string Geometria { get; set; } = "POLIGONO";
         public PostgisLayerSource? FontePostgis { get; set; }
     }
@@ -4698,6 +4725,8 @@
             MapService.RemoveRasterCache(nome);
 
             RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster }, inserirNoInicio: true);
+            if (_camadaBaseProjeto is null)
+                _camadaBaseProjeto = nome;
             
             SincronizarHierarquia(); // FUNDAMENTAL: Informa o C# que a camada já existe
             MapService.RequestRedraw(); // Invalida o cache
@@ -4808,6 +4837,8 @@
             // MapService.ConstruirIndiceEspacial(); já foi movido para dentro da Task.Run para não travar a UI!
             // Mantém novas camadas no topo, sem duplicá-las.
             RegistrarNovaCamada(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor }, inserirNoInicio: true);
+            if (_camadaBaseProjeto is null)
+                _camadaBaseProjeto = nomeArquivo;
 
             SincronizarHierarquia(solicitarFrame: false);
             await EnquadrarCamadaAsync(nomeArquivo);
@@ -4929,16 +4960,785 @@
     {
         try
         {
-            string pastaDocumentos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string caminhoGnx = System.IO.Path.Combine(pastaDocumentos, "Projeto_Guaratuba_Teste.gnx");
-            bool sucesso = await ProjetoService.CriarNovoProjetoAsync(caminhoGnx, "Guaratuba Zona Sul");
-            if (sucesso)
+            if (!await PodeTrocarProjetoAsync()) return;
+
+            var paginaNativa = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
+            if (paginaNativa is null)
+                throw new InvalidOperationException("A janela do GeoNex não está disponível para criar o projeto.");
+            string? nomeProjeto = await paginaNativa.DisplayPromptAsync(
+                "Novo projeto",
+                "Informe o nome do projeto:",
+                "Continuar",
+                "Cancelar",
+                "Nome do projeto",
+                maxLength: 120,
+                initialValue: "Meu projeto");
+            if (string.IsNullOrWhiteSpace(nomeProjeto)) return;
+
+            var pasta = await CommunityToolkit.Maui.Storage.FolderPicker.Default.PickAsync(default);
+            if (pasta is null || !pasta.IsSuccessful) return;
+
+            char[] caracteresInvalidos = System.IO.Path.GetInvalidFileNameChars();
+            string nomeArquivo = string.Concat(nomeProjeto.Trim().Select(c => caracteresInvalidos.Contains(c) ? '_' : c)).Trim().TrimEnd('.');
+            if (string.IsNullOrWhiteSpace(nomeArquivo))
+                throw new InvalidOperationException("O nome informado não pode ser usado como nome de arquivo.");
+
+            string caminhoGnx = System.IO.Path.Combine(pasta.Folder.Path, nomeArquivo + ".gnx");
+            if (System.IO.File.Exists(caminhoGnx))
             {
-                await JSRuntime.InvokeVoidAsync("alert", $"SUCESSO ABSOLUTO!\n\nO banco de dados do projeto foi criado fisicamente em:\n{caminhoGnx}");
-                StateHasChanged();
+                await JSRuntime.InvokeVoidAsync("alert", "Já existe um projeto com esse nome nessa pasta. Escolha outro nome ou abra o projeto existente.");
+                return;
+            }
+
+            var avisosAnteriores = new List<string>();
+            GeoNex.Models.Projeto? projetoAnterior = null;
+            if (ProjetoService.ProjetoAtual is not null)
+            {
+                avisosAnteriores = await PersistirProjetoAtualAsync();
+                projetoAnterior = await ProjetoService.CarregarProjetoAsync(ProjetoService.ProjetoAtual.CaminhoArquivo);
+            }
+
+            GeoNex.Models.Projeto projeto = await ProjetoService.CriarNovoProjetoAsync(caminhoGnx, nomeProjeto.Trim());
+            try
+            {
+                await LimparCamadasDoProjetoAtualAsync();
+            }
+            catch (Exception erroLimpeza)
+            {
+                if (projetoAnterior is not null)
+                {
+                    try
+                    {
+                        await LimparCamadasDoProjetoAtualAsync();
+                        await CarregarCamadasDoProjetoAsync(projetoAnterior, projetoAnterior.Camadas);
+                        ProjetoService.AtivarProjeto(projetoAnterior);
+                    }
+                    catch (Exception erroRestauro)
+                    {
+                        try { await LimparCamadasDoProjetoAtualAsync(); } catch { }
+                        ProjetoService.FecharProjeto();
+                        await JSRuntime.InvokeVoidAsync("alert",
+                            $"Não foi possível iniciar o novo projeto e o projeto anterior também não pôde ser restaurado.\nNovo projeto: {erroLimpeza.Message}\nRestauração: {erroRestauro.Message}");
+                        return;
+                    }
+                }
+
+                await JSRuntime.InvokeVoidAsync("alert",
+                    $"Não foi possível trocar para o novo projeto; o projeto anterior foi restaurado.\n{erroLimpeza.Message}");
+                return;
+            }
+            ProjetoService.AtivarProjeto(projeto);
+            MapService.ProjetoSRS = projeto.CRS;
+            MapService.RequestRedraw();
+            string avisoAnterior = avisosAnteriores.Count == 0
+                ? string.Empty
+                : "\n\nAvisos do projeto anterior:\n• " + string.Join("\n• ", avisosAnteriores.Distinct());
+            await JSRuntime.InvokeVoidAsync("alert", $"Projeto criado:\n{projeto.CaminhoArquivo}{avisoAnterior}");
+            StateHasChanged();
+        }
+        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível criar o projeto: {ex.Message}"); }
+    }
+
+    private async Task AbrirProjeto()
+    {
+        try
+        {
+            if (!await PodeTrocarProjetoAsync()) return;
+
+            var opcoes = new PickOptions
+            {
+                PickerTitle = "Abrir projeto GeoNex (.gnx)",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    { DevicePlatform.WinUI, new[] { ".gnx" } }
+                })
+            };
+            var arquivo = await FilePicker.Default.PickAsync(opcoes);
+            if (arquivo is null) return;
+
+            GeoNex.Models.Projeto projeto = await ProjetoService.CarregarProjetoAsync(arquivo.FullPath);
+            if (ProjetoService.ProjetoAtual is not null &&
+                string.Equals(
+                    System.IO.Path.GetFullPath(ProjetoService.ProjetoAtual.CaminhoArquivo),
+                    System.IO.Path.GetFullPath(projeto.CaminhoArquivo),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Esse projeto já está aberto.");
+                return;
+            }
+
+            var camadasLocais = projeto.Camadas
+                .Where(camada => TipoFonteProjeto(camada) == "Arquivo" &&
+                    (string.Equals(camada.Tipo, "Vetor", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(camada.Tipo, "Raster", StringComparison.OrdinalIgnoreCase)) &&
+                    !string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal))
+                .OrderBy(camada => camada.Ordem)
+                .ToList();
+
+            foreach (var camada in camadasLocais)
+                if (!System.IO.File.Exists(camada.CaminhoFonteOriginal))
+                    throw new FileNotFoundException(
+                        $"A fonte da camada '{camada.Nome}' não foi encontrada: {camada.CaminhoFonteOriginal}",
+                        camada.CaminhoFonteOriginal);
+
+            List<string> avisosAnteriores;
+            try
+            {
+                avisosAnteriores = ProjetoService.ProjetoAtual is null
+                    ? new List<string>()
+                    : await PersistirProjetoAtualAsync();
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"O projeto atual não pôde ser salvo; a abertura foi cancelada.\n{ex.Message}");
+                return;
+            }
+
+            GeoNex.Models.Projeto? projetoAnterior = ProjetoService.ProjetoAtual is null
+                ? null
+                : await ProjetoService.CarregarProjetoAsync(ProjetoService.ProjetoAtual.CaminhoArquivo);
+            if (projetoAnterior is not null)
+            {
+                var fontesAnterioresAusentes = projetoAnterior.Camadas
+                    .Where(camada => TipoFonteProjeto(camada) == "Arquivo" &&
+                        !string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal) &&
+                        !System.IO.File.Exists(camada.CaminhoFonteOriginal))
+                    .Select(camada => camada.Nome)
+                    .ToArray();
+                if (fontesAnterioresAusentes.Length > 0)
+                {
+                    await JSRuntime.InvokeVoidAsync("alert",
+                        $"A abertura foi cancelada para preservar o mapa atual. As fontes destas camadas já não estão disponíveis: {string.Join(", ", fontesAnterioresAusentes)}.");
+                    return;
+                }
+            }
+            var avisosProjeto = new List<string>();
+            bool mapaLimpo = false;
+            try
+            {
+                mapaLimpo = true;
+                await LimparCamadasDoProjetoAtualAsync();
+                avisosProjeto.AddRange(await CarregarCamadasDoProjetoAsync(projeto, projeto.Camadas));
+                ProjetoService.AtivarProjeto(projeto);
+            }
+            catch (Exception ex)
+            {
+                if (mapaLimpo)
+                {
+                    await LimparCamadasDoProjetoAtualAsync();
+                    if (projetoAnterior is not null)
+                    {
+                        try
+                        {
+                            await CarregarCamadasDoProjetoAsync(projetoAnterior, projetoAnterior.Camadas);
+                            ProjetoService.AtivarProjeto(projetoAnterior);
+                        }
+                        catch (Exception erroRestauro)
+                        {
+                            await LimparCamadasDoProjetoAtualAsync();
+                            ProjetoService.FecharProjeto();
+                            await JSRuntime.InvokeVoidAsync("alert", $"Falha ao abrir o projeto e também ao restaurar o anterior.\nAbertura: {ex.Message}\nRestauração: {erroRestauro.Message}");
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        ProjetoService.FecharProjeto();
+                    }
+                }
+                await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível abrir o projeto: {ex.Message}");
+                return;
+            }
+
+            if (avisosAnteriores.Count > 0)
+                avisosProjeto.AddRange(avisosAnteriores.Select(aviso => $"Projeto anterior: {aviso}"));
+            string textoAvisos = avisosProjeto.Count == 0 ? string.Empty : "\n\nAvisos:\n• " + string.Join("\n• ", avisosProjeto.Distinct());
+            await JSRuntime.InvokeVoidAsync("alert", $"Projeto aberto: {projeto.Nome}{textoAvisos}");
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível abrir esse projeto: {ex.Message}");
+        }
+    }
+
+    private async Task<bool> PodeTrocarProjetoAsync()
+    {
+        if (_salvandoEdicoes || temEdicoesPendentes || MapService.PontosAquisicao.Count > 0 || listaPontosCaderneta.Count > 0)
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "alert",
+                "O mapa tem alterações ou esboços ainda não gravados. Grave as edições vetoriais e conclua ou cancele o esboço antes de criar ou abrir outro projeto. O mapa atual foi mantido.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task SalvarProjeto()
+    {
+        if (ProjetoService.ProjetoAtual is null)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Crie ou abra um projeto antes de salvar.");
+            return;
+        }
+
+        try
+        {
+            List<string> avisos = await PersistirProjetoAtualAsync();
+            string textoAvisos = avisos.Count == 0 ? string.Empty : "\n\nAvisos:\n• " + string.Join("\n• ", avisos.Distinct());
+            await JSRuntime.InvokeVoidAsync("alert", $"Projeto salvo: {ProjetoService.ProjetoAtual.Nome}{textoAvisos}");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível salvar o projeto: {ex.Message}");
+        }
+    }
+
+    private async Task<List<string>> PersistirProjetoAtualAsync()
+    {
+        var avisos = new List<string>();
+        foreach (Camada camada in CamadasAtivas.Where(camada => camada.FontePostgis is not null))
+        {
+            try
+            {
+                var fonte = camada.FontePostgis!;
+                await Microsoft.Maui.Storage.SecureStorage.Default.SetAsync(
+                    GeoNex.Services.GnxProjectStore.ChaveSeguraPostgis(ProjetoService.ProjetoAtual!.Id, camada.Nome),
+                    fonte.Connection.Password);
+            }
+            catch
+            {
+                avisos.Add($"A senha PostGIS de '{camada.Nome}' não pôde ser guardada no armazenamento seguro do dispositivo; será necessário reconectar.");
             }
         }
-        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Criação do Banco: {ex.Message}"); }
+
+        var camadasSalvas = CamadasAtivas
+            .Select((camada, ordem) => (camada, ordem))
+            .Select(item => new GeoNex.Services.CamadaProjetoSnapshot(
+                item.camada.Nome,
+                item.camada.Tipo,
+                item.camada.Visivel,
+                item.ordem,
+                item.camada.CaminhoArquivo ?? string.Empty,
+                SerializarFonteProjeto(item.camada),
+                MapService.EstilosPorCamada.TryGetValue(item.camada.Nome, out var estilo)
+                    ? System.Text.Json.JsonSerializer.Serialize(estilo)
+                    : null))
+            .ToArray();
+
+        string? camadaBase = _camadaBaseProjeto;
+        if (camadaBase is null || !camadasSalvas.Any(camada =>
+                string.Equals(camada.Nome, camadaBase, StringComparison.OrdinalIgnoreCase) &&
+                !CamadasAtivas.First(runtime => string.Equals(runtime.Nome, camada.Nome, StringComparison.OrdinalIgnoreCase)).PendenteReconexao))
+            camadaBase = camadasSalvas
+                .Where(camada => !CamadasAtivas.First(runtime => string.Equals(runtime.Nome, camada.Nome, StringComparison.OrdinalIgnoreCase)).PendenteReconexao)
+                .OrderBy(camada => camada.Ordem)
+                .FirstOrDefault()?.Nome;
+
+        await ProjetoService.SalvarProjetoAsync(
+            camadasSalvas,
+            MapService.ProjetoSRS,
+            camadaBase,
+            MapService.OffsetMundoX,
+            MapService.OffsetMundoY,
+            MapService.OffsetMundoDefinido,
+            MapService.CameraPanX,
+            MapService.CameraPanY,
+            MapService.CameraZoom);
+
+        var semFonteConhecida = CamadasAtivas
+            .Where(camada => string.IsNullOrWhiteSpace(camada.CaminhoArquivo) && !camada.PendenteReconexao &&
+                camada.FontePostgis is null && !GeoNex.Services.OnlineBasemapPolicy.TryGetKeyForLayerName(camada.Nome, out _))
+            .Select(camada => camada.Nome)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (semFonteConhecida.Count > 0)
+            avisos.Add($"Algumas camadas não têm uma fonte reconstruível salva: {string.Join(", ", semFonteConhecida)}.");
+        return avisos;
+    }
+
+    private static string TipoFonteProjeto(GeoNex.Models.Camada camada)
+    {
+        if (!string.IsNullOrWhiteSpace(camada.FonteJson))
+        {
+            try
+            {
+                var fonte = System.Text.Json.JsonSerializer.Deserialize<GeoNex.Models.ProjetoFonteCamada>(
+                    camada.FonteJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (!string.IsNullOrWhiteSpace(fonte?.Tipo)) return fonte.Tipo;
+            }
+            catch (System.Text.Json.JsonException) { }
+        }
+
+        return string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal) ? "Desconhecida" : "Arquivo";
+    }
+
+    private static string? SerializarFonteProjeto(Camada camada)
+    {
+        GeoNex.Models.ProjetoFonteCamada fonte;
+        if (camada.FontePostgis is { } postgis)
+        {
+            fonte = new GeoNex.Models.ProjetoFonteCamada
+            {
+                Tipo = "PostGIS",
+                Servidor = postgis.Connection.Host,
+                Porta = postgis.Connection.Port,
+                BancoDados = postgis.Connection.Database,
+                Usuario = postgis.Connection.Username,
+                ModoSsl = postgis.Connection.SslMode,
+                Esquema = postgis.Table.Schema,
+                Tabela = postgis.Table.Table,
+                ColunaGeometria = postgis.Table.GeometryColumn,
+                TipoGeometria = postgis.Table.GeometryType,
+                Srid = postgis.Table.Srid,
+                DimensaoCoordenada = postgis.Table.CoordinateDimension
+            };
+        }
+        else if (GeoNex.Services.OnlineBasemapPolicy.TryGetKeyForLayerName(camada.Nome, out string key))
+        {
+            fonte = new GeoNex.Models.ProjetoFonteCamada { Tipo = "MapaBaseOnline", Identificador = key };
+        }
+        else if (!string.IsNullOrWhiteSpace(camada.FonteJson))
+        {
+            try
+            {
+                fonte = System.Text.Json.JsonSerializer.Deserialize<GeoNex.Models.ProjetoFonteCamada>(
+                    camada.FonteJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? new GeoNex.Models.ProjetoFonteCamada();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                fonte = new GeoNex.Models.ProjetoFonteCamada();
+            }
+        }
+        else
+        {
+            fonte = new GeoNex.Models.ProjetoFonteCamada { Tipo = "Arquivo" };
+        }
+
+        if (fonte.Tipo is not ("Arquivo" or "MapaBaseOnline" or "PostGIS" or "Desconhecida"))
+            fonte = new GeoNex.Models.ProjetoFonteCamada { Tipo = "Desconhecida" };
+        return System.Text.Json.JsonSerializer.Serialize(fonte);
+    }
+
+    private bool CamadaUsaCrsProjeto(GeoNex.Models.Camada camada, string crsProjeto)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal)) return false;
+            string? crsFonte = null;
+            if (string.Equals(camada.Tipo, "Vetor", StringComparison.OrdinalIgnoreCase))
+            {
+                string caminhoPrj = System.IO.Path.ChangeExtension(camada.CaminhoFonteOriginal, ".prj");
+                if (System.IO.File.Exists(caminhoPrj))
+                    crsFonte = System.IO.File.ReadAllText(caminhoPrj);
+            }
+            else if (string.Equals(camada.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
+            {
+                lock (MapService.GdalRasterLock)
+                {
+                    using var dataset = OSGeo.GDAL.Gdal.Open(camada.CaminhoFonteOriginal, OSGeo.GDAL.Access.GA_ReadOnly);
+                    crsFonte = dataset?.GetProjection();
+                }
+            }
+
+            return !string.IsNullOrWhiteSpace(crsFonte) && SrsFactory.IsSame(crsFonte, crsProjeto);
+        }
+        catch { return false; }
+    }
+
+    private void RestaurarOrigemDoProjeto(GeoNex.Models.Projeto projeto)
+    {
+        if (!projeto.OffsetMundoDefinido ||
+            !double.IsFinite(projeto.OffsetMundoX) ||
+            !double.IsFinite(projeto.OffsetMundoY))
+            return;
+
+        double origemAntigaX = MapService.OffsetMundoX;
+        double origemAntigaY = MapService.OffsetMundoY;
+        double deslocamentoLocalX = origemAntigaX - projeto.OffsetMundoX;
+        double deslocamentoLocalY = projeto.OffsetMundoY - origemAntigaY;
+        float dx = (float)deslocamentoLocalX;
+        float dy = (float)deslocamentoLocalY;
+
+        foreach (List<CompiledFeature> feicoes in MapService.FeaturesPorCamada.Values)
+        {
+            foreach (CompiledFeature feicao in feicoes)
+            {
+                var centroide = feicao.CentroidLocalPrecise;
+                feicao.SetCentroidLocalPrecise(
+                    centroide.X + deslocamentoLocalX,
+                    centroide.Y + deslocamentoLocalY);
+                System.Threading.Interlocked.Exchange(ref feicao.Path, null)?.Dispose();
+            }
+        }
+
+        foreach (string nomeCamada in MapService.FeaturesPorCamada.Keys)
+        {
+            using var shapefile = MapService.AcquireShapefile(nomeCamada);
+            shapefile?.Resource.InvalidateRenderPath();
+        }
+
+        foreach (var par in MapService.PontosAncoragemRotulo)
+        {
+            for (int i = 0; i < par.Value.Count; i++)
+            {
+                var ponto = par.Value[i];
+                par.Value[i] = (
+                    new SKPoint(ponto.Ponto.X + dx, ponto.Ponto.Y + dy),
+                    ponto.Atributos,
+                    ponto.LarguraMundo);
+            }
+        }
+
+        foreach (var par in MapService.LimitesRasters.ToArray())
+        {
+            SKRect limite = par.Value;
+            if (!limite.IsEmpty)
+                MapService.LimitesRasters[par.Key] = new SKRect(
+                    limite.Left + dx,
+                    limite.Top + dy,
+                    limite.Right + dx,
+                    limite.Bottom + dy);
+        }
+
+        SKRect limitesVetoriais = MapService.LimitesGlobaisVetor;
+        if (!limitesVetoriais.IsEmpty)
+            MapService.LimitesGlobaisVetor = new SKRect(
+                limitesVetoriais.Left + dx,
+                limitesVetoriais.Top + dy,
+                limitesVetoriais.Right + dx,
+                limitesVetoriais.Bottom + dy);
+
+        MapService.OffsetMundoX = projeto.OffsetMundoX;
+        MapService.OffsetMundoY = projeto.OffsetMundoY;
+        MapService.OffsetMundoDefinido = true;
+        MapService.ClearRasterCaches();
+        MapService.RequestRedraw();
+    }
+
+    private async Task<List<string>> CarregarCamadasDoProjetoAsync(
+        GeoNex.Models.Projeto projeto,
+        IReadOnlyList<GeoNex.Models.Camada> camadasProjeto)
+    {
+        MapService.ProjetoSRS = "EPSG:4326";
+        MapService.OffsetMundoX = 0;
+        MapService.OffsetMundoY = 0;
+        MapService.OffsetMundoDefinido = false;
+        _camadaBaseProjeto = null;
+        var avisos = new List<string>();
+        var estilosProjeto = new Dictionary<string, EstiloCamada>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (GeoNex.Models.Camada persistida in camadasProjeto)
+        {
+            if (string.IsNullOrWhiteSpace(persistida.EstiloJson)) continue;
+            try
+            {
+                var estilo = System.Text.Json.JsonSerializer.Deserialize<EstiloCamada>(persistida.EstiloJson);
+                if (estilo is not null)
+                {
+                    estilosProjeto[persistida.Nome] = estilo;
+                    MapService.EstilosPorCamada[persistida.Nome] = estilo;
+                }
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                avisos.Add($"O estilo da camada '{persistida.Nome}' está inválido e foi ignorado: {ex.Message}");
+            }
+        }
+
+        var camadasLocais = camadasProjeto
+            .Where(camada => TipoFonteProjeto(camada) == "Arquivo" &&
+                !string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal) &&
+                (string.Equals(camada.Tipo, "Vetor", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(camada.Tipo, "Raster", StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(camada => camada.Ordem)
+            .ToList();
+
+        var basePersistida = camadasLocais.FirstOrDefault(camada =>
+            string.Equals(camada.Nome, projeto.CamadaBase, StringComparison.OrdinalIgnoreCase));
+        basePersistida ??= camadasLocais.FirstOrDefault(camada => CamadaUsaCrsProjeto(camada, projeto.CRS));
+
+        IEnumerable<GeoNex.Models.Camada> ordemCarregamento = basePersistida is null
+            ? camadasLocais
+            : new[] { basePersistida }.Concat(camadasLocais.Where(camada => !ReferenceEquals(camada, basePersistida)));
+
+        foreach (GeoNex.Models.Camada persistida in ordemCarregamento)
+        {
+            string caminho = persistida.CaminhoFonteOriginal!;
+
+            if (string.Equals(persistida.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
+            {
+                caminhoArquivoRaster = caminho;
+                await AdicionarCamadaAoMapa();
+            }
+            else
+            {
+                caminhoArquivoVetor = caminho;
+                await AdicionarVetorAoMapa();
+            }
+
+            string nomeRuntime = System.IO.Path.GetFileName(caminho);
+            Camada? carregada = CamadasAtivas.FirstOrDefault(camada =>
+                string.Equals(camada.Nome, nomeRuntime, StringComparison.OrdinalIgnoreCase));
+            if (carregada is null)
+                throw new InvalidDataException($"A camada '{persistida.Nome}' não pôde ser carregada.");
+
+            carregada.Visivel = persistida.Visivel;
+            carregada.FonteJson = persistida.FonteJson;
+
+            _camadaBaseProjeto ??= carregada.Nome;
+        }
+
+        foreach (GeoNex.Models.Camada persistida in camadasProjeto.OrderBy(camada => camada.Ordem))
+        {
+            string tipoFonte = TipoFonteProjeto(persistida);
+            if (tipoFonte == "Arquivo" && !string.IsNullOrWhiteSpace(persistida.CaminhoFonteOriginal))
+                continue;
+
+            if (tipoFonte == "MapaBaseOnline" && TentarLerFonteProjeto(persistida) is { Identificador: { Length: > 0 } key } &&
+                GeoNex.Services.OnlineBasemapPolicy.TryResolve(key, out _))
+            {
+                CarregarMapaBaseOnline(key);
+                Camada? mapa = CamadasAtivas.FirstOrDefault(camada =>
+                    string.Equals(camada.Nome, persistida.Nome, StringComparison.OrdinalIgnoreCase));
+                if (mapa is not null && !mapa.PendenteReconexao)
+                {
+                    mapa.Visivel = persistida.Visivel;
+                    if (mapa.Visivel) MapService.CamadasInvisiveis.Remove(mapa.Nome);
+                    else MapService.CamadasInvisiveis.Add(mapa.Nome);
+                    mapa.FonteJson = SerializarFonteProjeto(mapa);
+                    _camadaBaseProjeto ??= mapa.Nome;
+                    continue;
+                }
+
+                avisos.Add($"O mapa-base online '{persistida.Nome}' não abriu e ficou marcado como offline.");
+            }
+            else if (tipoFonte == "MapaBaseOnline")
+            {
+                avisos.Add($"A definição do mapa-base online de '{persistida.Nome}' não é reconhecida.");
+            }
+            else if (tipoFonte == "PostGIS")
+            {
+                var fonte = TentarLerFonteProjeto(persistida);
+                if (fonte is not null &&
+                    !string.IsNullOrWhiteSpace(fonte.Servidor) &&
+                    !string.IsNullOrWhiteSpace(fonte.BancoDados) &&
+                    !string.IsNullOrWhiteSpace(fonte.Usuario) &&
+                    !string.IsNullOrWhiteSpace(fonte.Esquema) &&
+                    !string.IsNullOrWhiteSpace(fonte.Tabela) &&
+                    !string.IsNullOrWhiteSpace(fonte.ColunaGeometria) &&
+                    fonte.Porta is > 0 && fonte.Srid is > 0 && fonte.DimensaoCoordenada is not null)
+                {
+                    try
+                    {
+                        string? password = await Microsoft.Maui.Storage.SecureStorage.Default.GetAsync(
+                            GeoNex.Services.GnxProjectStore.ChaveSeguraPostgis(projeto.Id, persistida.Nome));
+                        if (password is not null)
+                        {
+                            var options = new GeoNex.Services.PostgisConnectionOptions
+                            {
+                                Host = fonte.Servidor!,
+                                Port = fonte.Porta!.Value,
+                                Database = fonte.BancoDados!,
+                                Username = fonte.Usuario!,
+                                Password = password,
+                                SslMode = fonte.ModoSsl ?? "Prefer"
+                            };
+                            var table = new GeoNex.Services.PostgisSpatialTable(
+                                fonte.Esquema!, fonte.Tabela!, fonte.ColunaGeometria!,
+                                fonte.TipoGeometria ?? "GEOMETRY", fonte.Srid!.Value, fonte.DimensaoCoordenada!.Value);
+                            var conexaoAnterior = _postgisConnection;
+                            _postgisConnection = options;
+                            try { await AdicionarCamadaPostgisAsync(table); }
+                            finally { _postgisConnection = conexaoAnterior; }
+
+                            Camada? postgis = CamadasAtivas.FirstOrDefault(camada =>
+                                string.Equals(camada.Nome, persistida.Nome, StringComparison.OrdinalIgnoreCase));
+                            if (postgis is not null && postgis.FontePostgis is not null)
+                            {
+                                postgis.Visivel = persistida.Visivel;
+                                if (postgis.Visivel) MapService.CamadasInvisiveis.Remove(postgis.Nome);
+                                else MapService.CamadasInvisiveis.Add(postgis.Nome);
+                                postgis.FonteJson = SerializarFonteProjeto(postgis);
+                                if (estilosProjeto.TryGetValue(postgis.Nome, out var estiloPostgis))
+                                    MapService.EstilosPorCamada[postgis.Nome] = estiloPostgis;
+                                _camadaBaseProjeto ??= postgis.Nome;
+                                continue;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Keep the source descriptor in the layer list for an explicit reconnect.
+                    }
+                }
+
+                avisos.Add($"A camada PostGIS '{persistida.Nome}' precisa ser reconectada ou não pôde ser carregada.");
+            }
+            else if (tipoFonte == "Arquivo")
+            {
+                avisos.Add($"A camada '{persistida.Nome}' não tem um caminho de arquivo salvo e ficou offline.");
+            }
+            else if (tipoFonte != "MapaBaseOnline")
+            {
+                avisos.Add($"A origem de '{persistida.Nome}' não é reconhecida; os dados da camada foram preservados para reconexão.");
+            }
+
+            if (!CamadasAtivas.Any(camada => string.Equals(camada.Nome, persistida.Nome, StringComparison.OrdinalIgnoreCase)))
+            {
+                RegistrarNovaCamada(new Camada
+                {
+                    Nome = persistida.Nome,
+                    Tipo = persistida.Tipo,
+                    Visivel = persistida.Visivel,
+                    CaminhoArquivo = persistida.CaminhoFonteOriginal ?? string.Empty,
+                    FonteJson = SerializarFonteProjeto(new Camada
+                    {
+                        Nome = persistida.Nome,
+                        FonteJson = persistida.FonteJson,
+                        CaminhoArquivo = persistida.CaminhoFonteOriginal ?? string.Empty
+                    }),
+                    PendenteReconexao = true
+                });
+            }
+        }
+
+        var porNome = CamadasAtivas.ToDictionary(camada => camada.Nome, StringComparer.OrdinalIgnoreCase);
+        CamadasAtivas = camadasProjeto
+            .OrderBy(camada => camada.Ordem)
+            .Select(camada => porNome.GetValueOrDefault(camada.Nome))
+            .Where(camada => camada is not null)
+            .Cast<Camada>()
+            .Concat(CamadasAtivas.Where(camada => !camadasProjeto.Any(item =>
+                string.Equals(item.Nome, camada.Nome, StringComparison.OrdinalIgnoreCase))))
+            .ToList();
+
+        string crsSalvo = string.IsNullOrWhiteSpace(projeto.CRS) ? "EPSG:4326" : projeto.CRS;
+        using (IDisposable? pausaRender = _server is null ? null : await _server.PauseRenderingAsync())
+        {
+            if (CamadasAtivas.Count == 0)
+                MapService.ProjetoSRS = crsSalvo;
+            else if (!SrsFactory.IsSame(MapService.ProjetoSRS, crsSalvo))
+                MapService.TrocarSRCProjeto(crsSalvo);
+            RestaurarOrigemDoProjeto(projeto);
+
+            foreach (Camada camada in CamadasAtivas.Where(camada => camada.Tipo == "Vetor" && !camada.PendenteReconexao))
+            {
+                if (!MapService.EstilosPorCamada.TryGetValue(camada.Nome, out var estilo)) continue;
+                if (estilo.TipoSimbologia == "CATEGORIZADA")
+                    MapService.CompilarCategorias(camada.Nome, estilo.ColunaSimbologia);
+                if (estilo.ExibirRotulos && !string.IsNullOrWhiteSpace(estilo.ColunaRotulo))
+                    MapService.AtualizarRotulosCamada(camada.Nome, estilo.ColunaRotulo);
+            }
+        }
+
+        MapService.CamadasInvisiveis.Clear();
+        foreach (Camada camada in CamadasAtivas.Where(camada => !camada.Visivel || camada.PendenteReconexao))
+            MapService.CamadasInvisiveis.Add(camada.Nome);
+        foreach (Camada camada in CamadasAtivas.Where(camada => camada.Visivel && !camada.PendenteReconexao))
+            MapService.CamadasInvisiveis.Remove(camada.Nome);
+        SincronizarHierarquia(solicitarFrame: false);
+
+        MapService.CameraPanX = double.IsFinite(projeto.CameraPanX) ? projeto.CameraPanX : 0;
+        MapService.CameraPanY = double.IsFinite(projeto.CameraPanY) ? projeto.CameraPanY : 0;
+        MapService.CameraZoom = double.IsFinite(projeto.CameraZoom) && projeto.CameraZoom > 0 ? projeto.CameraZoom : 1;
+        MapService.IsPanning = false;
+        long serial = await JSRuntime.InvokeAsync<long>(
+            "mapEngine.sincronizarCameraComBlazor",
+            MapService.CameraPanX,
+            MapService.CameraPanY,
+            MapService.CameraZoom);
+        _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
+        MapService.RequestRedraw();
+        await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
+        SolicitarNovoFrame();
+        return avisos;
+    }
+
+    private static GeoNex.Models.ProjetoFonteCamada? TentarLerFonteProjeto(GeoNex.Models.Camada camada)
+    {
+        if (string.IsNullOrWhiteSpace(camada.FonteJson)) return null;
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<GeoNex.Models.ProjetoFonteCamada>(
+                camada.FonteJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    private async Task LimparCamadasDoProjetoAtualAsync()
+    {
+        using IDisposable? pausaRender = _server is null ? null : await _server.PauseRenderingAsync();
+        foreach (Camada camada in CamadasAtivas.ToArray())
+        {
+            string nome = camada.Nome;
+            if (camada.Tipo == "Raster")
+            {
+                GeoNex.Services.RasterOverviewBuilder.Cancel(camada.CaminhoArquivo);
+                lock (MapService)
+                {
+                    MapService.RemoveWarpedRaster(nome);
+                    MapService.RemoveRaster(nome);
+                    MapService.LimitesRasters.Remove(nome);
+                    MapService.RemoveRasterCache(nome);
+                }
+            }
+            else if (camada.Tipo == "Vetor")
+            {
+                MapService.RemoveVectorResources(nome);
+                if (MapService.FeaturesPorCamada.Remove(nome, out var feicoes))
+                    foreach (var feicao in feicoes)
+                    {
+                        var caminho = System.Threading.Interlocked.Exchange(ref feicao.Path, null);
+                        caminho?.Dispose();
+                    }
+                MapService.FeicoesOriginais.Remove(nome);
+                MapService.LimitesVetoresWorld.Remove(nome);
+                if (MapService.VetoresPorCamada.Remove(nome, out var vetores))
+                    foreach (var caminho in vetores) caminho.Dispose();
+                if (MapService.LinhasPorCamada.Remove(nome, out var linhas))
+                    foreach (var caminho in linhas) caminho.Dispose();
+                if (MapService.PontosPorCamada.Remove(nome, out var pontos)) pontos.Dispose();
+                if (MapService.VetoresCategorizados.Remove(nome, out var categorias))
+                    foreach (var grupo in categorias.Values)
+                        foreach (var caminho in grupo) caminho.Dispose();
+                if (MapService.LinhasCategorizadas.Remove(nome, out var linhasCategorizadas))
+                    foreach (var grupo in linhasCategorizadas.Values)
+                        foreach (var caminho in grupo) caminho.Dispose();
+                MapService.PontosAncoragemRotulo.Remove(nome);
+            }
+            MapService.EstilosPorCamada.TryRemove(nome, out _);
+        }
+
+        CamadasAtivas.Clear();
+        MapService.OrdemCamadas = new List<string>();
+        MapService.CamadasInvisiveis.Clear();
+        MapService.LimitesRasters.Clear();
+        MapService.LimitesGlobaisVetor = SKRect.Empty;
+        MapService.ClearRasterCaches();
+        MapService.ClearWarpedRasters();
+        MapService.OffsetMundoX = 0;
+        MapService.OffsetMundoY = 0;
+        MapService.OffsetMundoDefinido = false;
+        MapService.ProjetoSRS = "EPSG:4326";
+        MapService.CameraPanX = 0;
+        MapService.CameraPanY = 0;
+        MapService.CameraZoom = 1;
+        MapService.PontosMedicao.Clear();
+        MapService.PontosAquisicao.Clear();
+        MapService.MostrarAreaMedicao = false;
+        MapService.DestacarFeicao(null);
+        MapService.RequestRedraw();
+        _camadaBaseProjeto = null;
+        camadaSelecionadaPainel = string.Empty;
+        camadaSelecionadaMenu = string.Empty;
+        _camadaDestinoAquisicao = string.Empty;
+        await InvokeAsync(StateHasChanged);
     }
 
     // =========================================================================
@@ -4947,6 +5747,8 @@
     private void ToggleCamada(Camada camada, bool estaVisivel)
     {
         camada.Visivel = estaVisivel;
+        if (estaVisivel) MapService.CamadasInvisiveis.Remove(camada.Nome);
+        else MapService.CamadasInvisiveis.Add(camada.Nome);
 
         // Atualiza a memória da Placa Gráfica e o Cérebro Matemático
         SincronizarHierarquia();
@@ -5451,7 +6253,7 @@
         // O Filtro Absoluto: Só injeta na Placa Gráfica se o ícone do olho estiver ligado
         for (int i = CamadasAtivas.Count - 1; i >= 0; i--)
         {
-            if (CamadasAtivas[i].Visivel)
+            if (CamadasAtivas[i].Visivel && !CamadasAtivas[i].PendenteReconexao)
             {
                 novaOrdem.Add(CamadasAtivas[i].Nome);
             }

@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using GeoNex.Models;
+using Microsoft.Data.Sqlite;
 using System.IO;
 
 namespace GeoNex.Data;
@@ -23,7 +24,12 @@ public class GeoNexContext : DbContext
     {
         // Se a pasta do projeto não existir, a aplicação não pode quebrar.
         // O SQLite criará o arquivo fisicamente neste caminho.
-        optionsBuilder.UseSqlite($"Data Source={_caminhoArquivoGnx}");
+        var connection = new SqliteConnectionStringBuilder
+        {
+            DataSource = _caminhoArquivoGnx,
+            ForeignKeys = true
+        };
+        optionsBuilder.UseSqlite(connection.ToString());
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
