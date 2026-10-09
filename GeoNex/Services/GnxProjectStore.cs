@@ -250,7 +250,7 @@ public static class GnxProjectStore
 
     public static string ResolverCaminhoFonte(string caminhoProjeto, string? caminhoFonte)
     {
-        if (string.IsNullOrWhiteSpace(caminhoFonte) || PareceFonteRemota(caminhoFonte) || Path.IsPathRooted(caminhoFonte))
+        if (string.IsNullOrWhiteSpace(caminhoFonte) || FonteEhRemota(caminhoFonte) || Path.IsPathRooted(caminhoFonte))
             return caminhoFonte ?? string.Empty;
         string pastaProjeto = Path.GetDirectoryName(Path.GetFullPath(caminhoProjeto)) ?? Environment.CurrentDirectory;
         return Path.GetFullPath(Path.Combine(pastaProjeto, caminhoFonte));
@@ -258,7 +258,7 @@ public static class GnxProjectStore
 
     public static string PersistirCaminhoFonte(string caminhoProjeto, string caminhoFonte)
     {
-        if (string.IsNullOrWhiteSpace(caminhoFonte) || PareceFonteRemota(caminhoFonte) || !Path.IsPathRooted(caminhoFonte))
+        if (string.IsNullOrWhiteSpace(caminhoFonte) || FonteEhRemota(caminhoFonte) || !Path.IsPathRooted(caminhoFonte))
             return caminhoFonte;
 
         string caminhoAbsoluto = Path.GetFullPath(caminhoFonte);
@@ -405,7 +405,7 @@ public static class GnxProjectStore
         }
     }
 
-    private static bool PareceFonteRemota(string caminho) =>
+    public static bool FonteEhRemota(string caminho) =>
         caminho.Contains("://", StringComparison.Ordinal) ||
         caminho.StartsWith("/vsimem/", StringComparison.OrdinalIgnoreCase) ||
         caminho.StartsWith("/vsicurl/", StringComparison.OrdinalIgnoreCase);

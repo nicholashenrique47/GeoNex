@@ -186,9 +186,11 @@ public partial class Home
     private async Task AdicionarCamadaPostgisAsync(PostgisSpatialTable table)
     {
         if (_postgisConnection is null || _postgisCamadaCarregando is not null) return;
+        PostgisConnectionOptions connection = _postgisConnection;
         string layerKey = PostgisLayerKey(table);
         string layerName = $"{table.Schema}.{table.Table} · {table.GeometryColumn}";
-        bool firstVectorLayer = !CamadasAtivas.Any(layer => layer.Tipo == "Vetor");
+        bool firstVectorLayer = !CamadasAtivas.Any(layer =>
+            string.Equals(layer.Tipo, "Vetor", StringComparison.OrdinalIgnoreCase) && !layer.PendenteReconexao);
         Camada? offlinePlaceholder = CamadasAtivas.FirstOrDefault(layer =>
             string.Equals(layer.Nome, layerName, StringComparison.OrdinalIgnoreCase));
         if (offlinePlaceholder is not null && !offlinePlaceholder.PendenteReconexao)
@@ -202,6 +204,29 @@ public partial class Home
         if (offlinePlaceholder is not null && MapService.EstilosPorCamada.TryGetValue(layerName, out var estiloSalvo))
             estiloOffline = estiloSalvo;
 
+        bool nomeReservado = offlinePlaceholder is null
+            ? ReservarNomeCamada(layerName)
+            : _nomesCamadasCarregando.TryAdd(layerName, 0);
+        if (!nomeReservado)
+        {
+            _postgisMensagem = $"A camada {layerName} já está sendo carregada.";
+            _postgisStatusErro = true;
+            return;
+        }
+
+        string crsAnterior = MapService.ProjetoSRS;
+        double offsetXAnterior = MapService.OffsetMundoX;
+        double offsetYAnterior = MapService.OffsetMundoY;
+        bool offsetDefinidoAnterior = MapService.OffsetMundoDefinido;
+        double panXAnterior = MapService.CameraPanX;
+        double panYAnterior = MapService.CameraPanY;
+        double zoomAnterior = MapService.CameraZoom;
+        SkiaSharp.SKRect limitesVetoriaisAnteriores = MapService.LimitesGlobaisVetor;
+        string? camadaBaseAnterior = _camadaBaseProjeto;
+        bool invisivelAnterior = MapService.CamadasInvisiveis.Contains(layerName);
+        int ordemRenderAnterior = MapService.OrdemCamadas.FindIndex(name =>
+            string.Equals(name, layerName, StringComparison.OrdinalIgnoreCase));
+
         _postgisCamadaCarregando = layerKey;
         _postgisStatusErro = false;
         _postgisMensagem = $"Carregando {layerName}…";
@@ -212,94 +237,109 @@ public partial class Home
         try
         {
             int targetSrid = PostgisDataService.ResolveEpsg(MapService.ProjetoSRS);
-            double originalOffsetX = MapService.OffsetMundoX;
-            double originalOffsetY = MapService.OffsetMundoY;
             loaded = await PostgisDataService.LoadLayerAsync(
-                _postgisConnection, table, targetSrid, originalOffsetX, originalOffsetY);
+                connection, table, targetSrid, offsetXAnterior, offsetYAnterior);
             if (loaded.Features.Count == 0)
                 throw new InvalidOperationException("A tabela não contém geometrias 2D válidas para exibir.");
 
-            if (!MapService.OffsetMundoDefinido && !loaded.Bounds.IsNull)
+            using (IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync())
             {
-                MapService.DefinirOffset(loaded.Bounds.MinX, loaded.Bounds.MaxX, loaded.Bounds.MinY, loaded.Bounds.MaxY);
-                PostgisGeometryCompiler.Rebase(
-                    loaded.Features,
-                    MapService.OffsetMundoX - originalOffsetX,
-                    MapService.OffsetMundoY - originalOffsetY);
+                if (!MapService.OffsetMundoDefinido && !loaded.Bounds.IsNull)
+                {
+                    MapService.DefinirOffset(loaded.Bounds.MinX, loaded.Bounds.MaxX, loaded.Bounds.MinY, loaded.Bounds.MaxY);
+                    PostgisGeometryCompiler.Rebase(
+                        loaded.Features,
+                        MapService.OffsetMundoX - offsetXAnterior,
+                        MapService.OffsetMundoY - offsetYAnterior);
+                }
+
+                var camada = new Camada
+                {
+                    Nome = layerName,
+                    Tipo = "Vetor",
+                    Visivel = offlinePlaceholder?.Visivel ?? true,
+                    Geometria = table.GeometryType.Contains("POINT", StringComparison.OrdinalIgnoreCase) ? "PONTO"
+                        : table.GeometryType.Contains("LINE", StringComparison.OrdinalIgnoreCase) ? "LINHA"
+                        : "POLIGONO",
+                    FontePostgis = new PostgisLayerSource(ClonarConexao(connection), table),
+                    FonteJson = offlinePlaceholder?.FonteJson
+                };
+                if (offlinePlaceholder is not null && placeholderIndex >= 0)
+                {
+                    CamadasAtivas[placeholderIndex] = camada;
+                    layerRegistered = true;
+                }
+                else if (!RegistrarNovaCamada(camada, inserirNoInicio: true, reservaDoChamador: true))
+                    throw new InvalidOperationException($"A camada {layerName} já está no mapa.");
+                else layerRegistered = true;
+
+                MapService.EstilosPorCamada[layerName] = estiloOffline ?? new EstiloCamada
+                {
+                    CorPreenchimento = "#10b981", CorBorda = "#047857", Tamanho = 2,
+                    TipoSimbologia = "UNICA", Opacidade = 0.5f
+                };
+                if (!MapService.OrdemCamadas.Contains(layerName, StringComparer.Ordinal))
+                    MapService.OrdemCamadas.Insert(0, layerName);
+                if (camada.Visivel) MapService.CamadasInvisiveis.Remove(layerName);
+                else MapService.CamadasInvisiveis.Add(layerName);
+                SincronizarHierarquia(solicitarFrame: false);
+                renderFeatures = loaded.Features.ToList();
+                MapService.PreCompilarPoligonos(layerName, renderFeatures);
+                _camadaDestinoAquisicao = layerName;
+                _postgisMensagem = $"Adicionada: {layerName} · {loaded.FeatureCount:N0} feição(ões) · EPSG:{loaded.Srid}.";
+                exibirModalImportacao = false;
             }
 
-            var camada = new Camada
-            {
-                Nome = layerName,
-                Tipo = "Vetor",
-                Visivel = offlinePlaceholder?.Visivel ?? true,
-                Geometria = table.GeometryType.Contains("POINT", StringComparison.OrdinalIgnoreCase) ? "PONTO"
-                    : table.GeometryType.Contains("LINE", StringComparison.OrdinalIgnoreCase) ? "LINHA"
-                    : "POLIGONO",
-                FontePostgis = new PostgisLayerSource(ClonarConexao(_postgisConnection), table),
-                FonteJson = offlinePlaceholder?.FonteJson
-            };
-            if (offlinePlaceholder is not null && placeholderIndex >= 0)
-            {
-                CamadasAtivas[placeholderIndex] = camada;
-                layerRegistered = true;
-            }
-            else if (!RegistrarNovaCamada(camada, inserirNoInicio: true))
-                throw new InvalidOperationException($"A camada {layerName} já está no mapa.");
-            else layerRegistered = true;
-
-            MapService.EstilosPorCamada[layerName] = estiloOffline ?? new EstiloCamada
-            {
-                CorPreenchimento = "#10b981", CorBorda = "#047857", Tamanho = 2,
-                TipoSimbologia = "UNICA", Opacidade = 0.5f
-            };
-            if (!MapService.OrdemCamadas.Contains(layerName, StringComparer.Ordinal))
-                MapService.OrdemCamadas.Insert(0, layerName);
-            if (camada.Visivel) MapService.CamadasInvisiveis.Remove(layerName);
-            else MapService.CamadasInvisiveis.Add(layerName);
-            SincronizarHierarquia(solicitarFrame: false);
-            renderFeatures = loaded.Features.ToList();
-            MapService.PreCompilarPoligonos(layerName, renderFeatures);
-            _camadaDestinoAquisicao = layerName;
-            _postgisMensagem = $"Adicionada: {layerName} · {loaded.FeatureCount:N0} feição(ões) · EPSG:{loaded.Srid}.";
-            exibirModalImportacao = false;
             if (firstVectorLayer) await EnquadrarCamadaAsync(layerName);
             else SolicitarNovoFrame();
         }
         catch (Exception ex)
         {
-            if (layerRegistered)
+            using (IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync())
             {
-                CamadasAtivas.RemoveAll(layer => string.Equals(layer.Nome, layerName, StringComparison.Ordinal));
-                if (offlinePlaceholder is not null)
-                    CamadasAtivas.Insert(Math.Clamp(placeholderIndex, 0, CamadasAtivas.Count), offlinePlaceholder);
+                if (layerRegistered)
+                {
+                    CamadasAtivas.RemoveAll(layer => string.Equals(layer.Nome, layerName, StringComparison.OrdinalIgnoreCase));
+                    if (offlinePlaceholder is not null)
+                        CamadasAtivas.Insert(Math.Clamp(placeholderIndex, 0, CamadasAtivas.Count), offlinePlaceholder);
+                }
+                RemoverRecursosVetoriais(layerName);
+                if (offlinePlaceholder is not null && estiloOffline is not null)
+                    MapService.EstilosPorCamada[layerName] = estiloOffline;
+                if (ordemRenderAnterior >= 0)
+                    MapService.OrdemCamadas.Insert(Math.Clamp(ordemRenderAnterior, 0, MapService.OrdemCamadas.Count), layerName);
+                if (invisivelAnterior) MapService.CamadasInvisiveis.Add(layerName);
+                else MapService.CamadasInvisiveis.Remove(layerName);
+                MapService.ProjetoSRS = crsAnterior;
+                MapService.OffsetMundoX = offsetXAnterior;
+                MapService.OffsetMundoY = offsetYAnterior;
+                MapService.OffsetMundoDefinido = offsetDefinidoAnterior;
+                MapService.CameraPanX = panXAnterior;
+                MapService.CameraPanY = panYAnterior;
+                MapService.CameraZoom = zoomAnterior;
+                MapService.LimitesGlobaisVetor = limitesVetoriaisAnteriores;
+                _camadaBaseProjeto = camadaBaseAnterior;
+                SincronizarHierarquia(solicitarFrame: false);
+                MapService.RequestRedraw();
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync(
+                        "mapEngine.sincronizarCameraComBlazor", panXAnterior, panYAnterior, zoomAnterior);
+                }
+                catch { }
             }
-            MapService.RemoveVectorResources(layerName);
-            bool disposedPublishedFeatures = false;
-            if (MapService.FeaturesPorCamada.Remove(layerName, out List<CompiledFeature>? publishedFeatures))
+
+            if (loaded is not null && !ReferenceEquals(renderFeatures, MapService.FeaturesPorCamada.GetValueOrDefault(layerName)))
             {
-                foreach (CompiledFeature feature in publishedFeatures) feature.Path?.Dispose();
-                disposedPublishedFeatures = true;
+                foreach (CompiledFeature feature in loaded.Features)
+                    System.Threading.Interlocked.Exchange(ref feature.Path, null)?.Dispose();
             }
-            if (!disposedPublishedFeatures && loaded is not null)
-                foreach (CompiledFeature feature in loaded.Features) feature.Path?.Dispose();
-            MapService.PontosAncoragemRotulo.Remove(layerName);
-            MapService.LimitesVetoresWorld.Remove(layerName);
-            MapService.VetoresPorCamada.Remove(layerName);
-            MapService.LinhasPorCamada.Remove(layerName);
-            MapService.PontosPorCamada.Remove(layerName);
-            MapService.VetoresCategorizados.Remove(layerName);
-            MapService.LinhasCategorizadas.Remove(layerName);
-            if (offlinePlaceholder is not null && estiloOffline is not null)
-                MapService.EstilosPorCamada[layerName] = estiloOffline;
-            else
-                MapService.EstilosPorCamada.TryRemove(layerName, out _);
-            MapService.OrdemCamadas.RemoveAll(name => string.Equals(name, layerName, StringComparison.Ordinal));
             _postgisStatusErro = true;
             _postgisMensagem = MensagemPostgisSegura(ex);
         }
         finally
         {
+            LiberarNomeCamada(layerName);
             _postgisCamadaCarregando = null;
             await InvokeAsync(StateHasChanged);
         }
@@ -1335,42 +1375,69 @@ public partial class Home
 
         DelimitedPointTableService.ImportResult? result = null;
         string layerName = NomeTabelaPontosDisponivel(Path.GetFileNameWithoutExtension(_tabelaPontosCaminho));
-        bool firstVectorLayer = !CamadasAtivas.Any(layer => layer.Tipo == "Vetor");
+        if (!ReservarNomeCamada(layerName))
+        {
+            _tabelaPontosImportando = false;
+            _tabelaPontosErro = true;
+            _tabelaPontosMensagem = $"Já existe uma camada chamada '{layerName}' ou ela está sendo carregada.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        string sourcePath = _tabelaPontosCaminho;
+        int xColumn = _tabelaPontosColunaX;
+        int yColumn = _tabelaPontosColunaY;
+        string sourceCrs = _tabelaPontosCrsSelecionado;
+        char delimiter = ObterDelimitadorTabelaPontos();
+        bool firstVectorLayer = !CamadasAtivas.Any(layer =>
+            string.Equals(layer.Tipo, "Vetor", StringComparison.OrdinalIgnoreCase) && !layer.PendenteReconexao);
         bool layerRegistered = false;
+        string crsAnterior = MapService.ProjetoSRS;
+        double offsetXAnterior = MapService.OffsetMundoX;
+        double offsetYAnterior = MapService.OffsetMundoY;
+        bool offsetDefinidoAnterior = MapService.OffsetMundoDefinido;
+        double panXAnterior = MapService.CameraPanX;
+        double panYAnterior = MapService.CameraPanY;
+        double zoomAnterior = MapService.CameraZoom;
+        SkiaSharp.SKRect limitesVetoriaisAnteriores = MapService.LimitesGlobaisVetor;
+        string? camadaBaseAnterior = _camadaBaseProjeto;
         try
         {
             string destination = Path.Combine(FileSystem.AppDataDirectory, "ImportedPointTables");
             result = await Task.Run(() => DelimitedPointTableService.ImportToShapefile(
-                _tabelaPontosCaminho,
-                _tabelaPontosColunaX,
-                _tabelaPontosColunaY,
-                _tabelaPontosCrsSelecionado,
-                ObterDelimitadorTabelaPontos(),
+                sourcePath,
+                xColumn,
+                yColumn,
+                sourceCrs,
+                delimiter,
                 destination));
 
-            await Task.Run(() => ProjetoService.CarregarShapefileParaMotorMapas(result.ShapefilePath, layerName, MapService));
-            if (!RegistrarNovaCamada(new Camada
+            using (IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync())
             {
-                Nome = layerName,
-                Tipo = "Vetor",
-                Visivel = true,
-                CaminhoArquivo = result.ShapefilePath,
-                Geometria = "PONTO"
-            }, inserirNoInicio: true))
-                throw new InvalidOperationException($"A camada '{layerName}' já existe no mapa.");
+                await Task.Run(() => ProjetoService.CarregarShapefileParaMotorMapas(result.ShapefilePath, layerName, MapService));
+                if (!RegistrarNovaCamada(new Camada
+                {
+                    Nome = layerName,
+                    Tipo = "Vetor",
+                    Visivel = true,
+                    CaminhoArquivo = result.ShapefilePath,
+                    Geometria = "PONTO"
+                }, inserirNoInicio: true, reservaDoChamador: true))
+                    throw new InvalidOperationException($"A camada '{layerName}' já existe no mapa.");
 
-            layerRegistered = true;
-            MapService.EstilosPorCamada[layerName] = new EstiloCamada
-            {
-                CorPreenchimento = "#f97316",
-                CorBorda = "#7c2d12",
-                Tamanho = 5,
-                EspessuraBorda = 1.5f,
-                TipoSimbologia = "UNICA",
-                Opacidade = 1f
-            };
+                layerRegistered = true;
+                MapService.EstilosPorCamada[layerName] = new EstiloCamada
+                {
+                    CorPreenchimento = "#f97316",
+                    CorBorda = "#7c2d12",
+                    Tamanho = 5,
+                    EspessuraBorda = 1.5f,
+                    TipoSimbologia = "UNICA",
+                    Opacidade = 1f
+                };
 
-            SincronizarHierarquia(solicitarFrame: false);
+                SincronizarHierarquia(solicitarFrame: false);
+            }
             exibirModalImportacao = false;
             if (firstVectorLayer) await EnquadrarCamadaAsync(layerName);
             else SolicitarNovoFrame();
@@ -1384,18 +1451,27 @@ public partial class Home
             if (layerRegistered) CamadasAtivas.RemoveAll(layer => layer.Nome == layerName);
             if (result is not null)
             {
-                MapService.RemoveVectorResources(layerName);
-                if (MapService.FeaturesPorCamada.Remove(layerName, out List<CompiledFeature>? features))
-                    foreach (CompiledFeature feature in features) feature.Path?.Dispose();
-                MapService.VetoresPorCamada.Remove(layerName);
-                MapService.LinhasPorCamada.Remove(layerName);
-                MapService.PontosPorCamada.Remove(layerName);
-                MapService.VetoresCategorizados.Remove(layerName);
-                MapService.LinhasCategorizadas.Remove(layerName);
-                MapService.PontosAncoragemRotulo.Remove(layerName);
-                MapService.LimitesVetoresWorld.Remove(layerName);
-                MapService.OrdemCamadas.RemoveAll(name => name == layerName);
-                MapService.EstilosPorCamada.TryRemove(layerName, out _);
+                using (IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync())
+                {
+                    RemoverRecursosVetoriais(layerName);
+                    MapService.ProjetoSRS = crsAnterior;
+                    MapService.OffsetMundoX = offsetXAnterior;
+                    MapService.OffsetMundoY = offsetYAnterior;
+                    MapService.OffsetMundoDefinido = offsetDefinidoAnterior;
+                    MapService.CameraPanX = panXAnterior;
+                    MapService.CameraPanY = panYAnterior;
+                    MapService.CameraZoom = zoomAnterior;
+                    MapService.LimitesGlobaisVetor = limitesVetoriaisAnteriores;
+                    _camadaBaseProjeto = camadaBaseAnterior;
+                    MapService.RequestRedraw();
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync(
+                            "mapEngine.sincronizarCameraComBlazor", panXAnterior, panYAnterior, zoomAnterior);
+                    }
+                    catch { }
+                }
+
                 foreach (string extension in new[] { ".shp", ".shx", ".dbf", ".prj", ".cpg" })
                 {
                     try { File.Delete(Path.ChangeExtension(result.ShapefilePath, extension)); }
@@ -1408,6 +1484,7 @@ public partial class Home
         }
         finally
         {
+            LiberarNomeCamada(layerName);
             _tabelaPontosImportando = false;
             await InvokeAsync(StateHasChanged);
         }
@@ -1418,7 +1495,8 @@ public partial class Home
         string baseName = string.IsNullOrWhiteSpace(sourceName) ? "Tabela de pontos" : sourceName;
         string candidate = baseName;
         int suffix = 2;
-        while (CamadasAtivas.Any(layer => string.Equals(layer.Nome, candidate, StringComparison.OrdinalIgnoreCase)))
+        while (CamadasAtivas.Any(layer => string.Equals(layer.Nome, candidate, StringComparison.OrdinalIgnoreCase)) ||
+               _nomesCamadasCarregando.ContainsKey(candidate))
             candidate = $"{baseName} ({suffix++})";
         return candidate;
     }

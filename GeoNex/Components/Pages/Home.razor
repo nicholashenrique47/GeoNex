@@ -3660,92 +3660,143 @@
 
 
 @code {
-    private void CarregarMapaBaseOnline(string tipo)
+    private async Task CarregarMapaBaseOnline(string tipo)
     {
         if (!GeoNex.Services.OnlineBasemapPolicy.TryResolve(tipo, out var basemap)) return;
-
         GeoNex.Services.GdalRuntimeConfiguration.Apply();
         string nome = basemap.LayerName;
+        if (_nomesCamadasCarregando.ContainsKey(nome)) return;
         Camada? existente = CamadasAtivas.FirstOrDefault(camada =>
             string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase));
         if (existente is not null && !existente.PendenteReconexao) return;
-        string xmlTMS = GeoNex.Services.OnlineBasemapPolicy.BuildGdalTmsXml(
-            basemap,
-            GeoNex.Services.GdalRuntimeConfiguration.BasemapCache);
-        
-        string vsiPath = $"/vsimem/basemap_{basemap.Key}.xml";
-        byte[] xmlBytes = System.Text.Encoding.UTF8.GetBytes(xmlTMS);
-        OSGeo.GDAL.Gdal.FileFromMemBuffer(vsiPath, xmlBytes);
-        
-        // O dataset TMS representa uma pirâmide online, não uma ortofoto monolítica.
+
+        using IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync();
+        if (!_nomesCamadasCarregando.TryAdd(nome, 0)) return;
+        OSGeo.GDAL.Dataset? datasetAberto = null;
+        Camada? offlineAnterior = null;
+        int indiceOfflineAnterior = -1;
+        int ordemRenderAnterior = MapService.OrdemCamadas.FindIndex(item =>
+            string.Equals(item, nome, StringComparison.OrdinalIgnoreCase));
+        bool invisivelAnterior = MapService.CamadasInvisiveis.Contains(nome);
+        bool haviaLimitesRasterAnterior = MapService.LimitesRasters.TryGetValue(nome, out SkiaSharp.SKRect limitesRasterAnterior);
+        string crsAnterior = MapService.ProjetoSRS;
+        double offsetXAnterior = MapService.OffsetMundoX;
+        double offsetYAnterior = MapService.OffsetMundoY;
+        bool offsetDefinidoAnterior = MapService.OffsetMundoDefinido;
+        double panXAnterior = MapService.CameraPanX;
+        double panYAnterior = MapService.CameraPanY;
+        double zoomAnterior = MapService.CameraZoom;
+        string? camadaBaseAnterior = _camadaBaseProjeto;
         try
         {
-            var dataset = OSGeo.GDAL.Gdal.Open(vsiPath, OSGeo.GDAL.Access.GA_ReadOnly);
-            if (dataset != null)
+            existente = CamadasAtivas.FirstOrDefault(camada =>
+                string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase));
+            if (existente is not null && !existente.PendenteReconexao) return;
+            offlineAnterior = existente;
+            indiceOfflineAnterior = existente is null ? -1 : CamadasAtivas.IndexOf(existente);
+
+            string xmlTMS = GeoNex.Services.OnlineBasemapPolicy.BuildGdalTmsXml(
+                basemap,
+                GeoNex.Services.GdalRuntimeConfiguration.BasemapCache);
+            string vsiPath = $"/vsimem/basemap_{basemap.Key}.xml";
+            byte[] xmlBytes = System.Text.Encoding.UTF8.GetBytes(xmlTMS);
+            lock (MapService.GdalRasterLock)
             {
-                MapService.RemoveWarpedRaster(nome);
-                MapService.RemoveRasterCache(nome);
-                MapService.PublishRaster(nome, dataset, xmlTMS);
-                if (!MapService.OffsetMundoDefinido)
-                {
-                    // Centro inicial: Paraná, Brasil (-48.5747, -25.8828) em EPSG:3857
-                    double lon = -48.5747;
-                    double lat = -25.8828;
-                    double x = lon * 20037508.34 / 180.0;
-                    double y = Math.Log(Math.Tan((90.0 + lat) * Math.PI / 360.0)) / (Math.PI / 180.0);
-                    y = y * 20037508.34 / 180.0;
-                    MapService.DefinirOffset(x, x, y, y);
-                    MapService.ProjetoSRS = "EPSG:3857";
-                }
-                
-                // Adicionar a camada à lista
-                var anterior = CamadasAtivas.FirstOrDefault(camada =>
-                    string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase));
-                bool isFirstLayer = anterior is null && !CamadasAtivas.Any(camada => !camada.PendenteReconexao);
-                if (anterior?.PendenteReconexao == true)
-                {
-                    int indice = CamadasAtivas.IndexOf(anterior);
-                    CamadasAtivas[indice] = new Camada
-                    {
-                        Nome = nome, Tipo = "Raster", Visivel = anterior.Visivel,
-                        FonteJson = anterior.FonteJson
-                    };
-                    if (anterior.Visivel) MapService.CamadasInvisiveis.Remove(nome);
-                    SincronizarHierarquia();
-                }
-                else if (anterior is null && RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true }))
-                {
-                    MapService.CamadasInvisiveis.Remove(nome);
-                    SincronizarHierarquia();
-                }
-
-                if (isFirstLayer)
-                {
-                    // Centraliza e afasta a câmera para ver o mundo inteiro
-                    MapService.CameraZoom = 1.0f;
-                    MapService.CameraPanX = 0;
-                    MapService.CameraPanY = 0;
-                    MapService.OffsetMundoX = 0;
-                    MapService.OffsetMundoY = 0;
-                }
-
-                // A extensão mundial do TMS existe em Web Mercator. Só a publica
-                // como limites do mapa quando esse também é o SRC do projeto;
-                // misturar esses milhões de metros com UTM/graus quebra o ajuste
-                // da câmera e desloca o raster em relação às feições.
-                MapService.LimitesRasters[nome] = SrsFactory.IsSame(
-                    MapService.ProjetoSRS, GeoNex.Services.OnlineBasemapPolicy.WebMercatorSrs)
-                    ? new SkiaSharp.SKRect(-20037508.34f, -20037508.34f, 20037508.34f, 20037508.34f)
-                    : SkiaSharp.SKRect.Empty;
-                
-                MapService.RequestRedraw();
-                SolicitarNovoFrame();
-                StateHasChanged();
+                OSGeo.GDAL.Gdal.FileFromMemBuffer(vsiPath, xmlBytes);
+                datasetAberto = OSGeo.GDAL.Gdal.Open(vsiPath, OSGeo.GDAL.Access.GA_ReadOnly);
             }
+
+            // O dataset TMS representa uma pirâmide online, não uma ortofoto monolítica.
+            if (datasetAberto is null) return;
+            MapService.RemoveWarpedRaster(nome);
+            MapService.RemoveRasterCache(nome);
+            MapService.PublishRaster(nome, datasetAberto, xmlTMS);
+            datasetAberto = null;
+            if (!MapService.OffsetMundoDefinido)
+            {
+                // Centro inicial: Paraná, Brasil (-48.5747, -25.8828) em EPSG:3857
+                double lon = -48.5747;
+                double lat = -25.8828;
+                double x = lon * 20037508.34 / 180.0;
+                double y = Math.Log(Math.Tan((90.0 + lat) * Math.PI / 360.0)) / (Math.PI / 180.0);
+                y = y * 20037508.34 / 180.0;
+                MapService.DefinirOffset(x, x, y, y);
+                MapService.ProjetoSRS = "EPSG:3857";
+            }
+
+            bool isFirstLayer = !CamadasAtivas.Any(camada =>
+                !camada.PendenteReconexao && !ReferenceEquals(camada, offlineAnterior));
+            if (offlineAnterior is not null && offlineAnterior.PendenteReconexao)
+            {
+                CamadasAtivas[indiceOfflineAnterior] = new Camada
+                {
+                    Nome = nome,
+                    Tipo = "Raster",
+                    Visivel = offlineAnterior.Visivel,
+                    FonteJson = offlineAnterior.FonteJson
+                };
+                if (offlineAnterior.Visivel) MapService.CamadasInvisiveis.Remove(nome);
+                else MapService.CamadasInvisiveis.Add(nome);
+            }
+            else if (!RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true }, reservaDoChamador: true))
+            {
+                throw new InvalidOperationException($"Já existe uma camada chamada '{nome}' no mapa.");
+            }
+            _camadaBaseProjeto ??= nome;
+            if (offlineAnterior is null || offlineAnterior.Visivel) MapService.CamadasInvisiveis.Remove(nome);
+            else MapService.CamadasInvisiveis.Add(nome);
+
+            if (isFirstLayer)
+            {
+                MapService.CameraZoom = 1.0f;
+                MapService.CameraPanX = 0;
+                MapService.CameraPanY = 0;
+                MapService.OffsetMundoX = 0;
+                MapService.OffsetMundoY = 0;
+            }
+
+            MapService.LimitesRasters[nome] = SrsFactory.IsSame(
+                MapService.ProjetoSRS, GeoNex.Services.OnlineBasemapPolicy.WebMercatorSrs)
+                ? new SkiaSharp.SKRect(-20037508.34f, -20037508.34f, 20037508.34f, 20037508.34f)
+                : SkiaSharp.SKRect.Empty;
+            SincronizarHierarquia();
+            MapService.RequestRedraw();
+            SolicitarNovoFrame();
+            StateHasChanged();
         }
         catch (Exception ex)
         {
+            datasetAberto?.Dispose();
+            RemoverRecursosRaster(nome, null);
+            if (haviaLimitesRasterAnterior) MapService.LimitesRasters[nome] = limitesRasterAnterior;
+            if (ordemRenderAnterior >= 0)
+                MapService.OrdemCamadas.Insert(Math.Clamp(ordemRenderAnterior, 0, MapService.OrdemCamadas.Count), nome);
+            if (invisivelAnterior) MapService.CamadasInvisiveis.Add(nome);
+            else MapService.CamadasInvisiveis.Remove(nome);
+            if (offlineAnterior is not null && indiceOfflineAnterior >= 0 && indiceOfflineAnterior < CamadasAtivas.Count)
+            {
+                CamadasAtivas.RemoveAll(camada => string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase));
+                CamadasAtivas.Insert(Math.Clamp(indiceOfflineAnterior, 0, CamadasAtivas.Count), offlineAnterior);
+            }
+            else if (offlineAnterior is null)
+            {
+                CamadasAtivas.RemoveAll(camada => string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase));
+            }
+            MapService.ProjetoSRS = crsAnterior;
+            MapService.OffsetMundoX = offsetXAnterior;
+            MapService.OffsetMundoY = offsetYAnterior;
+            MapService.OffsetMundoDefinido = offsetDefinidoAnterior;
+            MapService.CameraPanX = panXAnterior;
+            MapService.CameraPanY = panYAnterior;
+            MapService.CameraZoom = zoomAnterior;
+            _camadaBaseProjeto = camadaBaseAnterior;
+            SincronizarHierarquia();
+            MapService.RequestRedraw();
             Console.WriteLine("Erro ao carregar Basemap: " + ex.Message);
+        }
+        finally
+        {
+            _nomesCamadasCarregando.TryRemove(nome, out _);
         }
     }
     // RESUMO COMPACTO DO CARREGAMENTO DO VETOR
@@ -4112,10 +4163,21 @@
     private DotNetObjectReference<Home>? objRef;
     private List<Camada> CamadasAtivas = new List<Camada>();
     private string? _camadaBaseProjeto;
-    private bool RegistrarNovaCamada(Camada camada, bool inserirNoInicio = false)
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _nomesCamadasCarregando =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private bool ReservarNomeCamada(string nome) =>
+        !string.IsNullOrWhiteSpace(nome) &&
+        !CamadasAtivas.Any(camada => string.Equals(camada.Nome, nome, StringComparison.OrdinalIgnoreCase)) &&
+        _nomesCamadasCarregando.TryAdd(nome, 0);
+
+    private void LiberarNomeCamada(string nome) => _nomesCamadasCarregando.TryRemove(nome, out _);
+
+    private bool RegistrarNovaCamada(Camada camada, bool inserirNoInicio = false, bool reservaDoChamador = false)
     {
         if (string.IsNullOrWhiteSpace(camada.Nome) ||
-            CamadasAtivas.Any(c => string.Equals(c.Nome, camada.Nome, StringComparison.OrdinalIgnoreCase)))
+            CamadasAtivas.Any(c => string.Equals(c.Nome, camada.Nome, StringComparison.OrdinalIgnoreCase)) ||
+            (!reservaDoChamador && _nomesCamadasCarregando.ContainsKey(camada.Nome)))
             return false;
 
         bool primeiraCamada = CamadasAtivas.Count == 0;
@@ -4539,15 +4601,26 @@
 
     private async Task AdicionarCamadaAoMapa()
     {
+        string? nomeReservado = null;
+        string caminhoFonte = caminhoArquivoRaster;
+        string crsAnterior = MapService.ProjetoSRS;
+        double offsetXAnterior = MapService.OffsetMundoX;
+        double offsetYAnterior = MapService.OffsetMundoY;
+        bool offsetDefinidoAnterior = MapService.OffsetMundoDefinido;
+        double panXAnterior = MapService.CameraPanX;
+        double panYAnterior = MapService.CameraPanY;
+        double zoomAnterior = MapService.CameraZoom;
+        string? camadaBaseAnterior = _camadaBaseProjeto;
+        OSGeo.GDAL.Dataset? datasetAberto = null;
         try
         {
-            if (string.IsNullOrEmpty(caminhoArquivoRaster))
+            if (string.IsNullOrEmpty(caminhoFonte))
             {
                 await JSRuntime.InvokeVoidAsync("alert", "Selecione um ficheiro primeiro!");
                 return;
             }
 
-            if (GeoNex.Services.GdalRuntimeBootstrap.IsEcwPath(caminhoArquivoRaster) &&
+            if (GeoNex.Services.GdalRuntimeBootstrap.IsEcwPath(caminhoFonte) &&
                 !GeoNex.Services.GdalRuntimeBootstrap.EcwReadAvailable)
             {
                 await JSRuntime.InvokeVoidAsync("alert", "O suporte nativo a ECW não foi carregado nesta instalação.");
@@ -4557,17 +4630,24 @@
             exibirModalImportacao = false;
 
             // BLINDAGEM 3: Lock no momento da troca de Dataset para evitar choque de Threads
-            string nome = System.IO.Path.GetFileName(caminhoArquivoRaster);
-            GeoNex.Services.RasterOverviewBuilder.Cancel(caminhoArquivoRaster);
+            string nome = System.IO.Path.GetFileName(caminhoFonte);
+            if (!ReservarNomeCamada(nome))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Já existe uma camada chamada '{nome}' no mapa ou ela está sendo carregada.");
+                return;
+            }
+            nomeReservado = nome;
+            GeoNex.Services.RasterOverviewBuilder.Cancel(caminhoFonte);
             using IDisposable? renderPause = _server == null ? null : await _server.PauseRenderingAsync();
             lock (MapService)
             {
-                var ds = OSGeo.GDAL.Gdal.Open(caminhoArquivoRaster, OSGeo.GDAL.Access.GA_ReadOnly);
+                var ds = OSGeo.GDAL.Gdal.Open(caminhoFonte, OSGeo.GDAL.Access.GA_ReadOnly);
+                datasetAberto = ds;
 
                 // Prevenção contra ficheiros corrompidos
                 if (ds == null)
                 {
-                    string failure = GeoNex.Services.GdalRuntimeBootstrap.ExplainOpenFailure(caminhoArquivoRaster);
+                    string failure = GeoNex.Services.GdalRuntimeBootstrap.ExplainOpenFailure(caminhoFonte);
                     InvokeAsync(() => JSRuntime.InvokeVoidAsync("alert", failure));
                     return;
                 }
@@ -4584,6 +4664,7 @@
                     MapService.ProjetoSRS = sourceProjection;
                 MapService.RemoveWarpedRaster(nome);
                 MapService.PublishRaster(nome, ds);
+                datasetAberto = null; // MapService assumiu a propriedade do handle.
 
                 // === TIER 1: QGIS HYBRID ARCHITECTURE (VRT Bypass) ===
                 // O QGIS nunca cria um WarpedVRT se o raster e o mapa usarem o mesmo SRC.
@@ -4708,7 +4789,7 @@
 
             // A primeira imagem usa o raster original. Pirâmides externas são
             // criadas depois, com handle próprio, sem alterar a fonte em GA_Update.
-            var overviewRefresh = MapService.CaptureRasterOverviewRefresh(nome, caminhoArquivoRaster);
+            var overviewRefresh = MapService.CaptureRasterOverviewRefresh(nome, caminhoFonte);
             var overviewServer = _server;
             if (overviewRefresh != null && overviewServer != null)
                 GeoNex.Services.RasterOverviewBuilder.Schedule(
@@ -4724,7 +4805,11 @@
 
             MapService.RemoveRasterCache(nome);
 
-            RegistrarNovaCamada(new Camada { Nome = nome, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoArquivoRaster }, inserirNoInicio: true);
+            if (!RegistrarNovaCamada(
+                new Camada { Nome = nome, Tipo = "Raster", Visivel = true, CaminhoArquivo = caminhoFonte },
+                inserirNoInicio: true,
+                reservaDoChamador: true))
+                throw new InvalidOperationException($"A camada '{nome}' já existe no mapa.");
             if (_camadaBaseProjeto is null)
                 _camadaBaseProjeto = nome;
             
@@ -4733,6 +4818,9 @@
             
             // Força a câmera a comportar-se exatamente como o 'AproximarCamada'
             var layerRect = MapService.LimitesRasters[nome];
+            if (layerRect.IsEmpty || !float.IsFinite(layerRect.Width) || !float.IsFinite(layerRect.Height) ||
+                layerRect.Width <= 0 || layerRect.Height <= 0)
+                throw new InvalidDataException($"O raster '{nome}' não possui uma extensão geográfica válida.");
             float w = MapService.ViewportWidth > 0 ? MapService.ViewportWidth : 1920;
             float h = MapService.ViewportHeight > 0 ? MapService.ViewportHeight : 1080;
             
@@ -4740,6 +4828,8 @@
             
             // Simular o que o LocalMapServer vai fazer no próximo frame
             var limitesGlobais = MapService.LimitesRasterGlobal;
+            if (limitesGlobais.IsEmpty || limitesGlobais.Width <= 0 || limitesGlobais.Height <= 0)
+                throw new InvalidDataException($"Não foi possível calcular a extensão total após carregar '{nome}'.");
             float futureGlobalEscala = Math.Min(w / limitesGlobais.Width, h / limitesGlobais.Height) * 0.8f;
             
             MapService.CameraZoom = layerEscala / futureGlobalEscala;
@@ -4754,7 +4844,33 @@
         }
         catch (Exception ex)
         {
+            using IDisposable? pausaLimpeza = _server is null ? null : await _server.PauseRenderingAsync();
+            datasetAberto?.Dispose();
+            if (nomeReservado is not null)
+            {
+                RemoverRecursosRaster(nomeReservado, caminhoFonte);
+                CamadasAtivas.RemoveAll(camada => string.Equals(camada.Nome, nomeReservado, StringComparison.OrdinalIgnoreCase));
+                MapService.ProjetoSRS = crsAnterior;
+                MapService.OffsetMundoX = offsetXAnterior;
+                MapService.OffsetMundoY = offsetYAnterior;
+                MapService.OffsetMundoDefinido = offsetDefinidoAnterior;
+                MapService.CameraPanX = panXAnterior;
+                MapService.CameraPanY = panYAnterior;
+                MapService.CameraZoom = zoomAnterior;
+                _camadaBaseProjeto = camadaBaseAnterior;
+                MapService.RequestRedraw();
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync(
+                        "mapEngine.sincronizarCameraComBlazor", panXAnterior, panYAnterior, zoomAnterior);
+                }
+                catch { }
+            }
             await JSRuntime.InvokeVoidAsync("alert", "Erro crítico na importação raster: " + ex.Message);
+        }
+        finally
+        {
+            if (nomeReservado is not null) LiberarNomeCamada(nomeReservado);
         }
     }
 
@@ -4783,16 +4899,33 @@
 
     private async Task AdicionarVetorAoMapa()
     {
+        string? nomeReservado = null;
+        string caminhoFonte = caminhoArquivoVetor;
+        string crsAnterior = MapService.ProjetoSRS;
+        double offsetXAnterior = MapService.OffsetMundoX;
+        double offsetYAnterior = MapService.OffsetMundoY;
+        bool offsetDefinidoAnterior = MapService.OffsetMundoDefinido;
+        double panXAnterior = MapService.CameraPanX;
+        double panYAnterior = MapService.CameraPanY;
+        double zoomAnterior = MapService.CameraZoom;
+        SKRect limitesVetoriaisAnteriores = MapService.LimitesGlobaisVetor;
+        string? camadaBaseAnterior = _camadaBaseProjeto;
         try
         {
-            if (string.IsNullOrEmpty(caminhoArquivoVetor))
+            if (string.IsNullOrEmpty(caminhoFonte))
             {
                 await JSRuntime.InvokeVoidAsync("alert", "Selecione um arquivo Shapefile primeiro!");
                 return;
             }
 
             exibirModalImportacao = false;
-            string nomeArquivo = System.IO.Path.GetFileName(caminhoArquivoVetor);
+            string nomeArquivo = System.IO.Path.GetFileName(caminhoFonte);
+            if (!ReservarNomeCamada(nomeArquivo))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Já existe uma camada chamada '{nomeArquivo}' no mapa ou ela está sendo carregada.");
+                return;
+            }
+            nomeReservado = nomeArquivo;
 
             // === A MÁGICA ACONTECE AQUI ===
             // Substituímos o extrator antigo pelo nosso Motor Duplo que carrega o SkiaSharp e a Árvore NTS
@@ -4812,10 +4945,11 @@
                 InvokeAsync(StateHasChanged);
             }, null, 0, 50); // Atualiza a cada 50ms para fluidez
 
+            using IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync();
             await Task.Run(() =>
             {
                 // JIT COMPILATION: Converte GeoJSON/KML em Shapefile Binário na hora!
-                string caminhoCompilado = ProjetoService.CompilarParaShapefileNativo(caminhoArquivoVetor);
+                string caminhoCompilado = ProjetoService.CompilarParaShapefileNativo(caminhoFonte);
                 
                 // O motor vai sempre receber um binário nativo (.shp) ultrarrápido
                 ProjetoService.CarregarShapefileParaMotorMapas(caminhoCompilado, nomeArquivo, MapService);
@@ -4836,7 +4970,11 @@
             // CORREÇÃO CRÍTICA: Popula a árvore de busca logarítmica com os lotes importados
             // MapService.ConstruirIndiceEspacial(); já foi movido para dentro da Task.Run para não travar a UI!
             // Mantém novas camadas no topo, sem duplicá-las.
-            RegistrarNovaCamada(new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoArquivoVetor }, inserirNoInicio: true);
+            if (!RegistrarNovaCamada(
+                new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoFonte },
+                inserirNoInicio: true,
+                reservaDoChamador: true))
+                throw new InvalidOperationException($"A camada '{nomeArquivo}' já existe no mapa.");
             if (_camadaBaseProjeto is null)
                 _camadaBaseProjeto = nomeArquivo;
 
@@ -4849,7 +4987,35 @@
             carregamentoVetorEmAndamento = false;
             exibirResumoCarregamentoVetor = false;
             ocultarResumoVetorCts?.Cancel();
+            if (nomeReservado is not null)
+            {
+                using IDisposable? pausaLimpeza = _server is null ? null : await _server.PauseRenderingAsync();
+                RemoverRecursosVetoriais(nomeReservado);
+                CamadasAtivas.RemoveAll(camada => string.Equals(camada.Nome, nomeReservado, StringComparison.OrdinalIgnoreCase));
+                MapService.ProjetoSRS = crsAnterior;
+                MapService.OffsetMundoX = offsetXAnterior;
+                MapService.OffsetMundoY = offsetYAnterior;
+                MapService.OffsetMundoDefinido = offsetDefinidoAnterior;
+                MapService.CameraPanX = panXAnterior;
+                MapService.CameraPanY = panYAnterior;
+                MapService.CameraZoom = zoomAnterior;
+                _camadaBaseProjeto = camadaBaseAnterior;
+                RecalcularLimitesGlobaisVetoriais();
+                if (MapService.LimitesGlobaisVetor.IsEmpty && !limitesVetoriaisAnteriores.IsEmpty)
+                    MapService.LimitesGlobaisVetor = limitesVetoriaisAnteriores;
+                MapService.RequestRedraw();
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync(
+                        "mapEngine.sincronizarCameraComBlazor", panXAnterior, panYAnterior, zoomAnterior);
+                }
+                catch { }
+            }
             await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}");
+        }
+        finally
+        {
+            if (nomeReservado is not null) LiberarNomeCamada(nomeReservado);
         }
     }
 
@@ -5075,11 +5241,7 @@
                 .OrderBy(camada => camada.Ordem)
                 .ToList();
 
-            foreach (var camada in camadasLocais)
-                if (!System.IO.File.Exists(camada.CaminhoFonteOriginal))
-                    throw new FileNotFoundException(
-                        $"A fonte da camada '{camada.Nome}' não foi encontrada: {camada.CaminhoFonteOriginal}",
-                        camada.CaminhoFonteOriginal);
+            await ValidarFontesDoProjetoAsync(camadasLocais);
 
             List<string> avisosAnteriores;
             try
@@ -5173,6 +5335,46 @@
         }
 
         return true;
+    }
+
+    private async Task ValidarFontesDoProjetoAsync(IEnumerable<GeoNex.Models.Camada> camadas)
+    {
+        foreach (GeoNex.Models.Camada camada in camadas)
+        {
+            string caminho = camada.CaminhoFonteOriginal ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(caminho)) continue;
+
+            bool remota = GeoNex.Services.GnxProjectStore.FonteEhRemota(caminho);
+            if (!remota && !System.IO.File.Exists(caminho))
+                throw new FileNotFoundException(
+                    $"A fonte da camada '{camada.Nome}' não foi encontrada: {caminho}", caminho);
+            if (caminho.StartsWith("/vsimem/", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException(
+                    $"A fonte da camada '{camada.Nome}' usa um caminho GDAL temporário que não sobrevive ao fechamento do GeoNex.");
+
+            bool aberta = await Task.Run(() =>
+            {
+                lock (MapService.GdalRasterLock)
+                {
+                    if (string.Equals(camada.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
+                    {
+                        using var dataset = OSGeo.GDAL.Gdal.Open(caminho, OSGeo.GDAL.Access.GA_ReadOnly);
+                        return dataset is not null && dataset.RasterXSize > 0 && dataset.RasterYSize > 0;
+                    }
+
+                    using OSGeo.OGR.DataSource? dataSource = OSGeo.OGR.Ogr.Open(caminho, 0);
+                    if (dataSource is null || dataSource.GetLayerCount() == 0) return false;
+                    using OSGeo.OGR.Layer? layer = dataSource.GetLayerByIndex(0);
+                    if (layer is null) return false;
+                    using OSGeo.OGR.FeatureDefn? definition = layer.GetLayerDefn();
+                    return definition is not null;
+                }
+            });
+
+            if (!aberta)
+                throw new InvalidDataException(
+                    $"A fonte da camada '{camada.Nome}' existe, mas GDAL/OGR não conseguiu abri-la como {camada.Tipo}: {caminho}");
+        }
     }
 
     private async Task SalvarProjeto()
@@ -5502,7 +5704,7 @@
             if (tipoFonte == "MapaBaseOnline" && TentarLerFonteProjeto(persistida) is { Identificador: { Length: > 0 } key } &&
                 GeoNex.Services.OnlineBasemapPolicy.TryResolve(key, out _))
             {
-                CarregarMapaBaseOnline(key);
+                await CarregarMapaBaseOnline(key);
                 Camada? mapa = CamadasAtivas.FirstOrDefault(camada =>
                     string.Equals(camada.Nome, persistida.Nome, StringComparison.OrdinalIgnoreCase));
                 if (mapa is not null && !mapa.PendenteReconexao)
@@ -5671,51 +5873,106 @@
         catch (System.Text.Json.JsonException) { return null; }
     }
 
+    private void RemoverRecursosRaster(string nome, string? caminhoFonte)
+    {
+        if (!string.IsNullOrWhiteSpace(caminhoFonte))
+            GeoNex.Services.RasterOverviewBuilder.Cancel(caminhoFonte);
+        lock (MapService)
+        {
+            MapService.RemoveWarpedRaster(nome);
+            MapService.RemoveRaster(nome);
+            MapService.LimitesRasters.Remove(nome);
+            MapService.RemoveRasterCache(nome);
+            MapService.EstilosPorCamada.TryRemove(nome, out _);
+            MapService.OrdemCamadas.RemoveAll(item => string.Equals(item, nome, StringComparison.OrdinalIgnoreCase));
+            MapService.CamadasInvisiveis.Remove(nome);
+        }
+    }
+
+    private bool RemoverRecursosVetoriais(string nome)
+    {
+        MapService.CaminhoFeicaoDestacada = null;
+        MapService.DestacarFeicao(null);
+        MapService.RemoveVectorResources(nome);
+        bool removeuFeicoes = false;
+        if (MapService.FeaturesPorCamada.Remove(nome, out var feicoes))
+        {
+            removeuFeicoes = true;
+            foreach (var feicao in feicoes)
+                System.Threading.Interlocked.Exchange(ref feicao.Path, null)?.Dispose();
+        }
+        MapService.FeicoesOriginais.Remove(nome);
+        MapService.LimitesVetoresWorld.Remove(nome);
+        if (MapService.VetoresPorCamada.Remove(nome, out var vetores))
+            foreach (var caminho in vetores) caminho.Dispose();
+        if (MapService.LinhasPorCamada.Remove(nome, out var linhas))
+            foreach (var caminho in linhas) caminho.Dispose();
+        if (MapService.PontosPorCamada.Remove(nome, out var pontos)) pontos.Dispose();
+        if (MapService.VetoresCategorizados.Remove(nome, out var categorias))
+            foreach (var grupo in categorias.Values)
+                foreach (var caminho in grupo) caminho.Dispose();
+        if (MapService.LinhasCategorizadas.Remove(nome, out var linhasCategorizadas))
+            foreach (var grupo in linhasCategorizadas.Values)
+                foreach (var caminho in grupo) caminho.Dispose();
+        MapService.PontosAncoragemRotulo.Remove(nome);
+        MapService.EstilosPorCamada.TryRemove(nome, out _);
+        MapService.OrdemCamadas.RemoveAll(item => string.Equals(item, nome, StringComparison.OrdinalIgnoreCase));
+        MapService.CamadasInvisiveis.Remove(nome);
+        RecalcularLimitesGlobaisVetoriais();
+        return removeuFeicoes;
+    }
+
+    private void RecalcularLimitesGlobaisVetoriais()
+    {
+        SKRect limites = SKRect.Empty;
+        foreach (var envelope in MapService.LimitesVetoresWorld.Values)
+        {
+            if (envelope.IsNull || !double.IsFinite(envelope.MinX) || !double.IsFinite(envelope.MinY) ||
+                !double.IsFinite(envelope.MaxX) || !double.IsFinite(envelope.MaxY))
+                continue;
+            var retangulo = new SKRect(
+                (float)(envelope.MinX - MapService.OffsetMundoX),
+                (float)-(envelope.MaxY - MapService.OffsetMundoY),
+                (float)(envelope.MaxX - MapService.OffsetMundoX),
+                (float)-(envelope.MinY - MapService.OffsetMundoY));
+            if (!float.IsFinite(retangulo.Left) || !float.IsFinite(retangulo.Top) ||
+                !float.IsFinite(retangulo.Right) || !float.IsFinite(retangulo.Bottom) || retangulo.IsEmpty)
+                continue;
+            if (limites.IsEmpty) limites = retangulo;
+            else limites.Union(retangulo);
+        }
+        MapService.LimitesGlobaisVetor = limites;
+    }
+
     private async Task LimparCamadasDoProjetoAtualAsync()
     {
+        if (_ferramentaAtiva != ModoFerramenta.Identificacao)
+            TrocarFerramenta(ModoFerramenta.Identificacao);
+        else
+            MapService.DestacarFeicao(null);
+        HistoricoAquisicao.Clear();
+        HistoricoMedicao.Clear();
+        LimparCursorDesenho();
+        LimparMetricasAquisicao();
+        RecalcularMedicoes(incluirCursor: false);
+        _medicaoConcluida = false;
+        modoEdicaoVerticeLigado = false;
+        _geometriaDestacada = null;
+        _ultimoSnapRenderizado = null;
+
         using IDisposable? pausaRender = _server is null ? null : await _server.PauseRenderingAsync();
         foreach (Camada camada in CamadasAtivas.ToArray())
         {
             string nome = camada.Nome;
             if (camada.Tipo == "Raster")
-            {
-                GeoNex.Services.RasterOverviewBuilder.Cancel(camada.CaminhoArquivo);
-                lock (MapService)
-                {
-                    MapService.RemoveWarpedRaster(nome);
-                    MapService.RemoveRaster(nome);
-                    MapService.LimitesRasters.Remove(nome);
-                    MapService.RemoveRasterCache(nome);
-                }
-            }
+                RemoverRecursosRaster(nome, camada.CaminhoArquivo);
             else if (camada.Tipo == "Vetor")
-            {
-                MapService.RemoveVectorResources(nome);
-                if (MapService.FeaturesPorCamada.Remove(nome, out var feicoes))
-                    foreach (var feicao in feicoes)
-                    {
-                        var caminho = System.Threading.Interlocked.Exchange(ref feicao.Path, null);
-                        caminho?.Dispose();
-                    }
-                MapService.FeicoesOriginais.Remove(nome);
-                MapService.LimitesVetoresWorld.Remove(nome);
-                if (MapService.VetoresPorCamada.Remove(nome, out var vetores))
-                    foreach (var caminho in vetores) caminho.Dispose();
-                if (MapService.LinhasPorCamada.Remove(nome, out var linhas))
-                    foreach (var caminho in linhas) caminho.Dispose();
-                if (MapService.PontosPorCamada.Remove(nome, out var pontos)) pontos.Dispose();
-                if (MapService.VetoresCategorizados.Remove(nome, out var categorias))
-                    foreach (var grupo in categorias.Values)
-                        foreach (var caminho in grupo) caminho.Dispose();
-                if (MapService.LinhasCategorizadas.Remove(nome, out var linhasCategorizadas))
-                    foreach (var grupo in linhasCategorizadas.Values)
-                        foreach (var caminho in grupo) caminho.Dispose();
-                MapService.PontosAncoragemRotulo.Remove(nome);
-            }
-            MapService.EstilosPorCamada.TryRemove(nome, out _);
+                RemoverRecursosVetoriais(nome);
+            else MapService.EstilosPorCamada.TryRemove(nome, out _);
         }
 
         CamadasAtivas.Clear();
+        MapService.ResetarEstadoInteracaoVetorial();
         MapService.OrdemCamadas = new List<string>();
         MapService.CamadasInvisiveis.Clear();
         MapService.LimitesRasters.Clear();
@@ -5732,6 +5989,8 @@
         MapService.PontosMedicao.Clear();
         MapService.PontosAquisicao.Clear();
         MapService.MostrarAreaMedicao = false;
+        MapService.ClientRenderedDigitizingPreview = false;
+        MapService.ClientRenderedMeasurementPreview = false;
         MapService.DestacarFeicao(null);
         MapService.RequestRedraw();
         _camadaBaseProjeto = null;
@@ -5845,32 +6104,12 @@
             using IDisposable? renderPause = _server == null ? null : await _server.PauseRenderingAsync();
 
             if (camada.Tipo == "Raster")
-            {
-                GeoNex.Services.RasterOverviewBuilder.Cancel(camada.CaminhoArquivo);
-                lock (MapService)
-                {
-                    MapService.RemoveWarpedRaster(alvo);
-                    MapService.RemoveRaster(alvo);
-                    MapService.LimitesRasters.Remove(alvo);
-                    MapService.RemoveRasterCache(alvo);
-                }
-            }
+                RemoverRecursosRaster(alvo, camada.CaminhoArquivo);
             else if (camada.Tipo == "Vetor")
-            {
-                MapService.RemoveVectorResources(alvo);
-            }
-
-            // 2. VARRE A MEMÓRIA DA PLACA GRÁFICA (Impede as camadas fantasmas)
-            MapService.VetoresPorCamada.Remove(alvo);
-            MapService.LinhasPorCamada.Remove(alvo);
-            MapService.PontosPorCamada.Remove(alvo);
-            MapService.FeicoesOriginais.Remove(alvo);
-            MapService.FeaturesPorCamada.Remove(alvo);
-            MapService.VetoresCategorizados.Remove(alvo);
-            MapService.LinhasCategorizadas.Remove(alvo);
-            MapService.PontosAncoragemRotulo.Remove(alvo);
-            MapService.LimitesVetoresWorld.Remove(alvo);
-            MapService.EstilosPorCamada.TryRemove(alvo, out _);
+                RemoverRecursosVetoriais(alvo);
+            else MapService.EstilosPorCamada.TryRemove(alvo, out _);
+            if (string.Equals(_camadaBaseProjeto, alvo, StringComparison.OrdinalIgnoreCase))
+                _camadaBaseProjeto = CamadasAtivas.FirstOrDefault(item => !item.PendenteReconexao)?.Nome;
 
             // 3. Atualiza a tela imediatamente
             SincronizarHierarquia();

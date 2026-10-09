@@ -410,6 +410,16 @@ namespace GeoNex.Services
             _bufferEdicaoAtiva = buffer;
         }
 
+        /// <summary>Forgets derived vector interaction structures before a project replaces the scene.</summary>
+        public void ResetarEstadoInteracaoVetorial()
+        {
+            _bufferEdicaoAtiva = new List<SkiaSharp.SKPath>();
+            _indiceEspacialEstatico = new STRtree<SkiaSharp.SKPath>();
+            _indiceNecessitaReconstrucao = true;
+            // This legacy reference borrows CompiledFeature.Path; the feature owns it.
+            CaminhoFeicaoDestacada = null;
+        }
+
 
         public void ConstruirIndiceEspacialEstatico()
         {
