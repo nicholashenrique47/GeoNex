@@ -5339,42 +5339,7 @@
 
     private async Task ValidarFontesDoProjetoAsync(IEnumerable<GeoNex.Models.Camada> camadas)
     {
-        foreach (GeoNex.Models.Camada camada in camadas)
-        {
-            string caminho = camada.CaminhoFonteOriginal ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(caminho)) continue;
-
-            bool remota = GeoNex.Services.GnxProjectStore.FonteEhRemota(caminho);
-            if (!remota && !System.IO.File.Exists(caminho))
-                throw new FileNotFoundException(
-                    $"A fonte da camada '{camada.Nome}' não foi encontrada: {caminho}", caminho);
-            if (caminho.StartsWith("/vsimem/", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException(
-                    $"A fonte da camada '{camada.Nome}' usa um caminho GDAL temporário que não sobrevive ao fechamento do GeoNex.");
-
-            bool aberta = await Task.Run(() =>
-            {
-                lock (MapService.GdalRasterLock)
-                {
-                    if (string.Equals(camada.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
-                    {
-                        using var dataset = OSGeo.GDAL.Gdal.Open(caminho, OSGeo.GDAL.Access.GA_ReadOnly);
-                        return dataset is not null && dataset.RasterXSize > 0 && dataset.RasterYSize > 0;
-                    }
-
-                    using OSGeo.OGR.DataSource? dataSource = OSGeo.OGR.Ogr.Open(caminho, 0);
-                    if (dataSource is null || dataSource.GetLayerCount() == 0) return false;
-                    using OSGeo.OGR.Layer? layer = dataSource.GetLayerByIndex(0);
-                    if (layer is null) return false;
-                    using OSGeo.OGR.FeatureDefn? definition = layer.GetLayerDefn();
-                    return definition is not null;
-                }
-            });
-
-            if (!aberta)
-                throw new InvalidDataException(
-                    $"A fonte da camada '{camada.Nome}' existe, mas GDAL/OGR não conseguiu abri-la como {camada.Tipo}: {caminho}");
-        }
+        await GeoNex.Services.GnxProjectSourceValidator.ValidarAsync(camadas, MapService.GdalRasterLock);
     }
 
     private async Task SalvarProjeto()

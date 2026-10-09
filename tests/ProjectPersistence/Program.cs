@@ -3,6 +3,7 @@ using GeoNex.Models;
 using GeoNex.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using System.Runtime.InteropServices;
 
 var root = Path.Combine(Path.GetTempPath(), "GeoNexProjectPersistenceTests", Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
@@ -19,6 +20,7 @@ try
     await VerifyDuplicateRuntimeLayerNamesRejectedAsync(root);
     VerifyPathResolution(root);
     await VerifyMovedProjectResolvesRelativeSourcesAsync(root);
+    await VerifyProjectSourceValidationAsync(root);
     Console.WriteLine("PASS: Project persistence, schema migration, validation, and path contracts.");
 }
 finally
@@ -318,6 +320,59 @@ static async Task VerifyMovedProjectResolvesRelativeSourcesAsync(string root)
         "relative source resolves after moving the project folder");
 }
 
+static async Task VerifyProjectSourceValidationAsync(string root)
+{
+    ConfigureGdalNativeRuntime();
+    object gdalLock = new();
+    string missingPath = Path.Combine(root, "missing.shp");
+    await AssertThrowsAsync<FileNotFoundException>(
+        () => GnxProjectSourceValidator.ValidarAsync(
+            [new Camada { Nome = "missing", Tipo = "Vetor", CaminhoFonteOriginal = missingPath }], gdalLock),
+        "reject missing local sources before map replacement");
+
+    string invalidRasterPath = Path.Combine(root, "invalid.tif");
+    await File.WriteAllTextAsync(invalidRasterPath, "not a raster dataset");
+    await AssertThrowsAsync<InvalidDataException>(
+        () => GnxProjectSourceValidator.ValidarAsync(
+            [new Camada { Nome = "invalid raster", Tipo = "Raster", CaminhoFonteOriginal = invalidRasterPath }], gdalLock),
+        "reject existing but unreadable raster sources");
+
+    string invalidVectorPath = Path.Combine(root, "invalid.shp");
+    await File.WriteAllTextAsync(invalidVectorPath, "not a shapefile");
+    await AssertThrowsAsync<InvalidDataException>(
+        () => GnxProjectSourceValidator.ValidarAsync(
+            [new Camada { Nome = "invalid vector", Tipo = "Vetor", CaminhoFonteOriginal = invalidVectorPath }], gdalLock),
+        "reject existing but unreadable vector sources");
+
+    string validVectorPath = Path.Combine(root, "valid.geojson");
+    await File.WriteAllTextAsync(validVectorPath,
+        "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"id\":1},\"geometry\":{\"type\":\"Point\",\"coordinates\":[10,20]}}]}");
+    await GnxProjectSourceValidator.ValidarAsync(
+        [new Camada { Nome = "valid vector", Tipo = "Vetor", CaminhoFonteOriginal = validVectorPath }], gdalLock);
+
+    await AssertThrowsAsync<InvalidDataException>(
+        () => GnxProjectSourceValidator.ValidarAsync(
+            [new Camada { Nome = "temporary", Tipo = "Raster", CaminhoFonteOriginal = "/vsimem/temporary.tif" }], gdalLock),
+        "reject process-local GDAL virtual paths");
+}
+
+static void ConfigureGdalNativeRuntime()
+{
+    if (!OperatingSystem.IsWindows())
+        throw new PlatformNotSupportedException("O runtime GDAL deste harness é empacotado para Windows.");
+
+    string runtimeRoot = Path.Combine(AppContext.BaseDirectory, "gdal");
+    string nativeDirectory = Path.Combine(runtimeRoot, Environment.Is64BitProcess ? "x64" : "x86");
+    if (!Directory.Exists(nativeDirectory) || !GdalTestRuntime.SetDllDirectory(nativeDirectory))
+        throw new InvalidOperationException($"Não foi possível configurar o runtime GDAL em {nativeDirectory}.");
+
+    string currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+    Environment.SetEnvironmentVariable("PATH", nativeDirectory + Path.PathSeparator + currentPath);
+    Environment.SetEnvironmentVariable("GDAL_DATA", Path.Combine(runtimeRoot, "data"));
+    Environment.SetEnvironmentVariable("PROJ_DATA", Path.Combine(runtimeRoot, "share"));
+    Environment.SetEnvironmentVariable("PROJ_LIB", Path.Combine(runtimeRoot, "share"));
+}
+
 static void Assert(bool condition, string contract)
 {
     if (!condition) throw new InvalidOperationException($"FAIL: {contract}");
@@ -328,4 +383,11 @@ static async Task AssertThrowsAsync<TException>(Func<Task> action, string contra
     try { await action(); }
     catch (TException) { return; }
     throw new InvalidOperationException($"FAIL: {contract} did not throw {typeof(TException).Name}");
+}
+
+static class GdalTestRuntime
+{
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetDllDirectory(string path);
 }
