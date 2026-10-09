@@ -13,6 +13,7 @@
     <Compile Include="../../GeoNex/Models/Camada.cs" Link="Camada.cs" />
     <Compile Include="../../GeoNex/Models/Feicao.cs" Link="Feicao.cs" />
     <Compile Include="../../GeoNex/Models/ProjetoFonteCamada.cs" Link="ProjetoFonteCamada.cs" />
+    <Compile Include="../../GeoNex/Services/EstiloCamada.cs" Link="EstiloCamada.cs" />
     <Compile Include="../../GeoNex/Services/GnxProjectStore.cs" Link="GnxProjectStore.cs" />
   </ItemGroup>
 </Project>

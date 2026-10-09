@@ -10,6 +10,7 @@ try
 {
     await VerifyCreateSaveReopenAsync(root);
     await VerifyCreateDoesNotOverwriteExistingAsync(root);
+    await VerifyExtensionValidationAsync(root);
     await VerifySaveRollbackAsync(root);
     await VerifyDuplicateSaveRejectedWithoutMutationAsync(root);
     await VerifyLegacyMigrationAsync(root);
@@ -17,6 +18,7 @@ try
     await VerifyDuplicateLayerValidationAsync(root);
     await VerifyDuplicateRuntimeLayerNamesRejectedAsync(root);
     VerifyPathResolution(root);
+    await VerifyMovedProjectResolvesRelativeSourcesAsync(root);
     Console.WriteLine("PASS: Project persistence, schema migration, validation, and path contracts.");
 }
 finally
@@ -43,10 +45,27 @@ static async Task VerifyCreateSaveReopenAsync(string root)
         ColunaGeometria = "geom", TipoGeometria = "MULTIPOLYGON", Srid = 31982, DimensaoCoordenada = 2
     };
     string postgisJson = System.Text.Json.JsonSerializer.Serialize(postgisSource);
+    var roadsStyleJson = System.Text.Json.JsonSerializer.Serialize(new EstiloCamada
+    {
+        TipoSimbologia = "CATEGORIZADA",
+        ColunaSimbologia = "zone",
+        CoresCategorizadas = new Dictionary<string, string>
+        {
+            ["residential"] = "#2a5",
+            ["industrial"] = "#b50"
+        },
+        ExibirRotulos = true,
+        ColunaRotulo = "street_name",
+        CorTextoRotulo = "#ffffff",
+        CorHaloRotulo = "#102030",
+        TamanhoTextoRotulo = 14,
+        TamanhoHaloRotulo = 4,
+        AntiColisaoRotulos = false
+    });
     var rows = new[]
     {
         new CamadaProjetoSnapshot("roads", "Vetor", false, 0, nestedSource,
-            "{\"Tipo\":\"Arquivo\"}", "{\"color\":\"#2a5\"}"),
+            "{\"Tipo\":\"Arquivo\"}", roadsStyleJson),
         new CamadaProjetoSnapshot("ortho", "Raster", true, 1, externalSource,
             "{\"Tipo\":\"Arquivo\"}", null),
         new CamadaProjetoSnapshot("OpenStreetMap", "Raster", true, 2, string.Empty,
@@ -67,7 +86,15 @@ static async Task VerifyCreateSaveReopenAsync(string root)
     var roads = reopened.Camadas.Single(layer => layer.Nome == "roads");
     Assert(!roads.Visivel && roads.Ordem == 0, "visibility and order round trip");
     Assert(roads.CaminhoFonteOriginal == nestedSource, "relative project path resolves against project folder");
-    Assert(roads.EstiloJson == "{\"color\":\"#2a5\"}", "layer style round trip");
+    var reopenedRoadStyle = System.Text.Json.JsonSerializer.Deserialize<EstiloCamada>(roads.EstiloJson!)!;
+    Assert(reopenedRoadStyle.TipoSimbologia == "CATEGORIZADA" &&
+        reopenedRoadStyle.ColunaSimbologia == "zone" &&
+        reopenedRoadStyle.CoresCategorizadas["industrial"] == "#b50",
+        "categorized symbology round trip");
+    Assert(reopenedRoadStyle.ExibirRotulos && reopenedRoadStyle.ColunaRotulo == "street_name" &&
+        reopenedRoadStyle.CorTextoRotulo == "#ffffff" && reopenedRoadStyle.TamanhoTextoRotulo == 14 &&
+        reopenedRoadStyle.TamanhoHaloRotulo == 4 && !reopenedRoadStyle.AntiColisaoRotulos,
+        "label settings round trip");
     Assert(reopened.Camadas.Single(layer => layer.Nome == "ortho").CaminhoFonteOriginal == externalSource,
         "external absolute source remains absolute");
     Assert(reopened.Camadas.Single(layer => layer.Nome == "OpenStreetMap").FonteJson!.Contains("OSM", StringComparison.Ordinal),
@@ -100,6 +127,15 @@ static async Task VerifyCreateDoesNotOverwriteExistingAsync(string root)
         () => GnxProjectStore.CriarAsync(path, "Must not overwrite"),
         "refuse to replace an existing project file");
     Assert(await File.ReadAllTextAsync(path) == sentinel, "create collision preserves existing file bytes");
+}
+
+static async Task VerifyExtensionValidationAsync(string root)
+{
+    string path = Path.Combine(root, "wrong-extension.sqlite");
+    await AssertThrowsAsync<InvalidDataException>(
+        () => GnxProjectStore.CriarAsync(path, "Wrong extension"),
+        "require .gnx extension when creating a project");
+    Assert(!File.Exists(path), "invalid project extension does not create a file");
 }
 
 static async Task VerifySaveRollbackAsync(string root)
@@ -168,6 +204,8 @@ static async Task VerifyLegacyMigrationAsync(string root)
 
     Projeto project = await GnxProjectStore.AbrirAsync(path);
     Assert(project.Id == id && project.Camadas.Single().Nome == "legacy", "legacy project data survives migration");
+    Assert(project.Camadas.Single().CaminhoFonteOriginal == Path.GetFullPath(Path.Combine(root, "legacy.shp")),
+        "legacy relative source path resolves from the project directory");
     await GnxProjectStore.AbrirAsync(path);
     await using var migrated = new GeoNexContext(path);
     var columns = await migrated.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Projetos')").ToListAsync();
@@ -251,6 +289,33 @@ static void VerifyPathResolution(string root)
     Assert(GnxProjectStore.ResolverCaminhoFonte(projectPath, storedRelative) == Path.GetFullPath(inProject), "relative path resolves after reopen");
     Assert(GnxProjectStore.PersistirCaminhoFonte(projectPath, outside) == Path.GetFullPath(outside), "external source stays absolute");
     Assert(GnxProjectStore.ResolverCaminhoFonte(projectPath, "https://example.test/tiles/{z}/{x}/{y}.png").StartsWith("https://", StringComparison.Ordinal), "remote URI preserved");
+}
+
+static async Task VerifyMovedProjectResolvesRelativeSourcesAsync(string root)
+{
+    string originalDirectory = Path.Combine(root, "relocation", "original");
+    string originalProjectPath = Path.Combine(originalDirectory, "portable.gnx");
+    string originalSourcePath = Path.Combine(originalDirectory, "layers", "trees.geojson");
+    Directory.CreateDirectory(Path.GetDirectoryName(originalSourcePath)!);
+    await File.WriteAllTextAsync(originalSourcePath, "relative source fixture");
+
+    Projeto project = await GnxProjectStore.CriarAsync(originalProjectPath, "Portable project");
+    var layer = new CamadaProjetoSnapshot("trees.geojson", "Vetor", true, 0, originalSourcePath,
+        "{\"Tipo\":\"Arquivo\"}", null);
+    await GnxProjectStore.SalvarAsync(project, [layer], "EPSG:4326", "trees.geojson",
+        0, 0, true, 0, 0, 1, null);
+
+    SqliteConnection.ClearAllPools();
+    string movedDirectory = Path.Combine(root, "relocation", "moved");
+    Directory.Move(originalDirectory, movedDirectory);
+    string movedProjectPath = Path.Combine(movedDirectory, "portable.gnx");
+    string movedSourcePath = Path.Combine(movedDirectory, "layers", "trees.geojson");
+    Projeto reopened = await GnxProjectStore.AbrirAsync(movedProjectPath);
+    Assert(reopened.CaminhoArquivo == Path.GetFullPath(movedProjectPath),
+        "moved project uses its new document path");
+    Assert(reopened.Camadas.Single().CaminhoFonteOriginal == Path.GetFullPath(movedSourcePath) &&
+        File.Exists(reopened.Camadas.Single().CaminhoFonteOriginal),
+        "relative source resolves after moving the project folder");
 }
 
 static void Assert(bool condition, string contract)

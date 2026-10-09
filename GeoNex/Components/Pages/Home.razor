@@ -5819,6 +5819,14 @@
                 string.Equals(item.Nome, camada.Nome, StringComparison.OrdinalIgnoreCase))))
             .ToList();
 
+        Camada? camadaBaseSalva = string.IsNullOrWhiteSpace(projeto.CamadaBase)
+            ? null
+            : CamadasAtivas.FirstOrDefault(camada =>
+                string.Equals(camada.Nome, projeto.CamadaBase, StringComparison.OrdinalIgnoreCase));
+        _camadaBaseProjeto = camadaBaseSalva?.Nome
+            ?? CamadasAtivas.FirstOrDefault(camada => !camada.PendenteReconexao)?.Nome
+            ?? CamadasAtivas.FirstOrDefault()?.Nome;
+
         string crsSalvo = string.IsNullOrWhiteSpace(projeto.CRS) ? "EPSG:4326" : projeto.CRS;
         using (IDisposable? pausaRender = _server is null ? null : await _server.PauseRenderingAsync())
         {
