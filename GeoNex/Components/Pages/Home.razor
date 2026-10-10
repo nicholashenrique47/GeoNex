@@ -172,11 +172,36 @@
         <nav id="geonex-main-menu" class="main-menu" aria-label="Comandos do aplicativo" @onkeydown="TecladoMenuSuperior" style="display: flex; height: 100%; align-items: stretch; margin-right: auto;">
             <div class="dropdown @(_menuSuperiorAberto == "arquivo" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
                 <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "arquivo")" @onclick='() => AlternarMenuSuperior("arquivo")' @onclick:stopPropagation="true">Arquivo ▾</button>
-                <div class="dropdown-content">
-                    <button type="button" @onclick="CriarNovoProjeto">Novo Projeto</button>
+                <div class="dropdown-content file-menu-popover">
+                    <span class="file-menu-section-label">Projeto</span>
+                    <button type="button" @onclick="CriarNovoProjeto">Novo Projeto…</button>
                     <button type="button" @onclick="AbrirProjeto">Abrir Projeto…</button>
+                    <span class="file-menu-section-label recent-project-heading">Projetos recentes</span>
+                    @if (_projetosRecentes.Count == 0)
+                    {
+                        <div class="file-menu-empty">Os projetos abertos aparecerão aqui.</div>
+                    }
+                    else
+                    {
+                        @foreach (string caminhoRecente in _projetosRecentes)
+                        {
+                            <button type="button" class="recent-project-entry" @onclick="() => AbrirProjetoRecenteAsync(caminhoRecente)" title="@caminhoRecente">
+                                <strong>@System.IO.Path.GetFileNameWithoutExtension(caminhoRecente)</strong>
+                                <small>@caminhoRecente</small>
+                            </button>
+                        }
+                    }
                     <div class="drop-divider"></div>
-                    <button type="button" @onclick="SalvarProjeto" disabled="@(!ProjetoService.TemProjetoAberto)" title="@(ProjetoService.TemProjetoAberto ? "Salvar camadas e SRC do projeto atual" : "Crie ou abra um projeto primeiro")">Salvar Projeto</button>
+                    <span class="file-menu-section-label">Salvar</span>
+                    <button type="button" @onclick="SalvarProjeto" disabled="@(!ProjetoService.TemProjetoAberto)" title="@(ProjetoService.TemProjetoAberto ? "Salvar camadas, configurações e extensão do projeto" : "Crie ou abra um projeto primeiro")">Salvar Projeto</button>
+                    <button type="button" @onclick="SalvarProjetoComoAsync" disabled="@(!ProjetoService.TemProjetoAberto)">Salvar Projeto Como…</button>
+                    <div class="drop-divider"></div>
+                    <span class="file-menu-section-label">Configurações e saída</span>
+                    <button type="button" @onclick="AbrirPropriedadesProjeto" disabled="@(!ProjetoService.TemProjetoAberto)">Propriedades do Projeto…</button>
+                    <button type="button" @onclick="AbrirCompositorPeloMenuArquivo" disabled="@(!ProjetoService.TemProjetoAberto)">Compositor de Impressão…</button>
+                    <button type="button" @onclick="FecharProjetoAtualAsync" disabled="@(!ProjetoService.TemProjetoAberto)">Fechar Projeto</button>
+                    <div class="drop-divider"></div>
+                    <button type="button" @onclick="SairDoGeoNexAsync">Sair do GeoNex</button>
                 </div>
             </div>
             <div class="dropdown @(_menuSuperiorAberto == "dados" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
@@ -865,6 +890,98 @@
             <span class="scale-box">1:1.000</span>
         </div>
     </footer>
+
+    @if (_mostrarPropriedadesProjeto && ProjetoService.ProjetoAtual is { } projetoConfiguracoes)
+    {
+        <div class="project-properties-backdrop" role="dialog" aria-modal="true" aria-labelledby="project-properties-title" @onclick="FecharPropriedadesProjeto">
+            <section class="glass-panel project-properties-modal" @onclick:stopPropagation="true">
+                <header class="project-properties-header">
+                    <div>
+                        <span class="project-properties-eyebrow">ARQUIVO DE PROJETO GEONEX</span>
+                        <h2 id="project-properties-title">Propriedades do Projeto</h2>
+                    </div>
+                    <button type="button" class="close-modal-btn" aria-label="Fechar propriedades" @onclick="FecharPropriedadesProjeto">✕</button>
+                </header>
+
+                <div class="project-properties-content custom-scrollbar">
+                    <section class="project-properties-section">
+                        <div class="project-properties-section-title">
+                            <strong>Geral</strong>
+                            <span>Identidade e camada de referência do projeto</span>
+                        </div>
+                        <div class="project-properties-form-grid">
+                            <label class="project-properties-field">
+                                <span>Nome exibido</span>
+                                <input class="glass-input" maxlength="120" @bind="_nomeProjetoConfiguracao" />
+                            </label>
+                            <label class="project-properties-field">
+                                <span>Camada-base</span>
+                                <select class="glass-input" @bind="_camadaBaseConfiguracao">
+                                    <option value="">Selecionar automaticamente</option>
+                                    @foreach (Camada camada in CamadasAtivas.Where(item => !item.PendenteReconexao))
+                                    {
+                                        <option value="@camada.Nome">@camada.Nome</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="project-properties-field project-properties-crs-field">
+                                <span>Sistema de referência · código EPSG ou WKT</span>
+                                <input class="glass-input" maxlength="10000" placeholder="EPSG:31982" @bind="_crsProjetoConfiguracao" />
+                            </label>
+                        </div>
+                        <div class="project-properties-facts">
+                            <div><span>Arquivo</span><strong title="@projetoConfiguracoes.CaminhoArquivo">@projetoConfiguracoes.CaminhoArquivo</strong></div>
+                            <div><span>SRC atual</span><strong>@MapService.ProjetoSRS</strong></div>
+                            <div><span>Criado em</span><strong>@projetoConfiguracoes.CriadoEm.ToString("dd/MM/yyyy HH:mm")</strong></div>
+                            <div><span>Camadas no mapa</span><strong>@CamadasAtivas.Count</strong></div>
+                        </div>
+                    </section>
+
+                    <section class="project-properties-section">
+                        <div class="project-properties-section-title">
+                            <strong>Exibição e extensão</strong>
+                            <span>Estado gravado junto com o projeto ao salvar</span>
+                        </div>
+                        <div class="project-properties-metrics">
+                            <div><span>Centro X</span><strong>@projetoConfiguracoes.OffsetMundoX.ToString("G8", System.Globalization.CultureInfo.InvariantCulture)</strong></div>
+                            <div><span>Centro Y</span><strong>@projetoConfiguracoes.OffsetMundoY.ToString("G8", System.Globalization.CultureInfo.InvariantCulture)</strong></div>
+                            <div><span>Zoom</span><strong>@projetoConfiguracoes.CameraZoom.ToString("G5", System.Globalization.CultureInfo.InvariantCulture)</strong></div>
+                            <div><span>Layout de impressão</span><strong>@(string.IsNullOrWhiteSpace(projetoConfiguracoes.LayoutJson) ? "Ainda não criado" : "Salvo no projeto")</strong></div>
+                        </div>
+                    </section>
+
+                    <section class="project-properties-section">
+                        <div class="project-properties-section-title">
+                            <strong>Camadas</strong>
+                            <span>Ordem atual, visibilidade e estado de conexão</span>
+                        </div>
+                        @if (CamadasAtivas.Count == 0)
+                        {
+                            <div class="project-properties-empty">Este projeto ainda não tem camadas.</div>
+                        }
+                        else
+                        {
+                            <div class="project-properties-layer-list">
+                                @foreach (Camada camada in CamadasAtivas)
+                                {
+                                    <div class="project-properties-layer-row">
+                                        <span class="project-properties-layer-state @(camada.PendenteReconexao ? "is-pending" : "")"></span>
+                                        <div><strong>@camada.Nome</strong><small>@camada.Tipo · @(camada.Visivel ? "Visível" : "Oculta") · @(camada.PendenteReconexao ? "Reconexão pendente" : "Conectada")</small></div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+                </div>
+
+                <footer class="project-properties-footer">
+                    <button type="button" class="btn-cancel" @onclick="FecharPropriedadesProjeto">Cancelar</button>
+                    <button type="button" class="btn-cancel" @onclick="AbrirCompositorPeloMenuArquivo">Compositor de impressão</button>
+                    <button type="button" class="btn-save" @onclick="SalvarPropriedadesProjetoAsync">Salvar configurações</button>
+                </footer>
+            </section>
+        </div>
+    }
 
     <!-- ========================================== -->
     <!-- JANELA MODAL DE IMPORTAÇÃO (DATA MANAGER)  -->
@@ -2395,6 +2512,243 @@
         height: 1px;
         background: rgba(255, 255, 255, 0.06);
         margin: 4px 0;
+    }
+
+    .file-menu-popover {
+        width: 330px;
+        max-height: min(76vh, 620px);
+        overflow-y: auto;
+        border-radius: 12px;
+    }
+
+    .file-menu-section-label {
+        display: block;
+        padding: 9px 16px 4px;
+        color: #718096;
+        font-size: 0.61rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .file-menu-empty {
+        padding: 8px 16px 12px;
+        color: #718096;
+        font-size: 0.74rem;
+    }
+
+    .dropdown-content button.recent-project-entry {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+    }
+
+    .recent-project-entry strong {
+        overflow: hidden;
+        color: #dbe7f3;
+        font-size: 0.75rem;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .recent-project-entry small {
+        overflow: hidden;
+        color: #718096;
+        font-size: 0.62rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .dropdown-content button.recent-project-entry:hover strong,
+    .dropdown-content button.recent-project-entry:hover small {
+        color: #7dd3fc;
+    }
+
+    .project-properties-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 12000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(5, 9, 16, 0.78);
+        backdrop-filter: blur(5px);
+    }
+
+    .project-properties-modal {
+        display: flex;
+        flex-direction: column;
+        width: min(780px, calc(100vw - 32px));
+        max-height: min(86vh, 850px);
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 16px;
+        background: rgba(15, 23, 34, 0.98);
+        box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
+    }
+
+    .project-properties-header,
+    .project-properties-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .project-properties-header h2 {
+        margin: 4px 0 0;
+        color: #e2e8f0;
+        font-size: 1rem;
+    }
+
+    .project-properties-eyebrow {
+        color: #38bdf8;
+        font-size: 0.59rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+    }
+
+    .project-properties-content {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: auto;
+        padding: 18px 20px;
+    }
+
+    .project-properties-section {
+        padding: 15px;
+        border: 1px solid rgba(148, 163, 184, 0.13);
+        border-radius: 12px;
+        background: rgba(30, 41, 59, 0.36);
+    }
+
+    .project-properties-section-title {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin-bottom: 13px;
+    }
+
+    .project-properties-section-title strong {
+        color: #dbeafe;
+        font-size: 0.8rem;
+    }
+
+    .project-properties-section-title span,
+    .project-properties-facts span,
+    .project-properties-metrics span {
+        color: #8292a8;
+        font-size: 0.67rem;
+    }
+
+    .project-properties-form-grid,
+    .project-properties-facts,
+    .project-properties-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .project-properties-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: #aebdce;
+        font-size: 0.7rem;
+    }
+
+    .project-properties-crs-field {
+        grid-column: 1 / -1;
+    }
+
+    .project-properties-facts > div,
+    .project-properties-metrics > div {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        min-width: 0;
+        padding: 10px;
+        border-radius: 8px;
+        background: rgba(2, 6, 14, 0.3);
+    }
+
+    .project-properties-facts strong,
+    .project-properties-metrics strong {
+        overflow-wrap: anywhere;
+        color: #e2e8f0;
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .project-properties-layer-list {
+        display: flex;
+        flex-direction: column;
+        max-height: 180px;
+        overflow: auto;
+    }
+
+    .project-properties-layer-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 2px;
+        border-top: 1px solid rgba(148, 163, 184, 0.09);
+    }
+
+    .project-properties-layer-row > div {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .project-properties-layer-row strong {
+        color: #dbeafe;
+        font-size: 0.73rem;
+    }
+
+    .project-properties-layer-row small,
+    .project-properties-empty {
+        color: #8292a8;
+        font-size: 0.65rem;
+    }
+
+    .project-properties-layer-state {
+        width: 8px;
+        height: 8px;
+        flex: 0 0 8px;
+        border-radius: 50%;
+        background: #34d399;
+        box-shadow: 0 0 10px rgba(52, 211, 153, 0.42);
+    }
+
+    .project-properties-layer-state.is-pending {
+        background: #fbbf24;
+        box-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+    }
+
+    .project-properties-footer {
+        justify-content: flex-end;
+        border-top: 1px solid rgba(148, 163, 184, 0.12);
+        border-bottom: 0;
+    }
+
+    @@media (max-width: 640px) {
+        .project-properties-form-grid,
+        .project-properties-facts,
+        .project-properties-metrics {
+            grid-template-columns: 1fr;
+        }
+
+        .project-properties-footer {
+            flex-wrap: wrap;
+        }
     }
 
     /* =======================================================================
@@ -4460,6 +4814,7 @@
         var resourceBudget = GeoNex.Services.GdalRuntimeConfiguration.Apply();
         _gdalLimitMB = resourceBudget.GdalCacheMb.ToString(System.Globalization.CultureInfo.InvariantCulture);
         _ramEmUsoMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
+        CarregarProjetosRecentes();
 
         // === PREVENÇÃO DO BUG DO F5 ===
         // Zera a memória do servidor C# sempre que a UI é recarregada
@@ -5194,6 +5549,7 @@
                 return;
             }
             ProjetoService.AtivarProjeto(projeto);
+            RegistrarProjetoRecente(projeto.CaminhoArquivo);
             MapService.ProjetoSRS = projeto.CRS;
             MapService.RequestRedraw();
             string avisoAnterior = avisosAnteriores.Count == 0
@@ -5205,24 +5561,32 @@
         catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível criar o projeto: {ex.Message}"); }
     }
 
-    private async Task AbrirProjeto()
+    private Task AbrirProjeto() => AbrirProjetoAsync(null);
+
+    private Task AbrirProjetoPorCaminhoAsync(string caminho) => AbrirProjetoAsync(caminho);
+
+    private async Task AbrirProjetoAsync(string? caminhoSelecionado)
     {
         try
         {
             if (!await PodeTrocarProjetoAsync()) return;
 
-            var opcoes = new PickOptions
+            if (string.IsNullOrWhiteSpace(caminhoSelecionado))
             {
-                PickerTitle = "Abrir projeto GeoNex (.gnx)",
-                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                var opcoes = new PickOptions
                 {
-                    { DevicePlatform.WinUI, new[] { ".gnx" } }
-                })
-            };
-            var arquivo = await FilePicker.Default.PickAsync(opcoes);
-            if (arquivo is null) return;
+                    PickerTitle = "Abrir projeto GeoNex (.gnx)",
+                    FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                    {
+                        { DevicePlatform.WinUI, new[] { ".gnx" } }
+                    })
+                };
+                var arquivo = await FilePicker.Default.PickAsync(opcoes);
+                if (arquivo is null) return;
+                caminhoSelecionado = arquivo.FullPath;
+            }
 
-            GeoNex.Models.Projeto projeto = await ProjetoService.CarregarProjetoAsync(arquivo.FullPath);
+            GeoNex.Models.Projeto projeto = await ProjetoService.CarregarProjetoAsync(caminhoSelecionado);
             if (ProjetoService.ProjetoAtual is not null &&
                 string.Equals(
                     System.IO.Path.GetFullPath(ProjetoService.ProjetoAtual.CaminhoArquivo),
@@ -5282,6 +5646,7 @@
                 await LimparCamadasDoProjetoAtualAsync();
                 avisosProjeto.AddRange(await CarregarCamadasDoProjetoAsync(projeto, projeto.Camadas));
                 ProjetoService.AtivarProjeto(projeto);
+                RegistrarProjetoRecente(projeto.CaminhoArquivo);
             }
             catch (Exception ex)
             {
@@ -5362,7 +5727,7 @@
         }
     }
 
-    private async Task<List<string>> PersistirProjetoAtualAsync()
+    private async Task<List<string>> PersistirProjetoAtualAsync(string? nomeProjeto = null)
     {
         var avisos = new List<string>();
         foreach (Camada camada in CamadasAtivas.Where(camada => camada.FontePostgis is not null))
@@ -5412,7 +5777,8 @@
             MapService.OffsetMundoDefinido,
             MapService.CameraPanX,
             MapService.CameraPanY,
-            MapService.CameraZoom);
+            MapService.CameraZoom,
+            nomeProjeto);
 
         var semFonteConhecida = CamadasAtivas
             .Where(camada => string.IsNullOrWhiteSpace(camada.CaminhoArquivo) && !camada.PendenteReconexao &&

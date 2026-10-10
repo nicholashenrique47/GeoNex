@@ -114,13 +114,20 @@ public class ProjetoService
         bool offsetMundoDefinido,
         double cameraPanX,
         double cameraPanY,
-        double cameraZoom)
+        double cameraZoom,
+        string? nomeProjeto = null)
     {
         Projeto projetoAtual = ProjetoAtual ?? throw new InvalidOperationException("Crie ou abra um projeto antes de salvar.");
         await GnxProjectStore.SalvarAsync(
             projetoAtual, camadas, crsProjeto, camadaBase,
             offsetMundoX, offsetMundoY, offsetMundoDefinido,
-            cameraPanX, cameraPanY, cameraZoom, _layoutJsonEmMemoria);
+            cameraPanX, cameraPanY, cameraZoom, _layoutJsonEmMemoria, nomeProjeto);
+    }
+
+    public Task<Projeto> SalvarComoAsync(string caminhoDestino, string? nomeProjeto = null)
+    {
+        Projeto projetoAtual = ProjetoAtual ?? throw new InvalidOperationException("Abra um projeto antes de usar Salvar como.");
+        return GnxProjectStore.SalvarComoAsync(projetoAtual.CaminhoArquivo, caminhoDestino, nomeProjeto);
     }
 
     public async Task SalvarLayoutNoProjetoAsync(string layoutJson)

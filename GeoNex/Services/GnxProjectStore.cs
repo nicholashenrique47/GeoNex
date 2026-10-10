@@ -102,6 +102,50 @@ public static class GnxProjectStore
         return projeto;
     }
 
+    /// <summary>Creates an independent .gnx copy and rebases portable source paths.</summary>
+    public static async Task<Projeto> SalvarComoAsync(
+        string caminhoOrigem,
+        string caminhoDestino,
+        string? nomeProjeto = null)
+    {
+        Projeto origem = await AbrirAsync(caminhoOrigem);
+        Projeto copia = await CriarAsync(caminhoDestino, nomeProjeto ?? origem.Nome);
+        try
+        {
+            CamadaProjetoSnapshot[] camadas = origem.Camadas
+                .Select(camada => new CamadaProjetoSnapshot(
+                    camada.Nome,
+                    camada.Tipo,
+                    camada.Visivel,
+                    camada.Ordem,
+                    camada.CaminhoFonteOriginal ?? string.Empty,
+                    camada.FonteJson,
+                    camada.EstiloJson))
+                .ToArray();
+
+            await SalvarAsync(
+                copia,
+                camadas,
+                origem.CRS,
+                origem.CamadaBase,
+                origem.OffsetMundoX,
+                origem.OffsetMundoY,
+                origem.OffsetMundoDefinido,
+                origem.CameraPanX,
+                origem.CameraPanY,
+                origem.CameraZoom,
+                origem.LayoutJson);
+            return await AbrirAsync(copia.CaminhoArquivo);
+        }
+        catch
+        {
+            TryDelete(copia.CaminhoArquivo);
+            TryDelete(copia.CaminhoArquivo + "-wal");
+            TryDelete(copia.CaminhoArquivo + "-shm");
+            throw;
+        }
+    }
+
     /// <summary>
     /// The map engine indexes resources by the visible runtime layer name. Local layers
     /// are currently named from their source filename, so distinct project records
@@ -147,10 +191,15 @@ public static class GnxProjectStore
         double cameraPanX,
         double cameraPanY,
         double cameraZoom,
-        string? layoutJson)
+        string? layoutJson,
+        string? nomeProjeto = null)
     {
         ArgumentNullException.ThrowIfNull(projetoAtual);
         ArgumentNullException.ThrowIfNull(camadas);
+        if (nomeProjeto is not null && string.IsNullOrWhiteSpace(nomeProjeto))
+            throw new ArgumentException("Informe um nome para o projeto.", nameof(nomeProjeto));
+        if (nomeProjeto?.Trim().Length > 120)
+            throw new ArgumentException("O nome do projeto deve ter até 120 caracteres.", nameof(nomeProjeto));
         string caminho = Path.GetFullPath(projetoAtual.CaminhoArquivo);
         if (!File.Exists(caminho))
             throw new FileNotFoundException("O arquivo do projeto ativo não existe mais.", caminho);
@@ -183,6 +232,7 @@ public static class GnxProjectStore
             throw new InvalidDataException("O projeto ativo não foi encontrado dentro do arquivo .gnx.");
 
         projeto.CaminhoArquivo = caminho;
+        if (nomeProjeto is not null) projeto.Nome = nomeProjeto.Trim();
         projeto.CRS = string.IsNullOrWhiteSpace(crsProjeto) ? "EPSG:4326" : crsProjeto;
         projeto.CamadaBase = camadaBase;
         projeto.OffsetMundoX = double.IsFinite(offsetMundoX) ? offsetMundoX : 0;
