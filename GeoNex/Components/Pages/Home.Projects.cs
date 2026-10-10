@@ -12,6 +12,8 @@ public partial class Home
     private const int DefaultProjectAutosaveMinutes = 5;
     private const int MaximumRecentProjects = 8;
     private List<string> _projetosRecentes = new();
+    private string _filtroProjetosRecentes = string.Empty;
+    private bool _projetosRecentesEmGrade;
     private bool _mostrarTelaInicialProjeto = true;
     private bool _mostrarDialogoNovoProjeto;
     private string _nomeNovoProjetoInicial = "Meu projeto";
@@ -21,6 +23,13 @@ public partial class Home
     private string _crsProjetoConfiguracao = string.Empty;
     private string? _camadaBaseConfiguracao;
     private int _intervaloAutosaveConfiguracao = DefaultProjectAutosaveMinutes;
+
+    private IEnumerable<string> ProjetosRecentesFiltrados
+        => string.IsNullOrWhiteSpace(_filtroProjetosRecentes)
+            ? _projetosRecentes
+            : _projetosRecentes.Where(caminho =>
+                Path.GetFileNameWithoutExtension(caminho).Contains(_filtroProjetosRecentes.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                caminho.Contains(_filtroProjetosRecentes.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private static int LerIntervaloAutosaveProjeto()
     {
