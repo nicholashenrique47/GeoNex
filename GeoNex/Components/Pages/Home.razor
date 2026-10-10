@@ -269,6 +269,67 @@
         .project-start-footer span:last-child { display: none; }
         .project-start-recent-date { display: none; }
     }
+    .project-start-screen { position: fixed; inset: 0; z-index: 30000; display: grid; place-items: center; overflow: hidden; padding: 96px 60px 50px; color: #dbe5ef; background: rgba(4,9,15,.2); backdrop-filter: blur(2px); font-family: 'Segoe UI',Inter,sans-serif; }
+    .project-start-screen::before { content: none; }
+    .project-start-workspace { display: flex; width: min(960px,100%); height: min(610px,calc(100vh - 146px)); min-height: 370px; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid #3a4a58; border-radius: 7px; background: rgba(14,21,29,.98); box-shadow: 0 24px 90px rgba(0,0,0,.62),0 4px 16px rgba(0,0,0,.28); }
+    .project-start-topbar { height: 65px; flex: 0 0 65px; justify-content: flex-start; gap: 18px; padding: 0 21px; border-bottom: 1px solid #2a3946; background: #111a23; }
+    .project-start-brand { flex: 0 0 auto; gap: 10px; margin: 0; padding: 0 18px 0 0; border: 0; border-right: 1px solid #2a3946; }
+    .project-start-logo { flex: 0 0 33px; width: 33px; height: 33px; border-radius: 5px; }
+    .project-start-brand-name { font-size: 12px; letter-spacing: 1.1px; }
+    .project-start-brand-subtitle { margin-top: 2px; font-size: 8px; letter-spacing: .65px; }
+    .project-start-dialog-title { display: grid; gap: 3px; }
+    .project-start-dialog-title > span { color: #7ca0b0; font-size: 8px; font-weight: 750; letter-spacing: 1px; }
+    .project-start-dialog-title h1 { margin: 0; color: #eff5f8; font-size: 16px; font-weight: 700; }
+    .project-start-topbar-meta { margin-left: auto; color: #8294a5; font-size: 8px; letter-spacing: .6px; }
+    .project-start-content { display: flex; width: auto; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; margin: 0; padding: 18px 23px 15px; }
+    .project-start-page-heading { flex: 0 0 auto; margin: 0 0 14px; }
+    .project-start-eyebrow { color: #76bfd0; font-size: 8px; letter-spacing: .9px; }
+    .project-start-description { margin-top: 5px; color: #9aabba; font-size: 10px; }
+    .project-start-body { display: grid; min-height: 0; flex: 1; grid-template-columns: minmax(0,1.2fr) minmax(225px,.8fr); gap: 22px; }
+    .project-start-recent-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 0; border: 0; background: transparent; box-shadow: none; }
+    .project-start-recent-heading { flex: 0 0 auto; padding: 0 0 9px; }
+    .project-start-recent-heading h2 { color: #e4edf3; font-size: 12px; }
+    .project-start-recent-heading h2 span { margin-left: 5px; font-size: 9px; }
+    .project-start-view-toggle { flex: 0 0 auto; }
+    .project-start-recent-search-row { flex: 0 0 auto; padding: 0 0 8px; }
+    .project-start-search { width: 100%; }
+    .project-start-recent-list { min-height: 0; flex: 1; max-height: none; border-top: 1px solid #263541; }
+    .project-start-recent-item { min-height: 51px; padding: 7px 5px; }
+    .project-start-recent-grid { min-height: 0; flex: 1; max-height: none; overflow-y: auto; align-content: start; border-top: 1px solid #263541; }
+    .project-start-empty { min-height: 0; flex: 1; border-top: 1px solid #263541; }
+    .project-start-launcher { display: flex; min-width: 0; flex-direction: column; padding-left: 21px; border-left: 1px solid #2a3946; }
+    .project-start-launcher > h2 { margin: 5px 0 11px; color: #e4edf3; font-size: 12px; }
+    .project-start-template-tile { display: grid; width: 100%; grid-template-columns: minmax(0,1fr) auto; gap: 8px; padding: 8px; border: 1px solid #30414e; border-radius: 4px; color: inherit; background: #131e28; text-align: left; cursor: pointer; transition: border-color .15s,background .15s; }
+    .project-start-template-tile:hover { border-color: #43899a; background: #192a35; }
+    .project-start-map-preview { position: relative; display: block; height: 110px; grid-column: 1 / -1; overflow: hidden; border: 1px solid #344a56; border-radius: 3px; background: linear-gradient(135deg,#1b3138 0%,#223a3b 36%,#1b343d 37%,#233b3e 67%,#1b3038 68%); }
+    .project-start-map-preview::before { position: absolute; top: 38%; left: -8%; width: 120%; height: 27px; border-top: 3px solid rgba(94,202,213,.73); border-bottom: 1px solid rgba(127,215,220,.38); content: ''; transform: rotate(-13deg); }
+    .project-start-map-preview > span { position: absolute; inset: 0; background-image: linear-gradient(24deg,transparent 42%,rgba(213,195,142,.36) 42.5%,rgba(213,195,142,.36) 43.5%,transparent 44%),linear-gradient(146deg,transparent 26%,rgba(213,195,142,.24) 26.5%,rgba(213,195,142,.24) 27.2%,transparent 27.7%),linear-gradient(0deg,transparent 72%,rgba(162,194,156,.16) 72.5%,rgba(162,194,156,.16) 82%,transparent 82.5%); }
+    .project-start-template-copy { display: grid; align-content: center; gap: 4px; }
+    .project-start-template-copy strong { color: #e5edf2; font-size: 10px; }
+    .project-start-template-copy small { color: #879aa8; font-size: 8px; line-height: 1.4; }
+    .project-start-template-tile .project-start-action-arrow { align-self: center; }
+    .project-start-launcher-divider { display: flex; align-items: center; gap: 9px; margin: 14px 0 10px; color: #748797; font-size: 9px; }
+    .project-start-launcher-divider::before,.project-start-launcher-divider::after { height: 1px; flex: 1; background: #283742; content: ''; }
+    .project-start-open-button { width: 100%; min-height: 34px; }
+    .project-start-launcher-note { margin: auto 0 0; padding-top: 18px; color: #748797; font-size: 9px; line-height: 1.55; }
+    .project-start-footer { min-height: 30px; flex: 0 0 30px; padding: 0 21px; color: #748798; font-size: 8px; }
+    .project-start-footer span:first-child { color: #91a4b3; font-weight: 750; letter-spacing: .7px; }
+    @@media (max-width: 760px) {
+        .project-start-screen { padding: 82px 10px 42px; }
+        .project-start-workspace { width: 100%; height: min(700px,calc(100vh - 124px)); min-height: 0; }
+        .project-start-topbar { gap: 10px; padding: 0 12px; }
+        .project-start-brand { gap: 7px; margin-right: 0; padding-right: 10px; }
+        .project-start-brand-subtitle,.project-start-topbar-meta { display: none; }
+        .project-start-content { overflow: auto; padding: 15px; }
+        .project-start-body { flex: none; grid-template-columns: 1fr; gap: 15px; }
+        .project-start-recent-panel { min-height: 185px; }
+        .project-start-recent-list,.project-start-recent-grid { min-height: 140px; max-height: 220px; }
+        .project-start-launcher { padding: 14px 0 0; border-top: 1px solid #2a3946; border-left: 0; }
+        .project-start-map-preview { height: 82px; }
+        .project-start-launcher-note { margin-top: 10px; padding-top: 0; }
+        .project-start-footer { padding: 0 12px; }
+        .project-start-footer span:last-child { max-width: 65%; text-align: right; }
+    }
     @@media (max-width: 820px) {
         .tool-panels-toggle { display: inline-flex; }
         .geonex-ui:has(.digitizing-toolbar) > div.glass-panel { display: none; }
@@ -282,105 +343,91 @@
 @if (_mostrarTelaInicialProjeto && !ProjetoService.TemProjetoAberto)
 {
     <main class="project-start-screen" aria-label="Tela inicial de projetos do GeoNex">
-        <aside class="project-start-sidebar" aria-label="Navegação da página inicial">
+        <section class="project-start-workspace" aria-labelledby="project-start-title">
+            <header class="project-start-topbar">
             <div class="project-start-brand">
                 <div class="project-start-logo" aria-hidden="true">GN</div>
                 <div>
                     <div class="project-start-brand-name">GEONEX</div>
-                    <div class="project-start-brand-subtitle">Projeto GIS</div>
+                    <div class="project-start-brand-subtitle">PRO · DESKTOP GIS</div>
                 </div>
             </div>
-            <div class="project-start-nav-label">Workspace</div>
-            <button type="button" class="project-start-nav-item project-start-nav-item-active" aria-current="page">
-                <span class="project-start-nav-icon" aria-hidden="true">⌂</span><span>Início</span>
-            </button>
-            <button type="button" class="project-start-nav-item" @onclick="AbrirProjeto">
-                <span class="project-start-nav-icon" aria-hidden="true">↗</span><span>Abrir projeto…</span>
-            </button>
-            <button type="button" class="project-start-nav-item" @onclick="AbrirDialogoNovoProjeto">
-                <span class="project-start-nav-icon" aria-hidden="true">＋</span><span>Novo projeto…</span>
-            </button>
-            <div class="project-start-sidebar-spacer"></div>
-            <div class="project-start-sidebar-note"><strong>PROJETOS LOCAIS</strong>Os arquivos .gnx ficam na pasta que você escolher.</div>
-        </aside>
-
-        <section class="project-start-workspace">
-            <header class="project-start-topbar">
-                <div class="project-start-breadcrumb">GeoNex <span>›</span> Início</div>
-                <span class="project-start-topbar-meta">CENTRAL DE PROJETOS · ARQUIVOS .GNX</span>
+                <div class="project-start-dialog-title">
+                    <span>INICIAR TRABALHO</span>
+                    <h1 id="project-start-title">Projetos</h1>
+                </div>
+                <span class="project-start-topbar-meta">PROJETO LOCAL · .GNX</span>
             </header>
             <div class="project-start-content">
                 <div class="project-start-page-heading">
                     <div>
-                        <span class="project-start-eyebrow">Área de trabalho</span>
-                        <h1 class="project-start-title">Projetos</h1>
-                        <p class="project-start-description">Crie um mapa ou retome um projeto salvo.</p>
+                        <span class="project-start-eyebrow">Bem-vindo ao GeoNex</span>
+                        <p class="project-start-description">Abra um projeto recente ou comece um novo mapa.</p>
                     </div>
                 </div>
 
-                <section class="project-start-action-section" aria-label="Ações de projeto">
-                    <button type="button" class="project-start-action project-start-action-primary" @onclick="AbrirDialogoNovoProjeto">
-                        <span class="project-start-action-icon" aria-hidden="true">＋</span>
-                        <span class="project-start-action-copy"><strong>Novo projeto</strong><span>Comece com um mapa vazio e adicione suas camadas, estilos e configurações.</span></span>
-                        <span class="project-start-action-arrow" aria-hidden="true">›</span>
-                    </button>
-                    <button type="button" class="project-start-action" @onclick="AbrirProjeto">
-                        <span class="project-start-action-icon" aria-hidden="true">↗</span>
-                        <span class="project-start-action-copy"><strong>Abrir projeto</strong><span>Procure um arquivo .gnx no computador ou em uma pasta compartilhada.</span></span>
-                        <span class="project-start-action-arrow" aria-hidden="true">›</span>
-                    </button>
-                </section>
-
-                <section class="project-start-recent-panel" aria-labelledby="project-start-recent-title">
-                    <div class="project-start-recent-heading">
-                        <h2 id="project-start-recent-title">Projetos recentes <span>@ProjetosRecentesFiltrados.Count() de @_projetosRecentes.Count</span></h2>
-                        <div class="project-start-recent-tools">
+                <div class="project-start-body">
+                    <section class="project-start-recent-panel" aria-labelledby="project-start-recent-title">
+                        <div class="project-start-recent-heading">
+                            <h2 id="project-start-recent-title">Projetos recentes <span>@ProjetosRecentesFiltrados.Count() de @_projetosRecentes.Count</span></h2>
                             <div class="project-start-view-toggle" role="group" aria-label="Modo de exibição">
                                 <button type="button" aria-label="Exibir em lista" title="Lista" aria-pressed="@(!_projetosRecentesEmGrade)" @onclick="() => _projetosRecentesEmGrade = false">☷</button>
                                 <button type="button" aria-label="Exibir em blocos" title="Blocos" aria-pressed="@_projetosRecentesEmGrade" @onclick="() => _projetosRecentesEmGrade = true">▦</button>
                             </div>
-                            <button type="button" class="project-start-button project-start-button-secondary" @onclick="AbrirProjeto">Abrir outro…</button>
                         </div>
-                    </div>
-                    <div class="project-start-recent-search-row">
-                        <input class="project-start-search" aria-label="Pesquisar projetos recentes" placeholder="Pesquisar projetos recentes…" @bind="_filtroProjetosRecentes" @bind:event="oninput" />
-                    </div>
-                    @if (!ProjetosRecentesFiltrados.Any())
-                    {
-                        <div class="project-start-empty">
-                            <div class="project-start-empty-mark" aria-hidden="true">⌕</div>
-                            <strong>@(_projetosRecentes.Count == 0 ? "Nenhum projeto recente" : "Nenhum projeto encontrado")</strong>
-                            <span>@(_projetosRecentes.Count == 0 ? "Os projetos que você abrir ou criar aparecerão aqui, com acesso rápido ao arquivo salvo." : "Tente outro nome ou caminho para localizar um projeto recente.")</span>
-                            @if (_projetosRecentes.Count == 0)
-                            {
-                                <button type="button" class="project-start-button project-start-button-secondary" @onclick="AbrirProjeto">Abrir um projeto existente…</button>
-                            }
+                        <div class="project-start-recent-search-row">
+                            <input class="project-start-search" aria-label="Pesquisar projetos recentes" placeholder="Pesquisar projetos recentes…" @bind="_filtroProjetosRecentes" @bind:event="oninput" />
                         </div>
-                    }
-                    else
-                    {
-                        <div class="@(_projetosRecentesEmGrade ? "project-start-recent-grid" : "project-start-recent-list")">
-                            @foreach (string caminhoProjetoRecente in ProjetosRecentesFiltrados)
-                            {
-                                <div class="project-start-recent-item" @key="caminhoProjetoRecente">
-                                    <button type="button" class="project-start-recent-open" title="Abrir @caminhoProjetoRecente" @onclick="() => AbrirProjetoRecenteAsync(caminhoProjetoRecente)">
-                                        <span class="project-start-file-icon" aria-hidden="true">GNX</span>
-                                        <span class="project-start-recent-copy">
-                                            <span class="project-start-recent-name">@Path.GetFileNameWithoutExtension(caminhoProjetoRecente)</span>
-                                            <span class="project-start-recent-path">@caminhoProjetoRecente</span>
-                                        </span>
-                                    </button>
-                                    <span class="project-start-recent-date">@ObterUltimaModificacaoProjeto(caminhoProjetoRecente)</span>
-                                    <button type="button" class="project-start-recent-remove" title="Remover da lista de recentes" aria-label="Remover @Path.GetFileName(caminhoProjetoRecente) da lista" @onclick="() => RemoverProjetoRecente(caminhoProjetoRecente)">×</button>
-                                </div>
-                            }
-                        </div>
-                    }
-                </section>
+                        @if (!ProjetosRecentesFiltrados.Any())
+                        {
+                            <div class="project-start-empty">
+                                <div class="project-start-empty-mark" aria-hidden="true">⌕</div>
+                                <strong>@(_projetosRecentes.Count == 0 ? "Nenhum projeto recente" : "Nenhum projeto encontrado")</strong>
+                                <span>@(_projetosRecentes.Count == 0 ? "Os projetos que você abrir ou criar aparecerão aqui, com acesso rápido ao arquivo salvo." : "Tente outro nome ou caminho para localizar um projeto recente.")</span>
+                                @if (_projetosRecentes.Count == 0)
+                                {
+                                    <button type="button" class="project-start-button project-start-button-secondary" @onclick="AbrirProjeto">Abrir projeto…</button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="@(_projetosRecentesEmGrade ? "project-start-recent-grid" : "project-start-recent-list")">
+                                @foreach (string caminhoProjetoRecente in ProjetosRecentesFiltrados)
+                                {
+                                    <div class="project-start-recent-item" @key="caminhoProjetoRecente">
+                                        <button type="button" class="project-start-recent-open" title="Abrir @caminhoProjetoRecente" @onclick="() => AbrirProjetoRecenteAsync(caminhoProjetoRecente)">
+                                            <span class="project-start-file-icon" aria-hidden="true">GNX</span>
+                                            <span class="project-start-recent-copy">
+                                                <span class="project-start-recent-name">@Path.GetFileNameWithoutExtension(caminhoProjetoRecente)</span>
+                                                <span class="project-start-recent-path">@caminhoProjetoRecente</span>
+                                            </span>
+                                        </button>
+                                        <span class="project-start-recent-date">@ObterUltimaModificacaoProjeto(caminhoProjetoRecente)</span>
+                                        <button type="button" class="project-start-recent-remove" title="Remover da lista de recentes" aria-label="Remover @Path.GetFileName(caminhoProjetoRecente) da lista" @onclick="() => RemoverProjetoRecente(caminhoProjetoRecente)">×</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+
+                    <aside class="project-start-launcher" aria-label="Criar ou abrir projeto">
+                        <span class="project-start-eyebrow">Começar</span>
+                        <h2>Novo mapa</h2>
+                        <button type="button" class="project-start-template-tile" @onclick="AbrirDialogoNovoProjeto">
+                            <span class="project-start-map-preview" aria-hidden="true"><span></span></span>
+                            <span class="project-start-template-copy"><strong>Mapa 2D em branco</strong><small>Crie um projeto e adicione seus dados geográficos.</small></span>
+                            <span class="project-start-action-arrow" aria-hidden="true">›</span>
+                        </button>
+                        <div class="project-start-launcher-divider"><span>ou</span></div>
+                        <button type="button" class="project-start-button project-start-open-button" @onclick="AbrirProjeto">Abrir outro projeto…</button>
+                        <p class="project-start-launcher-note">Projetos recentes e novos projetos são salvos no formato GeoNex (.gnx).</p>
+                    </aside>
+                </div>
             </div>
             <footer class="project-start-footer">
-                <span>GeoNex Pro</span>
-                <span>Projeto GIS local · Formato .gnx</span>
+                <span>GEONEX PRO</span>
+                <span>O mapa vazio ao fundo será substituído quando você abrir ou criar um projeto.</span>
             </footer>
         </section>
     </main>
