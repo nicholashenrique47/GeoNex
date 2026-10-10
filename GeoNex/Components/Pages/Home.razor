@@ -14,7 +14,7 @@
 
 @if (exibirResumoCarregamentoVetor || exibirNotificacaoSalvamento)
 {
-    <div class="map-notification-stack">
+    <div class="map-notification-stack @(_mostrarTelaInicialProjeto ? "map-notification-stack-over-start" : "")">
         @if (exibirResumoCarregamentoVetor)
         {
             <div class="vector-load-toast" role="status" aria-live="polite">
@@ -56,6 +56,7 @@
         width: min(330px, calc(100vw - 32px));
         pointer-events: none;
     }
+    .map-notification-stack-over-start { z-index: 30050; }
 
     .vector-load-toast {
         width: 100%;
@@ -257,6 +258,16 @@
     .project-create-browse:hover { border-color: rgba(56,189,248,.45); color: #e0f2fe; }
     .project-create-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 24px; }
     .project-create-actions .project-start-button { margin-top: 0; }
+    .project-transition-dialog { width: min(460px,100%); }
+    .project-transition-copy { display: grid; gap: 8px; padding: 13px; border: 1px solid rgba(148,163,184,.16); border-radius: 9px; color: #aebdcb; background: rgba(7,14,22,.48); font-size: 11px; line-height: 1.55; }
+    .project-transition-copy strong { color: #e6eef4; overflow-wrap: anywhere; }
+    .project-transition-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 19px; }
+    .project-transition-actions button { min-height: 36px; padding: 0 12px; border: 1px solid #33495b; border-radius: 7px; color: #cbd5e1; background: #172534; font-size: 10px; font-weight: 650; cursor: pointer; }
+    .project-transition-actions button:hover { border-color: #4f768e; color: #f1f5f9; }
+    .project-transition-actions .project-transition-save { border-color: #28788b; color: #dff8fc; background: #155166; }
+    .project-transition-actions .project-transition-discard { color: #fca5a5; }
+    .project-dirty-indicator { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; color: #fbbf24; font-size: 10px; }
+    .project-dirty-indicator::before { width: 7px; height: 7px; border-radius: 50%; background: currentColor; content: ""; }
     @@media (max-width: 760px) {
         .project-start-screen { grid-template-columns: 1fr; grid-template-rows: auto minmax(0,1fr); }
         .project-start-sidebar { flex-direction: row; align-items: center; gap: 9px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid #263340; }
@@ -480,6 +491,25 @@
             </section>
         </div>
     }
+}
+
+@if (_mostrarDialogoTransicaoProjeto)
+{
+    <div class="project-create-backdrop" role="dialog" aria-modal="true" aria-labelledby="project-transition-title" @onclick="() => ResponderTransicaoProjeto(DecisaoTransicaoProjeto.Cancelar)">
+        <section class="project-create-dialog project-transition-dialog" @onclick:stopPropagation="true">
+            <h2 id="project-transition-title">Há alterações não salvas</h2>
+            <p>Escolha como tratar as alterações antes de @(_destinoTransicaoProjeto).</p>
+            <div class="project-transition-copy">
+                <strong>@_nomeProjetoTransicao</strong>
+                <span>Salvar atualiza o arquivo do projeto. Descartar mantém a última versão salva. Cancelar retorna ao projeto sem trocar de arquivo.</span>
+            </div>
+            <footer class="project-transition-actions">
+                <button type="button" @onclick="() => ResponderTransicaoProjeto(DecisaoTransicaoProjeto.Cancelar)">Cancelar</button>
+                <button type="button" class="project-transition-discard" @onclick="() => ResponderTransicaoProjeto(DecisaoTransicaoProjeto.Descartar)">Descartar alterações</button>
+                <button type="button" class="project-transition-save" @onclick="() => ResponderTransicaoProjeto(DecisaoTransicaoProjeto.Salvar)">Salvar</button>
+            </footer>
+        </section>
+    </div>
 }
 
 <!-- A INTERFACE FLUTUANTE -->
@@ -1244,6 +1274,11 @@
     <footer class="bottom-status-bar">
         <div class="status-left">
             <span title="@(ProjetoService.ProjetoAtual?.CaminhoArquivo ?? "Nenhum arquivo de projeto aberto")"><strong>PROJETO:</strong> @ProjetoService.ObterNomeProjetoAtivo()</span>
+            @if (ProjetoService.ProjetoAtual is { } projetoComAlteracoes &&
+                (temEdicoesPendentes || GeoNex.Services.GnxProjectStore.TemAutosaveMaisRecente(projetoComAlteracoes.CaminhoArquivo)))
+            {
+                <span class="project-dirty-indicator" title="Há alterações recuperáveis ainda não incorporadas à versão salva do projeto">Alterações não salvas</span>
+            }
         </div>
         <div class="status-right">
             <span><strong>X:</strong> <span class="mono">@longitude</span></span>
@@ -5392,7 +5427,11 @@
                 criarPontoRestauracao: false,
                 salvarComoAutosave: true);
             _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
-            if (!_autosaveSnapshotAtualizado) return;
+            if (!_autosaveSnapshotAtualizado)
+            {
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
             string detalhe = avisos.Count == 0
                 ? "A sessão recuperável foi atualizada sem alterar o projeto salvo."
                 : string.Join(" ", avisos.Distinct());
@@ -5961,15 +6000,16 @@
             string caminhoGnx = System.IO.Path.Combine(pasta.Folder.Path, nomeArquivo + ".gnx");
             if (System.IO.File.Exists(caminhoGnx))
             {
-                await JSRuntime.InvokeVoidAsync("alert", "Já existe um projeto com esse nome nessa pasta. Escolha outro nome ou abra o projeto existente.");
+                ExibirNotificacaoSalvamento("Projeto não criado", "Já existe um projeto com esse nome nessa pasta. Escolha outro nome ou abra o projeto existente.", erro: true);
                 return;
             }
 
-            var avisosAnteriores = new List<string>();
+            var transicaoProjetoAnterior = await PrepararTransicaoProjetoAsync("criar outro projeto");
+            if (!transicaoProjetoAnterior.PodeContinuar) return;
+            var avisosAnteriores = transicaoProjetoAnterior.Avisos;
             GeoNex.Models.Projeto? projetoAnterior = null;
             if (ProjetoService.ProjetoAtual is not null)
             {
-                avisosAnteriores = await PersistirProjetoAtualAsync();
                 projetoAnterior = await ProjetoService.CarregarProjetoAsync(ProjetoService.ProjetoAtual.CaminhoArquivo);
             }
 
@@ -5992,28 +6032,28 @@
                     {
                         try { await LimparCamadasDoProjetoAtualAsync(); } catch { }
                         ProjetoService.FecharProjeto();
-                        await JSRuntime.InvokeVoidAsync("alert",
-                            $"Não foi possível iniciar o novo projeto e o projeto anterior também não pôde ser restaurado.\nNovo projeto: {erroLimpeza.Message}\nRestauração: {erroRestauro.Message}");
+                        ExibirNotificacaoSalvamento("Falha ao criar projeto", $"O projeto anterior também não pôde ser restaurado. Novo projeto: {erroLimpeza.Message} Restauração: {erroRestauro.Message}", erro: true);
                         return;
                     }
                 }
 
-                await JSRuntime.InvokeVoidAsync("alert",
-                    $"Não foi possível trocar para o novo projeto; o projeto anterior foi restaurado.\n{erroLimpeza.Message}");
+                ExibirNotificacaoSalvamento("Projeto anterior restaurado", $"Não foi possível trocar para o novo projeto. {erroLimpeza.Message}", erro: true);
                 return;
             }
             ProjetoService.AtivarProjeto(projeto);
             _mostrarTelaInicialProjeto = false;
+            if (transicaoProjetoAnterior.ProjetoDoAutosaveParaDescartar is { } projetoAnteriorDescartado)
+                GeoNex.Services.GnxProjectStore.DescartarAutosave(projetoAnteriorDescartado);
             RegistrarProjetoRecente(projeto.CaminhoArquivo);
             MapService.ProjetoSRS = projeto.CRS;
             MapService.RequestRedraw();
             string avisoAnterior = avisosAnteriores.Count == 0
                 ? string.Empty
                 : "\n\nAvisos do projeto anterior:\n• " + string.Join("\n• ", avisosAnteriores.Distinct());
-            await JSRuntime.InvokeVoidAsync("alert", $"Projeto criado:\n{projeto.CaminhoArquivo}{avisoAnterior}");
+            ExibirNotificacaoSalvamento("Projeto criado", $"{projeto.CaminhoArquivo}{avisoAnterior}");
             StateHasChanged();
         }
-        catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível criar o projeto: {ex.Message}"); }
+        catch (Exception ex) { ExibirNotificacaoSalvamento("Não foi possível criar o projeto", ex.Message, erro: true); }
     }
 
     private Task AbrirProjeto() => AbrirProjetoAsync(null);
@@ -6077,7 +6117,7 @@
                     System.IO.Path.GetFullPath(projeto.CaminhoArquivo),
                     StringComparison.OrdinalIgnoreCase))
             {
-                await JSRuntime.InvokeVoidAsync("alert", "Esse projeto já está aberto.");
+                ExibirNotificacaoSalvamento("Projeto já aberto", "Esse projeto já está aberto.");
                 return;
             }
 
@@ -6103,18 +6143,11 @@
                 projeto = await GeoNex.Services.GnxProjectStore.PromoverAutosaveAsync(caminhoOriginalParaPromoverAutosave!);
             }
 
-            List<string> avisosAnteriores;
-            try
-            {
-                avisosAnteriores = ProjetoService.ProjetoAtual is null
-                    ? new List<string>()
-                    : await PersistirProjetoAtualAsync(criarPontoRestauracao: !pontoRestauracaoDoProjetoAtual);
-            }
-            catch (Exception ex)
-            {
-                await JSRuntime.InvokeVoidAsync("alert", $"O projeto atual não pôde ser salvo; a abertura foi cancelada.\n{ex.Message}");
-                return;
-            }
+            var transicaoProjetoAnterior = await PrepararTransicaoProjetoAsync(
+                "abrir outro projeto",
+                criarPontoRestauracaoAoSalvar: !pontoRestauracaoDoProjetoAtual);
+            if (!transicaoProjetoAnterior.PodeContinuar) return;
+            List<string> avisosAnteriores = transicaoProjetoAnterior.Avisos;
 
             GeoNex.Models.Projeto? projetoAnterior = ProjetoService.ProjetoAtual is null
                 ? null
@@ -6134,6 +6167,8 @@
                     RegistrarProjetoRecente(projeto.CaminhoArquivo);
                 if (promovendoAutosave)
                     GeoNex.Services.GnxProjectStore.DescartarAutosave(projeto.CaminhoArquivo);
+                if (transicaoProjetoAnterior.ProjetoDoAutosaveParaDescartar is { } projetoAnteriorDescartado)
+                    GeoNex.Services.GnxProjectStore.DescartarAutosave(projetoAnteriorDescartado);
             }
             catch (Exception ex)
             {
@@ -6151,7 +6186,7 @@
                         {
                             await LimparCamadasDoProjetoAtualAsync();
                             ProjetoService.FecharProjeto();
-                            await JSRuntime.InvokeVoidAsync("alert", $"Falha ao abrir o projeto e também ao restaurar o anterior.\nAbertura: {ex.Message}\nRestauração: {erroRestauro.Message}");
+                            ExibirNotificacaoSalvamento("Falha ao restaurar o mapa", $"Abertura: {ex.Message} Restauração: {erroRestauro.Message}", erro: true);
                             return;
                         }
                     }
@@ -6160,7 +6195,7 @@
                         ProjetoService.FecharProjeto();
                     }
                 }
-                await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível abrir o projeto: {ex.Message}");
+                ExibirNotificacaoSalvamento("Não foi possível abrir o projeto", ex.Message, erro: true);
                 return;
             }
 
@@ -6172,12 +6207,12 @@
                 : abrindoPontoRestauracao
                 ? $"Versão anterior aberta como cópia: {projeto.Nome}. O projeto original foi preservado. Use Salvar Projeto Como para criar outra cópia restaurada."
                 : $"Projeto aberto: {projeto.Nome}";
-            await JSRuntime.InvokeVoidAsync("alert", $"{mensagemAbertura}{textoAvisos}");
+            ExibirNotificacaoSalvamento(promovendoAutosave ? "Sessão recuperada" : abrindoPontoRestauracao ? "Versão anterior aberta" : "Projeto aberto", $"{mensagemAbertura}{textoAvisos}");
             StateHasChanged();
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível abrir esse projeto: {ex.Message}");
+            ExibirNotificacaoSalvamento("Não foi possível abrir esse projeto", ex.Message, erro: true);
         }
         finally
         {
@@ -6191,9 +6226,7 @@
     {
         if (_salvandoEdicoes || temEdicoesPendentes || MapService.PontosAquisicao.Count > 0 || listaPontosCaderneta.Count > 0)
         {
-            await JSRuntime.InvokeVoidAsync(
-                "alert",
-                "O mapa tem alterações ou esboços ainda não gravados. Grave as edições vetoriais e conclua ou cancele o esboço antes de criar ou abrir outro projeto. O mapa atual foi mantido.");
+            ExibirNotificacaoSalvamento("Finalize as edições", "Grave as edições vetoriais e conclua ou cancele o esboço antes de criar ou abrir outro projeto. O mapa atual foi mantido.", erro: true);
             return false;
         }
 
@@ -6209,7 +6242,7 @@
     {
         if (ProjetoService.ProjetoAtual is null)
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Crie ou abra um projeto antes de salvar.");
+            ExibirNotificacaoSalvamento("Nenhum projeto aberto", "Crie ou abra um projeto antes de salvar.", erro: true);
             return;
         }
 
@@ -6217,11 +6250,11 @@
         {
             List<string> avisos = await PersistirProjetoAtualAsync();
             string textoAvisos = avisos.Count == 0 ? string.Empty : "\n\nAvisos:\n• " + string.Join("\n• ", avisos.Distinct());
-            await JSRuntime.InvokeVoidAsync("alert", $"Projeto salvo: {ProjetoService.ProjetoAtual.Nome}{textoAvisos}");
+            ExibirNotificacaoSalvamento("Projeto salvo", $"{ProjetoService.ProjetoAtual.Nome}{textoAvisos}");
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível salvar o projeto: {ex.Message}");
+            ExibirNotificacaoSalvamento("Não foi possível salvar o projeto", ex.Message, erro: true);
         }
     }
 

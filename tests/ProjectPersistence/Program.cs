@@ -56,6 +56,13 @@ static async Task VerifyAutosaveStaysSeparateAndPromotesAsync(string root)
     Assert(updated && File.Exists(autosavePath), "changed sessions are written to a separate autosave document");
     Assert(GnxProjectStore.TemAutosaveMaisRecente(path), "newer autosave is offered for recovery");
 
+    bool reverted = await GnxProjectStore.SalvarAutosaveAsync(project, [original], "EPSG:4326", null,
+        0, 0, false, 0, 0, 1, "{\"layout\":\"manual\"}");
+    Assert(!reverted && !File.Exists(autosavePath), "returning to the saved state removes a stale recovery candidate");
+    updated = await GnxProjectStore.SalvarAutosaveAsync(project, [automatic], "EPSG:31982", "roads",
+        5, 6, true, 7, 8, 2, "{\"layout\":\"automatic\"}");
+    Assert(updated && File.Exists(autosavePath), "a later change can create a fresh recovery candidate");
+
     var later = new CamadaProjetoSnapshot("roads", "Vetor", true, 0, layerPath,
         "{\"Tipo\":\"Arquivo\"}", "latest-style");
     bool updatedExisting = await GnxProjectStore.SalvarAutosaveAsync(project, [later], "EPSG:31984", "roads",

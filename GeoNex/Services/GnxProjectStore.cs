@@ -353,7 +353,10 @@ public static class GnxProjectStore
             throw new InvalidDataException("A identidade do projeto mudou; o autosave foi cancelado para evitar misturar projetos.");
         if (EstadoEquivalente(salvo, projetoAtual.Nome, desejadas, crsProjeto, camadaBase, offsetMundoX, offsetMundoY,
                 offsetMundoDefinido, cameraPanX, cameraPanY, cameraZoom, layoutJson))
+        {
+            DescartarAutosave(caminhoOrigem);
             return false;
+        }
 
         string caminhoAutosave = ObterCaminhoAutosave(caminhoOrigem);
         if (File.Exists(caminhoAutosave))

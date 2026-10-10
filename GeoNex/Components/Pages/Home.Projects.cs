@@ -7,6 +7,8 @@ namespace GeoNex.Components.Pages;
 
 public partial class Home
 {
+    private enum DecisaoTransicaoProjeto { Salvar, Descartar, Cancelar }
+
     private const string RecentProjectsPreferenceKey = "GeoNex.RecentProjects.v1";
     private const string ProjectAutosaveIntervalPreferenceKey = "GeoNex.ProjectAutosaveMinutes.v1";
     private const int DefaultProjectAutosaveMinutes = 5;
@@ -21,6 +23,10 @@ public partial class Home
     private string _nomeNovoProjetoInicial = "Meu projeto";
     private string _pastaNovoProjetoInicial = string.Empty;
     private bool _mostrarPropriedadesProjeto;
+    private bool _mostrarDialogoTransicaoProjeto;
+    private string _destinoTransicaoProjeto = "outro projeto";
+    private string _nomeProjetoTransicao = string.Empty;
+    private TaskCompletionSource<DecisaoTransicaoProjeto>? _respostaTransicaoProjeto;
     private string _nomeProjetoConfiguracao = string.Empty;
     private string _crsProjetoConfiguracao = string.Empty;
     private string? _camadaBaseConfiguracao;
@@ -117,7 +123,7 @@ public partial class Home
         string caminhoRecuperacao = GeoNex.Services.GnxProjectStore.ObterCaminhoPontoRestauracao(caminhoProjetoOriginal);
         if (!File.Exists(caminhoRecuperacao))
         {
-            await JSRuntime.InvokeVoidAsync("alert", "O ponto de restauração não está mais disponível. O projeto original foi mantido.");
+            ExibirNotificacaoSalvamento("Ponto de restauração indisponível", "O projeto original foi mantido.", erro: true);
             return;
         }
 
@@ -128,18 +134,78 @@ public partial class Home
     {
         if (ProjetoService.TemProjetoAberto)
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Feche o projeto atual antes de recuperar uma sessão automática.");
+            ExibirNotificacaoSalvamento("Feche o projeto atual", "Recupere a sessão automática pela tela inicial.", erro: true);
             return;
         }
 
         string caminhoAutosave = GeoNex.Services.GnxProjectStore.ObterCaminhoAutosave(caminhoProjetoOriginal);
         if (!GeoNex.Services.GnxProjectStore.TemAutosaveMaisRecente(caminhoProjetoOriginal))
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Não há uma sessão automática mais recente. O projeto salvo continua disponível.");
+            ExibirNotificacaoSalvamento("Sem recuperação pendente", "O projeto salvo continua disponível.");
             return;
         }
 
         await AbrirProjetoAsync(caminhoAutosave, caminhoProjetoOriginal);
+    }
+
+    private async Task<(bool PodeContinuar, List<string> Avisos, string? ProjetoDoAutosaveParaDescartar)> PrepararTransicaoProjetoAsync(
+        string destino,
+        bool criarPontoRestauracaoAoSalvar = true)
+    {
+        Projeto? projeto = ProjetoService.ProjetoAtual;
+        if (projeto is null) return (true, new List<string>(), null);
+
+        try
+        {
+            _autosaveSnapshotAtualizado = false;
+            await PersistirProjetoAtualAsync(criarPontoRestauracao: false, salvarComoAutosave: true);
+        }
+        catch (Exception ex)
+        {
+            ExibirNotificacaoSalvamento("Transição cancelada", $"Não foi possível verificar as alterações. O projeto permanece aberto. {ex.Message}", erro: true);
+            return (false, new List<string>(), null);
+        }
+
+        if (!_autosaveSnapshotAtualizado)
+            return (true, new List<string>(), null);
+
+        DecisaoTransicaoProjeto decisao = await PerguntarTransicaoProjetoAsync(destino, projeto.Nome);
+        if (decisao == DecisaoTransicaoProjeto.Cancelar)
+            return (false, new List<string>(), null);
+
+        if (decisao == DecisaoTransicaoProjeto.Descartar)
+            return (true, new List<string>(), projeto.CaminhoArquivo);
+
+        try
+        {
+            List<string> avisos = await PersistirProjetoAtualAsync(criarPontoRestauracao: criarPontoRestauracaoAoSalvar);
+            return (true, avisos, null);
+        }
+        catch (Exception ex)
+        {
+            ExibirNotificacaoSalvamento("Transição cancelada", $"As alterações não foram salvas. O projeto permanece aberto. {ex.Message}", erro: true);
+            return (false, new List<string>(), null);
+        }
+    }
+
+    private async Task<DecisaoTransicaoProjeto> PerguntarTransicaoProjetoAsync(string destino, string nomeProjeto)
+    {
+        _destinoTransicaoProjeto = destino;
+        _nomeProjetoTransicao = nomeProjeto;
+        _mostrarDialogoTransicaoProjeto = true;
+        var resposta = new TaskCompletionSource<DecisaoTransicaoProjeto>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _respostaTransicaoProjeto = resposta;
+        await InvokeAsync(StateHasChanged);
+        return await resposta.Task;
+    }
+
+    private void ResponderTransicaoProjeto(DecisaoTransicaoProjeto decisao)
+    {
+        TaskCompletionSource<DecisaoTransicaoProjeto>? resposta = _respostaTransicaoProjeto;
+        if (resposta is null) return;
+        _respostaTransicaoProjeto = null;
+        _mostrarDialogoTransicaoProjeto = false;
+        resposta.TrySetResult(decisao);
     }
 
     private void RemoverProjetoRecente(string caminho)
@@ -542,21 +608,14 @@ public partial class Home
         if (ativo is null) return;
         if (!await PodeTrocarProjetoAsync()) return;
 
-        try
-        {
-            await PersistirProjetoAtualAsync();
-        }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", $"O projeto não foi fechado porque não pôde ser salvo.\n{ex.Message}");
-            return;
-        }
+        var transicao = await PrepararTransicaoProjetoAsync("fechar o projeto");
+        if (!transicao.PodeContinuar) return;
 
         Projeto snapshot;
         try { snapshot = await ProjetoService.CarregarProjetoAsync(ativo.CaminhoArquivo); }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"O projeto foi salvo, mas não foi possível preparar o fechamento seguro.\n{ex.Message}");
+            ExibirNotificacaoSalvamento("Projeto continua aberto", $"Não foi possível preparar o fechamento seguro. {ex.Message}", erro: true);
             return;
         }
 
@@ -565,6 +624,8 @@ public partial class Home
             await LimparCamadasDoProjetoAtualAsync();
             ProjetoService.FecharProjeto();
             _mostrarTelaInicialProjeto = true;
+            if (transicao.ProjetoDoAutosaveParaDescartar is not null)
+                GeoNex.Services.GnxProjectStore.DescartarAutosave(ativo.CaminhoArquivo);
             StateHasChanged();
         }
         catch (Exception erroLimpeza)
@@ -579,30 +640,31 @@ public partial class Home
             {
                 try { await LimparCamadasDoProjetoAtualAsync(); } catch { }
                 ProjetoService.FecharProjeto();
-                await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível fechar o projeto e restaurá-lo.\nFechamento: {erroLimpeza.Message}\nRestauração: {erroRestauro.Message}");
+                ExibirNotificacaoSalvamento("Falha ao fechar o projeto", $"Fechamento: {erroLimpeza.Message} Restauração: {erroRestauro.Message}", erro: true);
                 return;
             }
 
-            await JSRuntime.InvokeVoidAsync("alert", $"O projeto continua aberto; a limpeza do mapa falhou e o estado foi restaurado.\n{erroLimpeza.Message}");
+            ExibirNotificacaoSalvamento("Projeto continua aberto", $"A limpeza do mapa falhou e o estado foi restaurado. {erroLimpeza.Message}", erro: true);
             return;
         }
 
-        await JSRuntime.InvokeVoidAsync("alert", "Projeto salvo e fechado.");
+        string detalhe = transicao.Avisos.Count == 0 ? string.Empty : "\n\nAvisos:\n• " + string.Join("\n• ", transicao.Avisos.Distinct());
+        ExibirNotificacaoSalvamento(transicao.ProjetoDoAutosaveParaDescartar is null
+            ? "Projeto fechado"
+            : "Projeto fechado · alterações descartadas",
+            transicao.ProjetoDoAutosaveParaDescartar is null
+                ? detalhe
+                : "A última versão salva foi mantida.");
     }
 
     private async Task SairDoGeoNexAsync()
     {
         FecharMenusSuperiores();
         if (!await PodeTrocarProjetoAsync()) return;
-        if (ProjetoService.ProjetoAtual is not null)
-        {
-            try { await PersistirProjetoAtualAsync(); }
-            catch (Exception ex)
-            {
-                await JSRuntime.InvokeVoidAsync("alert", $"O GeoNex permaneceu aberto porque o projeto não pôde ser salvo.\n{ex.Message}");
-                return;
-            }
-        }
+        var transicao = await PrepararTransicaoProjetoAsync("sair do GeoNex");
+        if (!transicao.PodeContinuar) return;
+        if (transicao.ProjetoDoAutosaveParaDescartar is not null && ProjetoService.ProjetoAtual is { } projeto)
+            GeoNex.Services.GnxProjectStore.DescartarAutosave(projeto.CaminhoArquivo);
         Microsoft.Maui.Controls.Application.Current?.Quit();
     }
 
