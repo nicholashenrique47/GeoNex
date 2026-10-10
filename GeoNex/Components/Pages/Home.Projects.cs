@@ -8,12 +8,28 @@ namespace GeoNex.Components.Pages;
 public partial class Home
 {
     private const string RecentProjectsPreferenceKey = "GeoNex.RecentProjects.v1";
+    private const string ProjectAutosaveIntervalPreferenceKey = "GeoNex.ProjectAutosaveMinutes.v1";
+    private const int DefaultProjectAutosaveMinutes = 5;
     private const int MaximumRecentProjects = 8;
     private List<string> _projetosRecentes = new();
     private bool _mostrarPropriedadesProjeto;
     private string _nomeProjetoConfiguracao = string.Empty;
     private string _crsProjetoConfiguracao = string.Empty;
     private string? _camadaBaseConfiguracao;
+    private int _intervaloAutosaveConfiguracao = DefaultProjectAutosaveMinutes;
+
+    private static int LerIntervaloAutosaveProjeto()
+    {
+        try
+        {
+            int minutos = Preferences.Default.Get(ProjectAutosaveIntervalPreferenceKey, DefaultProjectAutosaveMinutes);
+            return minutos is 0 or 1 or 5 or 10 or 15 ? minutos : DefaultProjectAutosaveMinutes;
+        }
+        catch
+        {
+            return DefaultProjectAutosaveMinutes;
+        }
+    }
 
     private void CarregarProjetosRecentes()
     {
@@ -71,6 +87,129 @@ public partial class Home
         await AbrirProjetoPorCaminhoAsync(caminho);
     }
 
+    private async Task RepararFonteCamadaAsync(Camada camadaOffline)
+    {
+        if (camadaOffline is null || !camadaOffline.PendenteReconexao ||
+            !CamadasAtivas.Any(camada => ReferenceEquals(camada, camadaOffline))) return;
+        if (!await PodeTrocarProjetoAsync()) return;
+
+        bool vetor = string.Equals(camadaOffline.Tipo, "Vetor", StringComparison.OrdinalIgnoreCase);
+        string[] extensoes = vetor
+            ? new[] { ".shp", ".geojson", ".json", ".gpkg", ".kml", ".gml", ".csv" }
+            : new[] { ".tif", ".tiff", ".img", ".jp2", ".ecw", ".vrt" };
+        string tipoArquivo = vetor ? "vetorial" : "raster";
+
+        try
+        {
+            var resultado = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = $"Localizar fonte {tipoArquivo} para {camadaOffline.Nome}",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    { DevicePlatform.WinUI, extensoes }
+                })
+            });
+            if (resultado is null) return;
+
+            string caminho = Path.GetFullPath(resultado.FullPath);
+            string nomeNovo = Path.GetFileName(caminho);
+            if (CamadasAtivas.Any(camada => !ReferenceEquals(camada, camadaOffline) &&
+                    string.Equals(camada.Nome, nomeNovo, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"Já existe outra camada chamada '{nomeNovo}'. Remova ou renomeie a duplicata antes de reconectar.");
+
+            await GeoNex.Services.GnxProjectSourceValidator.ValidarAsync(
+                new[] { new GeoNex.Models.Camada { Nome = nomeNovo, Tipo = camadaOffline.Tipo, CaminhoFonteOriginal = caminho } },
+                MapService.GdalRasterLock);
+
+            int indiceOriginal = CamadasAtivas.IndexOf(camadaOffline);
+            if (indiceOriginal < 0 || !camadaOffline.PendenteReconexao) return;
+            bool eraCamadaBase = string.Equals(_camadaBaseProjeto, camadaOffline.Nome, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(ProjetoService.ProjetoAtual?.CamadaBase, camadaOffline.Nome, StringComparison.OrdinalIgnoreCase);
+            GeoNex.Services.EstiloCamada? estilo = MapService.EstilosPorCamada.GetValueOrDefault(camadaOffline.Nome);
+            double panX = MapService.CameraPanX;
+            double panY = MapService.CameraPanY;
+            double zoom = MapService.CameraZoom;
+            CamadasAtivas.RemoveAt(indiceOriginal);
+
+            Camada? carregada = null;
+            try
+            {
+                if (vetor)
+                {
+                    caminhoArquivoVetor = caminho;
+                    await AdicionarVetorAoMapa();
+                }
+                else
+                {
+                    caminhoArquivoRaster = caminho;
+                    await AdicionarCamadaAoMapa();
+                }
+
+                carregada = CamadasAtivas.FirstOrDefault(camada =>
+                    string.Equals(camada.Nome, nomeNovo, StringComparison.OrdinalIgnoreCase) && !camada.PendenteReconexao);
+                if (carregada is null)
+                    throw new InvalidDataException("A fonte foi selecionada, mas a camada não pôde ser carregada no mapa.");
+
+                CamadasAtivas.Remove(carregada);
+                CamadasAtivas.Insert(Math.Clamp(indiceOriginal, 0, CamadasAtivas.Count), carregada);
+                carregada.Visivel = camadaOffline.Visivel;
+                carregada.CaminhoArquivo = caminho;
+                carregada.FonteJson = SerializarFonteProjeto(carregada);
+
+                if (estilo is not null)
+                {
+                    MapService.EstilosPorCamada.TryRemove(camadaOffline.Nome, out _);
+                    MapService.EstilosPorCamada[nomeNovo] = estilo;
+                    if (vetor)
+                    {
+                        try
+                        {
+                            if (estilo.TipoSimbologia == "CATEGORIZADA")
+                                MapService.CompilarCategorias(nomeNovo, estilo.ColunaSimbologia);
+                            if (estilo.ExibirRotulos && !string.IsNullOrWhiteSpace(estilo.ColunaRotulo))
+                                MapService.AtualizarRotulosCamada(nomeNovo, estilo.ColunaRotulo);
+                        }
+                        catch (Exception erroEstilo)
+                        {
+                            Console.Error.WriteLine($"O estilo de '{nomeNovo}' foi preservado, mas não pôde ser recompilado: {erroEstilo.Message}");
+                        }
+                    }
+                }
+
+                MapService.CamadasInvisiveis.Remove(camadaOffline.Nome);
+                if (!carregada.Visivel) MapService.CamadasInvisiveis.Add(nomeNovo);
+                if (eraCamadaBase) _camadaBaseProjeto = nomeNovo;
+                MapService.CameraPanX = panX;
+                MapService.CameraPanY = panY;
+                MapService.CameraZoom = zoom;
+                SincronizarHierarquia(solicitarFrame: false);
+                MapService.RequestRedraw();
+                try { await JSRuntime.InvokeVoidAsync("mapEngine.sincronizarCameraComBlazor", panX, panY, zoom); } catch { }
+
+                try
+                {
+                    List<string> avisos = await PersistirProjetoAtualAsync();
+                    string detalhes = avisos.Count == 0 ? string.Empty : " " + string.Join(" ", avisos.Distinct());
+                    ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada '{nomeNovo}' foi restaurada e o projeto atualizado.{detalhes}");
+                }
+                catch (Exception erroSalvamento)
+                {
+                    ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada está ativa, mas o projeto não pôde ser atualizado: {erroSalvamento.Message}", erro: true);
+                }
+            }
+            catch
+            {
+                if (carregada is null && !CamadasAtivas.Contains(camadaOffline))
+                    CamadasAtivas.Insert(Math.Clamp(indiceOriginal, 0, CamadasAtivas.Count), camadaOffline);
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível reconectar a camada '{camadaOffline.Nome}': {ex.Message}");
+        }
+    }
+
     private void AbrirPropriedadesProjeto()
     {
         FecharMenusSuperiores();
@@ -79,6 +218,7 @@ public partial class Home
         _nomeProjetoConfiguracao = projeto.Nome;
         _crsProjetoConfiguracao = MapService.ProjetoSRS;
         _camadaBaseConfiguracao = _camadaBaseProjeto;
+        _intervaloAutosaveConfiguracao = LerIntervaloAutosaveProjeto();
         _mostrarPropriedadesProjeto = true;
     }
 
@@ -134,6 +274,7 @@ public partial class Home
             }
 
             List<string> avisos = await PersistirProjetoAtualAsync(nome);
+            Preferences.Default.Set(ProjectAutosaveIntervalPreferenceKey, _intervaloAutosaveConfiguracao);
             _nomeProjetoConfiguracao = ProjetoService.ProjetoAtual?.Nome ?? nome;
             _crsProjetoConfiguracao = MapService.ProjetoSRS;
             _camadaBaseProjeto = ProjetoService.ProjetoAtual?.CamadaBase;

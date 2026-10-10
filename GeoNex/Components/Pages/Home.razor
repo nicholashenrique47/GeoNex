@@ -701,6 +701,10 @@
                         @if (camadaAtual.PendenteReconexao)
                         {
                             <span class="type-tag" style="background:#78350f;color:#fde68a" title="A fonte está offline. Reabra a fonte ou reconecte o serviço.">OFFLINE</span>
+                            @if (TipoFonteProjeto(camadaAtual) == "Arquivo")
+                            {
+                                <button type="button" class="layer-action-btn" title="Localizar novamente o arquivo desta camada" aria-label="Reconectar camada @camadaAtual.Nome" @onclick="() => RepararFonteCamadaAsync(camadaAtual)" @onclick:stopPropagation="true">↻</button>
+                            }
                         }
 
                         @if (camadaAtual.Tipo == "Vetor" && !camadaAtual.PendenteReconexao)
@@ -999,6 +1003,29 @@
                             <div><span>Centro Y</span><strong>@projetoConfiguracoes.OffsetMundoY.ToString("G8", System.Globalization.CultureInfo.InvariantCulture)</strong></div>
                             <div><span>Zoom</span><strong>@projetoConfiguracoes.CameraZoom.ToString("G5", System.Globalization.CultureInfo.InvariantCulture)</strong></div>
                             <div><span>Layout de impressão</span><strong>@(string.IsNullOrWhiteSpace(projetoConfiguracoes.LayoutJson) ? "Ainda não criado" : "Salvo no projeto")</strong></div>
+                        </div>
+                    </section>
+
+                    <section class="project-properties-section">
+                        <div class="project-properties-section-title">
+                            <strong>Salvamento e recuperação</strong>
+                            <span>Proteja o estado do mapa contra fechamentos inesperados</span>
+                        </div>
+                        <div class="project-properties-form-grid">
+                            <label class="project-properties-field">
+                                <span>Salvar automaticamente</span>
+                                <select class="glass-input" @bind="_intervaloAutosaveConfiguracao">
+                                    <option value="0">Desativado</option>
+                                    <option value="1">A cada minuto</option>
+                                    <option value="5">A cada 5 minutos</option>
+                                    <option value="10">A cada 10 minutos</option>
+                                    <option value="15">A cada 15 minutos</option>
+                                </select>
+                            </label>
+                            <div class="project-properties-field project-autosave-note">
+                                <span>Comportamento</span>
+                                <small>A preferência vale para este GeoNex. O salvamento atualiza o arquivo .gnx e aguarda a conclusão de edições e esboços ativos.</small>
+                            </div>
                         </div>
                     </section>
 
@@ -4922,6 +4949,7 @@
         }
         if (firstRender)
         {
+            IniciarAutosaveProjeto();
             await Task.Delay(100);
             try { await _mapContainerRef.FocusAsync(); } catch { }
 
@@ -4957,6 +4985,7 @@
     public void Dispose()
     {
         _renderDisposed = true;
+        _autosaveProjetoCts?.Cancel();
         MapService.ClientRenderedDigitizingPreview = false;
         if (_server != null) _server.OnOnlineFrameReady -= AtualizarImagemOnline;
         foreach (var raster in CamadasAtivas.Where(c => c.Tipo == "Raster"))
@@ -5003,6 +5032,65 @@
     }
 
     private bool _renderDisposed;
+    private readonly System.Threading.SemaphoreSlim _projectSaveGate = new(1, 1);
+    private System.Threading.CancellationTokenSource? _autosaveProjetoCts;
+    private DateTime _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
+
+    private void IniciarAutosaveProjeto()
+    {
+        if (_autosaveProjetoCts is not null) return;
+        var cancellation = new System.Threading.CancellationTokenSource();
+        _autosaveProjetoCts = cancellation;
+        _ = MonitorarAutosaveProjetoAsync(cancellation);
+    }
+
+    private async Task MonitorarAutosaveProjetoAsync(System.Threading.CancellationTokenSource cancellation)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+            while (await timer.WaitForNextTickAsync(cancellation.Token))
+            {
+                if (_renderDisposed || !ProjetoService.TemProjetoAberto) continue;
+                int intervalo = LerIntervaloAutosaveProjeto();
+                if (intervalo <= 0 || DateTime.UtcNow - _ultimoAutosaveProjetoUtc < TimeSpan.FromMinutes(intervalo))
+                    continue;
+
+                try { await InvokeAsync(AutosalvarProjetoSeSeguroAsync); }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { break; }
+                catch (Exception ex) { Console.Error.WriteLine($"Falha no ciclo de salvamento automático do projeto: {ex.Message}"); }
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        finally
+        {
+            if (ReferenceEquals(_autosaveProjetoCts, cancellation)) _autosaveProjetoCts = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private async Task AutosalvarProjetoSeSeguroAsync()
+    {
+        if (_renderDisposed || !ProjetoService.TemProjetoAberto) return;
+        if (_salvandoEdicoes || temEdicoesPendentes || MapService.PontosAquisicao.Count > 0 || listaPontosCaderneta.Count > 0)
+            return;
+
+        try
+        {
+            List<string> avisos = await PersistirProjetoAtualAsync();
+            _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
+            string detalhe = avisos.Count == 0
+                ? "Camadas, estilos e extensão do mapa foram atualizados."
+                : string.Join(" ", avisos.Distinct());
+            ExibirNotificacaoSalvamento("Projeto salvo automaticamente", detalhe);
+        }
+        catch (Exception ex)
+        {
+            _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
+            ExibirNotificacaoSalvamento("Falha no salvamento automático", ex.Message, erro: true);
+        }
+    }
+
     private void AtualizarImagemOnline()
         => _ = InvokeAsync(() => { if (!_renderDisposed) SolicitarNovoFrame(); });
 
@@ -5657,7 +5745,10 @@
                 .OrderBy(camada => camada.Ordem)
                 .ToList();
 
-            await ValidarFontesDoProjetoAsync(camadasLocais);
+            var fontesAusentes = camadasLocais.Where(camada =>
+                !GeoNex.Services.GnxProjectStore.FonteEhRemota(camada.CaminhoFonteOriginal!) &&
+                !System.IO.File.Exists(camada.CaminhoFonteOriginal)).ToArray();
+            await ValidarFontesDoProjetoAsync(camadasLocais.Except(fontesAusentes));
 
             List<string> avisosAnteriores;
             try
@@ -5675,21 +5766,6 @@
             GeoNex.Models.Projeto? projetoAnterior = ProjetoService.ProjetoAtual is null
                 ? null
                 : await ProjetoService.CarregarProjetoAsync(ProjetoService.ProjetoAtual.CaminhoArquivo);
-            if (projetoAnterior is not null)
-            {
-                var fontesAnterioresAusentes = projetoAnterior.Camadas
-                    .Where(camada => TipoFonteProjeto(camada) == "Arquivo" &&
-                        !string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal) &&
-                        !System.IO.File.Exists(camada.CaminhoFonteOriginal))
-                    .Select(camada => camada.Nome)
-                    .ToArray();
-                if (fontesAnterioresAusentes.Length > 0)
-                {
-                    await JSRuntime.InvokeVoidAsync("alert",
-                        $"A abertura foi cancelada para preservar o mapa atual. As fontes destas camadas já não estão disponíveis: {string.Join(", ", fontesAnterioresAusentes)}.");
-                    return;
-                }
-            }
             var avisosProjeto = new List<string>();
             bool mapaLimpo = false;
             try
@@ -5781,6 +5857,9 @@
 
     private async Task<List<string>> PersistirProjetoAtualAsync(string? nomeProjeto = null)
     {
+        await _projectSaveGate.WaitAsync();
+        try
+        {
         var avisos = new List<string>();
         foreach (Camada camada in CamadasAtivas.Where(camada => camada.FontePostgis is not null))
         {
@@ -5831,6 +5910,7 @@
             MapService.CameraPanY,
             MapService.CameraZoom,
             nomeProjeto);
+        _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
 
         var semFonteConhecida = CamadasAtivas
             .Where(camada => string.IsNullOrWhiteSpace(camada.CaminhoArquivo) && !camada.PendenteReconexao &&
@@ -5841,6 +5921,11 @@
         if (semFonteConhecida.Count > 0)
             avisos.Add($"Algumas camadas não têm uma fonte reconstruível salva: {string.Join(", ", semFonteConhecida)}.");
         return avisos;
+        }
+        finally
+        {
+            _projectSaveGate.Release();
+        }
     }
 
     private static string TipoFonteProjeto(GeoNex.Models.Camada camada)
@@ -5858,6 +5943,23 @@
         }
 
         return string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal) ? "Desconhecida" : "Arquivo";
+    }
+
+    private static string TipoFonteProjeto(Camada camada)
+    {
+        if (!string.IsNullOrWhiteSpace(camada.FonteJson))
+        {
+            try
+            {
+                var fonte = System.Text.Json.JsonSerializer.Deserialize<GeoNex.Models.ProjetoFonteCamada>(
+                    camada.FonteJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (!string.IsNullOrWhiteSpace(fonte?.Tipo)) return fonte.Tipo;
+            }
+            catch (System.Text.Json.JsonException) { }
+        }
+
+        return !string.IsNullOrWhiteSpace(camada.CaminhoArquivo) ? "Arquivo" : "Desconhecida";
     }
 
     private static string? SerializarFonteProjeto(Camada camada)
@@ -6011,6 +6113,20 @@
         foreach (GeoNex.Models.Camada persistida in ordemCarregamento)
         {
             string caminho = persistida.CaminhoFonteOriginal!;
+            if (!GeoNex.Services.GnxProjectStore.FonteEhRemota(caminho) && !System.IO.File.Exists(caminho))
+            {
+                RegistrarNovaCamada(new Camada
+                {
+                    Nome = persistida.Nome,
+                    Tipo = persistida.Tipo,
+                    Visivel = persistida.Visivel,
+                    CaminhoArquivo = caminho,
+                    FonteJson = persistida.FonteJson,
+                    PendenteReconexao = true
+                });
+                avisos.Add($"A fonte da camada '{persistida.Nome}' não foi encontrada e ficou offline. Caminho esperado: {caminho}");
+                continue;
+            }
 
             if (string.Equals(persistida.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
             {
