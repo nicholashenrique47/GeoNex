@@ -12,6 +12,10 @@ public partial class Home
     private const int DefaultProjectAutosaveMinutes = 5;
     private const int MaximumRecentProjects = 8;
     private List<string> _projetosRecentes = new();
+    private bool _mostrarTelaInicialProjeto = true;
+    private bool _mostrarDialogoNovoProjeto;
+    private string _nomeNovoProjetoInicial = "Meu projeto";
+    private string _pastaNovoProjetoInicial = string.Empty;
     private bool _mostrarPropriedadesProjeto;
     private string _nomeProjetoConfiguracao = string.Empty;
     private string _crsProjetoConfiguracao = string.Empty;
@@ -72,6 +76,81 @@ public partial class Home
 
     private void PersistirProjetosRecentes()
         => Preferences.Default.Set(RecentProjectsPreferenceKey, JsonSerializer.Serialize(_projetosRecentes));
+
+    private string ObterUltimaModificacaoProjeto(string caminho)
+    {
+        try { return File.GetLastWriteTime(caminho).ToString("dd MMM yyyy · HH:mm", System.Globalization.CultureInfo.GetCultureInfo("pt-BR")); }
+        catch { return "Data indisponível"; }
+    }
+
+    private void RemoverProjetoRecente(string caminho)
+    {
+        _projetosRecentes.RemoveAll(item => string.Equals(item, caminho, StringComparison.OrdinalIgnoreCase));
+        try { PersistirProjetosRecentes(); } catch { }
+    }
+
+    private void AbrirDialogoNovoProjeto()
+    {
+        _nomeNovoProjetoInicial = "Meu projeto";
+        string documentos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        _pastaNovoProjetoInicial = Path.Combine(documentos, "GeoNex", "Projetos");
+        _mostrarDialogoNovoProjeto = true;
+    }
+
+    private void FecharDialogoNovoProjeto() => _mostrarDialogoNovoProjeto = false;
+
+    private async Task EscolherPastaNovoProjetoAsync()
+    {
+        try
+        {
+            var resultado = await CommunityToolkit.Maui.Storage.FolderPicker.Default.PickAsync(default);
+            if (resultado is { IsSuccessful: true, Folder: not null })
+                _pastaNovoProjetoInicial = resultado.Folder.Path;
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível selecionar a pasta do projeto: {ex.Message}");
+        }
+    }
+
+    private async Task CriarProjetoEmBrancoDaTelaInicialAsync()
+    {
+        string nome = _nomeNovoProjetoInicial.Trim();
+        if (string.IsNullOrWhiteSpace(nome) || nome.Length > 120)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Informe um nome de projeto com até 120 caracteres.");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_pastaNovoProjetoInicial))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Escolha a pasta onde o projeto será salvo.");
+            return;
+        }
+        if (!await PodeTrocarProjetoAsync()) return;
+
+        try
+        {
+            string pasta = Path.GetFullPath(_pastaNovoProjetoInicial.Trim());
+            string caminho = Path.Combine(pasta, CriarNomeArquivoProjeto(nome) + ".gnx");
+            if (File.Exists(caminho))
+                throw new IOException("Já existe um projeto com esse nome nessa pasta. Escolha outro nome ou abra o projeto existente.");
+
+            Directory.CreateDirectory(pasta);
+            Projeto projeto = await ProjetoService.CriarNovoProjetoAsync(caminho, nome);
+            ProjetoService.AtivarProjeto(projeto);
+            MapService.ProjetoSRS = projeto.CRS;
+            _camadaBaseProjeto = projeto.CamadaBase;
+            _mostrarDialogoNovoProjeto = false;
+            _mostrarTelaInicialProjeto = false;
+            RegistrarProjetoRecente(projeto.CaminhoArquivo);
+            MapService.RequestRedraw();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível criar o projeto: {ex.Message}");
+        }
+    }
 
     private async Task AbrirProjetoRecenteAsync(string caminho)
     {
@@ -426,6 +505,7 @@ public partial class Home
         {
             await LimparCamadasDoProjetoAtualAsync();
             ProjetoService.FecharProjeto();
+            _mostrarTelaInicialProjeto = true;
             StateHasChanged();
         }
         catch (Exception erroLimpeza)
