@@ -231,6 +231,8 @@
     .project-start-recent-remove:hover { color: #ffc3c3; background: #39252a; }
     .project-start-recent-recovery { flex: 0 0 26px; width: 26px; height: 26px; border: 1px solid #344b58; border-radius: 4px; color: #8fd5e2; background: #142630; font-size: 14px; cursor: pointer; }
     .project-start-recent-recovery:hover { border-color: #43899a; color: #d9f7fc; background: #1b3945; }
+    .project-start-recent-recovery-autosave { border-color: #36715b; color: #a4e6c2; background: #142a22; }
+    .project-start-recent-recovery-autosave:hover { border-color: #48a47e; color: #e3fff0; background: #1b3a2e; }
     .project-start-recent-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(210px,1fr)); gap: 10px; max-height: 360px; overflow-y: auto; padding-top: 2px; }
     .project-start-recent-grid .project-start-recent-item { position: relative; min-height: 112px; align-items: flex-start; padding: 13px 10px; border: 1px solid #293946; border-radius: 5px; }
     .project-start-recent-grid .project-start-recent-open { align-items: flex-start; }
@@ -418,6 +420,10 @@
                                             </span>
                                         </button>
                                         <span class="project-start-recent-date">@ObterUltimaModificacaoProjeto(caminhoProjetoRecente)</span>
+                                        @if (TemAutosaveRecuperavel(caminhoProjetoRecente))
+                                        {
+                                            <button type="button" class="project-start-recent-recovery project-start-recent-recovery-autosave" disabled="@_abrindoProjeto" title="Recuperar a sessão automática mais recente; a versão salva será preservada como ponto de restauração" aria-label="Recuperar sessão automática de @Path.GetFileName(caminhoProjetoRecente)" @onclick="() => RecuperarAutosaveProjetoAsync(caminhoProjetoRecente)">⟳</button>
+                                        }
                                         @if (TemPontoRestauracaoProjeto(caminhoProjetoRecente))
                                         {
                                             <button type="button" class="project-start-recent-recovery" disabled="@_abrindoProjeto" title="Abrir a versão anterior salva como uma cópia; o projeto original será preservado" aria-label="Abrir ponto de recuperação de @Path.GetFileName(caminhoProjetoRecente)" @onclick="() => AbrirPontoRestauracaoAsync(caminhoProjetoRecente)">↶</button>
@@ -5338,6 +5344,7 @@
     private readonly System.Threading.SemaphoreSlim _projectSaveGate = new(1, 1);
     private System.Threading.CancellationTokenSource? _autosaveProjetoCts;
     private DateTime _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
+    private bool _autosaveSnapshotAtualizado;
 
     private void IniciarAutosaveProjeto()
     {
@@ -5380,12 +5387,16 @@
 
         try
         {
-            List<string> avisos = await PersistirProjetoAtualAsync(criarPontoRestauracao: false);
+            _autosaveSnapshotAtualizado = false;
+            List<string> avisos = await PersistirProjetoAtualAsync(
+                criarPontoRestauracao: false,
+                salvarComoAutosave: true);
             _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
+            if (!_autosaveSnapshotAtualizado) return;
             string detalhe = avisos.Count == 0
-                ? "Camadas, estilos e extensão do mapa foram atualizados."
+                ? "A sessão recuperável foi atualizada sem alterar o projeto salvo."
                 : string.Join(" ", avisos.Distinct());
-            ExibirNotificacaoSalvamento("Projeto salvo automaticamente", detalhe);
+            ExibirNotificacaoSalvamento("Ponto de recuperação atualizado", detalhe);
         }
         catch (Exception ex)
         {
@@ -6009,7 +6020,7 @@
 
     private Task AbrirProjetoPorCaminhoAsync(string caminho) => AbrirProjetoAsync(caminho);
 
-    private async Task AbrirProjetoAsync(string? caminhoSelecionado)
+    private async Task AbrirProjetoAsync(string? caminhoSelecionado, string? caminhoOriginalParaPromoverAutosave = null)
     {
         // A leitura das fontes pode levar alguns segundos. Bloquear a reentrada
         // antes do primeiro await impede cliques repetidos de limpar/carregar o
@@ -6038,6 +6049,18 @@
             }
 
             bool abrindoPontoRestauracao = GeoNex.Services.GnxProjectStore.EhPontoRestauracao(caminhoSelecionado);
+            bool abrindoAutosave = GeoNex.Services.GnxProjectStore.EhAutosave(caminhoSelecionado);
+            bool promovendoAutosave = abrindoAutosave && !string.IsNullOrWhiteSpace(caminhoOriginalParaPromoverAutosave);
+            if (abrindoAutosave && !promovendoAutosave)
+                throw new InvalidOperationException("Use Recuperar sessão automática na tela inicial para restaurar este arquivo.");
+            if (promovendoAutosave &&
+                !string.Equals(
+                    GeoNex.Services.GnxProjectStore.ObterCaminhoAutosave(caminhoOriginalParaPromoverAutosave!),
+                    System.IO.Path.GetFullPath(caminhoSelecionado),
+                    StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("A sessão automática selecionada não corresponde ao projeto que será recuperado.");
+            if (promovendoAutosave && ProjetoService.TemProjetoAberto)
+                throw new InvalidOperationException("Feche o projeto atual antes de recuperar uma sessão automática.");
             bool pontoRestauracaoDoProjetoAtual = abrindoPontoRestauracao &&
                 ProjetoService.ProjetoAtual is { } projetoAtualAntesDaAbertura &&
                 string.Equals(
@@ -6073,6 +6096,13 @@
             await InvokeAsync(StateHasChanged);
             await ValidarFontesDoProjetoAsync(camadasLocais.Except(fontesAusentes));
 
+            if (promovendoAutosave)
+            {
+                _statusAberturaProjeto = "Recuperando a sessão e preservando a versão salva…";
+                await InvokeAsync(StateHasChanged);
+                projeto = await GeoNex.Services.GnxProjectStore.PromoverAutosaveAsync(caminhoOriginalParaPromoverAutosave!);
+            }
+
             List<string> avisosAnteriores;
             try
             {
@@ -6102,6 +6132,8 @@
                 _mostrarTelaInicialProjeto = false;
                 if (!abrindoPontoRestauracao)
                     RegistrarProjetoRecente(projeto.CaminhoArquivo);
+                if (promovendoAutosave)
+                    GeoNex.Services.GnxProjectStore.DescartarAutosave(projeto.CaminhoArquivo);
             }
             catch (Exception ex)
             {
@@ -6135,7 +6167,9 @@
             if (avisosAnteriores.Count > 0)
                 avisosProjeto.AddRange(avisosAnteriores.Select(aviso => $"Projeto anterior: {aviso}"));
             string textoAvisos = avisosProjeto.Count == 0 ? string.Empty : "\n\nAvisos:\n• " + string.Join("\n• ", avisosProjeto.Distinct());
-            string mensagemAbertura = abrindoPontoRestauracao
+            string mensagemAbertura = promovendoAutosave
+                ? $"Sessão recuperada: {projeto.Nome}. A última versão salva foi preservada como ponto de restauração."
+                : abrindoPontoRestauracao
                 ? $"Versão anterior aberta como cópia: {projeto.Nome}. O projeto original foi preservado. Use Salvar Projeto Como para criar outra cópia restaurada."
                 : $"Projeto aberto: {projeto.Nome}";
             await JSRuntime.InvokeVoidAsync("alert", $"{mensagemAbertura}{textoAvisos}");
@@ -6193,7 +6227,8 @@
 
     private async Task<List<string>> PersistirProjetoAtualAsync(
         string? nomeProjeto = null,
-        bool criarPontoRestauracao = true)
+        bool criarPontoRestauracao = true,
+        bool salvarComoAutosave = false)
     {
         await _projectSaveGate.WaitAsync();
         try
@@ -6237,18 +6272,39 @@
                 .OrderBy(camada => camada.Ordem)
                 .FirstOrDefault()?.Nome;
 
-        await ProjetoService.SalvarProjetoAsync(
-            camadasSalvas,
-            MapService.ProjetoSRS,
-            camadaBase,
-            MapService.OffsetMundoX,
-            MapService.OffsetMundoY,
-            MapService.OffsetMundoDefinido,
-            MapService.CameraPanX,
-            MapService.CameraPanY,
-            MapService.CameraZoom,
-            nomeProjeto,
-            criarPontoRestauracao);
+        if (salvarComoAutosave)
+        {
+            _autosaveSnapshotAtualizado = await ProjetoService.SalvarAutosaveProjetoAsync(
+                camadasSalvas,
+                MapService.ProjetoSRS,
+                camadaBase,
+                MapService.OffsetMundoX,
+                MapService.OffsetMundoY,
+                MapService.OffsetMundoDefinido,
+                MapService.CameraPanX,
+                MapService.CameraPanY,
+                MapService.CameraZoom);
+        }
+        else
+        {
+            await ProjetoService.SalvarProjetoAsync(
+                camadasSalvas,
+                MapService.ProjetoSRS,
+                camadaBase,
+                MapService.OffsetMundoX,
+                MapService.OffsetMundoY,
+                MapService.OffsetMundoDefinido,
+                MapService.CameraPanX,
+                MapService.CameraPanY,
+                MapService.CameraZoom,
+                nomeProjeto,
+                criarPontoRestauracao);
+            _autosaveSnapshotAtualizado = false;
+            if (ProjetoService.ProjetoAtual is { } projetoSalvo &&
+                !GeoNex.Services.GnxProjectStore.EhAutosave(projetoSalvo.CaminhoArquivo) &&
+                !GeoNex.Services.GnxProjectStore.EhPontoRestauracao(projetoSalvo.CaminhoArquivo))
+                GeoNex.Services.GnxProjectStore.DescartarAutosave(projetoSalvo.CaminhoArquivo);
+        }
         _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
 
         var semFonteConhecida = CamadasAtivas

@@ -125,6 +125,24 @@ public class ProjetoService
             cameraPanX, cameraPanY, cameraZoom, _layoutJsonEmMemoria, nomeProjeto, criarPontoRestauracao);
     }
 
+    public async Task<bool> SalvarAutosaveProjetoAsync(
+        IEnumerable<CamadaProjetoSnapshot> camadas,
+        string crsProjeto,
+        string? camadaBase,
+        double offsetMundoX,
+        double offsetMundoY,
+        bool offsetMundoDefinido,
+        double cameraPanX,
+        double cameraPanY,
+        double cameraZoom)
+    {
+        Projeto projetoAtual = ProjetoAtual ?? throw new InvalidOperationException("Crie ou abra um projeto antes de salvar automaticamente.");
+        return await GnxProjectStore.SalvarAutosaveAsync(
+            projetoAtual, camadas, crsProjeto, camadaBase,
+            offsetMundoX, offsetMundoY, offsetMundoDefinido,
+            cameraPanX, cameraPanY, cameraZoom, _layoutJsonEmMemoria);
+    }
+
     public Task<Projeto> SalvarComoAsync(string caminhoDestino, string? nomeProjeto = null)
     {
         Projeto projetoAtual = ProjetoAtual ?? throw new InvalidOperationException("Abra um projeto antes de usar Salvar como.");

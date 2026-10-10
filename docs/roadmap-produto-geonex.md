@@ -37,8 +37,8 @@ Entregas:
 #### Estado da execução — 10/10/2026
 
 - Já existiam gravação transacional SQLite, esquema versionado, validação de fontes antes de substituir o mapa, rollback para o projeto anterior quando a abertura falha e autosave periódico.
-- Implementado neste ciclo: o salvamento explícito cria um snapshot SQLite consistente da versão anterior, verifica o arquivo antes de publicá-lo e o expõe como projeto de recuperação separado. Abrir esse snapshot preserva o `.gnx` original. O autosave em segundo plano não copia o banco inteiro.
-- Ainda pendente nesta fase: estado de alterações não salvas confiável para todas as operações, escolha de recuperação após encerramento inesperado, reparar várias fontes de uma vez e apresentar migrações/erros em uma experiência de recuperação completa.
+- Implementado neste ciclo: o salvamento explícito cria um snapshot SQLite consistente da versão anterior, verifica o arquivo antes de publicá-lo e o expõe como projeto de recuperação separado. O autosave periódico agora grava uma sessão `.autosave.gnx` separada, sem alterar o último salvamento manual. A tela inicial oferece recuperação explícita; ao recuperar, o arquivo principal recebe a sessão e a versão manual anterior vira ponto de restauração. Projetos sem alterações não criam snapshots redundantes.
+- Ainda pendente nesta fase: estado de alterações não salvas confiável para todas as operações, reparar várias fontes de uma vez, apresentar migrações/erros em uma experiência de recuperação completa e concluir auditoria manual do ciclo abrir/salvar/fechar/sair e de compatibilidade dos projetos reais existentes.
 
 ### Fase 1 — Projetos portáteis e intercâmbio de dados
 

@@ -100,6 +100,9 @@ public partial class Home
         catch { return false; }
     }
 
+    private static bool TemAutosaveRecuperavel(string caminho)
+        => GeoNex.Services.GnxProjectStore.TemAutosaveMaisRecente(caminho);
+
     private bool TemPontoRestauracaoProjetoAtual
         => ProjetoService.ProjetoAtual is { } projeto && TemPontoRestauracaoProjeto(projeto.CaminhoArquivo);
 
@@ -119,6 +122,24 @@ public partial class Home
         }
 
         await AbrirProjetoAsync(caminhoRecuperacao);
+    }
+
+    private async Task RecuperarAutosaveProjetoAsync(string caminhoProjetoOriginal)
+    {
+        if (ProjetoService.TemProjetoAberto)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Feche o projeto atual antes de recuperar uma sessão automática.");
+            return;
+        }
+
+        string caminhoAutosave = GeoNex.Services.GnxProjectStore.ObterCaminhoAutosave(caminhoProjetoOriginal);
+        if (!GeoNex.Services.GnxProjectStore.TemAutosaveMaisRecente(caminhoProjetoOriginal))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Não há uma sessão automática mais recente. O projeto salvo continua disponível.");
+            return;
+        }
+
+        await AbrirProjetoAsync(caminhoAutosave, caminhoProjetoOriginal);
     }
 
     private void RemoverProjetoRecente(string caminho)

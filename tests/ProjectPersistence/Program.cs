@@ -11,6 +11,7 @@ try
 {
     await VerifyCreateSaveReopenAsync(root);
     await VerifyRecoveryPointBeforeExplicitSaveAsync(root);
+    await VerifyAutosaveStaysSeparateAndPromotesAsync(root);
     await VerifyCreateDoesNotOverwriteExistingAsync(root);
     await VerifyExtensionValidationAsync(root);
     await VerifySaveRollbackAsync(root);
@@ -28,6 +29,60 @@ try
 finally
 {
     try { Directory.Delete(root, recursive: true); } catch { }
+}
+
+static async Task VerifyAutosaveStaysSeparateAndPromotesAsync(string root)
+{
+    string path = Path.Combine(root, "autosave", "survey.gnx");
+    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+    string layerPath = Path.Combine(Path.GetDirectoryName(path)!, "roads.geojson");
+    await File.WriteAllTextAsync(layerPath, "{}");
+    Projeto project = await GnxProjectStore.CriarAsync(path, "Autosave survey");
+    var original = new CamadaProjetoSnapshot("roads", "Vetor", true, 0, layerPath,
+        "{\"Tipo\":\"Arquivo\"}", "manual-style");
+    await GnxProjectStore.SalvarAsync(project, [original], "EPSG:4326", null, 0, 0, false,
+        0, 0, 1, "{\"layout\":\"manual\"}");
+
+    string autosavePath = GnxProjectStore.ObterCaminhoAutosave(path);
+    bool unchanged = await GnxProjectStore.SalvarAutosaveAsync(project, [original], "EPSG:4326", null,
+        0, 0, false, 0, 0, 1, "{\"layout\":\"manual\"}");
+    Assert(!unchanged && !File.Exists(autosavePath), "unchanged projects do not create false crash-recovery candidates");
+
+    File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-2));
+    var automatic = new CamadaProjetoSnapshot("roads", "Vetor", false, 0, layerPath,
+        "{\"Tipo\":\"Arquivo\"}", "automatic-style");
+    bool updated = await GnxProjectStore.SalvarAutosaveAsync(project, [automatic], "EPSG:31982", "roads",
+        5, 6, true, 7, 8, 2, "{\"layout\":\"automatic\"}");
+    Assert(updated && File.Exists(autosavePath), "changed sessions are written to a separate autosave document");
+    Assert(GnxProjectStore.TemAutosaveMaisRecente(path), "newer autosave is offered for recovery");
+
+    var later = new CamadaProjetoSnapshot("roads", "Vetor", true, 0, layerPath,
+        "{\"Tipo\":\"Arquivo\"}", "latest-style");
+    bool updatedExisting = await GnxProjectStore.SalvarAutosaveAsync(project, [later], "EPSG:31984", "roads",
+        9, 10, true, 11, 12, 3, "{\"layout\":\"latest\"}");
+    Assert(updatedExisting, "subsequent autosaves replace the recoverable session transactionally");
+
+    Projeto manualBeforeRecovery = await GnxProjectStore.AbrirAsync(path);
+    Projeto snapshot = await GnxProjectStore.AbrirAsync(autosavePath);
+    Assert(manualBeforeRecovery.CRS == "EPSG:4326" && manualBeforeRecovery.Camadas.Single().EstiloJson == "manual-style",
+        "background autosave does not mutate the last manually saved project");
+    Assert(snapshot.Id == project.Id && snapshot.CRS == "EPSG:31984" && snapshot.Camadas.Single().Visivel &&
+        snapshot.Camadas.Single().EstiloJson == "latest-style" && snapshot.LayoutJson == "{\"layout\":\"latest\"}",
+        "autosave stores full session state under the original project identity");
+
+    Projeto recovered = await GnxProjectStore.PromoverAutosaveAsync(path);
+    Projeto recoveryPoint = await GnxProjectStore.AbrirAsync(GnxProjectStore.ObterCaminhoPontoRestauracao(path));
+    Assert(recovered.CRS == "EPSG:31984" && recovered.CameraZoom == 3 &&
+        recovered.Camadas.Single().EstiloJson == "latest-style" && recovered.LayoutJson == "{\"layout\":\"latest\"}",
+        "explicit recovery promotes all autosaved project state to the original document");
+    Assert(recoveryPoint.CRS == "EPSG:4326" && recoveryPoint.Camadas.Single().EstiloJson == "manual-style" &&
+        recoveryPoint.LayoutJson == "{\"layout\":\"manual\"}",
+        "promotion preserves the last manual version as a recovery point");
+    Assert(File.Exists(autosavePath) && !GnxProjectStore.TemAutosaveMaisRecente(path),
+        "autosave remains until successful map activation and is no longer considered newer after promotion");
+
+    GnxProjectStore.DescartarAutosave(path);
+    Assert(!File.Exists(autosavePath), "successful recovery can discard its consumed autosave");
 }
 
 static async Task VerifyRecoveryPointBeforeExplicitSaveAsync(string root)

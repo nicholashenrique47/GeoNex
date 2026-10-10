@@ -20,14 +20,45 @@ public static class GnxProjectStore
 {
     public const int CurrentSchemaVersion = 2;
     public const string RecoveryPointSuffix = ".recovery.gnx";
+    public const string AutosaveSuffix = ".autosave.gnx";
 
     public static string ObterCaminhoPontoRestauracao(string caminhoProjeto)
         => Path.GetFullPath(caminhoProjeto) + RecoveryPointSuffix;
 
+    public static string ObterCaminhoAutosave(string caminhoProjeto)
+        => Path.GetFullPath(caminhoProjeto) + AutosaveSuffix;
+
+    public static string ObterCaminhoProjetoDoAutosave(string caminhoAutosave)
+    {
+        string caminho = Path.GetFullPath(caminhoAutosave);
+        if (!EhAutosave(caminho))
+            throw new ArgumentException("O arquivo informado não é um autosave GeoNex.", nameof(caminhoAutosave));
+        return caminho[..^AutosaveSuffix.Length];
+    }
+
     public static bool EhPontoRestauracao(string caminhoProjeto)
         => Path.GetFileName(caminhoProjeto).EndsWith(RecoveryPointSuffix, StringComparison.OrdinalIgnoreCase);
 
-    public static async Task<Projeto> CriarAsync(string caminhoCompleto, string nomeProjeto)
+    public static bool EhAutosave(string caminhoProjeto)
+        => Path.GetFileName(caminhoProjeto).EndsWith(AutosaveSuffix, StringComparison.OrdinalIgnoreCase);
+
+    public static bool TemAutosaveMaisRecente(string caminhoProjeto)
+    {
+        try
+        {
+            string caminho = Path.GetFullPath(caminhoProjeto);
+            string autosave = ObterCaminhoAutosave(caminho);
+            return File.Exists(caminho) && File.Exists(autosave) &&
+                File.GetLastWriteTimeUtc(autosave) > File.GetLastWriteTimeUtc(caminho);
+        }
+        catch { return false; }
+    }
+
+    public static async Task<Projeto> CriarAsync(
+        string caminhoCompleto,
+        string nomeProjeto,
+        Guid? idProjeto = null,
+        DateTime? criadoEm = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nomeProjeto);
         ArgumentException.ThrowIfNullOrWhiteSpace(caminhoCompleto);
@@ -50,8 +81,10 @@ public static class GnxProjectStore
 
             var projeto = new Projeto
             {
+                Id = idProjeto ?? Guid.NewGuid(),
                 Nome = nomeProjeto.Trim(),
-                CaminhoArquivo = caminhoCompleto
+                CaminhoArquivo = caminhoCompleto,
+                CriadoEm = criadoEm ?? DateTime.Now
             };
             banco.Projetos.Add(projeto);
             await banco.SaveChangesAsync();
@@ -201,7 +234,9 @@ public static class GnxProjectStore
         double cameraZoom,
         string? layoutJson,
         string? nomeProjeto = null,
-        bool criarPontoRestauracao = false)
+        bool criarPontoRestauracao = false,
+        string? caminhoDestino = null,
+        bool substituirLayout = false)
     {
         ArgumentNullException.ThrowIfNull(projetoAtual);
         ArgumentNullException.ThrowIfNull(camadas);
@@ -209,7 +244,7 @@ public static class GnxProjectStore
             throw new ArgumentException("Informe um nome para o projeto.", nameof(nomeProjeto));
         if (nomeProjeto?.Trim().Length > 120)
             throw new ArgumentException("O nome do projeto deve ter até 120 caracteres.", nameof(nomeProjeto));
-        string caminho = Path.GetFullPath(projetoAtual.CaminhoArquivo);
+        string caminho = Path.GetFullPath(caminhoDestino ?? projetoAtual.CaminhoArquivo);
         if (!File.Exists(caminho))
             throw new FileNotFoundException("O arquivo do projeto ativo não existe mais.", caminho);
 
@@ -253,7 +288,7 @@ public static class GnxProjectStore
         projeto.CameraPanX = double.IsFinite(cameraPanX) ? cameraPanX : 0;
         projeto.CameraPanY = double.IsFinite(cameraPanY) ? cameraPanY : 0;
         projeto.CameraZoom = double.IsFinite(cameraZoom) && cameraZoom > 0 ? cameraZoom : 1;
-        if (layoutJson is not null)
+        if (substituirLayout || layoutJson is not null)
         {
             ValidarTamanhoLayout(layoutJson);
             projeto.LayoutJson = layoutJson;
@@ -284,6 +319,141 @@ public static class GnxProjectStore
         await banco.SaveChangesAsync();
         await transaction.CommitAsync();
         CopiarEstado(projeto, projetoAtual);
+    }
+
+    /// <summary>
+    /// Stores a recoverable session beside its source project without changing the manual-save file.
+    /// A new snapshot is written under a temporary name and published only after validation.
+    /// </summary>
+    public static async Task<bool> SalvarAutosaveAsync(
+        Projeto projetoAtual,
+        IEnumerable<CamadaProjetoSnapshot> camadas,
+        string crsProjeto,
+        string? camadaBase,
+        double offsetMundoX,
+        double offsetMundoY,
+        bool offsetMundoDefinido,
+        double cameraPanX,
+        double cameraPanY,
+        double cameraZoom,
+        string? layoutJson)
+    {
+        ArgumentNullException.ThrowIfNull(projetoAtual);
+        ArgumentNullException.ThrowIfNull(camadas);
+        if (EhAutosave(projetoAtual.CaminhoArquivo) || EhPontoRestauracao(projetoAtual.CaminhoArquivo))
+            throw new InvalidOperationException("Autosave só pode ser criado a partir do projeto manual original.");
+
+        string caminhoOrigem = Path.GetFullPath(projetoAtual.CaminhoArquivo);
+        if (!File.Exists(caminhoOrigem))
+            throw new FileNotFoundException("O projeto manual não está disponível para criar o autosave.", caminhoOrigem);
+
+        CamadaProjetoSnapshot[] desejadas = camadas.ToArray();
+        Projeto salvo = await AbrirAsync(caminhoOrigem);
+        if (salvo.Id != projetoAtual.Id)
+            throw new InvalidDataException("A identidade do projeto mudou; o autosave foi cancelado para evitar misturar projetos.");
+        if (EstadoEquivalente(salvo, projetoAtual.Nome, desejadas, crsProjeto, camadaBase, offsetMundoX, offsetMundoY,
+                offsetMundoDefinido, cameraPanX, cameraPanY, cameraZoom, layoutJson))
+            return false;
+
+        string caminhoAutosave = ObterCaminhoAutosave(caminhoOrigem);
+        if (File.Exists(caminhoAutosave))
+        {
+            Projeto snapshot = await AbrirAsync(caminhoAutosave);
+            if (snapshot.Id != projetoAtual.Id)
+                throw new InvalidDataException("O arquivo de autosave pertence a outro projeto e não será substituído.");
+
+            await SalvarAsync(snapshot, desejadas, crsProjeto, camadaBase, offsetMundoX, offsetMundoY,
+                offsetMundoDefinido, cameraPanX, cameraPanY, cameraZoom, layoutJson,
+                projetoAtual.Nome, substituirLayout: true);
+            return true;
+        }
+
+        string pasta = Path.GetDirectoryName(caminhoAutosave)
+            ?? throw new IOException("Não foi possível localizar a pasta do projeto para criar o autosave.");
+        string temporario = Path.Combine(pasta, $".{Path.GetFileName(caminhoAutosave)}.{Guid.NewGuid():N}.tmp.gnx");
+        try
+        {
+            Projeto snapshot = await CriarAsync(temporario, projetoAtual.Nome, projetoAtual.Id, projetoAtual.CriadoEm);
+            await SalvarAsync(snapshot, desejadas, crsProjeto, camadaBase, offsetMundoX, offsetMundoY,
+                offsetMundoDefinido, cameraPanX, cameraPanY, cameraZoom, layoutJson,
+                projetoAtual.Nome, substituirLayout: true);
+            await ValidarIntegridadeSqliteAsync(temporario);
+            LimparPoolSqlite(temporario);
+            File.Move(temporario, caminhoAutosave, overwrite: false);
+            return true;
+        }
+        catch
+        {
+            LimparPoolSqlite(temporario);
+            TryDelete(temporario);
+            TryDelete(temporario + "-wal");
+            TryDelete(temporario + "-shm");
+            throw;
+        }
+    }
+
+    /// <summary>Promotes a newer automatic session to the original project after explicit user choice.</summary>
+    public static async Task<Projeto> PromoverAutosaveAsync(string caminhoProjeto)
+    {
+        caminhoProjeto = Path.GetFullPath(caminhoProjeto);
+        string caminhoAutosave = ObterCaminhoAutosave(caminhoProjeto);
+        if (!TemAutosaveMaisRecente(caminhoProjeto))
+            throw new InvalidDataException("Não há uma sessão automática mais recente para recuperar.");
+
+        Projeto projetoSalvo = await AbrirAsync(caminhoProjeto);
+        Projeto projetoAutosave = await AbrirAsync(caminhoAutosave);
+        if (projetoSalvo.Id != projetoAutosave.Id)
+            throw new InvalidDataException("A sessão automática não pertence ao projeto selecionado.");
+
+        CamadaProjetoSnapshot[] camadas = projetoAutosave.Camadas
+            .Select(camada => new CamadaProjetoSnapshot(
+                camada.Nome,
+                camada.Tipo,
+                camada.Visivel,
+                camada.Ordem,
+                camada.CaminhoFonteOriginal ?? string.Empty,
+                camada.FonteJson,
+                camada.EstiloJson))
+            .ToArray();
+
+        await SalvarAsync(
+            projetoAutosave,
+            camadas,
+            projetoAutosave.CRS,
+            projetoAutosave.CamadaBase,
+            projetoAutosave.OffsetMundoX,
+            projetoAutosave.OffsetMundoY,
+            projetoAutosave.OffsetMundoDefinido,
+            projetoAutosave.CameraPanX,
+            projetoAutosave.CameraPanY,
+            projetoAutosave.CameraZoom,
+            projetoAutosave.LayoutJson,
+            projetoAutosave.Nome,
+            criarPontoRestauracao: true,
+            caminhoDestino: caminhoProjeto,
+            substituirLayout: true);
+
+        return await AbrirAsync(caminhoProjeto);
+    }
+
+    public static void DescartarAutosave(string caminhoProjeto)
+    {
+        if (EhAutosave(caminhoProjeto) || EhPontoRestauracao(caminhoProjeto)) return;
+        string caminho = ObterCaminhoAutosave(caminhoProjeto);
+        try
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = caminho,
+                ForeignKeys = true
+            }.ToString();
+            using var poolConnection = new SqliteConnection(connectionString);
+            SqliteConnection.ClearPool(poolConnection);
+            TryDelete(caminho);
+            TryDelete(caminho + "-wal");
+            TryDelete(caminho + "-shm");
+        }
+        catch { }
     }
 
     public static async Task SalvarLayoutAsync(Projeto projetoAtual, string layoutJson)
@@ -471,6 +641,88 @@ public static class GnxProjectStore
         caminho.Contains("://", StringComparison.Ordinal) ||
         caminho.StartsWith("/vsimem/", StringComparison.OrdinalIgnoreCase) ||
         caminho.StartsWith("/vsicurl/", StringComparison.OrdinalIgnoreCase);
+
+    private static bool EstadoEquivalente(
+        Projeto salvo,
+        string nomeProjeto,
+        IReadOnlyCollection<CamadaProjetoSnapshot> camadas,
+        string crsProjeto,
+        string? camadaBase,
+        double offsetMundoX,
+        double offsetMundoY,
+        bool offsetMundoDefinido,
+        double cameraPanX,
+        double cameraPanY,
+        double cameraZoom,
+        string? layoutJson)
+    {
+        if (!string.Equals(salvo.Nome, nomeProjeto, StringComparison.Ordinal) ||
+            !string.Equals(salvo.CRS, string.IsNullOrWhiteSpace(crsProjeto) ? "EPSG:4326" : crsProjeto, StringComparison.Ordinal) ||
+            !string.Equals(salvo.CamadaBase, camadaBase, StringComparison.Ordinal) ||
+            salvo.OffsetMundoX != (double.IsFinite(offsetMundoX) ? offsetMundoX : 0) ||
+            salvo.OffsetMundoY != (double.IsFinite(offsetMundoY) ? offsetMundoY : 0) ||
+            salvo.OffsetMundoDefinido != offsetMundoDefinido ||
+            salvo.CameraPanX != (double.IsFinite(cameraPanX) ? cameraPanX : 0) ||
+            salvo.CameraPanY != (double.IsFinite(cameraPanY) ? cameraPanY : 0) ||
+            salvo.CameraZoom != (double.IsFinite(cameraZoom) && cameraZoom > 0 ? cameraZoom : 1) ||
+            !string.Equals(salvo.LayoutJson, layoutJson, StringComparison.Ordinal) ||
+            salvo.Camadas.Count != camadas.Count)
+            return false;
+
+        var salvasPorNome = salvo.Camadas.ToDictionary(camada => camada.Nome, StringComparer.OrdinalIgnoreCase);
+        foreach (CamadaProjetoSnapshot desejada in camadas)
+        {
+            if (!salvasPorNome.TryGetValue(desejada.Nome, out Camada? existente) ||
+                !string.Equals(existente.Tipo, desejada.Tipo, StringComparison.Ordinal) ||
+                existente.Visivel != desejada.Visivel ||
+                existente.Ordem != desejada.Ordem ||
+                !string.Equals(existente.FonteJson, desejada.FonteJson, StringComparison.Ordinal) ||
+                !string.Equals(existente.EstiloJson, desejada.EstiloJson, StringComparison.Ordinal))
+                return false;
+
+            string caminhoDesejadoPersistido = PersistirCaminhoFonte(salvo.CaminhoArquivo, desejada.CaminhoFonte);
+            string caminhoDesejado = ResolverCaminhoFonte(salvo.CaminhoArquivo, caminhoDesejadoPersistido);
+            string caminhoSalvo = existente.CaminhoFonteOriginal ?? string.Empty;
+            StringComparison comparacaoCaminho = FonteEhRemota(caminhoDesejado)
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
+            if (!string.Equals(caminhoSalvo, caminhoDesejado, comparacaoCaminho))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static Task ValidarIntegridadeSqliteAsync(string caminho)
+    {
+        return Task.Run(() =>
+        {
+            var builder = new SqliteConnectionStringBuilder
+            {
+                DataSource = caminho,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            };
+            using var connection = new SqliteConnection(builder.ToString());
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA quick_check";
+            string? resultado = Convert.ToString(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+            if (!string.Equals(resultado, "ok", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"SQLite não validou o arquivo '{caminho}': {resultado ?? "sem resultado"}.");
+        });
+    }
+
+    private static void LimparPoolSqlite(string caminho)
+    {
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = caminho,
+            ForeignKeys = true
+        };
+        using var connection = new SqliteConnection(builder.ToString());
+        SqliteConnection.ClearPool(connection);
+    }
 
     /// <summary>
     /// Creates a consistent SQLite snapshot beside the project before an explicit save.
