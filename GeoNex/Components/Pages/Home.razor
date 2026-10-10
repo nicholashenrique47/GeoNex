@@ -5,6 +5,7 @@
 @inject GeoNex.Services.RasterService RasterService
 @inject GeoNex.Services.MapRenderingService MapService
 @inject GeoNex.Services.ExportService ExportService
+@inject GeoNex.Services.WindowCloseCoordinator WindowCloseCoordinator
 @using SkiaSharp
 @using SkiaSharp.Views.Blazor
 @using ProjNet.CoordinateSystems
@@ -5231,6 +5232,7 @@
     protected override void OnInitialized()
     {
         var resourceBudget = GeoNex.Services.GdalRuntimeConfiguration.Apply();
+        WindowCloseCoordinator.CloseRequested += AoSolicitarFechamentoNativo;
         _gdalLimitMB = resourceBudget.GdalCacheMb.ToString(System.Globalization.CultureInfo.InvariantCulture);
         _ramEmUsoMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
         CarregarProjetosRecentes();
@@ -5329,6 +5331,7 @@
     public void Dispose()
     {
         _renderDisposed = true;
+        WindowCloseCoordinator.CloseRequested -= AoSolicitarFechamentoNativo;
         _autosaveProjetoCts?.Cancel();
         MapService.ClientRenderedDigitizingPreview = false;
         if (_server != null) _server.OnOnlineFrameReady -= AtualizarImagemOnline;

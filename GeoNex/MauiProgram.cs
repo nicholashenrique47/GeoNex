@@ -31,6 +31,7 @@ public static class MauiProgram
         builder.Services.AddMauiBlazorWebView();
         builder.Services.AddSingleton<MapRenderingService>();
         builder.Services.AddSingleton<ProjetoService>();
+        builder.Services.AddSingleton<WindowCloseCoordinator>();
         builder.Services.AddSingleton<RasterService>();
         builder.Services.AddSingleton<ExportService>();
         builder.Services.AddTransient<MainPage>();

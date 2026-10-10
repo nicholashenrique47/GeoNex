@@ -24,6 +24,7 @@ public partial class Home
     private string _pastaNovoProjetoInicial = string.Empty;
     private bool _mostrarPropriedadesProjeto;
     private bool _mostrarDialogoTransicaoProjeto;
+    private bool _fechamentoJanelaEmAndamento;
     private string _destinoTransicaoProjeto = "outro projeto";
     private string _nomeProjetoTransicao = string.Empty;
     private TaskCompletionSource<DecisaoTransicaoProjeto>? _respostaTransicaoProjeto;
@@ -657,15 +658,37 @@ public partial class Home
                 : "A última versão salva foi mantida.");
     }
 
-    private async Task SairDoGeoNexAsync()
+    private void AoSolicitarFechamentoNativo()
     {
-        FecharMenusSuperiores();
-        if (!await PodeTrocarProjetoAsync()) return;
-        var transicao = await PrepararTransicaoProjetoAsync("sair do GeoNex");
-        if (!transicao.PodeContinuar) return;
-        if (transicao.ProjetoDoAutosaveParaDescartar is not null && ProjetoService.ProjetoAtual is { } projeto)
-            GeoNex.Services.GnxProjectStore.DescartarAutosave(projeto.CaminhoArquivo);
-        Microsoft.Maui.Controls.Application.Current?.Quit();
+        if (_fechamentoJanelaEmAndamento || _renderDisposed) return;
+        _ = InvokeAsync(FecharAplicativoComConfirmacaoAsync);
+    }
+
+    private async Task SairDoGeoNexAsync() => await FecharAplicativoComConfirmacaoAsync();
+
+    private async Task FecharAplicativoComConfirmacaoAsync()
+    {
+        if (_fechamentoJanelaEmAndamento) return;
+        _fechamentoJanelaEmAndamento = true;
+        try
+        {
+            FecharMenusSuperiores();
+            if (!await PodeTrocarProjetoAsync()) return;
+            var transicao = await PrepararTransicaoProjetoAsync("sair do GeoNex");
+            if (!transicao.PodeContinuar) return;
+            if (transicao.ProjetoDoAutosaveParaDescartar is not null && ProjetoService.ProjetoAtual is { } projeto)
+                GeoNex.Services.GnxProjectStore.DescartarAutosave(projeto.CaminhoArquivo);
+            WindowCloseCoordinator.PermitNextClose();
+            Microsoft.Maui.Controls.Application.Current?.Quit();
+        }
+        catch (Exception ex)
+        {
+            ExibirNotificacaoSalvamento("O GeoNex continua aberto", ex.Message, erro: true);
+        }
+        finally
+        {
+            _fechamentoJanelaEmAndamento = false;
+        }
     }
 
     private void AbrirCompositorPeloMenuArquivo()
