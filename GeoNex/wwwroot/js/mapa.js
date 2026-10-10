@@ -1,5 +1,60 @@
 // mapa.js - Motor de Geovisualização WMS e Vetorial (GeoNex Desktop)
 // =========================================================================
+// Mensagens de interface ficam dentro do GeoNex em vez de abrir o alert modal
+// padrão do WebView/Windows, que interrompe o fluxo e usa uma aparência alheia ao app.
+window.alert = function (message) {
+    const texto = String(message ?? '');
+    const normalizado = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const erro = /erro|falha|nao foi possivel|nao pode|critico|invalido|cancelad/.test(normalizado);
+    const aviso = !erro && /aviso|atencao|reconect|offline|nao foi/.test(normalizado);
+    const hostId = 'geonex-alert-stack';
+    let host = document.getElementById(hostId);
+    if (!host && document.body) {
+        host = document.createElement('div');
+        host.id = hostId;
+        host.className = 'geonex-alert-stack';
+        host.setAttribute('aria-live', 'polite');
+        host.setAttribute('aria-relevant', 'additions');
+        document.body.appendChild(host);
+    }
+    if (!host) {
+        console.warn('[GeoNex]', texto);
+        return;
+    }
+
+    const toast = document.createElement('section');
+    toast.className = `geonex-alert-toast${erro ? ' is-error' : aviso ? ' is-warning' : ''}`;
+    toast.setAttribute('role', erro || aviso ? 'alert' : 'status');
+    const mark = document.createElement('span');
+    mark.className = 'geonex-alert-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = erro ? '!' : aviso ? '⚠' : 'i';
+    const copy = document.createElement('div');
+    copy.className = 'geonex-alert-copy';
+    const title = document.createElement('div');
+    title.className = 'geonex-alert-title';
+    title.textContent = erro ? 'NÃO FOI POSSÍVEL CONCLUIR' : aviso ? 'ATENÇÃO' : 'GEONEX';
+    const body = document.createElement('div');
+    body.className = 'geonex-alert-message';
+    body.textContent = texto;
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'geonex-alert-dismiss';
+    close.setAttribute('aria-label', 'Fechar notificação');
+    close.textContent = '×';
+    copy.append(title, body);
+    toast.append(mark, copy, close);
+    host.prepend(toast);
+
+    let timer = window.setTimeout(() => toast.remove(), erro || aviso ? 15000 : 8000);
+    const pause = () => window.clearTimeout(timer);
+    const resume = () => { timer = window.setTimeout(() => toast.remove(), 8000); };
+    toast.addEventListener('mouseenter', pause);
+    toast.addEventListener('mouseleave', resume);
+    close.addEventListener('click', () => toast.remove());
+    while (host.children.length > 5) host.lastElementChild?.remove();
+};
+
 // 0. ESCUDO DO WINDOWS E TRAVA DO RATO
 // =========================================================================
 document.addEventListener('mousedown', function (e) {

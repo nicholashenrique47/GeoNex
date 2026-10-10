@@ -80,6 +80,58 @@
     .save-feedback-toast .vector-load-toast-name { max-height: 170px; overflow: auto; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.45; }
     .save-feedback-toast.is-error .vector-load-toast-title { color: #fca5a5; }
 
+    .geonex-alert-stack {
+        position: fixed;
+        top: 78px;
+        right: 22px;
+        z-index: 20000;
+        display: grid;
+        gap: 9px;
+        width: min(420px, calc(100vw - 32px));
+        max-height: calc(100vh - 100px);
+        overflow: auto;
+        pointer-events: none;
+    }
+    .geonex-alert-toast {
+        display: flex;
+        align-items: flex-start;
+        gap: 11px;
+        padding: 13px 14px;
+        color: #e2e8f0;
+        background: rgba(15, 23, 42, .97);
+        border: 1px solid rgba(56, 189, 248, .38);
+        border-left: 3px solid #38bdf8;
+        border-radius: 9px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, .42);
+        backdrop-filter: blur(12px);
+        font: 12px 'Inter', 'Segoe UI', sans-serif;
+        pointer-events: auto;
+        animation: geonex-alert-enter .18s ease-out;
+    }
+    .geonex-alert-toast.is-warning { border-color: rgba(251, 191, 36, .42); border-left-color: #fbbf24; }
+    .geonex-alert-toast.is-error { border-color: rgba(248, 113, 113, .48); border-left-color: #f87171; }
+    .geonex-alert-mark {
+        display: grid;
+        flex: 0 0 22px;
+        width: 22px;
+        height: 22px;
+        place-items: center;
+        border-radius: 50%;
+        color: #bae6fd;
+        background: rgba(56, 189, 248, .16);
+        font-weight: 800;
+    }
+    .is-warning .geonex-alert-mark { color: #fde68a; background: rgba(251, 191, 36, .16); }
+    .is-error .geonex-alert-mark { color: #fecaca; background: rgba(248, 113, 113, .16); }
+    .geonex-alert-copy { flex: 1; min-width: 0; }
+    .geonex-alert-title { margin: 1px 0 4px; color: #bae6fd; font-size: 10px; font-weight: 800; letter-spacing: .9px; }
+    .is-warning .geonex-alert-title { color: #fde68a; }
+    .is-error .geonex-alert-title { color: #fca5a5; }
+    .geonex-alert-message { max-height: 220px; overflow: auto; color: #e2e8f0; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .geonex-alert-dismiss { flex: 0 0 24px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; color: #94a3b8; background: transparent; cursor: pointer; }
+    .geonex-alert-dismiss:hover { color: #fff; background: rgba(148, 163, 184, .15); }
+    @@keyframes geonex-alert-enter { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
     .vector-load-toast-title { color: #6ee7b7; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
     .vector-load-toast-name { margin-top: 3px; overflow: hidden; color: #fff; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
     .vector-load-toast-data { display: flex; gap: 14px; margin-top: 8px; color: #94a3b8; }
@@ -5883,84 +5935,41 @@
         catch { return false; }
     }
 
-    private void RestaurarOrigemDoProjeto(GeoNex.Models.Projeto projeto)
-    {
-        if (!projeto.OffsetMundoDefinido ||
-            !double.IsFinite(projeto.OffsetMundoX) ||
-            !double.IsFinite(projeto.OffsetMundoY))
-            return;
-
-        double origemAntigaX = MapService.OffsetMundoX;
-        double origemAntigaY = MapService.OffsetMundoY;
-        double deslocamentoLocalX = origemAntigaX - projeto.OffsetMundoX;
-        double deslocamentoLocalY = projeto.OffsetMundoY - origemAntigaY;
-        float dx = (float)deslocamentoLocalX;
-        float dy = (float)deslocamentoLocalY;
-
-        foreach (List<CompiledFeature> feicoes in MapService.FeaturesPorCamada.Values)
-        {
-            foreach (CompiledFeature feicao in feicoes)
-            {
-                var centroide = feicao.CentroidLocalPrecise;
-                feicao.SetCentroidLocalPrecise(
-                    centroide.X + deslocamentoLocalX,
-                    centroide.Y + deslocamentoLocalY);
-                System.Threading.Interlocked.Exchange(ref feicao.Path, null)?.Dispose();
-            }
-        }
-
-        foreach (string nomeCamada in MapService.FeaturesPorCamada.Keys)
-        {
-            using var shapefile = MapService.AcquireShapefile(nomeCamada);
-            shapefile?.Resource.InvalidateRenderPath();
-        }
-
-        foreach (var par in MapService.PontosAncoragemRotulo)
-        {
-            for (int i = 0; i < par.Value.Count; i++)
-            {
-                var ponto = par.Value[i];
-                par.Value[i] = (
-                    new SKPoint(ponto.Ponto.X + dx, ponto.Ponto.Y + dy),
-                    ponto.Atributos,
-                    ponto.LarguraMundo);
-            }
-        }
-
-        foreach (var par in MapService.LimitesRasters.ToArray())
-        {
-            SKRect limite = par.Value;
-            if (!limite.IsEmpty)
-                MapService.LimitesRasters[par.Key] = new SKRect(
-                    limite.Left + dx,
-                    limite.Top + dy,
-                    limite.Right + dx,
-                    limite.Bottom + dy);
-        }
-
-        SKRect limitesVetoriais = MapService.LimitesGlobaisVetor;
-        if (!limitesVetoriais.IsEmpty)
-            MapService.LimitesGlobaisVetor = new SKRect(
-                limitesVetoriais.Left + dx,
-                limitesVetoriais.Top + dy,
-                limitesVetoriais.Right + dx,
-                limitesVetoriais.Bottom + dy);
-
-        MapService.OffsetMundoX = projeto.OffsetMundoX;
-        MapService.OffsetMundoY = projeto.OffsetMundoY;
-        MapService.OffsetMundoDefinido = true;
-        MapService.ClearRasterCaches();
-        MapService.RequestRedraw();
-    }
-
     private async Task<List<string>> CarregarCamadasDoProjetoAsync(
         GeoNex.Models.Projeto projeto,
         IReadOnlyList<GeoNex.Models.Camada> camadasProjeto)
     {
-        MapService.ProjetoSRS = "EPSG:4326";
-        MapService.OffsetMundoX = 0;
-        MapService.OffsetMundoY = 0;
-        MapService.OffsetMundoDefinido = false;
+        // O .gnx guarda o SRC e a origem do mapa no espaço do próprio projeto.
+        // Aplicá-los antes de ler os dados é essencial: cada vetor calcula seus
+        // envelopes e índices já no SRC de destino. Trocar o SRC depois da carga
+        // deixava os caminhos reprojetados, mas os envelopes em graus, escondendo
+        // as camadas ao reabrir projetos que usam um mapa-base em EPSG:3857.
+        string crsSalvo = string.IsNullOrWhiteSpace(projeto.CRS) ? "EPSG:4326" : projeto.CRS;
+        bool origemSalvaValida = projeto.OffsetMundoDefinido &&
+            double.IsFinite(projeto.OffsetMundoX) && double.IsFinite(projeto.OffsetMundoY);
+        MapService.ProjetoSRS = crsSalvo;
+        MapService.OffsetMundoX = origemSalvaValida ? projeto.OffsetMundoX : 0;
+        MapService.OffsetMundoY = origemSalvaValida ? projeto.OffsetMundoY : 0;
+        bool possuiCamadasLocais = camadasProjeto.Any(camada =>
+            TipoFonteProjeto(camada) == "Arquivo" && !string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal));
+        bool possuiMapaBaseOnline = camadasProjeto.Any(camada => TipoFonteProjeto(camada) == "MapaBaseOnline");
+        if (!origemSalvaValida && !possuiCamadasLocais && possuiMapaBaseOnline)
+        {
+            // Projetos antigos apenas com mapa-base ainda começam na mesma área
+            // padrão do GeoNex, mas já no SRC persistido pelo projeto.
+            double[] centroPadrao = { -48.5747, -25.8828, 0 };
+            using var paraProjeto = SrsFactory.CreateTransform("EPSG:4326", crsSalvo);
+            paraProjeto.TransformPoint(centroPadrao);
+            if (!double.IsFinite(centroPadrao[0]) || !double.IsFinite(centroPadrao[1]))
+                throw new InvalidDataException("O centro inicial do mapa não pôde ser convertido para o SRC do projeto.");
+            MapService.OffsetMundoX = centroPadrao[0];
+            MapService.OffsetMundoY = centroPadrao[1];
+        }
+        // Em projetos com camadas, origem zero serve apenas como fallback para
+        // documentos antigos sem centro persistido e impede que a primeira fonte
+        // troque o SRC do projeto durante a reconstrução. Projetos vazios deixam
+        // a origem livre para que a primeira camada escolha uma origem adequada.
+        MapService.OffsetMundoDefinido = origemSalvaValida || camadasProjeto.Count > 0;
         _camadaBaseProjeto = null;
         var avisos = new List<string>();
         var estilosProjeto = new Dictionary<string, EstiloCamada>(StringComparer.OrdinalIgnoreCase);
@@ -6158,15 +6167,8 @@
             ?? CamadasAtivas.FirstOrDefault(camada => !camada.PendenteReconexao)?.Nome
             ?? CamadasAtivas.FirstOrDefault()?.Nome;
 
-        string crsSalvo = string.IsNullOrWhiteSpace(projeto.CRS) ? "EPSG:4326" : projeto.CRS;
         using (IDisposable? pausaRender = _server is null ? null : await _server.PauseRenderingAsync())
         {
-            if (CamadasAtivas.Count == 0)
-                MapService.ProjetoSRS = crsSalvo;
-            else if (!SrsFactory.IsSame(MapService.ProjetoSRS, crsSalvo))
-                MapService.TrocarSRCProjeto(crsSalvo);
-            RestaurarOrigemDoProjeto(projeto);
-
             foreach (Camada camada in CamadasAtivas.Where(camada => camada.Tipo == "Vetor" && !camada.PendenteReconexao))
             {
                 if (!MapService.EstilosPorCamada.TryGetValue(camada.Nome, out var estilo)) continue;
@@ -6184,9 +6186,14 @@
             MapService.CamadasInvisiveis.Remove(camada.Nome);
         SincronizarHierarquia(solicitarFrame: false);
 
-        MapService.CameraPanX = double.IsFinite(projeto.CameraPanX) ? projeto.CameraPanX : 0;
-        MapService.CameraPanY = double.IsFinite(projeto.CameraPanY) ? projeto.CameraPanY : 0;
-        MapService.CameraZoom = double.IsFinite(projeto.CameraZoom) && projeto.CameraZoom > 0 ? projeto.CameraZoom : 1;
+        bool cameraSalvaValida = double.IsFinite(projeto.CameraPanX) &&
+            double.IsFinite(projeto.CameraPanY) &&
+            Math.Abs(projeto.CameraPanX) <= 1_000_000_000 &&
+            Math.Abs(projeto.CameraPanY) <= 1_000_000_000 &&
+            double.IsFinite(projeto.CameraZoom) && projeto.CameraZoom is >= 0.05 and <= 1_000_000;
+        MapService.CameraPanX = cameraSalvaValida ? projeto.CameraPanX : 0;
+        MapService.CameraPanY = cameraSalvaValida ? projeto.CameraPanY : 0;
+        MapService.CameraZoom = cameraSalvaValida ? projeto.CameraZoom : 1;
         MapService.IsPanning = false;
         long serial = await JSRuntime.InvokeAsync<long>(
             "mapEngine.sincronizarCameraComBlazor",
