@@ -14,6 +14,8 @@ public partial class Home
     private List<string> _projetosRecentes = new();
     private string _filtroProjetosRecentes = string.Empty;
     private bool _projetosRecentesEmGrade;
+    private bool _abrindoProjeto;
+    private string _statusAberturaProjeto = string.Empty;
     private bool _mostrarTelaInicialProjeto = true;
     private bool _mostrarDialogoNovoProjeto;
     private string _nomeNovoProjetoInicial = "Meu projeto";

@@ -312,6 +312,11 @@
     .project-start-launcher-divider::before,.project-start-launcher-divider::after { height: 1px; flex: 1; background: #283742; content: ''; }
     .project-start-open-button { width: 100%; min-height: 34px; }
     .project-start-launcher-note { margin: auto 0 0; padding-top: 18px; color: #748797; font-size: 9px; line-height: 1.55; }
+    .project-start-loading { display: flex; min-height: 40px; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 11px; border: 1px solid #315564; border-radius: 4px; color: #cfeaf0; background: #142b36; font-size: 9px; }
+    .project-start-loading strong { display: block; margin-bottom: 2px; color: #e6f8fb; font-size: 10px; }
+    .project-start-loading-spinner { width: 16px; height: 16px; flex: 0 0 16px; border: 2px solid rgba(129,202,218,.26); border-top-color: #70c6d8; border-radius: 50%; animation: project-start-spin .8s linear infinite; }
+    @@keyframes project-start-spin { to { transform: rotate(360deg); } }
+    .project-start-recent-open:disabled,.project-start-recent-remove:disabled,.project-start-template-tile:disabled,.project-start-open-button:disabled,.project-start-button:disabled { opacity: .5; cursor: wait; }
     .project-start-footer { min-height: 30px; flex: 0 0 30px; padding: 0 21px; color: #748798; font-size: 8px; }
     .project-start-footer span:first-child { color: #91a4b3; font-weight: 750; letter-spacing: .7px; }
     @@media (max-width: 760px) {
@@ -365,6 +370,13 @@
                         <p class="project-start-description">Abra um projeto recente ou comece um novo mapa.</p>
                     </div>
                 </div>
+                @if (_abrindoProjeto)
+                {
+                    <div class="project-start-loading" role="status" aria-live="polite">
+                        <span class="project-start-loading-spinner" aria-hidden="true"></span>
+                        <span><strong>Abrindo projeto</strong>@_statusAberturaProjeto</span>
+                    </div>
+                }
 
                 <div class="project-start-body">
                     <section class="project-start-recent-panel" aria-labelledby="project-start-recent-title">
@@ -396,7 +408,7 @@
                                 @foreach (string caminhoProjetoRecente in ProjetosRecentesFiltrados)
                                 {
                                     <div class="project-start-recent-item" @key="caminhoProjetoRecente">
-                                        <button type="button" class="project-start-recent-open" title="Abrir @caminhoProjetoRecente" @onclick="() => AbrirProjetoRecenteAsync(caminhoProjetoRecente)">
+                                        <button type="button" class="project-start-recent-open" disabled="@_abrindoProjeto" title="Abrir @caminhoProjetoRecente" @onclick="() => AbrirProjetoRecenteAsync(caminhoProjetoRecente)">
                                             <span class="project-start-file-icon" aria-hidden="true">GNX</span>
                                             <span class="project-start-recent-copy">
                                                 <span class="project-start-recent-name">@Path.GetFileNameWithoutExtension(caminhoProjetoRecente)</span>
@@ -404,7 +416,7 @@
                                             </span>
                                         </button>
                                         <span class="project-start-recent-date">@ObterUltimaModificacaoProjeto(caminhoProjetoRecente)</span>
-                                        <button type="button" class="project-start-recent-remove" title="Remover da lista de recentes" aria-label="Remover @Path.GetFileName(caminhoProjetoRecente) da lista" @onclick="() => RemoverProjetoRecente(caminhoProjetoRecente)">×</button>
+                                        <button type="button" class="project-start-recent-remove" disabled="@_abrindoProjeto" title="Remover da lista de recentes" aria-label="Remover @Path.GetFileName(caminhoProjetoRecente) da lista" @onclick="() => RemoverProjetoRecente(caminhoProjetoRecente)">×</button>
                                     </div>
                                 }
                             </div>
@@ -414,13 +426,13 @@
                     <aside class="project-start-launcher" aria-label="Criar ou abrir projeto">
                         <span class="project-start-eyebrow">Começar</span>
                         <h2>Novo mapa</h2>
-                        <button type="button" class="project-start-template-tile" @onclick="AbrirDialogoNovoProjeto">
+                        <button type="button" class="project-start-template-tile" disabled="@_abrindoProjeto" @onclick="AbrirDialogoNovoProjeto">
                             <span class="project-start-map-preview" aria-hidden="true"><span></span></span>
                             <span class="project-start-template-copy"><strong>Mapa 2D em branco</strong><small>Crie um projeto e adicione seus dados geográficos.</small></span>
                             <span class="project-start-action-arrow" aria-hidden="true">›</span>
                         </button>
                         <div class="project-start-launcher-divider"><span>ou</span></div>
-                        <button type="button" class="project-start-button project-start-open-button" @onclick="AbrirProjeto">Abrir outro projeto…</button>
+                        <button type="button" class="project-start-button project-start-open-button" disabled="@_abrindoProjeto" @onclick="AbrirProjeto">Abrir outro projeto…</button>
                         <p class="project-start-launcher-note">Projetos recentes e novos projetos são salvos no formato GeoNex (.gnx).</p>
                     </aside>
                 </div>
@@ -5989,8 +6001,15 @@
 
     private async Task AbrirProjetoAsync(string? caminhoSelecionado)
     {
+        // A leitura das fontes pode levar alguns segundos. Bloquear a reentrada
+        // antes do primeiro await impede cliques repetidos de limpar/carregar o
+        // mesmo mapa em paralelo e disputar os nomes das camadas.
+        if (_abrindoProjeto) return;
+        _abrindoProjeto = true;
+        _statusAberturaProjeto = "Preparando abertura do projeto…";
         try
         {
+            await InvokeAsync(StateHasChanged);
             if (!await PodeTrocarProjetoAsync()) return;
 
             if (string.IsNullOrWhiteSpace(caminhoSelecionado))
@@ -6008,6 +6027,8 @@
                 caminhoSelecionado = arquivo.FullPath;
             }
 
+            _statusAberturaProjeto = "Lendo o arquivo do projeto…";
+            await InvokeAsync(StateHasChanged);
             GeoNex.Models.Projeto projeto = await ProjetoService.CarregarProjetoAsync(caminhoSelecionado);
             if (ProjetoService.ProjetoAtual is not null &&
                 string.Equals(
@@ -6030,6 +6051,8 @@
             var fontesAusentes = camadasLocais.Where(camada =>
                 !GeoNex.Services.GnxProjectStore.FonteEhRemota(camada.CaminhoFonteOriginal!) &&
                 !System.IO.File.Exists(camada.CaminhoFonteOriginal)).ToArray();
+            _statusAberturaProjeto = "Validando arquivos das camadas…";
+            await InvokeAsync(StateHasChanged);
             await ValidarFontesDoProjetoAsync(camadasLocais.Except(fontesAusentes));
 
             List<string> avisosAnteriores;
@@ -6052,6 +6075,8 @@
             bool mapaLimpo = false;
             try
             {
+                _statusAberturaProjeto = "Carregando camadas e mapa-base…";
+                await InvokeAsync(StateHasChanged);
                 mapaLimpo = true;
                 await LimparCamadasDoProjetoAtualAsync();
                 avisosProjeto.AddRange(await CarregarCamadasDoProjetoAsync(projeto, projeto.Camadas));
@@ -6097,6 +6122,12 @@
         catch (Exception ex)
         {
             await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível abrir esse projeto: {ex.Message}");
+        }
+        finally
+        {
+            _abrindoProjeto = false;
+            _statusAberturaProjeto = string.Empty;
+            try { await InvokeAsync(StateHasChanged); } catch { }
         }
     }
 
