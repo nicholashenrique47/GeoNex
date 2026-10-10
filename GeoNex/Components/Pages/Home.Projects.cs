@@ -337,13 +337,13 @@ public partial class Home
             }
 
             string caminho = Path.GetFullPath(caminhoSelecionado);
-            string nomeNovo = Path.GetFileName(caminho);
+            string nomeCamada = camadaOffline.Nome;
             if (CamadasAtivas.Any(camada => !ReferenceEquals(camada, camadaOffline) &&
-                    string.Equals(camada.Nome, nomeNovo, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException($"Já existe outra camada chamada '{nomeNovo}'. Remova ou renomeie a duplicata antes de reconectar.");
+                    string.Equals(camada.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"Já existe outra camada chamada '{nomeCamada}'. Remova ou renomeie a duplicata antes de reconectar.");
 
             await GeoNex.Services.GnxProjectSourceValidator.ValidarAsync(
-                new[] { new GeoNex.Models.Camada { Nome = nomeNovo, Tipo = camadaOffline.Tipo, CaminhoFonteOriginal = caminho } },
+                new[] { new GeoNex.Models.Camada { Nome = nomeCamada, Tipo = camadaOffline.Tipo, CaminhoFonteOriginal = caminho } },
                 MapService.GdalRasterLock);
 
             int indiceOriginal = CamadasAtivas.IndexOf(camadaOffline);
@@ -362,16 +362,16 @@ public partial class Home
                 if (vetor)
                 {
                     caminhoArquivoVetor = caminho;
-                    await AdicionarVetorAoMapa();
+                    await AdicionarVetorAoMapa(nomeCamada);
                 }
                 else
                 {
                     caminhoArquivoRaster = caminho;
-                    await AdicionarCamadaAoMapa();
+                    await AdicionarCamadaAoMapa(nomeCamada);
                 }
 
                 carregada = CamadasAtivas.FirstOrDefault(camada =>
-                    string.Equals(camada.Nome, nomeNovo, StringComparison.OrdinalIgnoreCase) && !camada.PendenteReconexao);
+                    string.Equals(camada.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase) && !camada.PendenteReconexao);
                 if (carregada is null)
                     throw new InvalidDataException("A fonte foi selecionada, mas a camada não pôde ser carregada no mapa.");
 
@@ -383,27 +383,26 @@ public partial class Home
 
                 if (estilo is not null)
                 {
-                    MapService.EstilosPorCamada.TryRemove(camadaOffline.Nome, out _);
-                    MapService.EstilosPorCamada[nomeNovo] = estilo;
+                    MapService.EstilosPorCamada[nomeCamada] = estilo;
                     if (vetor)
                     {
                         try
                         {
                             if (estilo.TipoSimbologia == "CATEGORIZADA")
-                                MapService.CompilarCategorias(nomeNovo, estilo.ColunaSimbologia);
+                                MapService.CompilarCategorias(nomeCamada, estilo.ColunaSimbologia);
                             if (estilo.ExibirRotulos && !string.IsNullOrWhiteSpace(estilo.ColunaRotulo))
-                                MapService.AtualizarRotulosCamada(nomeNovo, estilo.ColunaRotulo);
+                                MapService.AtualizarRotulosCamada(nomeCamada, estilo.ColunaRotulo);
                         }
                         catch (Exception erroEstilo)
                         {
-                            Console.Error.WriteLine($"O estilo de '{nomeNovo}' foi preservado, mas não pôde ser recompilado: {erroEstilo.Message}");
+                            Console.Error.WriteLine($"O estilo de '{nomeCamada}' foi preservado, mas não pôde ser recompilado: {erroEstilo.Message}");
                         }
                     }
                 }
 
-                MapService.CamadasInvisiveis.Remove(camadaOffline.Nome);
-                if (!carregada.Visivel) MapService.CamadasInvisiveis.Add(nomeNovo);
-                if (eraCamadaBase) _camadaBaseProjeto = nomeNovo;
+                if (!carregada.Visivel) MapService.CamadasInvisiveis.Add(nomeCamada);
+                else MapService.CamadasInvisiveis.Remove(nomeCamada);
+                if (eraCamadaBase) _camadaBaseProjeto = nomeCamada;
                 MapService.CameraPanX = panX;
                 MapService.CameraPanY = panY;
                 MapService.CameraZoom = zoom;
@@ -417,11 +416,11 @@ public partial class Home
                     {
                         List<string> avisos = await PersistirProjetoAtualAsync();
                         string detalhes = avisos.Count == 0 ? string.Empty : " " + string.Join(" ", avisos.Distinct());
-                        ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada '{nomeNovo}' foi restaurada e o projeto atualizado.{detalhes}");
+                        ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada '{nomeCamada}' foi restaurada e o projeto atualizado.{detalhes}");
                     }
                     catch (Exception erroSalvamento)
                     {
-                        ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada está ativa, mas o projeto não pôde ser atualizado: {erroSalvamento.Message}", erro: true);
+                        ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada '{nomeCamada}' está ativa, mas o projeto não pôde ser atualizado: {erroSalvamento.Message}", erro: true);
                     }
                 }
                 return true;

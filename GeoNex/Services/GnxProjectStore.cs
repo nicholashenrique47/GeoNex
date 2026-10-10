@@ -191,9 +191,9 @@ public static class GnxProjectStore
     }
 
     /// <summary>
-    /// The map engine indexes resources by the visible runtime layer name. Local layers
-    /// are currently named from their source filename, so distinct project records
-    /// that resolve to the same filename cannot both be restored safely.
+    /// The map engine indexes resources by the stable project layer name. Source file
+    /// names are independent of display names, so two datasets with the same basename
+    /// can be restored safely when their project layer names differ.
     /// </summary>
     public static void ValidarNomesCamadasRuntime(IEnumerable<Camada> camadas)
     {
@@ -202,25 +202,9 @@ public static class GnxProjectStore
         foreach (Camada camada in camadas)
         {
             string nomeRuntime = camada.Nome;
-            ProjetoFonteCamada? fonte = null;
-            if (!string.IsNullOrWhiteSpace(camada.FonteJson))
-            {
-                try
-                {
-                    fonte = System.Text.Json.JsonSerializer.Deserialize<ProjetoFonteCamada>(
-                        camada.FonteJson,
-                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                }
-                catch (System.Text.Json.JsonException) { }
-            }
-
-            bool arquivoLocal = fonte is null || string.Equals(fonte.Tipo, "Arquivo", StringComparison.OrdinalIgnoreCase);
-            if (arquivoLocal && !string.IsNullOrWhiteSpace(camada.CaminhoFonteOriginal))
-                nomeRuntime = Path.GetFileName(camada.CaminhoFonteOriginal);
-
-            if (!nomes.Add(nomeRuntime))
+            if (string.IsNullOrWhiteSpace(nomeRuntime) || !nomes.Add(nomeRuntime))
                 throw new InvalidDataException(
-                    $"O projeto contém camadas que usam o mesmo nome no mapa ('{nomeRuntime}'). Renomeie as fontes ou remova a duplicata antes de abrir.");
+                    $"O projeto contém camadas que usam o mesmo nome no mapa ('{nomeRuntime}'). Renomeie as camadas ou remova a duplicata antes de abrir.");
         }
     }
 

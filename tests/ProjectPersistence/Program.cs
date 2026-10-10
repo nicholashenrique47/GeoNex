@@ -19,7 +19,7 @@ try
     await VerifyLegacyMigrationAsync(root);
     await VerifyInvalidAndFutureProjectsAsync(root);
     await VerifyDuplicateLayerValidationAsync(root);
-    await VerifyDuplicateRuntimeLayerNamesRejectedAsync(root);
+    await VerifyDistinctLayerNamesWithSharedSourceBasenameAsync(root);
     VerifyPathResolution(root);
     await VerifyMovedProjectResolvesRelativeSourcesAsync(root);
     await VerifyProjectSourceValidationAsync(root);
@@ -365,10 +365,10 @@ static async Task VerifyDuplicateLayerValidationAsync(string root)
         () => GnxProjectStore.AbrirAsync(path), "reject duplicate layer names case-insensitively");
 }
 
-static async Task VerifyDuplicateRuntimeLayerNamesRejectedAsync(string root)
+static async Task VerifyDistinctLayerNamesWithSharedSourceBasenameAsync(string root)
 {
-    string path = Path.Combine(root, "duplicate-runtime-layers.gnx");
-    Projeto project = await GnxProjectStore.CriarAsync(path, "Duplicate runtime names");
+    string path = Path.Combine(root, "shared-source-basename.gnx");
+    Projeto project = await GnxProjectStore.CriarAsync(path, "Shared source basename");
     var layers = new[]
     {
         new CamadaProjetoSnapshot("north-roads", "Vetor", true, 0, Path.Combine(root, "north", "roads.shp"),
@@ -377,8 +377,11 @@ static async Task VerifyDuplicateRuntimeLayerNamesRejectedAsync(string root)
             "{\"Tipo\":\"Arquivo\"}", null)
     };
     await GnxProjectStore.SalvarAsync(project, layers, "EPSG:4326", null, 0, 0, false, 0, 0, 1, null);
-    await AssertThrowsAsync<InvalidDataException>(
-        () => GnxProjectStore.AbrirAsync(path), "reject local layers that collide in runtime layer names");
+    Projeto reopened = await GnxProjectStore.AbrirAsync(path);
+    Assert(reopened.Camadas.Count == 2 &&
+        reopened.Camadas.Any(layer => layer.Nome == "north-roads") &&
+        reopened.Camadas.Any(layer => layer.Nome == "south-roads"),
+        "preserve project layer names when source files share a basename");
 }
 
 static void VerifyPathResolution(string root)

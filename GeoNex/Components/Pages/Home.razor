@@ -1444,7 +1444,7 @@
                             </div>
 
                             <div class="import-actions">
-                                <button class="btn-save add-layer-btn" @onclick="AdicionarCamadaAoMapa">ADICIONAR RASTER AO MAPA</button>
+                                <button class="btn-save add-layer-btn" @onclick="() => AdicionarCamadaAoMapa()">ADICIONAR RASTER AO MAPA</button>
                                 <button class="btn-cancel" @onclick="FecharModalImportacao">CANCELAR</button>
                             </div>
                         }
@@ -1468,7 +1468,7 @@
                             </div>
 
                             <div class="import-actions">
-                                <button class="btn-save add-layer-btn" @onclick="AdicionarVetorAoMapa">ADICIONAR VETOR AO MAPA</button>
+                                <button class="btn-save add-layer-btn" @onclick="() => AdicionarVetorAoMapa()">ADICIONAR VETOR AO MAPA</button>
                                 <button class="btn-cancel" @onclick="FecharModalImportacao">CANCELAR</button>
                             </div>
                         }
@@ -5461,7 +5461,7 @@
     private void AtualizarImagemOnline()
         => _ = InvokeAsync(() => { if (!_renderDisposed) SolicitarNovoFrame(); });
 
-    private async Task AdicionarCamadaAoMapa()
+    private async Task AdicionarCamadaAoMapa(string? nomeCamada = null)
     {
         string? nomeReservado = null;
         string caminhoFonte = caminhoArquivoRaster;
@@ -5492,7 +5492,9 @@
             exibirModalImportacao = false;
 
             // BLINDAGEM 3: Lock no momento da troca de Dataset para evitar choque de Threads
-            string nome = System.IO.Path.GetFileName(caminhoFonte);
+            string nome = string.IsNullOrWhiteSpace(nomeCamada)
+                ? System.IO.Path.GetFileName(caminhoFonte)
+                : nomeCamada;
             if (!ReservarNomeCamada(nome))
             {
                 await JSRuntime.InvokeVoidAsync("alert", $"Já existe uma camada chamada '{nome}' no mapa ou ela está sendo carregada.");
@@ -5759,7 +5761,7 @@
         catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar arquivo vetorial: {ex.Message}"); }
     }
 
-    private async Task AdicionarVetorAoMapa()
+    private async Task AdicionarVetorAoMapa(string? nomeCamada = null)
     {
         string? nomeReservado = null;
         string caminhoFonte = caminhoArquivoVetor;
@@ -5781,7 +5783,9 @@
             }
 
             exibirModalImportacao = false;
-            string nomeArquivo = System.IO.Path.GetFileName(caminhoFonte);
+            string nomeArquivo = string.IsNullOrWhiteSpace(nomeCamada)
+                ? System.IO.Path.GetFileName(caminhoFonte)
+                : nomeCamada;
             if (!ReservarNomeCamada(nomeArquivo))
             {
                 await JSRuntime.InvokeVoidAsync("alert", $"Já existe uma camada chamada '{nomeArquivo}' no mapa ou ela está sendo carregada.");
@@ -6582,17 +6586,16 @@
             if (string.Equals(persistida.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
             {
                 caminhoArquivoRaster = caminho;
-                await AdicionarCamadaAoMapa();
+                await AdicionarCamadaAoMapa(persistida.Nome);
             }
             else
             {
                 caminhoArquivoVetor = caminho;
-                await AdicionarVetorAoMapa();
+                await AdicionarVetorAoMapa(persistida.Nome);
             }
 
-            string nomeRuntime = System.IO.Path.GetFileName(caminho);
             Camada? carregada = CamadasAtivas.FirstOrDefault(camada =>
-                string.Equals(camada.Nome, nomeRuntime, StringComparison.OrdinalIgnoreCase));
+                string.Equals(camada.Nome, persistida.Nome, StringComparison.OrdinalIgnoreCase));
             if (carregada is null)
                 throw new InvalidDataException($"A camada '{persistida.Nome}' não pôde ser carregada.");
 
