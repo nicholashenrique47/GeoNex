@@ -229,6 +229,8 @@
     .project-start-recent-date { flex: 0 0 auto; color: #8293a2; font-size: 9px; }
     .project-start-recent-remove { flex: 0 0 26px; width: 26px; height: 26px; border: 0; border-radius: 4px; color: #708392; background: transparent; font-size: 15px; cursor: pointer; }
     .project-start-recent-remove:hover { color: #ffc3c3; background: #39252a; }
+    .project-start-recent-recovery { flex: 0 0 26px; width: 26px; height: 26px; border: 1px solid #344b58; border-radius: 4px; color: #8fd5e2; background: #142630; font-size: 14px; cursor: pointer; }
+    .project-start-recent-recovery:hover { border-color: #43899a; color: #d9f7fc; background: #1b3945; }
     .project-start-recent-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(210px,1fr)); gap: 10px; max-height: 360px; overflow-y: auto; padding-top: 2px; }
     .project-start-recent-grid .project-start-recent-item { position: relative; min-height: 112px; align-items: flex-start; padding: 13px 10px; border: 1px solid #293946; border-radius: 5px; }
     .project-start-recent-grid .project-start-recent-open { align-items: flex-start; }
@@ -269,9 +271,9 @@
         .project-start-footer span:last-child { display: none; }
         .project-start-recent-date { display: none; }
     }
-    .project-start-screen { position: fixed; inset: 0; z-index: 30000; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr); place-items: center; overflow: hidden; padding: 96px 60px 50px; color: #dbe5ef; background: rgba(4,9,15,.2); backdrop-filter: blur(2px); font-family: 'Segoe UI',Inter,sans-serif; }
+    .project-start-screen { position: fixed; inset: 0; z-index: 30000; display: grid; box-sizing: border-box; grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr); place-items: center; overflow: hidden; padding: 96px clamp(12px,4vw,60px) 50px; color: #dbe5ef; background: rgba(4,9,15,.2); backdrop-filter: blur(2px); font-family: 'Segoe UI',Inter,sans-serif; }
     .project-start-screen::before { content: none; }
-    .project-start-workspace { display: flex; width: min(960px,100%); height: min(610px,calc(100vh - 146px)); min-height: 370px; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid #3a4a58; border-radius: 7px; background: rgba(14,21,29,.98); box-shadow: 0 24px 90px rgba(0,0,0,.62),0 4px 16px rgba(0,0,0,.28); }
+    .project-start-workspace { display: flex; box-sizing: border-box; width: min(960px,100%); height: min(610px,calc(100vh - 146px)); min-height: 370px; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid #3a4a58; border-radius: 7px; background: rgba(14,21,29,.98); box-shadow: 0 24px 90px rgba(0,0,0,.62),0 4px 16px rgba(0,0,0,.28); }
     .project-start-topbar { height: 65px; flex: 0 0 65px; justify-content: flex-start; gap: 18px; padding: 0 21px; border-bottom: 1px solid #2a3946; background: #111a23; }
     .project-start-brand { flex: 0 0 auto; gap: 10px; margin: 0; padding: 0 18px 0 0; border: 0; border-right: 1px solid #2a3946; }
     .project-start-logo { flex: 0 0 33px; width: 33px; height: 33px; border-radius: 5px; }
@@ -285,7 +287,7 @@
     .project-start-page-heading { flex: 0 0 auto; margin: 0 0 14px; }
     .project-start-eyebrow { color: #76bfd0; font-size: 8px; letter-spacing: .9px; }
     .project-start-description { margin-top: 5px; color: #9aabba; font-size: 10px; }
-    .project-start-body { display: grid; min-height: 0; flex: 1; grid-template-columns: minmax(0,1.2fr) minmax(225px,.8fr); gap: 22px; }
+    .project-start-body { display: grid; min-width: 0; min-height: 0; flex: 1; grid-template-columns: minmax(0,1.2fr) minmax(0,.8fr); gap: 18px; }
     .project-start-recent-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 0; border: 0; background: transparent; box-shadow: none; }
     .project-start-recent-heading { flex: 0 0 auto; padding: 0 0 9px; }
     .project-start-recent-heading h2 { color: #e4edf3; font-size: 12px; }
@@ -293,11 +295,11 @@
     .project-start-view-toggle { flex: 0 0 auto; }
     .project-start-recent-search-row { flex: 0 0 auto; padding: 0 0 8px; }
     .project-start-search { width: 100%; }
-    .project-start-recent-list { min-height: 0; flex: 1; max-height: none; border-top: 1px solid #263541; }
+    .project-start-recent-list { display: grid; grid-auto-rows: min-content; align-content: start; min-height: 0; flex: 1; max-height: none; border-top: 1px solid #263541; }
     .project-start-recent-item { min-height: 51px; padding: 7px 5px; }
     .project-start-recent-grid { min-height: 0; flex: 1; max-height: none; overflow-y: auto; align-content: start; border-top: 1px solid #263541; }
     .project-start-empty { min-height: 0; flex: 1; border-top: 1px solid #263541; }
-    .project-start-launcher { display: flex; min-width: 0; flex-direction: column; padding-left: 21px; border-left: 1px solid #2a3946; }
+    .project-start-launcher { display: flex; min-width: 0; flex-direction: column; padding-left: 18px; border-left: 1px solid #2a3946; }
     .project-start-launcher > h2 { margin: 5px 0 11px; color: #e4edf3; font-size: 12px; }
     .project-start-template-tile { display: grid; width: 100%; grid-template-columns: minmax(0,1fr) auto; gap: 8px; padding: 8px; border: 1px solid #30414e; border-radius: 4px; color: inherit; background: #131e28; text-align: left; cursor: pointer; transition: border-color .15s,background .15s; }
     .project-start-template-tile:hover { border-color: #43899a; background: #192a35; }
@@ -320,7 +322,7 @@
     .project-start-footer { min-height: 30px; flex: 0 0 30px; padding: 0 21px; color: #748798; font-size: 8px; }
     .project-start-footer span:first-child { color: #91a4b3; font-weight: 750; letter-spacing: .7px; }
     @@media (max-width: 760px) {
-        .project-start-screen { padding: 82px 10px 42px; }
+        .project-start-screen { padding: 54px 10px 12px; }
         .project-start-workspace { width: 100%; height: min(700px,calc(100vh - 124px)); min-height: 0; }
         .project-start-topbar { gap: 10px; padding: 0 12px; }
         .project-start-brand { gap: 7px; margin-right: 0; padding-right: 10px; }
@@ -416,6 +418,10 @@
                                             </span>
                                         </button>
                                         <span class="project-start-recent-date">@ObterUltimaModificacaoProjeto(caminhoProjetoRecente)</span>
+                                        @if (TemPontoRestauracaoProjeto(caminhoProjetoRecente))
+                                        {
+                                            <button type="button" class="project-start-recent-recovery" disabled="@_abrindoProjeto" title="Abrir a versão anterior salva como uma cópia; o projeto original será preservado" aria-label="Abrir ponto de recuperação de @Path.GetFileName(caminhoProjetoRecente)" @onclick="() => AbrirPontoRestauracaoAsync(caminhoProjetoRecente)">↶</button>
+                                        }
                                         <button type="button" class="project-start-recent-remove" disabled="@_abrindoProjeto" title="Remover da lista de recentes" aria-label="Remover @Path.GetFileName(caminhoProjetoRecente) da lista" @onclick="() => RemoverProjetoRecente(caminhoProjetoRecente)">×</button>
                                     </div>
                                 }
@@ -535,6 +541,10 @@
                     <div class="drop-divider"></div>
                     <span class="file-menu-section-label">Salvar</span>
                     <button type="button" @onclick="SalvarProjeto" disabled="@(!ProjetoService.TemProjetoAberto)" title="@(ProjetoService.TemProjetoAberto ? "Salvar camadas, configurações e extensão do projeto" : "Crie ou abra um projeto primeiro")">Salvar Projeto</button>
+                    @if (TemPontoRestauracaoProjetoAtual)
+                    {
+                        <button type="button" @onclick="AbrirPontoRestauracaoAtualAsync" disabled="@_abrindoProjeto">Abrir versão anterior salva…</button>
+                    }
                     <button type="button" @onclick="SalvarProjetoComoAsync" disabled="@(!ProjetoService.TemProjetoAberto)">Salvar Projeto Como…</button>
                     <div class="drop-divider"></div>
                     <span class="file-menu-section-label">Configurações e saída</span>
@@ -5370,7 +5380,7 @@
 
         try
         {
-            List<string> avisos = await PersistirProjetoAtualAsync();
+            List<string> avisos = await PersistirProjetoAtualAsync(criarPontoRestauracao: false);
             _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
             string detalhe = avisos.Count == 0
                 ? "Camadas, estilos e extensão do mapa foram atualizados."
@@ -6027,6 +6037,14 @@
                 caminhoSelecionado = arquivo.FullPath;
             }
 
+            bool abrindoPontoRestauracao = GeoNex.Services.GnxProjectStore.EhPontoRestauracao(caminhoSelecionado);
+            bool pontoRestauracaoDoProjetoAtual = abrindoPontoRestauracao &&
+                ProjetoService.ProjetoAtual is { } projetoAtualAntesDaAbertura &&
+                string.Equals(
+                    GeoNex.Services.GnxProjectStore.ObterCaminhoPontoRestauracao(projetoAtualAntesDaAbertura.CaminhoArquivo),
+                    System.IO.Path.GetFullPath(caminhoSelecionado),
+                    StringComparison.OrdinalIgnoreCase);
+
             _statusAberturaProjeto = "Lendo o arquivo do projeto…";
             await InvokeAsync(StateHasChanged);
             GeoNex.Models.Projeto projeto = await ProjetoService.CarregarProjetoAsync(caminhoSelecionado);
@@ -6060,7 +6078,7 @@
             {
                 avisosAnteriores = ProjetoService.ProjetoAtual is null
                     ? new List<string>()
-                    : await PersistirProjetoAtualAsync();
+                    : await PersistirProjetoAtualAsync(criarPontoRestauracao: !pontoRestauracaoDoProjetoAtual);
             }
             catch (Exception ex)
             {
@@ -6082,7 +6100,8 @@
                 avisosProjeto.AddRange(await CarregarCamadasDoProjetoAsync(projeto, projeto.Camadas));
                 ProjetoService.AtivarProjeto(projeto);
                 _mostrarTelaInicialProjeto = false;
-                RegistrarProjetoRecente(projeto.CaminhoArquivo);
+                if (!abrindoPontoRestauracao)
+                    RegistrarProjetoRecente(projeto.CaminhoArquivo);
             }
             catch (Exception ex)
             {
@@ -6116,7 +6135,10 @@
             if (avisosAnteriores.Count > 0)
                 avisosProjeto.AddRange(avisosAnteriores.Select(aviso => $"Projeto anterior: {aviso}"));
             string textoAvisos = avisosProjeto.Count == 0 ? string.Empty : "\n\nAvisos:\n• " + string.Join("\n• ", avisosProjeto.Distinct());
-            await JSRuntime.InvokeVoidAsync("alert", $"Projeto aberto: {projeto.Nome}{textoAvisos}");
+            string mensagemAbertura = abrindoPontoRestauracao
+                ? $"Versão anterior aberta como cópia: {projeto.Nome}. O projeto original foi preservado. Use Salvar Projeto Como para criar outra cópia restaurada."
+                : $"Projeto aberto: {projeto.Nome}";
+            await JSRuntime.InvokeVoidAsync("alert", $"{mensagemAbertura}{textoAvisos}");
             StateHasChanged();
         }
         catch (Exception ex)
@@ -6169,7 +6191,9 @@
         }
     }
 
-    private async Task<List<string>> PersistirProjetoAtualAsync(string? nomeProjeto = null)
+    private async Task<List<string>> PersistirProjetoAtualAsync(
+        string? nomeProjeto = null,
+        bool criarPontoRestauracao = true)
     {
         await _projectSaveGate.WaitAsync();
         try
@@ -6223,7 +6247,8 @@
             MapService.CameraPanX,
             MapService.CameraPanY,
             MapService.CameraZoom,
-            nomeProjeto);
+            nomeProjeto,
+            criarPontoRestauracao);
         _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
 
         var semFonteConhecida = CamadasAtivas

@@ -1,6 +1,7 @@
 using GeoNex.Data;
 using GeoNex.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using System.Data.Common;
 
 namespace GeoNex.Services;
@@ -18,6 +19,13 @@ public sealed record CamadaProjetoSnapshot(
 public static class GnxProjectStore
 {
     public const int CurrentSchemaVersion = 2;
+    public const string RecoveryPointSuffix = ".recovery.gnx";
+
+    public static string ObterCaminhoPontoRestauracao(string caminhoProjeto)
+        => Path.GetFullPath(caminhoProjeto) + RecoveryPointSuffix;
+
+    public static bool EhPontoRestauracao(string caminhoProjeto)
+        => Path.GetFileName(caminhoProjeto).EndsWith(RecoveryPointSuffix, StringComparison.OrdinalIgnoreCase);
 
     public static async Task<Projeto> CriarAsync(string caminhoCompleto, string nomeProjeto)
     {
@@ -192,7 +200,8 @@ public static class GnxProjectStore
         double cameraPanY,
         double cameraZoom,
         string? layoutJson,
-        string? nomeProjeto = null)
+        string? nomeProjeto = null,
+        bool criarPontoRestauracao = false)
     {
         ArgumentNullException.ThrowIfNull(projetoAtual);
         ArgumentNullException.ThrowIfNull(camadas);
@@ -223,6 +232,9 @@ public static class GnxProjectStore
         await ValidarTabelasProjetoAsync(banco);
         await ValidarColunasObrigatoriasAsync(banco);
         await MigrarEsquemaAsync(banco);
+
+        if (criarPontoRestauracao)
+            await CriarPontoRestauracaoAsync(caminho);
 
         await using var transaction = await banco.Database.BeginTransactionAsync();
         Projeto? projeto = await banco.Projetos
@@ -459,6 +471,59 @@ public static class GnxProjectStore
         caminho.Contains("://", StringComparison.Ordinal) ||
         caminho.StartsWith("/vsimem/", StringComparison.OrdinalIgnoreCase) ||
         caminho.StartsWith("/vsicurl/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Creates a consistent SQLite snapshot beside the project before an explicit save.
+    /// SQLite's online backup API includes committed WAL content without copying live sidecars.
+    /// The temporary file is published only after SQLite verifies it.
+    /// </summary>
+    private static async Task CriarPontoRestauracaoAsync(string caminhoProjeto)
+    {
+        string caminhoRecuperacao = ObterCaminhoPontoRestauracao(caminhoProjeto);
+        string pasta = Path.GetDirectoryName(caminhoProjeto)
+            ?? throw new IOException("Não foi possível localizar a pasta do projeto para criar o ponto de restauração.");
+        string caminhoTemporario = Path.Combine(pasta, $".{Path.GetFileName(caminhoProjeto)}.{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                var origemBuilder = new SqliteConnectionStringBuilder
+                {
+                    DataSource = caminhoProjeto,
+                    Mode = SqliteOpenMode.ReadOnly,
+                    Pooling = false
+                };
+                var destinoBuilder = new SqliteConnectionStringBuilder
+                {
+                    DataSource = caminhoTemporario,
+                    Mode = SqliteOpenMode.ReadWriteCreate,
+                    Pooling = false
+                };
+
+                using var origem = new SqliteConnection(origemBuilder.ToString());
+                using var destino = new SqliteConnection(destinoBuilder.ToString());
+                origem.Open();
+                destino.Open();
+                origem.BackupDatabase(destino);
+
+                using var verificar = destino.CreateCommand();
+                verificar.CommandText = "PRAGMA quick_check";
+                string? resultado = Convert.ToString(verificar.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+                if (!string.Equals(resultado, "ok", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException($"SQLite não validou o ponto de restauração: {resultado ?? "sem resultado"}.");
+            });
+
+            File.Move(caminhoTemporario, caminhoRecuperacao, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            TryDelete(caminhoTemporario);
+            throw new IOException(
+                $"Não foi possível criar o ponto de restauração '{caminhoRecuperacao}'. O salvamento foi cancelado para preservar a versão atual do projeto.",
+                ex);
+        }
+    }
 
     private static void CopiarEstado(Projeto origem, Projeto destino)
     {

@@ -94,6 +94,33 @@ public partial class Home
         catch { return "Data indisponível"; }
     }
 
+    private static bool TemPontoRestauracaoProjeto(string caminho)
+    {
+        try { return File.Exists(GeoNex.Services.GnxProjectStore.ObterCaminhoPontoRestauracao(caminho)); }
+        catch { return false; }
+    }
+
+    private bool TemPontoRestauracaoProjetoAtual
+        => ProjetoService.ProjetoAtual is { } projeto && TemPontoRestauracaoProjeto(projeto.CaminhoArquivo);
+
+    private async Task AbrirPontoRestauracaoAtualAsync()
+    {
+        if (ProjetoService.ProjetoAtual is not { } projeto) return;
+        await AbrirPontoRestauracaoAsync(projeto.CaminhoArquivo);
+    }
+
+    private async Task AbrirPontoRestauracaoAsync(string caminhoProjetoOriginal)
+    {
+        string caminhoRecuperacao = GeoNex.Services.GnxProjectStore.ObterCaminhoPontoRestauracao(caminhoProjetoOriginal);
+        if (!File.Exists(caminhoRecuperacao))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "O ponto de restauração não está mais disponível. O projeto original foi mantido.");
+            return;
+        }
+
+        await AbrirProjetoAsync(caminhoRecuperacao);
+    }
+
     private void RemoverProjetoRecente(string caminho)
     {
         _projetosRecentes.RemoveAll(item => string.Equals(item, caminho, StringComparison.OrdinalIgnoreCase));

@@ -10,6 +10,7 @@ Directory.CreateDirectory(root);
 try
 {
     await VerifyCreateSaveReopenAsync(root);
+    await VerifyRecoveryPointBeforeExplicitSaveAsync(root);
     await VerifyCreateDoesNotOverwriteExistingAsync(root);
     await VerifyExtensionValidationAsync(root);
     await VerifySaveRollbackAsync(root);
@@ -23,9 +24,41 @@ try
     await VerifyProjectSourceValidationAsync(root);
     Console.WriteLine("PASS: Project persistence, schema migration, validation, and path contracts.");
 }
+
 finally
 {
     try { Directory.Delete(root, recursive: true); } catch { }
+}
+
+static async Task VerifyRecoveryPointBeforeExplicitSaveAsync(string root)
+{
+    string path = Path.Combine(root, "recovery", "survey.gnx");
+    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+    Projeto project = await GnxProjectStore.CriarAsync(path, "Survey");
+    var previous = new CamadaProjetoSnapshot("roads", "Vetor", true, 0, string.Empty,
+        "{\"Tipo\":\"Arquivo\"}", "previous-style");
+    await GnxProjectStore.SalvarAsync(project, [previous], "EPSG:4326", null, 0, 0, false,
+        0, 0, 1, null);
+    string recoveryPath = GnxProjectStore.ObterCaminhoPontoRestauracao(path);
+    Assert(!File.Exists(recoveryPath), "automatic/background saves can avoid full recovery snapshots");
+
+    var updated = new CamadaProjetoSnapshot("roads", "Vetor", false, 0, string.Empty,
+        "{\"Tipo\":\"Arquivo\"}", "updated-style");
+    await GnxProjectStore.SalvarAsync(project, [updated], "EPSG:31982", "roads", 10, 20, true,
+        30, 40, 2, "updated-layout", criarPontoRestauracao: true);
+
+    Assert(File.Exists(recoveryPath), "explicit save creates a recovery project beside the original");
+    Projeto recovery = await GnxProjectStore.AbrirAsync(recoveryPath);
+    Assert(recovery.CRS == "EPSG:4326" && recovery.Camadas.Single().EstiloJson == "previous-style",
+        "recovery point contains the complete project state from before the explicit save");
+    Assert(recovery.LayoutJson is null && recovery.CameraZoom == 1,
+        "recovery point preserves prior layout and camera settings");
+
+    Projeto current = await GnxProjectStore.AbrirAsync(path);
+    Assert(current.CRS == "EPSG:31982" && current.Camadas.Single().EstiloJson == "updated-style" &&
+        current.LayoutJson == "updated-layout" && current.CameraZoom == 2,
+        "creating a recovery point does not prevent the requested save");
+    Assert(GnxProjectStore.EhPontoRestauracao(recoveryPath), "recovery project is identifiable by its reserved suffix");
 }
 
 static async Task VerifyCreateSaveReopenAsync(string root)
@@ -154,7 +187,8 @@ static async Task VerifySaveRollbackAsync(string root)
     var rejectedLayer = new CamadaProjetoSnapshot("reject", "Vetor", true, 0, string.Empty,
         "{\"Tipo\":\"Arquivo\"}", null);
     await AssertThrowsAsync<DbUpdateException>(
-        () => GnxProjectStore.SalvarAsync(project, [rejectedLayer], "EPSG:3857", "reject", 9, 8, true, 7, 6, 5, "new layout"),
+        () => GnxProjectStore.SalvarAsync(project, [rejectedLayer], "EPSG:3857", "reject", 9, 8, true,
+            7, 6, 5, "new layout", criarPontoRestauracao: true),
         "rollback project save when a layer write fails");
 
     Projeto reopened = await GnxProjectStore.AbrirAsync(path);
@@ -162,6 +196,10 @@ static async Task VerifySaveRollbackAsync(string root)
         "failed save preserves the previous project state");
     Assert(reopened.Camadas.Single().EstiloJson == "style-before" && reopened.LayoutJson is null,
         "failed save rolls back layer styles and layout data");
+    Projeto recovery = await GnxProjectStore.AbrirAsync(GnxProjectStore.ObterCaminhoPontoRestauracao(path));
+    Assert(recovery.CRS == "EPSG:4326" && recovery.Camadas.Single().Nome == "kept" &&
+        recovery.Camadas.Single().EstiloJson == "style-before",
+        "recovery point remains usable if the new project transaction fails");
 }
 
 static async Task VerifyDuplicateSaveRejectedWithoutMutationAsync(string root)
