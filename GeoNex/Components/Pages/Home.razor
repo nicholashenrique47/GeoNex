@@ -269,7 +269,7 @@
         .project-start-footer span:last-child { display: none; }
         .project-start-recent-date { display: none; }
     }
-    .project-start-screen { position: fixed; inset: 0; z-index: 30000; display: grid; place-items: center; overflow: hidden; padding: 96px 60px 50px; color: #dbe5ef; background: rgba(4,9,15,.2); backdrop-filter: blur(2px); font-family: 'Segoe UI',Inter,sans-serif; }
+    .project-start-screen { position: fixed; inset: 0; z-index: 30000; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr); place-items: center; overflow: hidden; padding: 96px 60px 50px; color: #dbe5ef; background: rgba(4,9,15,.2); backdrop-filter: blur(2px); font-family: 'Segoe UI',Inter,sans-serif; }
     .project-start-screen::before { content: none; }
     .project-start-workspace { display: flex; width: min(960px,100%); height: min(610px,calc(100vh - 146px)); min-height: 370px; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid #3a4a58; border-radius: 7px; background: rgba(14,21,29,.98); box-shadow: 0 24px 90px rgba(0,0,0,.62),0 4px 16px rgba(0,0,0,.28); }
     .project-start-topbar { height: 65px; flex: 0 0 65px; justify-content: flex-start; gap: 18px; padding: 0 21px; border-bottom: 1px solid #2a3946; background: #111a23; }
