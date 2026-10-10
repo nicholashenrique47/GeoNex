@@ -990,6 +990,13 @@
             </div>
 
             <div class="layer-list custom-scrollbar" @onpointerup="FinalizarArraste">
+                @if (CamadasAtivas.Any(camada => camada.PendenteReconexao && TipoFonteProjeto(camada) == "Arquivo"))
+                {
+                    <button type="button" class="layer-bulk-repair" disabled="@_reparandoFontesEmLote" @onclick="RepararFontesAusentesEmLoteAsync">
+                        <strong>@(_reparandoFontesEmLote ? "PROCURANDO FONTES…" : "REPARAR FONTES AUSENTES")</strong>
+                        <small>@(_reparandoFontesEmLote ? _statusReparoFontes : "Buscar arquivos pelo nome em uma pasta")</small>
+                    </button>
+                }
                 @if (CamadasAtivas.Count == 0)
                 {
                     <div class="layer-empty-state">
@@ -1039,7 +1046,7 @@
                             <span class="type-tag" style="background:#78350f;color:#fde68a" title="A fonte está offline. Reabra a fonte ou reconecte o serviço.">OFFLINE</span>
                             @if (TipoFonteProjeto(camadaAtual) == "Arquivo")
                             {
-                                <button type="button" class="layer-action-btn" title="Localizar novamente o arquivo desta camada" aria-label="Reconectar camada @camadaAtual.Nome" @onclick="() => RepararFonteCamadaAsync(camadaAtual)" @onclick:stopPropagation="true">↻</button>
+                                <button type="button" class="layer-action-btn" disabled="@_reparandoFontesEmLote" title="Localizar novamente o arquivo desta camada" aria-label="Reconectar camada @camadaAtual.Nome" @onclick="() => RepararFonteCamadaAsync(camadaAtual)" @onclick:stopPropagation="true">↻</button>
                             }
                         }
 
@@ -1275,8 +1282,7 @@
     <footer class="bottom-status-bar">
         <div class="status-left">
             <span title="@(ProjetoService.ProjetoAtual?.CaminhoArquivo ?? "Nenhum arquivo de projeto aberto")"><strong>PROJETO:</strong> @ProjetoService.ObterNomeProjetoAtivo()</span>
-            @if (ProjetoService.ProjetoAtual is { } projetoComAlteracoes &&
-                (temEdicoesPendentes || GeoNex.Services.GnxProjectStore.TemAutosaveMaisRecente(projetoComAlteracoes.CaminhoArquivo)))
+            @if (ProjetoService.TemProjetoAberto && (temEdicoesPendentes || _projetoTemAutosaveRecuperavel))
             {
                 <span class="project-dirty-indicator" title="Há alterações recuperáveis ainda não incorporadas à versão salva do projeto">Alterações não salvas</span>
             }
@@ -3781,6 +3787,10 @@
         flex: 1;
         overflow-y: auto;
     }
+    .layer-bulk-repair { display: grid; gap: 5px; width: 100%; margin: 0 0 10px; padding: 9px 10px; border: 1px solid #70572c; border-radius: 6px; color: #fde68a; background: rgba(120,83,25,.2); text-align: left; font-size: 10px; cursor: pointer; }
+    .layer-bulk-repair:hover:not(:disabled) { border-color: #a77d36; background: rgba(120,83,25,.3); }
+    .layer-bulk-repair:disabled { cursor: progress; opacity: .75; }
+    .layer-bulk-repair small { color: #c6ae78; font-size: 9px; }
 
     .layer-item {
         display: flex;
@@ -5236,6 +5246,7 @@
         _gdalLimitMB = resourceBudget.GdalCacheMb.ToString(System.Globalization.CultureInfo.InvariantCulture);
         _ramEmUsoMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
         CarregarProjetosRecentes();
+        AtualizarIndicadorAutosave(ProjetoService.ProjetoAtual);
         _mostrarTelaInicialProjeto = !ProjetoService.TemProjetoAberto;
 
         // === PREVENÇÃO DO BUG DO F5 ===
@@ -6030,11 +6041,13 @@
                         await LimparCamadasDoProjetoAtualAsync();
                         await CarregarCamadasDoProjetoAsync(projetoAnterior, projetoAnterior.Camadas);
                         ProjetoService.AtivarProjeto(projetoAnterior);
+                        AtualizarIndicadorAutosave(projetoAnterior);
                     }
                     catch (Exception erroRestauro)
                     {
                         try { await LimparCamadasDoProjetoAtualAsync(); } catch { }
                         ProjetoService.FecharProjeto();
+                        AtualizarIndicadorAutosave(null);
                         ExibirNotificacaoSalvamento("Falha ao criar projeto", $"O projeto anterior também não pôde ser restaurado. Novo projeto: {erroLimpeza.Message} Restauração: {erroRestauro.Message}", erro: true);
                         return;
                     }
@@ -6044,6 +6057,7 @@
                 return;
             }
             ProjetoService.AtivarProjeto(projeto);
+            AtualizarIndicadorAutosave(projeto);
             _mostrarTelaInicialProjeto = false;
             if (transicaoProjetoAnterior.ProjetoDoAutosaveParaDescartar is { } projetoAnteriorDescartado)
                 GeoNex.Services.GnxProjectStore.DescartarAutosave(projetoAnteriorDescartado);
@@ -6165,6 +6179,7 @@
                 await LimparCamadasDoProjetoAtualAsync();
                 avisosProjeto.AddRange(await CarregarCamadasDoProjetoAsync(projeto, projeto.Camadas));
                 ProjetoService.AtivarProjeto(projeto);
+                AtualizarIndicadorAutosave(projeto);
                 _mostrarTelaInicialProjeto = false;
                 if (!abrindoPontoRestauracao)
                     RegistrarProjetoRecente(projeto.CaminhoArquivo);
@@ -6184,11 +6199,13 @@
                         {
                             await CarregarCamadasDoProjetoAsync(projetoAnterior, projetoAnterior.Camadas);
                             ProjetoService.AtivarProjeto(projetoAnterior);
+                            AtualizarIndicadorAutosave(projetoAnterior);
                         }
                         catch (Exception erroRestauro)
                         {
                             await LimparCamadasDoProjetoAtualAsync();
                             ProjetoService.FecharProjeto();
+                            AtualizarIndicadorAutosave(null);
                             ExibirNotificacaoSalvamento("Falha ao restaurar o mapa", $"Abertura: {ex.Message} Restauração: {erroRestauro.Message}", erro: true);
                             return;
                         }
@@ -6196,6 +6213,7 @@
                     else
                     {
                         ProjetoService.FecharProjeto();
+                        AtualizarIndicadorAutosave(null);
                     }
                 }
                 ExibirNotificacaoSalvamento("Não foi possível abrir o projeto", ex.Message, erro: true);
@@ -6320,6 +6338,7 @@
                 MapService.CameraPanX,
                 MapService.CameraPanY,
                 MapService.CameraZoom);
+            _projetoTemAutosaveRecuperavel = _autosaveSnapshotAtualizado;
         }
         else
         {
@@ -6336,6 +6355,7 @@
                 nomeProjeto,
                 criarPontoRestauracao);
             _autosaveSnapshotAtualizado = false;
+            _projetoTemAutosaveRecuperavel = false;
             if (ProjetoService.ProjetoAtual is { } projetoSalvo &&
                 !GeoNex.Services.GnxProjectStore.EhAutosave(projetoSalvo.CaminhoArquivo) &&
                 !GeoNex.Services.GnxProjectStore.EhPontoRestauracao(projetoSalvo.CaminhoArquivo))

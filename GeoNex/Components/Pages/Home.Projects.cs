@@ -25,6 +25,9 @@ public partial class Home
     private bool _mostrarPropriedadesProjeto;
     private bool _mostrarDialogoTransicaoProjeto;
     private bool _fechamentoJanelaEmAndamento;
+    private bool _reparandoFontesEmLote;
+    private string _statusReparoFontes = string.Empty;
+    private bool _projetoTemAutosaveRecuperavel;
     private string _destinoTransicaoProjeto = "outro projeto";
     private string _nomeProjetoTransicao = string.Empty;
     private TaskCompletionSource<DecisaoTransicaoProjeto>? _respostaTransicaoProjeto;
@@ -109,6 +112,10 @@ public partial class Home
 
     private static bool TemAutosaveRecuperavel(string caminho)
         => GeoNex.Services.GnxProjectStore.TemAutosaveMaisRecente(caminho);
+
+    private void AtualizarIndicadorAutosave(Projeto? projeto)
+        => _projetoTemAutosaveRecuperavel = projeto is not null &&
+            GeoNex.Services.GnxProjectStore.TemAutosaveMaisRecente(projeto.CaminhoArquivo);
 
     private bool TemPontoRestauracaoProjetoAtual
         => ProjetoService.ProjetoAtual is { } projeto && TemPontoRestauracaoProjeto(projeto.CaminhoArquivo);
@@ -264,6 +271,7 @@ public partial class Home
             Directory.CreateDirectory(pasta);
             Projeto projeto = await ProjetoService.CriarNovoProjetoAsync(caminho, nome);
             ProjetoService.AtivarProjeto(projeto);
+            AtualizarIndicadorAutosave(projeto);
             MapService.ProjetoSRS = projeto.CRS;
             _camadaBaseProjeto = projeto.CamadaBase;
             _mostrarDialogoNovoProjeto = false;
@@ -294,9 +302,17 @@ public partial class Home
 
     private async Task RepararFonteCamadaAsync(Camada camadaOffline)
     {
+        await RepararFonteCamadaInternaAsync(camadaOffline);
+    }
+
+    private async Task<bool> RepararFonteCamadaInternaAsync(
+        Camada camadaOffline,
+        string? caminhoSelecionado = null,
+        bool salvarProjeto = true)
+    {
         if (camadaOffline is null || !camadaOffline.PendenteReconexao ||
-            !CamadasAtivas.Any(camada => ReferenceEquals(camada, camadaOffline))) return;
-        if (!await PodeTrocarProjetoAsync()) return;
+            !CamadasAtivas.Any(camada => ReferenceEquals(camada, camadaOffline))) return false;
+        if (!await PodeTrocarProjetoAsync()) return false;
 
         bool vetor = string.Equals(camadaOffline.Tipo, "Vetor", StringComparison.OrdinalIgnoreCase);
         string[] extensoes = vetor
@@ -306,17 +322,21 @@ public partial class Home
 
         try
         {
-            var resultado = await FilePicker.Default.PickAsync(new PickOptions
+            if (string.IsNullOrWhiteSpace(caminhoSelecionado))
             {
-                PickerTitle = $"Localizar fonte {tipoArquivo} para {camadaOffline.Nome}",
-                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                var resultado = await FilePicker.Default.PickAsync(new PickOptions
                 {
-                    { DevicePlatform.WinUI, extensoes }
-                })
-            });
-            if (resultado is null) return;
+                    PickerTitle = $"Localizar fonte {tipoArquivo} para {camadaOffline.Nome}",
+                    FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                    {
+                        { DevicePlatform.WinUI, extensoes }
+                    })
+                });
+                if (resultado is null) return false;
+                caminhoSelecionado = resultado.FullPath;
+            }
 
-            string caminho = Path.GetFullPath(resultado.FullPath);
+            string caminho = Path.GetFullPath(caminhoSelecionado);
             string nomeNovo = Path.GetFileName(caminho);
             if (CamadasAtivas.Any(camada => !ReferenceEquals(camada, camadaOffline) &&
                     string.Equals(camada.Nome, nomeNovo, StringComparison.OrdinalIgnoreCase)))
@@ -327,7 +347,7 @@ public partial class Home
                 MapService.GdalRasterLock);
 
             int indiceOriginal = CamadasAtivas.IndexOf(camadaOffline);
-            if (indiceOriginal < 0 || !camadaOffline.PendenteReconexao) return;
+            if (indiceOriginal < 0 || !camadaOffline.PendenteReconexao) return false;
             bool eraCamadaBase = string.Equals(_camadaBaseProjeto, camadaOffline.Nome, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(ProjetoService.ProjetoAtual?.CamadaBase, camadaOffline.Nome, StringComparison.OrdinalIgnoreCase);
             GeoNex.Services.EstiloCamada? estilo = MapService.EstilosPorCamada.GetValueOrDefault(camadaOffline.Nome);
@@ -391,16 +411,20 @@ public partial class Home
                 MapService.RequestRedraw();
                 try { await JSRuntime.InvokeVoidAsync("mapEngine.sincronizarCameraComBlazor", panX, panY, zoom); } catch { }
 
-                try
+                if (salvarProjeto)
                 {
-                    List<string> avisos = await PersistirProjetoAtualAsync();
-                    string detalhes = avisos.Count == 0 ? string.Empty : " " + string.Join(" ", avisos.Distinct());
-                    ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada '{nomeNovo}' foi restaurada e o projeto atualizado.{detalhes}");
+                    try
+                    {
+                        List<string> avisos = await PersistirProjetoAtualAsync();
+                        string detalhes = avisos.Count == 0 ? string.Empty : " " + string.Join(" ", avisos.Distinct());
+                        ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada '{nomeNovo}' foi restaurada e o projeto atualizado.{detalhes}");
+                    }
+                    catch (Exception erroSalvamento)
+                    {
+                        ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada está ativa, mas o projeto não pôde ser atualizado: {erroSalvamento.Message}", erro: true);
+                    }
                 }
-                catch (Exception erroSalvamento)
-                {
-                    ExibirNotificacaoSalvamento("Fonte reconectada", $"A camada está ativa, mas o projeto não pôde ser atualizado: {erroSalvamento.Message}", erro: true);
-                }
+                return true;
             }
             catch
             {
@@ -411,7 +435,106 @@ public partial class Home
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Não foi possível reconectar a camada '{camadaOffline.Nome}': {ex.Message}");
+            ExibirNotificacaoSalvamento($"Não foi possível reconectar '{camadaOffline.Nome}'", ex.Message, erro: true);
+            return false;
+        }
+    }
+
+    private async Task RepararFontesAusentesEmLoteAsync()
+    {
+        if (ProjetoService.ProjetoAtual is null) return;
+        var ausentes = CamadasAtivas
+            .Where(camada => camada.PendenteReconexao && TipoFonteProjeto(camada) == "Arquivo")
+            .ToList();
+        if (ausentes.Count == 0) return;
+        if (!await PodeTrocarProjetoAsync()) return;
+
+        try
+        {
+            var pasta = await CommunityToolkit.Maui.Storage.FolderPicker.Default.PickAsync(default);
+            if (pasta is null || !pasta.IsSuccessful || pasta.Folder is null) return;
+
+            var porNome = ausentes
+                .Where(camada => !string.IsNullOrWhiteSpace(camada.CaminhoArquivo))
+                .GroupBy(camada => Path.GetFileName(camada.CaminhoArquivo), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(grupo => grupo.Key, grupo => grupo.ToArray(), StringComparer.OrdinalIgnoreCase);
+            var nomesBuscados = porNome.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (nomesBuscados.Count == 0)
+            {
+                ExibirNotificacaoSalvamento("Fontes não localizadas", "As camadas offline não têm nomes de arquivo para busca automática.", erro: true);
+                return;
+            }
+
+            _reparandoFontesEmLote = true;
+            _statusReparoFontes = $"Procurando {ausentes.Count} fonte(s) em {pasta.Folder.Path}…";
+            await InvokeAsync(StateHasChanged);
+            Dictionary<string, List<string>> encontradas = await Task.Run(() =>
+            {
+                var resultados = nomesBuscados.ToDictionary(nome => nome, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
+                var opcoes = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    IgnoreInaccessible = true,
+                    ReturnSpecialDirectories = false,
+                    AttributesToSkip = FileAttributes.ReparsePoint
+                };
+                foreach (string arquivo in Directory.EnumerateFiles(pasta.Folder.Path, "*", opcoes))
+                {
+                    string nome = Path.GetFileName(arquivo);
+                    if (resultados.TryGetValue(nome, out List<string>? lista))
+                        lista.Add(Path.GetFullPath(arquivo));
+                }
+                return resultados;
+            });
+
+            var correspondencias = new List<(Camada Camada, string Caminho)>();
+            var semCorrespondencia = new List<string>();
+            var ambiguas = new List<string>();
+            foreach (Camada camada in ausentes)
+            {
+                string nomeEsperado = Path.GetFileName(camada.CaminhoArquivo);
+                if (!encontradas.TryGetValue(nomeEsperado, out List<string>? candidatas) || candidatas.Count == 0)
+                    semCorrespondencia.Add(camada.Nome);
+                else if (candidatas.Count > 1)
+                    ambiguas.Add(camada.Nome);
+                else
+                    correspondencias.Add((camada, candidatas[0]));
+            }
+
+            int reparadas = 0;
+            foreach (var correspondencia in correspondencias)
+            {
+                _statusReparoFontes = $"Reconectando {reparadas + 1} de {correspondencias.Count}: {correspondencia.Camada.Nome}";
+                await InvokeAsync(StateHasChanged);
+                if (await RepararFonteCamadaInternaAsync(correspondencia.Camada, correspondencia.Caminho, salvarProjeto: false))
+                    reparadas++;
+            }
+
+            var avisos = new List<string>();
+            if (reparadas > 0)
+            {
+                try { avisos.AddRange(await PersistirProjetoAtualAsync()); }
+                catch (Exception ex) { avisos.Add($"As camadas foram reconectadas na sessão atual, mas o projeto não pôde ser salvo: {ex.Message}"); }
+            }
+
+            string resumo = $"{reparadas} de {ausentes.Count} camada(s) reconectada(s).";
+            if (semCorrespondencia.Count > 0)
+                resumo += $" Sem arquivo correspondente: {string.Join(", ", semCorrespondencia)}.";
+            if (ambiguas.Count > 0)
+                resumo += $" Correspondências ambíguas (use o botão ↻ da camada): {string.Join(", ", ambiguas)}.";
+            if (avisos.Count > 0) resumo += " " + string.Join(" ", avisos.Distinct());
+            ExibirNotificacaoSalvamento(reparadas == ausentes.Count ? "Fontes reconectadas" : "Reparo parcial de fontes", resumo,
+                erro: reparadas < ausentes.Count || avisos.Count > 0);
+        }
+        catch (Exception ex)
+        {
+            ExibirNotificacaoSalvamento("Busca de fontes interrompida", ex.Message, erro: true);
+        }
+        finally
+        {
+            _reparandoFontesEmLote = false;
+            _statusReparoFontes = string.Empty;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -555,6 +678,7 @@ public partial class Home
             Projeto copia = await ProjetoService.SalvarComoAsync(destino, nomeProjeto.Trim());
             avisos.AddRange(await CopiarSegredosPostgisAsync(projetoOrigem, copia));
             ProjetoService.AtivarProjeto(copia);
+            AtualizarIndicadorAutosave(copia);
             RegistrarProjetoRecente(copia.CaminhoArquivo);
             _mostrarPropriedadesProjeto = false;
             StateHasChanged();
@@ -624,6 +748,7 @@ public partial class Home
         {
             await LimparCamadasDoProjetoAtualAsync();
             ProjetoService.FecharProjeto();
+            AtualizarIndicadorAutosave(null);
             _mostrarTelaInicialProjeto = true;
             if (transicao.ProjetoDoAutosaveParaDescartar is not null)
                 GeoNex.Services.GnxProjectStore.DescartarAutosave(ativo.CaminhoArquivo);
@@ -636,11 +761,13 @@ public partial class Home
                 await LimparCamadasDoProjetoAtualAsync();
                 await CarregarCamadasDoProjetoAsync(snapshot, snapshot.Camadas);
                 ProjetoService.AtivarProjeto(snapshot);
+                AtualizarIndicadorAutosave(snapshot);
             }
             catch (Exception erroRestauro)
             {
                 try { await LimparCamadasDoProjetoAtualAsync(); } catch { }
                 ProjetoService.FecharProjeto();
+                AtualizarIndicadorAutosave(null);
                 ExibirNotificacaoSalvamento("Falha ao fechar o projeto", $"Fechamento: {erroLimpeza.Message} Restauração: {erroRestauro.Message}", erro: true);
                 return;
             }

@@ -48,8 +48,11 @@ public static class GnxProjectStore
         {
             string caminho = Path.GetFullPath(caminhoProjeto);
             string autosave = ObterCaminhoAutosave(caminho);
-            return File.Exists(caminho) && File.Exists(autosave) &&
-                File.GetLastWriteTimeUtc(autosave) > File.GetLastWriteTimeUtc(caminho);
+            if (!File.Exists(caminho) || !File.Exists(autosave)) return false;
+            Projeto? salvo = LerProjetoSemMigrar(caminho);
+            Projeto? snapshot = LerProjetoSemMigrar(autosave);
+            return salvo is not null && snapshot is not null && salvo.Id == snapshot.Id &&
+                !EstadosPersistidosEquivalentes(salvo, snapshot);
         }
         catch { return false; }
     }
@@ -690,6 +693,57 @@ public static class GnxProjectStore
                 ? StringComparison.Ordinal
                 : StringComparison.OrdinalIgnoreCase;
             if (!string.Equals(caminhoSalvo, caminhoDesejado, comparacaoCaminho))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static Projeto? LerProjetoSemMigrar(string caminho)
+    {
+        using var banco = new GeoNexContext(caminho);
+        if (!banco.Database.CanConnect()) return null;
+        Projeto? projeto = banco.Projetos
+            .AsNoTracking()
+            .Include(item => item.Camadas)
+            .OrderBy(item => item.CriadoEm)
+            .FirstOrDefault();
+        if (projeto is not null) projeto.CaminhoArquivo = Path.GetFullPath(caminho);
+        return projeto;
+    }
+
+    private static bool EstadosPersistidosEquivalentes(Projeto salvo, Projeto snapshot)
+    {
+        if (!string.Equals(salvo.Nome, snapshot.Nome, StringComparison.Ordinal) ||
+            !string.Equals(salvo.CRS, snapshot.CRS, StringComparison.Ordinal) ||
+            !string.Equals(salvo.CamadaBase, snapshot.CamadaBase, StringComparison.Ordinal) ||
+            salvo.OffsetMundoX != snapshot.OffsetMundoX ||
+            salvo.OffsetMundoY != snapshot.OffsetMundoY ||
+            salvo.OffsetMundoDefinido != snapshot.OffsetMundoDefinido ||
+            salvo.CameraPanX != snapshot.CameraPanX ||
+            salvo.CameraPanY != snapshot.CameraPanY ||
+            salvo.CameraZoom != snapshot.CameraZoom ||
+            !string.Equals(salvo.LayoutJson, snapshot.LayoutJson, StringComparison.Ordinal) ||
+            salvo.Camadas.Count != snapshot.Camadas.Count)
+            return false;
+
+        var camadasSalvas = salvo.Camadas.ToDictionary(camada => camada.Nome, StringComparer.OrdinalIgnoreCase);
+        foreach (Camada camadaSnapshot in snapshot.Camadas)
+        {
+            if (!camadasSalvas.TryGetValue(camadaSnapshot.Nome, out Camada? camadaSalva) ||
+                !string.Equals(camadaSalva.Tipo, camadaSnapshot.Tipo, StringComparison.Ordinal) ||
+                camadaSalva.Visivel != camadaSnapshot.Visivel ||
+                camadaSalva.Ordem != camadaSnapshot.Ordem ||
+                !string.Equals(camadaSalva.FonteJson, camadaSnapshot.FonteJson, StringComparison.Ordinal) ||
+                !string.Equals(camadaSalva.EstiloJson, camadaSnapshot.EstiloJson, StringComparison.Ordinal))
+                return false;
+
+            string caminhoSalvo = ResolverCaminhoFonte(salvo.CaminhoArquivo, camadaSalva.CaminhoFonteOriginal);
+            string caminhoSnapshot = ResolverCaminhoFonte(snapshot.CaminhoArquivo, camadaSnapshot.CaminhoFonteOriginal);
+            StringComparison comparacaoCaminho = FonteEhRemota(caminhoSalvo) || FonteEhRemota(caminhoSnapshot)
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
+            if (!string.Equals(caminhoSalvo, caminhoSnapshot, comparacaoCaminho))
                 return false;
         }
 
