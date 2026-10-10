@@ -362,12 +362,12 @@ public partial class Home
                 if (vetor)
                 {
                     caminhoArquivoVetor = caminho;
-                    await AdicionarVetorAoMapa(nomeCamada);
+                    await AdicionarVetorAoMapa(nomeCamada, propagarErros: true);
                 }
                 else
                 {
                     caminhoArquivoRaster = caminho;
-                    await AdicionarCamadaAoMapa(nomeCamada);
+                    await AdicionarCamadaAoMapa(nomeCamada, propagarErros: true);
                 }
 
                 carregada = CamadasAtivas.FirstOrDefault(camada =>

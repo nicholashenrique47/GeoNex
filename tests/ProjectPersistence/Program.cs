@@ -428,24 +428,46 @@ static async Task VerifyProjectSourceValidationAsync(string root)
     ConfigureGdalNativeRuntime();
     object gdalLock = new();
     string missingPath = Path.Combine(root, "missing.shp");
-    await AssertThrowsAsync<FileNotFoundException>(
+    FileNotFoundException missing = await AssertThrowsAsync<FileNotFoundException>(
         () => GnxProjectSourceValidator.ValidarAsync(
             [new Camada { Nome = "missing", Tipo = "Vetor", CaminhoFonteOriginal = missingPath }], gdalLock),
         "reject missing local sources before map replacement");
+    Assert(missing.Message.Contains("missing", StringComparison.OrdinalIgnoreCase) &&
+        missing.Message.Contains(missingPath, StringComparison.OrdinalIgnoreCase) &&
+        missing.Message.Contains("Ação sugerida", StringComparison.OrdinalIgnoreCase),
+        "explain which missing source failed and how to repair it");
 
     string invalidRasterPath = Path.Combine(root, "invalid.tif");
     await File.WriteAllTextAsync(invalidRasterPath, "not a raster dataset");
-    await AssertThrowsAsync<InvalidDataException>(
+    InvalidDataException invalidRaster = await AssertThrowsAsync<InvalidDataException>(
         () => GnxProjectSourceValidator.ValidarAsync(
             [new Camada { Nome = "invalid raster", Tipo = "Raster", CaminhoFonteOriginal = invalidRasterPath }], gdalLock),
         "reject existing but unreadable raster sources");
+    Assert(invalidRaster.Message.Contains("invalid raster", StringComparison.OrdinalIgnoreCase) &&
+        invalidRaster.Message.Contains(invalidRasterPath, StringComparison.OrdinalIgnoreCase) &&
+        invalidRaster.Message.Contains("Ação sugerida", StringComparison.OrdinalIgnoreCase),
+        "include layer, source path, and a recovery action for invalid rasters");
 
     string invalidVectorPath = Path.Combine(root, "invalid.shp");
     await File.WriteAllTextAsync(invalidVectorPath, "not a shapefile");
-    await AssertThrowsAsync<InvalidDataException>(
+    InvalidDataException invalidVector = await AssertThrowsAsync<InvalidDataException>(
         () => GnxProjectSourceValidator.ValidarAsync(
             [new Camada { Nome = "invalid vector", Tipo = "Vetor", CaminhoFonteOriginal = invalidVectorPath }], gdalLock),
         "reject existing but unreadable vector sources");
+    Assert(invalidVector.Message.Contains("invalid vector", StringComparison.OrdinalIgnoreCase) &&
+        invalidVector.Message.Contains(invalidVectorPath, StringComparison.OrdinalIgnoreCase) &&
+        invalidVector.Message.Contains(".shx", StringComparison.OrdinalIgnoreCase),
+        "explain required Shapefile companion files after a vector source failure");
+
+    IReadOnlyList<string> relatorio = await GnxProjectSourceValidator.ValidarTodasAsync(
+    [
+        new Camada { Nome = "invalid raster", Tipo = "Raster", CaminhoFonteOriginal = invalidRasterPath },
+        new Camada { Nome = "invalid vector", Tipo = "Vetor", CaminhoFonteOriginal = invalidVectorPath }
+    ], gdalLock);
+    Assert(relatorio.Count == 2 &&
+        relatorio.Any(item => item.Contains("invalid raster", StringComparison.OrdinalIgnoreCase)) &&
+        relatorio.Any(item => item.Contains("invalid vector", StringComparison.OrdinalIgnoreCase)),
+        "collect errors for every invalid layer before a project replaces the map");
 
     string validVectorPath = Path.Combine(root, "valid.geojson");
     await File.WriteAllTextAsync(validVectorPath,
@@ -481,10 +503,10 @@ static void Assert(bool condition, string contract)
     if (!condition) throw new InvalidOperationException($"FAIL: {contract}");
 }
 
-static async Task AssertThrowsAsync<TException>(Func<Task> action, string contract) where TException : Exception
+static async Task<TException> AssertThrowsAsync<TException>(Func<Task> action, string contract) where TException : Exception
 {
     try { await action(); }
-    catch (TException) { return; }
+    catch (TException exception) { return exception; }
     throw new InvalidOperationException($"FAIL: {contract} did not throw {typeof(TException).Name}");
 }
 

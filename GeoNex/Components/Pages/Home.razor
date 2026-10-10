@@ -5461,7 +5461,7 @@
     private void AtualizarImagemOnline()
         => _ = InvokeAsync(() => { if (!_renderDisposed) SolicitarNovoFrame(); });
 
-    private async Task AdicionarCamadaAoMapa(string? nomeCamada = null)
+    private async Task AdicionarCamadaAoMapa(string? nomeCamada = null, bool propagarErros = false)
     {
         string? nomeReservado = null;
         string caminhoFonte = caminhoArquivoRaster;
@@ -5478,6 +5478,8 @@
         {
             if (string.IsNullOrEmpty(caminhoFonte))
             {
+                if (propagarErros)
+                    throw new InvalidOperationException("O projeto não contém um caminho de arquivo para esta camada raster.");
                 await JSRuntime.InvokeVoidAsync("alert", "Selecione um ficheiro primeiro!");
                 return;
             }
@@ -5485,6 +5487,8 @@
             if (GeoNex.Services.GdalRuntimeBootstrap.IsEcwPath(caminhoFonte) &&
                 !GeoNex.Services.GdalRuntimeBootstrap.EcwReadAvailable)
             {
+                if (propagarErros)
+                    throw new InvalidDataException("O suporte nativo a ECW não foi carregado nesta instalação.");
                 await JSRuntime.InvokeVoidAsync("alert", "O suporte nativo a ECW não foi carregado nesta instalação.");
                 return;
             }
@@ -5497,6 +5501,8 @@
                 : nomeCamada;
             if (!ReservarNomeCamada(nome))
             {
+                if (propagarErros)
+                    throw new InvalidOperationException($"Já existe uma camada chamada '{nome}' no mapa ou ela está sendo carregada.");
                 await JSRuntime.InvokeVoidAsync("alert", $"Já existe uma camada chamada '{nome}' no mapa ou ela está sendo carregada.");
                 return;
             }
@@ -5512,6 +5518,8 @@
                 if (ds == null)
                 {
                     string failure = GeoNex.Services.GdalRuntimeBootstrap.ExplainOpenFailure(caminhoFonte);
+                    if (propagarErros)
+                        throw new InvalidDataException($"O raster '{nome}' não pôde ser aberto. Fonte: {caminhoFonte}. Motivo: {failure}");
                     InvokeAsync(() => JSRuntime.InvokeVoidAsync("alert", failure));
                     return;
                 }
@@ -5730,6 +5738,8 @@
                 }
                 catch { }
             }
+            if (propagarErros)
+                throw new InvalidDataException($"Não foi possível carregar a camada raster '{nomeCamada ?? System.IO.Path.GetFileName(caminhoFonte)}' da fonte '{caminhoFonte}'. {ex.Message}", ex);
             await JSRuntime.InvokeVoidAsync("alert", "Erro crítico na importação raster: " + ex.Message);
         }
         finally
@@ -5761,7 +5771,7 @@
         catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar arquivo vetorial: {ex.Message}"); }
     }
 
-    private async Task AdicionarVetorAoMapa(string? nomeCamada = null)
+    private async Task AdicionarVetorAoMapa(string? nomeCamada = null, bool propagarErros = false)
     {
         string? nomeReservado = null;
         string caminhoFonte = caminhoArquivoVetor;
@@ -5778,6 +5788,8 @@
         {
             if (string.IsNullOrEmpty(caminhoFonte))
             {
+                if (propagarErros)
+                    throw new InvalidOperationException("O projeto não contém um caminho de arquivo para esta camada vetorial.");
                 await JSRuntime.InvokeVoidAsync("alert", "Selecione um arquivo Shapefile primeiro!");
                 return;
             }
@@ -5788,6 +5800,8 @@
                 : nomeCamada;
             if (!ReservarNomeCamada(nomeArquivo))
             {
+                if (propagarErros)
+                    throw new InvalidOperationException($"Já existe uma camada chamada '{nomeArquivo}' no mapa ou ela está sendo carregada.");
                 await JSRuntime.InvokeVoidAsync("alert", $"Já existe uma camada chamada '{nomeArquivo}' no mapa ou ela está sendo carregada.");
                 return;
             }
@@ -5877,6 +5891,8 @@
                 }
                 catch { }
             }
+            if (propagarErros)
+                throw new InvalidDataException($"Não foi possível carregar a camada vetorial '{nomeCamada ?? System.IO.Path.GetFileName(caminhoFonte)}' da fonte '{caminhoFonte}'. {ex.Message}", ex);
             await JSRuntime.InvokeVoidAsync("alert", $"Erro Crítico na Importação Nativa: {ex.Message}");
         }
         finally
@@ -6260,7 +6276,14 @@
 
     private async Task ValidarFontesDoProjetoAsync(IEnumerable<GeoNex.Models.Camada> camadas)
     {
-        await GeoNex.Services.GnxProjectSourceValidator.ValidarAsync(camadas, MapService.GdalRasterLock);
+        IReadOnlyList<string> problemas = await GeoNex.Services.GnxProjectSourceValidator
+            .ValidarTodasAsync(camadas, MapService.GdalRasterLock);
+        if (problemas.Count > 0)
+        {
+            string lista = string.Join("\n• ", problemas.Distinct());
+            throw new InvalidDataException(
+                $"O projeto foi mantido fechado porque {problemas.Count} fonte(s) não puderam ser validadas. Corrija ou reconecte essas fontes e tente abrir novamente:\n• {lista}");
+        }
     }
 
     private async Task SalvarProjeto()
@@ -6586,12 +6609,12 @@
             if (string.Equals(persistida.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
             {
                 caminhoArquivoRaster = caminho;
-                await AdicionarCamadaAoMapa(persistida.Nome);
+                await AdicionarCamadaAoMapa(persistida.Nome, propagarErros: true);
             }
             else
             {
                 caminhoArquivoVetor = caminho;
-                await AdicionarVetorAoMapa(persistida.Nome);
+                await AdicionarVetorAoMapa(persistida.Nome, propagarErros: true);
             }
 
             Camada? carregada = CamadasAtivas.FirstOrDefault(camada =>
