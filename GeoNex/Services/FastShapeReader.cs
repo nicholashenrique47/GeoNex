@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -24,7 +25,9 @@ namespace GeoNex.Services
             return (minX, maxX, minY, maxY);
         }
 
-        public unsafe static (List<CompiledFeature> Features, MemoryMappedShapefile ShpData) ReadAllFeatures(string filePath, string layerName, double offsetX, double offsetY, string? catColumnName = null)
+        public unsafe static (List<CompiledFeature> Features, MemoryMappedShapefile ShpData) ReadAllFeatures(
+            string filePath, string layerName, double offsetX, double offsetY,
+            string? catColumnName = null, string? sourceFidMappingPath = null, bool sourceFidsAreNative = true)
         {
             var features = new List<CompiledFeature>();
             
@@ -33,15 +36,18 @@ namespace GeoNex.Services
             System.IO.MemoryMappedFiles.MemoryMappedFile? dbfMmf = null;
             System.IO.MemoryMappedFiles.MemoryMappedViewAccessor? dbfAccessor = null;
             byte* dbfPtr = null;
+            System.IO.MemoryMappedFiles.MemoryMappedFile? sourceFidMmf = null;
+            System.IO.MemoryMappedFiles.MemoryMappedViewAccessor? sourceFidAccessor = null;
+            byte* sourceFidPtr = null;
 
             if (File.Exists(dbfPath))
             {
-                var fs = new FileStream(dbfPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                var fs = new FileStream(dbfPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 dbfMmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateFromFile(fs, null, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read, System.IO.HandleInheritability.None, false);
                 dbfAccessor = dbfMmf.CreateViewAccessor(0, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
                 dbfAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref dbfPtr);
             }
-            
+
             var dbfFields = new List<(string Name, int Offset, int Length)>();
             int catFieldIndex = -1;
             int dbfHeaderBytes = 0;
@@ -72,7 +78,7 @@ namespace GeoNex.Services
             // 2. Carrega o SHP via MemoryMappedFile
             // The live map keeps this view open between frames. Share writes so GDAL can append
             // newly digitized features to the same Shapefile on Windows while this read map lives.
-            var shpStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var shpStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var shpMmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateFromFile(
                 shpStream, null, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read,
                 System.IO.HandleInheritability.None, leaveOpen: false);
@@ -83,6 +89,18 @@ namespace GeoNex.Services
             bool metadataReady = false;
             try
             {
+                if (!string.IsNullOrWhiteSpace(sourceFidMappingPath) && File.Exists(sourceFidMappingPath))
+                {
+                    var fidStream = new FileStream(sourceFidMappingPath, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete, 64 * 1024, FileOptions.RandomAccess);
+                    sourceFidMmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateFromFile(
+                        fidStream, null, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read,
+                        System.IO.HandleInheritability.None, leaveOpen: false);
+                    sourceFidAccessor = sourceFidMmf.CreateViewAccessor(0, 0,
+                        System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
+                    sourceFidAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref sourceFidPtr);
+                }
+
                 long fileLength = new FileInfo(filePath).Length;
 
                 // O SHX tem uma entrada fixa de 8 bytes por feicao e fornece offsets
@@ -157,11 +175,25 @@ namespace GeoNex.Services
                     var feature = new CompiledFeature
                     {
                         FID = i,
+                        SourceFeatureId = sourceFidPtr == null && sourceFidMappingPath is null && sourceFidsAreNative ? i : -1,
                         EnvelopeWorld = FeatureEnvelope.Empty,
                         Kind = GeometryKind.Unknown,
                         DataOffset = recOffset,
                         LayerName = layerName
                     };
+
+                    // Shapefile deletions are tombstones in the DBF; the SHP/SHX
+                    // records remain in place. Keep their original record index
+                    // as the FID, but omit deleted rows from the live map.
+                    if (dbfPtr != null && dbfRecordBytes > 0)
+                    {
+                        long rowOffset = dbfHeaderBytes + ((long)i * dbfRecordBytes);
+                        if (rowOffset >= 0 && rowOffset < dbfAccessor!.Capacity && dbfPtr[rowOffset] == (byte)'*')
+                        {
+                            CollectionsMarshal.AsSpan(features)[i] = feature;
+                            return;
+                        }
+                    }
                     
                     if (dbfPtr != null && catFieldIndex >= 0)
                     {
@@ -171,6 +203,13 @@ namespace GeoNex.Services
                         {
                             feature.CategoryValue = GeoHelpers.ReadDbfString(dbfPtr + dbfRecOffset + field.Offset, field.Length, GeoHelpers.Iso8859);
                         }
+                    }
+
+                    if (sourceFidPtr != null && sourceFidAccessor is not null)
+                    {
+                        long sourceFidOffset = (long)i * sizeof(long);
+                        if (sourceFidOffset >= 0 && sourceFidOffset + sizeof(long) <= sourceFidAccessor.Capacity)
+                            feature.SourceFeatureId = *((long*)(sourceFidPtr + sourceFidOffset));
                     }
 
                     if (shapeType == 1 || shapeType == 11 || shapeType == 21)
@@ -240,6 +279,13 @@ namespace GeoNex.Services
                     dbfAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
                     dbfPtr = null;
                 }
+                if (sourceFidPtr != null && sourceFidAccessor != null)
+                {
+                    sourceFidAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
+                    sourceFidPtr = null;
+                }
+                sourceFidAccessor?.Dispose();
+                sourceFidMmf?.Dispose();
                 if (!metadataReady)
                 {
                     shpAccessor.Dispose();

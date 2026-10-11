@@ -1223,3 +1223,28 @@
 .point-table-message { padding: 9px 10px; color: #a6ecd7; border: 1px solid #3a806a; border-radius: 7px; background: #15352d; font-size: 11px; line-height: 1.4; }
 .point-table-message.error { color: #ffc2b9; border-color: #8c4545; background: #3a2025; }
 @media (max-width: 560px) { .point-table-options { grid-template-columns: minmax(0, 1fr); } }
+
+.vector-edit-workbench { display: grid; gap: 12px; min-width: 0; }
+.vector-edit-workbench .measurement-title { display: grid; gap: 5px; }
+.vector-edit-selection { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px 10px; padding: 11px; border: 1px solid #31485b; border-radius: 8px; background: #111d28; }
+.vector-edit-selection span { color: #8298a9; font-size: 9px; font-weight: 700; letter-spacing: .7px; }
+.vector-edit-selection strong { overflow: hidden; color: #dce7ef; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.vector-edit-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.vector-edit-actions .workbench-button.selected { color: #a6ecd7; border-color: #397b68; background: #1c3f35; }
+.vector-edit-snap { display: grid; gap: 8px; padding: 10px; border: 1px solid #2a3d4d; border-radius: 8px; background: #0e1923; color: #b8c9d5; font-size: 10px; }
+.vector-edit-snap > span { color: #8298a9; font-size: 9px; font-weight: 700; letter-spacing: .7px; }
+.vector-edit-snap label { display: flex; align-items: center; gap: 8px; }
+.vector-edit-snap input { accent-color: #52c9a7; }
+.vector-edit-transform { overflow: hidden; border: 1px solid #2a3d4d; border-radius: 8px; background: #0e1923; color: #b8c9d5; font-size: 10px; }
+.vector-edit-transform summary { padding: 10px; color: #c8d7e0; cursor: pointer; font-size: 11px; font-weight: 650; }
+.vector-edit-transform[open] summary { border-bottom: 1px solid #263949; }
+.vector-transform-block { display: grid; gap: 8px; padding: 10px; border-bottom: 1px solid #263949; }
+.vector-transform-block:last-child { border-bottom: 0; }
+.vector-transform-block > span { color: #8298a9; font-size: 8px; font-weight: 700; letter-spacing: .55px; }
+.vector-transform-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vector-transform-inputs.single { grid-template-columns: minmax(0, 1fr); }
+.vector-transform-inputs label { display: grid; gap: 4px; color: #9eafbd; font-size: 9px; }
+.vector-transform-inputs input { width: 100%; min-width: 0; height: 30px; padding: 5px 7px; border: 1px solid #344a5d; border-radius: 6px; outline: none; background: #101d28; color: #e0e9ef; font: 11px 'Segoe UI', sans-serif; }
+.vector-transform-inputs input:focus { border-color: #4d9e8b; box-shadow: 0 0 0 2px #4d9e8b22; }
+.vector-edit-feedback { min-height: 40px; margin: 0; padding: 9px 10px; color: #b8d9dc; border: 1px solid #2d5260; border-radius: 7px; background: #10232d; font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.vector-edit-workbench .identify-empty-state { min-height: 128px; padding: 16px; }

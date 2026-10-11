@@ -59,6 +59,7 @@ namespace GeoNex.Services
     public sealed class CompiledFeature
     {
         public long FID; // Usado para Lazy Loading dos Atributos
+        public long SourceFeatureId = -1; // FID da fonte de origem quando a camada está em cache
         public GeometryKind Kind;
         public SKPath? Path;
         public long DataOffset; // Offset de 64 bits: SHP pode ultrapassar o limite de 2 GB

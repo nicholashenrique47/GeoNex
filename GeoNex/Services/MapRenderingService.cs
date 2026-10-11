@@ -193,6 +193,7 @@ namespace GeoNex.Services
 
     public partial class MapRenderingService : IDisposable
     {
+        public sealed record DetachedVectorFeature(CompiledFeature Feature, int OriginalIndex);
         private int _disposeState;
         private long _sceneRevision;
         public long SceneRevision => System.Threading.Interlocked.Read(ref _sceneRevision);
@@ -246,6 +247,11 @@ namespace GeoNex.Services
         
         public Dictionary<string, List<CompiledFeature>> FeaturesPorCamada { get; } = new();
         public Dictionary<string, NetTopologySuite.Features.FeatureCollection> FeicoesOriginais { get; } = new();
+        private readonly object _vectorEditOverlayGate = new();
+        public object VectorEditOverlayGate => _vectorEditOverlayGate;
+        public SKPath? CaminhoEdicaoPreview { get; private set; }
+        public SKPoint[] VerticesEdicao { get; private set; } = Array.Empty<SKPoint>();
+        public int IndiceVerticeEdicaoAtivo { get; set; } = -1;
         public Dictionary<string, List<SKPath>> VetoresPorCamada { get; } = new();
         public Dictionary<string, List<SKPath>> LinhasPorCamada { get; } = new();
         public Dictionary<string, SKPath> PontosPorCamada { get; } = new();
@@ -395,6 +401,11 @@ namespace GeoNex.Services
                     if (!currentPolyChunk[cat].IsEmpty) dicCategoriasPoly[cat].Add(currentPolyChunk[cat]);
                     if (!currentLineChunk[cat].IsEmpty) dicCategoriasLine[cat].Add(currentLineChunk[cat]);
                 }
+
+                if (VetoresCategorizados.TryGetValue(nomeCamada, out var oldPolygons))
+                    foreach (SKPath path in oldPolygons.Values.SelectMany(paths => paths)) path.Dispose();
+                if (LinhasCategorizadas.TryGetValue(nomeCamada, out var oldLines))
+                    foreach (SKPath path in oldLines.Values.SelectMany(paths => paths)) path.Dispose();
                 
                 VetoresCategorizados[nomeCamada] = dicCategoriasPoly;
                 LinhasCategorizadas[nomeCamada] = dicCategoriasLine;
@@ -448,7 +459,7 @@ namespace GeoNex.Services
 
         public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo,
             bool checarVertices = true, bool checarArestas = false, bool checarMeios = false,
-            bool checarIntersecoes = false)
+            bool checarIntersecoes = false, string? ignorarCamada = null, long? ignorarFid = null)
         {
             if (!float.IsFinite(ptClique.X) || !float.IsFinite(ptClique.Y) ||
                 !float.IsFinite(toleranciaMundo) || toleranciaMundo <= 0 ||
@@ -469,6 +480,8 @@ namespace GeoNex.Services
                 using var candidates = indexLease.Resource.Query(envelope);
                 foreach (var candidate in candidates)
                 {
+                    if (ignorarFid.HasValue && ignorarFid.Value == candidate.FID &&
+                        string.Equals(layerName, ignorarCamada, StringComparison.Ordinal)) continue;
                     // Consume the path while both resources are pinned. Avoid a
                     // second candidate list and the full Path.Points allocation.
                     var path = candidate.GetPath(shapefileLease?.Resource, OffsetMundoX, OffsetMundoY);
@@ -932,6 +945,7 @@ namespace GeoNex.Services
 
         public void PreCompilarPoligonos(string nomeCamada, List<CompiledFeature> feicoes)
         {
+            LimitesVetoresWorld.Remove(nomeCamada);
             if (FeaturesPorCamada.ContainsKey(nomeCamada))
             {
                 foreach (var f in FeaturesPorCamada[nomeCamada]) f.Path?.Dispose();
@@ -998,6 +1012,165 @@ namespace GeoNex.Services
                     if (LimitesGlobaisVetor.IsEmpty) LimitesGlobaisVetor = rect;
                     else LimitesGlobaisVetor.Union(rect);
                 }
+            }
+        }
+
+        /// <summary>Publishes a changed in-memory feature and rebuilds the layer's interaction index.</summary>
+        public void AtualizarGeometriaVetorial(string nomeCamada, long fid, NetTopologySuite.Geometries.Geometry geometry)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(nomeCamada);
+            ArgumentNullException.ThrowIfNull(geometry);
+            if (!FeaturesPorCamada.TryGetValue(nomeCamada, out List<CompiledFeature>? features))
+                throw new InvalidOperationException($"A camada '{nomeCamada}' não está carregada no mapa.");
+
+            int index = features.FindIndex(feature => feature.FID == fid);
+            if (index < 0) throw new InvalidOperationException($"A feição {fid} não está mais carregada no mapa.");
+            CompiledFeature anterior = features[index];
+            CompiledFeature atualizada = PostgisGeometryCompiler.Compile(geometry, anterior.FID, nomeCamada, OffsetMundoX, OffsetMundoY);
+            atualizada.SourceFeatureId = anterior.SourceFeatureId;
+            atualizada.CategoryValue = anterior.CategoryValue;
+
+            features[index] = atualizada;
+            try
+            {
+                ConstruirIndiceEspacial(nomeCamada, features);
+                if (EstilosPorCamada.TryGetValue(nomeCamada, out EstiloCamada? style) &&
+                    string.Equals(style.TipoSimbologia, "CATEGORIZADA", StringComparison.OrdinalIgnoreCase))
+                    CompilarCategorias(nomeCamada, style.ColunaSimbologia);
+                RecalcularLimitesCamadasVetoriais();
+                anterior.Path?.Dispose();
+                RequestRedraw();
+            }
+            catch
+            {
+                features[index] = anterior;
+                atualizada.Path?.Dispose();
+                try { ConstruirIndiceEspacial(nomeCamada, features); }
+                catch (Exception rollbackError) { Console.Error.WriteLine($"Falha ao restaurar índice vetorial: {rollbackError.Message}"); }
+                RecalcularLimitesCamadasVetoriais();
+                throw;
+            }
+        }
+
+        /// <summary>Removes a feature from the live scene without disposing its path, allowing undo before save.</summary>
+        public DetachedVectorFeature RemoverFeicaoVetorial(string nomeCamada, long fid)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(nomeCamada);
+            if (!FeaturesPorCamada.TryGetValue(nomeCamada, out List<CompiledFeature>? features))
+                throw new InvalidOperationException($"A camada '{nomeCamada}' não está carregada no mapa.");
+
+            int index = features.FindIndex(feature => feature.FID == fid);
+            if (index < 0) throw new InvalidOperationException($"A feição {fid} não está mais carregada no mapa.");
+            CompiledFeature removed = features[index];
+            features.RemoveAt(index);
+            try
+            {
+                ConstruirIndiceEspacial(nomeCamada, features);
+                if (EstilosPorCamada.TryGetValue(nomeCamada, out EstiloCamada? style) &&
+                    string.Equals(style.TipoSimbologia, "CATEGORIZADA", StringComparison.OrdinalIgnoreCase))
+                    CompilarCategorias(nomeCamada, style.ColunaSimbologia);
+                RecalcularLimitesCamadasVetoriais();
+                if (ReferenceEquals(CaminhoFeicaoDestacada, removed.Path)) DestacarFeicao(null);
+                RequestRedraw();
+                return new DetachedVectorFeature(removed, index);
+            }
+            catch
+            {
+                features.Insert(index, removed);
+                try { ConstruirIndiceEspacial(nomeCamada, features); }
+                catch (Exception rollbackError) { Console.Error.WriteLine($"Falha ao restaurar o índice após exclusão vetorial: {rollbackError.Message}"); }
+                RecalcularLimitesCamadasVetoriais();
+                throw;
+            }
+        }
+
+        /// <summary>Restores a detached feature to its prior scene position while keeping its compiled path.</summary>
+        public void RestaurarFeicaoVetorial(string nomeCamada, DetachedVectorFeature detached)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(nomeCamada);
+            ArgumentNullException.ThrowIfNull(detached);
+            if (!FeaturesPorCamada.TryGetValue(nomeCamada, out List<CompiledFeature>? features))
+                throw new InvalidOperationException($"A camada '{nomeCamada}' não está carregada no mapa.");
+            if (features.Any(feature => feature.FID == detached.Feature.FID))
+                throw new InvalidOperationException($"A feição {detached.Feature.FID} já está presente no mapa.");
+
+            int index = Math.Clamp(detached.OriginalIndex, 0, features.Count);
+            features.Insert(index, detached.Feature);
+            try
+            {
+                ConstruirIndiceEspacial(nomeCamada, features);
+                if (EstilosPorCamada.TryGetValue(nomeCamada, out EstiloCamada? style) &&
+                    string.Equals(style.TipoSimbologia, "CATEGORIZADA", StringComparison.OrdinalIgnoreCase))
+                    CompilarCategorias(nomeCamada, style.ColunaSimbologia);
+                RecalcularLimitesCamadasVetoriais();
+                RequestRedraw();
+            }
+            catch
+            {
+                features.RemoveAt(index);
+                try { ConstruirIndiceEspacial(nomeCamada, features); }
+                catch (Exception rollbackError) { Console.Error.WriteLine($"Falha ao restaurar o índice vetorial: {rollbackError.Message}"); }
+                RecalcularLimitesCamadasVetoriais();
+                throw;
+            }
+        }
+
+        public void DefinirOverlayEdicao(SKPath? preview, IReadOnlyList<SKPoint> vertices, int indiceAtivo = -1)
+        {
+            lock (_vectorEditOverlayGate)
+            {
+                CaminhoEdicaoPreview?.Dispose();
+                CaminhoEdicaoPreview = preview;
+                VerticesEdicao = vertices.ToArray();
+                IndiceVerticeEdicaoAtivo = indiceAtivo;
+            }
+            RequestRedraw();
+        }
+
+        public void DefinirIndiceVerticeEdicao(int indiceAtivo)
+        {
+            lock (_vectorEditOverlayGate)
+            {
+                if (IndiceVerticeEdicaoAtivo == indiceAtivo) return;
+                IndiceVerticeEdicaoAtivo = indiceAtivo;
+            }
+            RequestRedraw();
+        }
+
+        public void LimparOverlayEdicao() => DefinirOverlayEdicao(null, Array.Empty<SKPoint>());
+
+        private void RecalcularLimitesCamadasVetoriais()
+        {
+            LimitesVetoresWorld.Clear();
+            foreach ((string nomeCamada, List<CompiledFeature> features) in FeaturesPorCamada)
+            {
+                double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+                double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+                foreach (CompiledFeature feature in features)
+                {
+                    FeatureEnvelope envelope = feature.EnvelopeWorld;
+                    if (envelope.IsNull) continue;
+                    minX = Math.Min(minX, envelope.MinX);
+                    minY = Math.Min(minY, envelope.MinY);
+                    maxX = Math.Max(maxX, envelope.MaxX);
+                    maxY = Math.Max(maxY, envelope.MaxY);
+                }
+                if (double.IsFinite(minX) && double.IsFinite(minY) && double.IsFinite(maxX) && double.IsFinite(maxY))
+                    LimitesVetoresWorld[nomeCamada] = new Envelope(minX, maxX, minY, maxY);
+            }
+
+            LimitesGlobaisVetor = SKRect.Empty;
+            foreach (Envelope envelope in LimitesVetoresWorld.Values)
+            {
+                if (envelope.IsNull) continue;
+                var rect = new SKRect(
+                    (float)(envelope.MinX - OffsetMundoX),
+                    (float)-(envelope.MaxY - OffsetMundoY),
+                    (float)(envelope.MaxX - OffsetMundoX),
+                    (float)-(envelope.MinY - OffsetMundoY));
+                if (rect.IsEmpty) continue;
+                if (LimitesGlobaisVetor.IsEmpty) LimitesGlobaisVetor = rect;
+                else LimitesGlobaisVetor.Union(rect);
             }
         }
 
@@ -1103,6 +1276,13 @@ namespace GeoNex.Services
                 _rasterCacheResources.Dispose();
                 _warpedRasterResources.Dispose();
                 _rasterResources.Dispose();
+            }
+
+            lock (_vectorEditOverlayGate)
+            {
+                CaminhoEdicaoPreview?.Dispose();
+                CaminhoEdicaoPreview = null;
+                VerticesEdicao = Array.Empty<SKPoint>();
             }
 
             lock (_vectorResourceGate)

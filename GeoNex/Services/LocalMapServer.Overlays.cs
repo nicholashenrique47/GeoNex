@@ -337,6 +337,50 @@ public partial class LocalMapServer
             canvas.DrawPath(_mapService.CaminhoDestaqueLinha, paintM);
         }
 
+        lock (_mapService.VectorEditOverlayGate)
+        {
+            if (_mapService.CaminhoEdicaoPreview is { } preview)
+            {
+                canvas.SetMatrix(matriz);
+                if (_mapService.CaminhoDestaquePoligono != null)
+                {
+                    using var previewFill = new SKPaint
+                    {
+                        Style = SKPaintStyle.Fill,
+                        Color = new SKColor(34, 211, 184, 48),
+                        IsAntialias = true
+                    };
+                    canvas.DrawPath(preview, previewFill);
+                }
+                using var previewStroke = new SKPaint
+                {
+                    Style = SKPaintStyle.Stroke,
+                    Color = new SKColor(34, 211, 184),
+                    StrokeWidth = 2.5f / zoomReal,
+                    StrokeJoin = SKStrokeJoin.Round,
+                    StrokeCap = SKStrokeCap.Round,
+                    IsAntialias = true
+                };
+                canvas.DrawPath(preview, previewStroke);
+            }
+
+            if (_mapService.VerticesEdicao.Length > 0)
+            {
+                canvas.SetMatrix(matriz);
+                using var handleFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(13, 26, 36), IsAntialias = true };
+                using var handleBorder = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(103, 232, 196), StrokeWidth = 1.6f / zoomReal, IsAntialias = true };
+                using var activeFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(255, 191, 71), IsAntialias = true };
+                for (int i = 0; i < _mapService.VerticesEdicao.Length; i++)
+                {
+                    SKPoint vertex = _mapService.VerticesEdicao[i];
+                    float radius = (i == _mapService.IndiceVerticeEdicaoAtivo ? 6.5f : 5f) / zoomReal;
+                    canvas.DrawCircle(vertex, radius + 1.8f / zoomReal, handleFill);
+                    canvas.DrawCircle(vertex, radius, i == _mapService.IndiceVerticeEdicaoAtivo ? activeFill : handleFill);
+                    canvas.DrawCircle(vertex, radius, handleBorder);
+                }
+            }
+        }
+
     }
 
     private void DrawConstructionOverlay(SKCanvas canvas, SKMatrix matrix, float zoom, List<SKPoint> controls)

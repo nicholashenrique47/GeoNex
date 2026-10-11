@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 using Microsoft.Maui.Devices;
 using Microsoft.Maui.Storage;
+using NetTopologySuite.Features;
 using SkiaSharp;
 using System.Net.Sockets;
 
@@ -430,31 +431,60 @@ public partial class Home
                     .ToList();
                 if (pendentes.Count == 0) continue;
 
+                int operacoesCamada = 0;
                 try
                 {
                     if (camada.FontePostgis is { } fontePostgis)
                     {
-                        totalGravados += await PostgisDataService.InsertFeaturesAsync(
+                        operacoesCamada = await PostgisDataService.InsertFeaturesAsync(
                             fontePostgis, MapService.ProjetoSRS, pendentes);
                     }
                     else
                     {
                         if (string.IsNullOrWhiteSpace(camada.CaminhoArquivo))
                             throw new IOException("A camada não possui arquivo de destino nem conexão PostGIS.");
-                        totalGravados += VectorEditPersistenceService.SaveToOgr(
+                        operacoesCamada = VectorEditPersistenceService.SaveToOgr(
                             camada.CaminhoArquivo, pendentes, MapService.ProjetoSRS);
                     }
+                    totalGravados += operacoesCamada;
+
+                    bool exclusaoPersistida = pendentes.Any(feicao =>
+                        VectorEditPersistenceService.IsDeletionPending(feicao) && VectorEditPersistenceService.IsPersisted(feicao));
+                    if (exclusaoPersistida)
+                        await RecarregarCamadaVetorialAposExclusaoAsync(camada);
                 }
                 catch (Exception ex)
                 {
                     // Non-transactional OGR drivers may have flushed earlier features before
                     // a later feature fails. Count those successful writes and keep only the
                     // remaining features pending for a safe retry.
-                    totalGravados += pendentes.Count(VectorEditPersistenceService.IsPersisted);
-                    falhas.Add($"{camada.Nome}: {MensagemPostgisSegura(ex)}");
+                    int operacoesPersistidas = pendentes.Count(VectorEditPersistenceService.IsPersisted);
+                    totalGravados += Math.Max(0, operacoesPersistidas - operacoesCamada);
+                    bool exclusaoPersistida = pendentes.Any(feicao =>
+                        VectorEditPersistenceService.IsDeletionPending(feicao) && VectorEditPersistenceService.IsPersisted(feicao));
+                    string detalhe = MensagemPostgisSegura(ex);
+                    if (exclusaoPersistida)
+                    {
+                        IFeature[] exclusoesRestantes = pendentes
+                            .Where(feicao => VectorEditPersistenceService.IsDeletionPending(feicao) &&
+                                !VectorEditPersistenceService.IsPersisted(feicao))
+                            .ToArray();
+                        try
+                        {
+                            await RecarregarCamadaVetorialAposExclusaoAsync(camada, exclusoesRestantes);
+                            if (exclusoesRestantes.Length > 0)
+                                detalhe += $" {exclusoesRestantes.Length} exclusão(ões) não concluída(s) foram recarregadas como pendentes.";
+                        }
+                        catch (Exception refreshError)
+                        {
+                            detalhe += $" A camada também não pôde ser atualizada após a exclusão parcial: {MensagemPostgisSegura(refreshError)}";
+                        }
+                    }
+                    falhas.Add($"{camada.Nome}: {detalhe}");
                 }
             }
 
+            RegistrarEdicoesGeometricasSalvas();
             temEdicoesPendentes = CamadasAtivas
                 .Where(camada => camada.Tipo == "Vetor" && MapService.FeicoesOriginais.ContainsKey(camada.Nome))
                 .SelectMany(camada => MapService.FeicoesOriginais[camada.Nome])
@@ -466,8 +496,8 @@ public partial class Home
                 string complemento = falhas.Count > 6 ? $"\n… e mais {falhas.Count - 6} camada(s)." : string.Empty;
                 if (!string.IsNullOrWhiteSpace(avisoEsboco)) complemento += $"\n\n{avisoEsboco}";
                 string resultadoParcial = totalGravados > 0
-                    ? $"{totalGravados:N0} feição(ões) gravada(s). As falhas continuam pendentes:\n\n{resumoFalhas}{complemento}"
-                    : $"Nenhuma feição foi gravada. As falhas continuam pendentes:\n\n{resumoFalhas}{complemento}";
+                    ? $"{totalGravados:N0} operação(ões) de edição aplicada(s). As falhas continuam pendentes:\n\n{resumoFalhas}{complemento}"
+                    : $"Nenhuma edição foi gravada. As falhas continuam pendentes:\n\n{resumoFalhas}{complemento}";
                 ExibirNotificacaoSalvamento(totalGravados > 0 ? "SALVAMENTO PARCIAL" : "FALHA AO SALVAR",
                     resultadoParcial, erro: true);
             }
@@ -475,7 +505,7 @@ public partial class Home
             {
                 string complementoEsboco = string.IsNullOrWhiteSpace(avisoEsboco) ? string.Empty : $"\n\n{avisoEsboco}";
                 ExibirNotificacaoSalvamento("EDIÇÕES SALVAS",
-                    $"{totalGravados:N0} feição(ões) gravada(s) com sucesso.{complementoEsboco}");
+                    $"{totalGravados:N0} operação(ões) de edição aplicada(s) com sucesso.{complementoEsboco}");
             }
             else
             {
@@ -1119,15 +1149,27 @@ public partial class Home
         double pixelY,
         bool interacaoRapida = true,
         long pointerSequence = 0,
-        double[]? displayedMatrix = null)
+        double[]? displayedMatrix = null,
+        double? vertexPointerStartX = null,
+        double? vertexPointerStartY = null)
     {
         if (_ferramentaAtiva == ModoFerramenta.Medicao && _medicaoConcluida) return;
         if (exibirModalAtributos || _isPanning || !double.IsFinite(pixelX) || !double.IsFinite(pixelY)) return;
         if (_ferramentaAtiva is not (ModoFerramenta.Medicao or ModoFerramenta.AquisicaoPoligono or
-            ModoFerramenta.AquisicaoLinha or ModoFerramenta.AquisicaoPonto)) return;
+            ModoFerramenta.AquisicaoLinha or ModoFerramenta.AquisicaoPonto or ModoFerramenta.EdicaoVertice)) return;
 
         SKMatrix matrix = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
         if (!TentarMapearPontoTelaParaLocal(pixelX, pixelY, displayedMatrix, matrix, out SKPoint cursor)) return;
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
+        {
+            MapService.PontoCursorMundo = cursor;
+            SKPoint? pointerStart = null;
+            if (vertexPointerStartX is { } startX && vertexPointerStartY is { } startY &&
+                TentarMapearPontoTelaParaLocal(startX, startY, displayedMatrix, matrix, out SKPoint mappedStart))
+                pointerStart = mappedStart;
+            ProcessarMovimentoEdicaoVetorial(cursor, matrix, pointerStart);
+            return;
+        }
         var result = _coordenadaAbsolutaTravada && FerramentaDesenhoAtiva &&
             MapService.PontoRestricaoAbsoluta is { } absolutePoint
                 ? new DigitizingCursor.Result(absolutePoint, null)

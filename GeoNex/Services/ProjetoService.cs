@@ -214,8 +214,17 @@ public class ProjetoService
     /// JIT Compiler: Se o ficheiro for GeoJSON/KML, compila instantaneamente para um Shapefile binário em cache
     /// para alimentar o motor Zero-Allocation do GeoNex sem perder performance!
     /// </summary>
-    public string CompilarParaShapefileNativo(string caminhoOriginal)
+    public string CompilarParaShapefileNativo(string caminhoOriginal) =>
+        CompilarParaShapefileNativo(caminhoOriginal, out _, out _);
+
+    public string CompilarParaShapefileNativo(string caminhoOriginal, out string? sourceFidMappingPath) =>
+        CompilarParaShapefileNativo(caminhoOriginal, out sourceFidMappingPath, out _);
+
+    public string CompilarParaShapefileNativo(
+        string caminhoOriginal, out string? sourceFidMappingPath, out bool sourceFidsPreserved)
     {
+        sourceFidMappingPath = null;
+        sourceFidsPreserved = true;
         string extensao = System.IO.Path.GetExtension(caminhoOriginal).ToLower();
         if (extensao == ".shp") return caminhoOriginal;
 
@@ -236,12 +245,40 @@ public class ProjetoService
         using var dsDestino = driverShp.CopyDataSource(dsOrigem, caminhoShpDestino, null);
         if (dsDestino == null) throw new Exception("Falha na compilação do Shapefile JIT.");
 
+        using var camadaOrigem = dsOrigem.GetLayerByIndex(0)
+            ?? throw new InvalidDataException("A fonte vetorial não contém uma camada editável.");
+        using var camadaDestino = dsDestino.GetLayerByIndex(0)
+            ?? throw new InvalidDataException("O Shapefile de cache não contém uma camada.");
+        sourceFidMappingPath = caminhoShpDestino + ".gnxfid";
+        camadaOrigem.ResetReading();
+        long copiedRows = 0;
+        using (var mappingStream = new FileStream(sourceFidMappingPath, FileMode.Create, FileAccess.Write,
+                   FileShare.Read, 1024 * 1024, FileOptions.SequentialScan))
+        using (var mappingWriter = new BinaryWriter(mappingStream))
+        {
+            while (true)
+            {
+                using OSGeo.OGR.Feature? sourceFeature = camadaOrigem.GetNextFeature();
+                if (sourceFeature is null) break;
+                long sourceFid = sourceFeature.GetFID();
+                mappingWriter.Write(sourceFid);
+                if (sourceFid < 0) sourceFidsPreserved = false;
+                copiedRows++;
+            }
+        }
+        long cachedRows = camadaDestino.GetFeatureCount(1);
+        if (cachedRows >= 0 && cachedRows != copiedRows)
+            throw new InvalidDataException($"A fonte e o cache possuem quantidades diferentes de feições ({copiedRows} e {cachedRows}); o mapeamento de FIDs foi cancelado.");
+        Console.WriteLine($"[GEONEX] FIDs de origem preservados no cache: {copiedRows:N0} feições.");
+
         return caminhoShpDestino;
     }
     /// <summary>
     /// Lê o Shapefile e carrega-o para a Memória RAM, alimentando a GPU (Visão) e a Árvore (Cérebro).
     /// </summary>
-    public void CarregarShapefileParaMotorMapas(string caminhoShp, string nomeCamada, MapRenderingService mapService)
+    public void CarregarShapefileParaMotorMapas(
+        string caminhoShp, string nomeCamada, MapRenderingService mapService,
+        bool gravarLogPerformance = true, string? sourceFidMappingPath = null, bool sourceFidsAreNative = true)
     {
         try
         {
@@ -279,7 +316,9 @@ public class ProjetoService
             
             var swReader = System.Diagnostics.Stopwatch.StartNew();
             // 2. PIPELINE BINÁRIO NATIVO (Zero-Allocation & Multi-Core)
-            var (features, shpData) = FastShapeReader.ReadAllFeatures(caminhoShp, nomeCamada, mapService.OffsetMundoX, mapService.OffsetMundoY, colunaCategoria);
+            var (features, shpData) = FastShapeReader.ReadAllFeatures(
+                caminhoShp, nomeCamada, mapService.OffsetMundoX, mapService.OffsetMundoY,
+                colunaCategoria, sourceFidMappingPath, sourceFidsAreNative);
             
             // Armazena a string SRS da camada (mesmo que não seja a do projeto, para futura reprojeção)
             shpData.LayerSRS = srsOrigem;
@@ -320,7 +359,7 @@ public class ProjetoService
             sw.Stop();
             Console.WriteLine($"[GEONEX PERF] TOTAL CarregarShapefileParaMotorMapas levou {sw.ElapsedMilliseconds} ms. Feições: {feicoesCompletas.Count}");
             
-            try
+            if (gravarLogPerformance) try
             {
                 string logStr = $"FastShapeReader levou {swReader.ElapsedMilliseconds} ms\n" +
                                 $"Publicar camada + índice levou {swIndice.ElapsedMilliseconds} ms\n" +

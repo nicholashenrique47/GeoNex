@@ -11,6 +11,8 @@ namespace GeoNex.Services;
 public static class VectorEditPersistenceService
 {
     private const string TransactionsCapability = "Transactions";
+    public const string ExistingFeatureIdAttribute = "_SYS_EDIT_FID";
+    public const string DeleteFeatureAttribute = "_SYS_EDIT_DELETE";
 
     public static int SaveToOgr(
         string path,
@@ -44,6 +46,10 @@ public static class VectorEditPersistenceService
             throw new InvalidDataException(
                 $"A camada '{Path.GetFileName(path)}' não possui SRC definido. Defina o SRC da camada antes de salvar geometrias do projeto.");
 
+        bool hasPendingDeletes = features.Any(feature => !IsPersisted(feature) && IsDeletionPending(feature));
+        if (hasPendingDeletes && !layer.TestCapability("DeleteFeature"))
+            throw new NotSupportedException($"O formato da camada '{Path.GetFileName(path)}' não permite excluir feições por identificador.");
+
         destinationSrs?.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
         using CoordinateTransformation? toDestination = featureSrs is not null && destinationSrs is not null &&
             featureSrs.IsSame(destinationSrs, null) != 1
@@ -62,9 +68,24 @@ public static class VectorEditPersistenceService
             }
 
             long nextId = Math.Max(1, layer.GetFeatureCount(1) + 1);
-            foreach (NetTopologySuite.Features.IFeature ntsFeature in features)
+            IEnumerable<NetTopologySuite.Features.IFeature> pendingFeatures = features
+                .Where(feature => !IsPersisted(feature));
+            foreach (NetTopologySuite.Features.IFeature ntsFeature in pendingFeatures
+                .Where(feature => !IsDeletionPending(feature))
+                .Concat(pendingFeatures.Where(IsDeletionPending)
+                    .OrderByDescending(feature => TryGetExistingFeatureId(feature, out long fid) ? fid : long.MinValue)))
             {
-                if (IsPersisted(ntsFeature)) continue;
+                if (TryGetExistingFeatureId(ntsFeature, out long deletedFeatureId) && IsDeletionPending(ntsFeature))
+                {
+                    EnsureSuccess(layer.DeleteFeature(deletedFeatureId), $"excluir a feição {deletedFeatureId}");
+                    if (!supportsTransactions)
+                    {
+                        EnsureSuccess(layer.SyncToDisk(), $"sincronizar a exclusão da feição {deletedFeatureId}");
+                        MarkPersisted(ntsFeature);
+                    }
+                    persisted.Add(ntsFeature);
+                    continue;
+                }
                 if (ntsFeature.Geometry == null || ntsFeature.Geometry.IsEmpty)
                     throw new InvalidDataException("Uma feição da fila não possui geometria válida.");
 
@@ -73,6 +94,22 @@ public static class VectorEditPersistenceService
                     throw new IOException($"O GDAL não converteu a geometria para '{Path.GetFileName(path)}'. {Gdal.GetLastErrorMsg()}");
                 if (toDestination is not null)
                     EnsureSuccess(geometry.Transform(toDestination), $"reprojetar a feição {nextId} para o SRC da camada");
+
+                if (TryGetExistingFeatureId(ntsFeature, out long existingFeatureId))
+                {
+                    using OSGeo.OGR.Feature? existingFeature = layer.GetFeature(existingFeatureId);
+                    if (existingFeature is null)
+                        throw new InvalidDataException($"A feição {existingFeatureId} não existe mais em '{Path.GetFileName(path)}'.");
+                    EnsureSuccess(existingFeature.SetGeometry(geometry), $"atualizar a geometria da feição {existingFeatureId}");
+                    EnsureSuccess(layer.SetFeature(existingFeature), $"gravar a geometria da feição {existingFeatureId}");
+                    if (!supportsTransactions)
+                    {
+                        EnsureSuccess(layer.SyncToDisk(), $"sincronizar a feição {existingFeatureId} no disco");
+                        MarkPersisted(ntsFeature);
+                    }
+                    persisted.Add(ntsFeature);
+                    continue;
+                }
 
                 using FeatureDefn definition = layer.GetLayerDefn();
                 using var ogrFeature = new OSGeo.OGR.Feature(definition);
@@ -114,6 +151,21 @@ public static class VectorEditPersistenceService
         feature.Attributes != null && feature.Attributes.Exists("_SYS_GRAVADO") &&
         string.Equals(feature.Attributes["_SYS_GRAVADO"]?.ToString(), "SIM", StringComparison.Ordinal);
 
+    public static bool TryGetExistingFeatureId(NetTopologySuite.Features.IFeature feature, out long featureId)
+    {
+        featureId = -1;
+        if (feature.Attributes == null || !feature.Attributes.Exists(ExistingFeatureIdAttribute)) return false;
+        return long.TryParse(
+            Convert.ToString(feature.Attributes[ExistingFeatureIdAttribute], CultureInfo.InvariantCulture),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out featureId) && featureId >= 0;
+    }
+
+    public static bool IsDeletionPending(NetTopologySuite.Features.IFeature feature) =>
+        feature.Attributes != null && feature.Attributes.Exists(DeleteFeatureAttribute) &&
+        string.Equals(Convert.ToString(feature.Attributes[DeleteFeatureAttribute], CultureInfo.InvariantCulture), "SIM", StringComparison.Ordinal);
+
     private static void MarkPersisted(NetTopologySuite.Features.IFeature feature)
     {
         if (feature.Attributes == null) return;
@@ -133,6 +185,7 @@ public static class VectorEditPersistenceService
             using FieldDefn field = definition.GetFieldDefn(i);
             string name = field.GetNameRef();
             string normalizedName = name.ToUpperInvariant();
+            if (normalizedName.StartsWith("_SYS_", StringComparison.Ordinal)) continue;
             if (ntsFeature.Attributes != null && ntsFeature.Attributes.Exists(name))
             {
                 object? value = ntsFeature.Attributes[name];

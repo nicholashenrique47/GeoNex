@@ -335,6 +335,7 @@ public static class PostgisGeometryCompiler
         var feature = new CompiledFeature
         {
             FID = fid,
+            SourceFeatureId = fid,
             LayerName = layerName,
             Kind = kind,
             EnvelopeWorld = featureEnvelope,

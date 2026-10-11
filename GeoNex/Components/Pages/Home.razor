@@ -1086,7 +1086,7 @@
      tabindex="0"
      @onpointerdown="ProcessarPressionarMouse"
      @onpointerup="ProcessarSoltarMouse"
-     @onpointercancel="ProcessarSoltarMouse"
+     @onpointercancel="ProcessarCancelarMouse"
      @oncontextmenu:preventDefault="true"
      style="cursor: @EstiloCursor; width: 100%; height: 100%; background-color: #161921; position: relative; min-width: 0; min-height: 0; z-index: 0; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; contain: strict;">
     <!-- A área de entrada fica imóvel; somente esta superfície vai para a GPU. -->
@@ -1125,7 +1125,75 @@
 
             <div class="properties-content custom-scrollbar" style="padding: 15px;">
 
-                @if (_ferramentaAtiva == ModoFerramenta.Medicao)
+                @if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
+                {
+                    <section class="vector-edit-workbench" aria-label="Edição de vértices">
+                        <div class="measurement-title">
+                            <span class="eyebrow">EDIÇÃO GEOMÉTRICA</span>
+                            <h3>Editar vértices</h3>
+                            <p>Arraste um vértice para remodelar ou arraste o corpo da feição para movê-la. As alterações ficam pendentes até salvar.</p>
+                        </div>
+                        @if (SelectedVectorFeatureState is { } editState)
+                        {
+                            <div class="vector-edit-selection" role="status">
+                                <span>CAMADA</span><strong title="@editState.Key.LayerName">@editState.Key.LayerName</strong>
+                                <span>FID DA FONTE</span><strong>@editState.Key.SourceFeatureId</strong>
+                                <span>VÉRTICES</span><strong>@SelectedVectorVertexCount</strong>
+                            </div>
+                            <div class="vector-edit-actions" role="group" aria-label="Ferramentas de vértice">
+                                <button type="button" class="workbench-button @(_insertVectorVertexMode ? "selected" : "")" aria-pressed="@_insertVectorVertexMode" @onclick="AlternarModoInserirVertice">@(_insertVectorVertexMode ? "✓ Inserção ativa" : "+ Adicionar vértice")</button>
+                                <button type="button" class="workbench-button danger" disabled="@(!CanRemoveHoveredVectorVertex)" title="Passe o cursor sobre o vértice e remova-o" @onclick="RemoverVerticeSelecionadoAsync">− Remover vértice</button>
+                            </div>
+                            <div class="vector-edit-snap" role="group" aria-label="Encaixe magnético durante a edição">
+                                <span>ENCAIXE DURANTE O ARRASTE</span>
+                                <label><input type="checkbox" @bind="_snapVectorEditVertices" /> Atrair para vértices</label>
+                                <label><input type="checkbox" @bind="_snapVectorEditEdges" /> Atrair para arestas</label>
+                            </div>
+                            <details class="vector-edit-transform">
+                                <summary>Transformações precisas</summary>
+                                <div class="vector-transform-block">
+                                    <span>DESLOCAR · UNIDADES DO PROJETO</span>
+                                    <div class="vector-transform-inputs">
+                                        <label>ΔX<input type="number" step="any" @bind="_vectorMoveDeltaX" aria-label="Deslocamento X" /></label>
+                                        <label>ΔY<input type="number" step="any" @bind="_vectorMoveDeltaY" aria-label="Deslocamento Y" /></label>
+                                    </div>
+                                    <button type="button" class="workbench-button" @onclick="AplicarDeslocamentoPrecisoAsync">Aplicar deslocamento</button>
+                                </div>
+                                <div class="vector-transform-block">
+                                    <span>ROTACIONAR · AO REDOR DO CENTROIDE</span>
+                                    <div class="vector-transform-inputs single">
+                                        <label>Ângulo (graus)<input type="number" step="any" @bind="_vectorRotationDegrees" /></label>
+                                    </div>
+                                    <button type="button" class="workbench-button" @onclick="RotacionarFeicaoAsync">Rotacionar feição</button>
+                                </div>
+                                <div class="vector-transform-block">
+                                    <span>ESCALAR · AO REDOR DO CENTROIDE</span>
+                                    <div class="vector-transform-inputs single">
+                                        <label>Fator positivo<input type="number" min="0.000001" step="any" @bind="_vectorScaleFactor" /></label>
+                                    </div>
+                                    <button type="button" class="workbench-button" @onclick="EscalarFeicaoAsync">Aplicar escala</button>
+                                </div>
+                            </details>
+                            <button type="button" class="workbench-button" @onclick="LimparSelecaoEdicaoVetorial">Selecionar outra feição</button>
+                            <button type="button" class="workbench-button danger" @onclick="ExcluirFeicaoSelecionadaAsync">Marcar feição para exclusão</button>
+                        }
+                        else
+                        {
+                            <div class="identify-empty-state" role="status">
+                                <span class="identify-empty-icon" aria-hidden="true">◇</span>
+                                <strong>Selecione uma feição vetorial</strong>
+                                <span>Clique sobre um ponto, linha ou polígono local no mapa.</span>
+                            </div>
+                        }
+                        <div class="vector-edit-actions" role="group" aria-label="Histórico de edição vetorial">
+                            <button type="button" class="workbench-button" disabled="@(!CanUndoVectorGeometryEdit)" title="Desfazer geometria · Ctrl+Z" @onclick="DesfazerEdicaoVetorialAsync">↶ Desfazer</button>
+                            <button type="button" class="workbench-button" disabled="@(!CanRedoVectorGeometryEdit)" title="Refazer geometria · Ctrl+Y" @onclick="RefazerEdicaoVetorialAsync">↷ Refazer</button>
+                        </div>
+                        <p class="vector-edit-feedback" role="status" aria-live="polite">@_vectorEditMessage</p>
+                        <div class="measurement-help"><kbd>Ctrl Z</kbd> desfazer <span>·</span> <kbd>Ctrl Y</kbd> refazer <span>·</span> <kbd>Esc</kbd> sair</div>
+                    </section>
+                }
+                else if (_ferramentaAtiva == ModoFerramenta.Medicao)
                 {
                     <section class="measurement-workbench" aria-label="Medição">
                         <div class="measurement-title"><span class="eyebrow">INSPECIONAR DISTÂNCIAS E ÁREAS</span><h3>Medição</h3><p>@(_medicaoConcluida ? "Valores fixos. Continue para acrescentar pontos." : "Clique no mapa. Enter confirma os pontos marcados.")</p></div>
@@ -5185,9 +5253,12 @@
         else if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = false;
+            _vectorEditPointerPressed = false;
+            LimparEstadoArrasteVertice();
+            MapService.LimparOverlayEdicao();
         }
 
-        if (novaFerramenta is ModoFerramenta.Medicao or ModoFerramenta.Identificacao)
+        if (novaFerramenta is ModoFerramenta.Medicao or ModoFerramenta.Identificacao or ModoFerramenta.EdicaoVertice)
             _painelIdentificarAberto = true;
         else if (_ferramentaAtiva == ModoFerramenta.Medicao && atributosFeicaoSelecionada.Count == 0)
             _painelIdentificarAberto = false;
@@ -5218,6 +5289,10 @@
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             modoEdicaoVerticeLigado = true;
+            if (SelectedVectorFeatureState is { } editState)
+                AtualizarOverlayEdicaoVetorial(editState.Current, -1);
+            else
+                MapService.LimparOverlayEdicao();
         }
 
         InvokeAsync(StateHasChanged);
@@ -5829,10 +5904,14 @@
             await Task.Run(() =>
             {
                 // JIT COMPILATION: Converte GeoJSON/KML em Shapefile Binário na hora!
-                string caminhoCompilado = ProjetoService.CompilarParaShapefileNativo(caminhoFonte);
+                string caminhoCompilado = ProjetoService.CompilarParaShapefileNativo(
+                    caminhoFonte, out string? sourceFidMappingPath, out bool sourceFidsPreserved);
                 
                 // O motor vai sempre receber um binário nativo (.shp) ultrarrápido
-                ProjetoService.CarregarShapefileParaMotorMapas(caminhoCompilado, nomeArquivo, MapService);
+                ProjetoService.CarregarShapefileParaMotorMapas(
+                    caminhoCompilado, nomeArquivo, MapService,
+                    sourceFidMappingPath: sourceFidMappingPath,
+                    sourceFidsAreNative: sourceFidsPreserved);
                 MapService.ConstruirIndiceEspacial();
             });
 
@@ -6830,6 +6909,7 @@
 
     private bool RemoverRecursosVetoriais(string nome)
     {
+        LimparEstadoEdicaoDaCamada(nome);
         MapService.CaminhoFeicaoDestacada = null;
         MapService.DestacarFeicao(null);
         MapService.RemoveVectorResources(nome);
@@ -6896,6 +6976,16 @@
         RecalcularMedicoes(incluirCursor: false);
         _medicaoConcluida = false;
         modoEdicaoVerticeLigado = false;
+        _vectorEditPointerPressed = false;
+        _selectedVectorFeatureForEdit = null;
+        _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+        foreach (var editState in _vectorFeatureEditStates.Values)
+            editState.DetachedFeature?.Feature.Path?.Dispose();
+        _vectorFeatureEditStates.Clear();
+        _vectorGeometryEditHistory.Clear();
+        _vectorGeometryEditHistoryCursor = 0;
+        LimparEstadoArrasteVertice();
+        MapService.LimparOverlayEdicao();
         _geometriaDestacada = null;
         _ultimoSnapRenderizado = null;
 
@@ -7189,9 +7279,11 @@
     // =========================================================================
     private async Task AlternarEdicaoVertices()
     {
-        modoEdicaoVerticeLigado = !modoEdicaoVerticeLigado;
-        await JSRuntime.InvokeVoidAsync("alternarFerramentaVertices", modoEdicaoVerticeLigado);
-        StateHasChanged();
+        TrocarFerramenta(_ferramentaAtiva == ModoFerramenta.EdicaoVertice
+            ? ModoFerramenta.Identificacao
+            : ModoFerramenta.EdicaoVertice);
+        FecharMenusSuperiores();
+        await InvokeAsync(StateHasChanged);
     }
 
     [JSInvokable]
@@ -7468,6 +7560,21 @@
 
             switch (_ferramentaAtiva)
             {
+                case ModoFerramenta.EdicaoVertice:
+                {
+                    float escalaEdicao = Math.Max(0.0001f, Math.Abs(matriz.ScaleX));
+                    CompiledFeature? featureEdit = MapService.DispararRaycast(
+                        yMundo, xMundo, 7.0 / escalaEdicao, out string layerEdit);
+                    if (_insertVectorVertexMode && SelectedVectorFeatureState is { } selectedState &&
+                        (featureEdit is null || (featureEdit.FID == selectedState.Key.FeatureId &&
+                         string.Equals(layerEdit, selectedState.Key.LayerName, StringComparison.Ordinal))))
+                    {
+                        await InserirVerticeSelecionadoAsync(xMundo, yMundo, escalaEdicao);
+                        break;
+                    }
+                    await SelecionarFeicaoParaEdicaoAsync(featureEdit, layerEdit);
+                    break;
+                }
                 case ModoFerramenta.Identificacao:
                     float escalaMatriz = matriz.ScaleX;
                     double tolerancia = 5.0 / escalaMatriz;
@@ -7763,6 +7870,19 @@
                 if (tecla is "ctrl+y" or "ctrl+shift+z") { AlterarHistoricoMedicao(true); return; }
             }
 
+            if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
+            {
+                if (tecla is "ctrl+z" or "z" or "backspace") { await DesfazerEdicaoVetorialAsync(); return; }
+                if (tecla is "ctrl+y" or "ctrl+shift+z") { await RefazerEdicaoVetorialAsync(); return; }
+                if (tecla == "escape")
+                {
+                    if (_vectorEditPointerPressed) CancelarArrasteVerticeEdicao();
+                    else LimparSelecaoEdicaoVetorial();
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+            }
+
             // 3. ATALHOS GLOBAIS DE CANCELAMENTO (ESC)
             if (tecla == "escape")
             {
@@ -7826,10 +7946,18 @@
     private string EstiloCursor =>
         _isPanning ? "grabbing" :
         (_ferramentaAtiva == ModoFerramenta.Navegacao ? "grab" :
-         (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono ? "crosshair" : "default"));
+         (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.EdicaoVertice ? "crosshair" : "default"));
     private void ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
         if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && e.Button == 0)
+        {
+            _vectorEditPointerPressed = true;
+            _draggedVectorVertex = null;
+            _geometryAtDragStart = null;
+            _geometryDragPreview = null;
+            return;
+        }
         // GATILHO TÁTICO: Clique Direito durante a vetorização
         if (e.Button == 2 && _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono)
         {
@@ -7990,8 +8118,21 @@
     }
 
     // ✔️ O SEU MÉTODO LIMPO DEVE FICAR ASSIM:
-    private void ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    private async Task ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && _vectorEditPointerPressed)
+            await FinalizarArrasteVerticeEdicaoAsync(e.ClientX, e.ClientY);
+        if (_isPanning)
+        {
+            _isPanning = false;
+            MapService.IsPanning = false;
+        }
+        FinalizarArraste();
+    }
+
+    private void ProcessarCancelarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice) CancelarArrasteVerticeEdicao();
         if (_isPanning)
         {
             _isPanning = false;

@@ -1011,6 +1011,8 @@ window.mapEngine = {
     toolPointerPendingInteractive: true,
     toolPointerInFlight: false,
     toolPointerSequence: 0,
+    vertexEditDragging: false,
+    vertexEditPointerStart: null,
     lastPointerClientX: -1,
     lastPointerClientY: -1,
 
@@ -1268,13 +1270,16 @@ window.mapEngine = {
         }
         const point = this.obterPontoImagem(clientX, clientY);
         const sequence = ++this.toolPointerSequence;
-        const sample = { clientX, clientY, point, sequence };
+        const sample = {
+            clientX, clientY, point, sequence,
+            vertexEditStart: this.ferramentaAtual === 'EdicaoVertice' ? this.vertexEditPointerStart : null
+        };
         this.toolPointerLatest = sample;
         this.toolPointerPending = sample;
         this.toolPointerPendingInteractive = true;
         if (this.ferramentaAtual === 'Medicao' && window.GeoNexGraphics)
             window.GeoNexGraphics.atualizarCursorMedicao(point.x, point.y, sequence);
-        if (window.GeoNexGraphics)
+        if (['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(this.ferramentaAtual) && window.GeoNexGraphics)
             window.GeoNexGraphics.atualizarCursorAquisicao(point.x, point.y, sequence);
         if (this.toolPointerSettleTimer !== null) clearTimeout(this.toolPointerSettleTimer);
         this.toolPointerSettleTimer = setTimeout(() => {
@@ -1301,7 +1306,8 @@ window.mapEngine = {
             : null;
         this.toolPointerInFlight = true;
         this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas',
-            point.x, point.y, interacaoRapida, sample.sequence, digitizingMatrix)
+            point.x, point.y, interacaoRapida, sample.sequence, digitizingMatrix,
+            sample.vertexEditStart?.x ?? null, sample.vertexEditStart?.y ?? null)
             .catch(err => console.warn('Erro na prévia da ferramenta:', err))
             .finally(() => {
                 this.toolPointerInFlight = false;
@@ -1355,7 +1361,7 @@ window.mapEngine = {
         }
 
         if (!this.isDragging) {
-            if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(this.ferramentaAtual))
+            if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto', 'EdicaoVertice'].includes(this.ferramentaAtual))
                 this.queueToolPointer(e.clientX, e.clientY);
             return;
         }
@@ -1398,11 +1404,19 @@ window.mapEngine = {
     setFerramenta: function (nomeFerramenta) {
         this.resetToolPointer();
         this.ferramentaAtual = nomeFerramenta;
+        if (nomeFerramenta !== 'EdicaoVertice') {
+            this.vertexEditDragging = false;
+            this.vertexEditPointerStart = null;
+        }
         if (this.container) {
             this.container.style.cursor =
                 nomeFerramenta === 'Navegacao' ? 'grab' :
-                    (nomeFerramenta === 'Medicao' || nomeFerramenta === 'AquisicaoPoligono' ? 'crosshair' : 'default');
+                    (nomeFerramenta === 'Medicao' || nomeFerramenta === 'AquisicaoPoligono' || nomeFerramenta === 'EdicaoVertice' ? 'crosshair' : 'default');
         }
+    },
+
+    setVertexEditDragging: function (active) {
+        this.vertexEditDragging = active === true;
     },
 
     onPointerDown: function (e) {
@@ -1421,6 +1435,9 @@ window.mapEngine = {
         this.startX = e.clientX;
         this.startY = e.clientY;
         this.clickStartTime = performance.now();
+        this.vertexEditPointerStart = this.ferramentaAtual === 'EdicaoVertice'
+            ? this.obterPontoImagem(e.clientX, e.clientY)
+            : null;
 
         if (e.pointerType === 'touch') {
             this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1470,11 +1487,21 @@ window.mapEngine = {
         } catch (_) { }
 
         if (cancelado) {
+            this.vertexEditDragging = false;
+            this.vertexEditPointerStart = null;
             this.isDragging = false;
             this.isPinching = false;
             this.touchGestureMoved = false;
             this.velocityX = 0;
             this.velocityY = 0;
+            this.scheduleRender();
+            return;
+        }
+
+        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexEditDragging) {
+            this.vertexEditDragging = false;
+            this.vertexEditPointerStart = null;
+            this.resetToolPointer();
             this.scheduleRender();
             return;
         }
@@ -1527,6 +1554,7 @@ window.mapEngine = {
         if (e.button === 0 && tempoDecorrido < 300 && distMovida < 10) {
             this.dispararRaycast(e.clientX, e.clientY);
         }
+        this.vertexEditPointerStart = null;
     },
 
     dispararRaycast: function (clientX, clientY) {
@@ -3171,11 +3199,12 @@ document.addEventListener('keydown', function (event) {
         event.ctrlKey && key === 'z' ? 'ctrl+z' :
         event.ctrlKey && key === 'y' ? 'ctrl+y' : key;
     const measuring = engine.ferramentaAtual === 'Medicao';
+    const editingVector = engine.ferramentaAtual === 'EdicaoVertice';
     const global = ['escape', 'm', 'i', 'd', 'p'].includes(command);
     const edit = ['ctrl+z', 'ctrl+y', 'ctrl+shift+z', 'z', 'backspace'].includes(command);
     const construction = (drawing && ['enter', 'c'].includes(command)) ||
         (measuring && command === 'enter');
-    if (!global && !(edit && (drawing || measuring)) && !construction) return;
+    if (!global && !(edit && (drawing || measuring || editingVector)) && !construction) return;
     if (event.repeat && ['enter', 'c'].includes(command)) return;
 
     event.preventDefault();
