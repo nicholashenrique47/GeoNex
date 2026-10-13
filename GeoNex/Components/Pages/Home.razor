@@ -540,12 +540,7 @@
     </div>
 
     <!-- BARRA SUPERIOR (HEADER & RIBBON) -->
-    @if (_menuSuperiorAberto is not null)
-    {
-        <button type="button" class="menu-dismiss-layer" aria-label="Fechar menu e voltar ao mapa" tabindex="-1" @onclick="FecharMenusSuperiores"></button>
-    }
-
-    <header class="glass-panel top-bar" @onclick="FecharMenusSuperiores" style="display: flex; align-items: center; justify-content: flex-start; padding: 0 20px; gap: 15px;">
+    <header class="glass-panel top-bar" style="display: flex; align-items: center; justify-content: flex-start; padding: 0 20px; gap: 15px;">
 
         <div class="brand-group" style="margin-right: 15px;">
             <h1>GEONEX</h1>
@@ -706,72 +701,10 @@
                     }
                 </div>
             </div>
-            <div class="dropdown @(_menuSuperiorAberto == "ferramentas" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "ferramentas")" @onclick='() => AlternarMenuSuperior("ferramentas")' @onclick:stopPropagation="true" style="@(_ferramentaAtiva != ModoFerramenta.Navegacao ? "color:#38bdf8" : "")">Ferramentas ▾</button>
-                <div class="dropdown-content">
-                    <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Navegacao)">Mover mapa</button>
-                    <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)">Identificar feição</button>
-                    <button class="drop-item" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)">Medição</button>
-                    <div class="drop-divider"></div>
-                    <button class="drop-item" @onclick="AtivarModoVetorizacao">Vetorizar feição</button>
-                </div>
-            </div>
-            <div class="dropdown @(_menuSuperiorAberto == "edicao" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "edicao")" @onclick='() => AlternarMenuSuperior("edicao")' @onclick:stopPropagation="true" style="@(modoEdicaoVerticeLigado ? "color:#38bdf8;font-weight:bold" : "")">Edição ▾</button>
-                <div class="dropdown-content">
-                    <button class="drop-item" @onclick="AlternarEdicaoVertices">@(modoEdicaoVerticeLigado ? "Desativar edição de vértices" : "Editar vértices")</button>
-                </div>
-            </div>
-            <div class="dropdown @(_menuSuperiorAberto == "exportar" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "exportar")" @onclick='() => AlternarMenuSuperior("exportar")' @onclick:stopPropagation="true">Exportar ▾</button>
-                <div class="dropdown-content">
-                    <button class="drop-item" @onclick="AbrirCompositorImpressao">Compositor de impressão</button>
-                    <div class="drop-divider"></div>
-                    <button class="drop-item" @onclick="AbrirModalExportacao">Exportar vetor (SHP / GeoJSON)</button>
-                    <button class="drop-item" disabled title="Ainda não implementado">Exportar tabela (CSV)</button>
-                </div>
-            </div>
-            <div class="dropdown @(_menuSuperiorAberto == "gnss" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "gnss")" @onclick='() => AlternarMenuSuperior("gnss")' @onclick:stopPropagation="true">GNSS / RTK ▾</button>
-                <div class="dropdown-content">
-                    <button class="drop-item" disabled title="Ainda não implementado">Gerenciador de conexão</button>
-                    <button class="drop-item" disabled title="Ainda não implementado">Monitor NMEA</button>
-                </div>
-            </div>
         </nav>
 
-        <div class="global-map-tools legacy-ribbon-item" role="toolbar" aria-label="Acesso rápido às ferramentas do mapa">
-            <button type="button" class="global-map-tool @(_ferramentaAtiva == ModoFerramenta.Navegacao ? "selected" : "")" aria-label="Navegar pelo mapa" aria-pressed="@(_ferramentaAtiva == ModoFerramenta.Navegacao)" title="Mover mapa" @onclick="() => TrocarFerramenta(ModoFerramenta.Navegacao)"><span aria-hidden="true">✥</span><span class="global-map-tool-label">Navegar</span></button>
-            <button type="button" class="global-map-tool @(_ferramentaAtiva == ModoFerramenta.Identificacao ? "selected" : "")" aria-label="Identificar feições" aria-pressed="@(_ferramentaAtiva == ModoFerramenta.Identificacao)" title="Identificar feições no mapa" @onclick="() => TrocarFerramenta(ModoFerramenta.Identificacao)"><span aria-hidden="true">⌖</span><span class="global-map-tool-label">Identificar</span></button>
-            <button type="button" class="global-map-tool @(_ferramentaAtiva == ModoFerramenta.Medicao ? "selected" : "")" aria-label="Medir distância e área" aria-pressed="@(_ferramentaAtiva == ModoFerramenta.Medicao)" title="Medir distância e área" @onclick="() => TrocarFerramenta(ModoFerramenta.Medicao)"><span aria-hidden="true">∠</span><span class="global-map-tool-label">Medir</span></button>
-            <button type="button" class="global-map-tool @(_painelCamadasAberto ? "selected" : "")" aria-label="Alternar painel de camadas" aria-pressed="@_painelCamadasAberto" title="Mostrar ou ocultar camadas" @onclick="() => _painelCamadasAberto = !_painelCamadasAberto"><span aria-hidden="true">▱</span><span class="global-map-tool-label">Camadas</span></button>
-            <button type="button" class="global-map-tool @(VetorizacaoAvancadaAtiva ? "selected" : "")" aria-label="Abrir vetorização avançada" aria-pressed="@VetorizacaoAvancadaAtiva" title="Abrir ferramentas de vetorização" @onclick="AtivarModoVetorizacao"><span aria-hidden="true">⬡</span><span class="global-map-tool-label">Vetor</span></button>
-        </div>
-
-        <div class="legacy-header-actions" style="display: flex; align-items: center; gap: 15px;">
-
-            <button class="tool-btn"
-                    style="@(temEdicoesPendentes || MapService.PontosAquisicao.Count > 0 ? "color: #facc15; border: 1px solid #facc15; font-weight: bold; background: rgba(250, 204, 21, 0.1);" : "opacity: 0.3; cursor: not-allowed; border: 1px solid rgba(255,255,255,0.1);")"
-                    @onclick="ConfirmarTodasEdicoes"
-                    disabled="@((!temEdicoesPendentes && MapService.PontosAquisicao.Count == 0) || _salvandoEdicoes)"
-                    title="@(MapService.PontosAquisicao.Count >= MinimoPontosAquisicao && MapService.PontosAquisicao.Count > 0 ? "Finalizar o desenho atual e gravar as edições da camada." : MapService.PontosAquisicao.Count > 0 ? "Complete os vértices do desenho para gravá-lo." : temEdicoesPendentes ? "Gravar as feições concluídas no arquivo da camada." : "Nenhuma edição pendente.")">
-                @(_salvandoEdicoes ? "SALVANDO…" : "SALVAR EDIÇÕES")
-            </button>
-
-            <div class="vertical-divider" style="height: 20px;"></div>
-
-            <div class="status-group" style="padding: 0 5px;">
-                <span class="status-indicator online"></span>
-                <span class="status-text">API CONECTADA</span>
-            </div>
-
-            <button class="btn" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 0.65rem; font-weight: bold; padding: 4px 8px; border-radius: 4px; cursor: pointer;" @onclick="TestarMotorCPlusPlus" title="Diagnóstico de Motor">
-                CORE C++
-            </button>
-        </div>
-
     </header>
-    <section class="command-ribbon" aria-label="Faixa principal de ferramentas" @onclick="FecharMenusSuperiores">
+    <section class="command-ribbon" aria-label="Faixa principal de ferramentas">
         @{ List<RibbonCommand> visibleRibbonCommands = VisibleRibbonCommands.ToList(); }
         <div class="command-ribbon-content" role="region" aria-live="polite" aria-label="@(_ribbonCommandSearch.Length > 0 ? "Resultados da busca" : _activeRibbonTab)">
             @if (visibleRibbonCommands.Count == 0)
@@ -797,7 +730,7 @@
                 }
             }
         </div>
-        @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Vetor")
+        @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Vetorização" && FerramentaDesenhoAtiva)
         {
             <div class="command-ribbon-settings" aria-label="Parâmetros vetoriais sempre visíveis">
                 <section class="command-ribbon-setting-group" aria-label="Construção">
@@ -819,9 +752,11 @@
                 </section>
             </div>
         }
-        @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Edição")
+        @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Vetorização" && (_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode))
         {
             <div class="command-ribbon-settings" aria-label="Parâmetros de edição vetorial">
+                @if (SelectedVectorFeatureState is not null)
+                {
                 <section class="command-ribbon-setting-group" aria-label="Coordenadas do vértice">
                     <span>VÉRTICE · COORDENADAS DO SRC</span>
                     <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="SelecionarVerticeSobCursor">Selecionar sob o cursor</button>
@@ -843,10 +778,9 @@
                     @if (SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString)
                     {
                         <label>Offset<input type="number" min="0.000001" step="any" @bind="_vectorOffsetDistance" /></label>
-                        <button type="button" class="command-ribbon-mini" @onclick="DeslocarLinhaParaEsquerdaAsync">Esquerda</button>
-                        <button type="button" class="command-ribbon-mini" @onclick="DeslocarLinhaParaDireitaAsync">Direita</button>
                     }
                 </section>
+                }
                 <section class="command-ribbon-setting-group" aria-label="Captura durante edição">
                     <span>CAPTURA · EDIÇÃO</span>
                     <label class="command-check"><input type="checkbox" @bind="_snapVectorEditVertices" />Vértices</label>
@@ -5031,11 +4965,11 @@
         Func<Microsoft.AspNetCore.Components.Web.MouseEventArgs, Task> Execute,
         bool? IsPressed = null);
 
-    private string _activeRibbonTab = "Início";
+    private string _activeRibbonTab = "Mapa";
     private string _ribbonCommandSearch = string.Empty;
     private string _ribbonCommandFeedback = string.Empty;
     private ModoFerramenta? _ferramentaPendenteTroca;
-    private static readonly string[] RibbonTabs = ["Início", "Mapa", "Vetor", "Edição", "Análise", "Saída"];
+    private static readonly string[] RibbonTabs = ["Mapa", "Camadas", "Vetorização"];
 
     private IReadOnlyList<RibbonCommand> RibbonCommands
     {
@@ -5043,117 +4977,55 @@
         {
             List<RibbonCommand> commands =
             [
-                new("Início", "Projeto", "Novo projeto", "＋", "projeto criar novo", "Cria um projeto GeoNex vazio.", true, CreateRibbonCommand(CriarNovoProjeto)),
-                new("Início", "Projeto", "Abrir projeto", "↗", "projeto abrir gnx", "Abre um projeto existente.", true, CreateRibbonCommand(AbrirProjeto)),
-                new("Início", "Projeto", "Salvar projeto", "▣", "projeto salvar", "Salva camadas, configurações e extensão.", ProjetoService.TemProjetoAberto, CreateRibbonCommand(SalvarProjeto)),
-                new("Início", "Dados", "Adicionar dados", "＋", "dados camada importar arquivo", "Adiciona raster, vetor, tabela ou conexão.", true, CreateRibbonCommand(AbrirModalImportacao)),
-                new("Início", "Mapa", "Navegar", "✥", "mapa mover pan navegar", "Move e explora o mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Navegacao))),
-                new("Início", "Mapa", "Identificar", "⌖", "mapa feicao atributos identificar", "Identifica feições da camada ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Identificacao))),
-                new("Início", "Mapa", "Medir", "∠", "mapa medir distancia area", "Mede distâncias e áreas no mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Medicao))),
-                new("Início", "Camadas", "Mostrar camadas", "▱", "painel camadas layers", "Alterna o painel de camadas.", true, CreateRibbonCommand(() => _painelCamadasAberto = !_painelCamadasAberto)),
-                new("Início", "Vetor", "Criar geometria", "◇", "vetor desenhar digitalizar criar", "Inicia a criação na camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AtivarModoVetorizacao)),
-                new("Início", "Vetor", "Editar feições", "⌖", "vetor editar vertices geometria", "Ativa seleção e edição da camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
-                new("Início", "Edição", "Salvar edições", "✓", "vetor gravar salvar edicoes", "Grava as alterações da camada e o esboço concluído.", (temEdicoesPendentes || MapService.PontosAquisicao.Count > 0) && !_salvandoEdicoes, CreateRibbonCommand(ConfirmarTodasEdicoes)),
-
-                new("Projeto", "Projeto", "Novo projeto", "＋", "criar vazio", "Cria um projeto GeoNex vazio.", true, CreateRibbonCommand(CriarNovoProjeto)),
-                new("Projeto", "Projeto", "Abrir projeto", "↗", "abrir gnx", "Abre um projeto existente.", true, CreateRibbonCommand(AbrirProjeto)),
-                new("Projeto", "Salvar", "Salvar projeto", "▣", "salvar", "Salva o projeto atual.", ProjetoService.TemProjetoAberto, CreateRibbonCommand(SalvarProjeto)),
-                new("Projeto", "Salvar", "Salvar projeto como", "▣", "salvar como duplicar", "Salva o projeto com outro nome.", ProjetoService.TemProjetoAberto, CreateRibbonCommand(SalvarProjetoComoAsync)),
-                new("Projeto", "Configuração", "Propriedades do projeto", "⚙", "crs sistema coordenadas projeto", "Abre as propriedades do projeto.", ProjetoService.TemProjetoAberto, CreateRibbonCommand(AbrirPropriedadesProjeto)),
-                new("Projeto", "Saída", "Compositor de impressão", "▤", "imprimir layout mapa", "Abre o compositor de impressão.", ProjetoService.TemProjetoAberto, CreateRibbonCommand(AbrirCompositorPeloMenuArquivo)),
-                new("Projeto", "Projeto", "Fechar projeto", "×", "fechar encerrar projeto", "Fecha o projeto atual.", ProjetoService.TemProjetoAberto, CreateRibbonCommand(FecharProjetoAtualAsync)),
-                new("Projeto", "Aplicativo", "Sair do GeoNex", "⇥", "sair fechar aplicativo", "Fecha o GeoNex.", true, CreateRibbonCommand(SairDoGeoNexAsync)),
-
-                new("Dados", "Adicionar camada", "Raster do computador", "▧", "raster geotiff ecw imagem abrir", "Importa uma imagem raster.", true, CreateRibbonCommand(() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); })),
-                new("Dados", "Adicionar camada", "Vetor do computador", "◇", "vetor shapefile geojson kml importar", "Importa dados vetoriais.", true, CreateRibbonCommand(() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); })),
-                new("Dados", "Adicionar camada", "Tabela de pontos", "⌖", "csv texto delimitado coordenadas pontos", "Importa pontos de uma tabela delimitada.", true, CreateRibbonCommand(AbrirImportacaoTabelaPontos)),
-                new("Dados", "Conexão", "PostGIS", "▤", "postgis postgres banco conexao", "Conecta a uma fonte PostGIS.", true, CreateRibbonCommand(AbrirConexaoPostgis)),
-                new("Dados", "Criar vetor", "Shapefile", "SHP", "novo shapefile criar vetor", "Cria uma camada Shapefile.", true, CreateRibbonCommand(() => AbrirModalNovaCamadaFormato("SHP"))),
-                new("Dados", "Criar vetor", "GeoJSON", "JSON", "novo geojson criar vetor", "Cria uma camada GeoJSON.", true, CreateRibbonCommand(() => AbrirModalNovaCamadaFormato("GEOJSON"))),
-                new("Dados", "Criar vetor", "GeoPackage", "GPKG", "novo geopackage criar vetor", "Cria uma camada GeoPackage.", true, CreateRibbonCommand(() => AbrirModalNovaCamadaFormato("GPKG"))),
-                new("Dados", "Mapa base", "OpenStreetMap", "◎", "osm ruas mapa base online", "Adiciona o mapa base OpenStreetMap.", true, CreateRibbonCommand(() => CarregarMapaBaseOnline("OSM"))),
-                new("Dados", "Mapa base", "Imagem Esri", "▧", "esri satellite imagem mapa base online", "Adiciona a imagem de satélite Esri.", true, CreateRibbonCommand(() => CarregarMapaBaseOnline("ESRI"))),
-                new("Dados", "Mapa base", "Imagem Google", "✣", "google satellite imagem mapa base online", "Adiciona a imagem de satélite Google.", true, CreateRibbonCommand(() => CarregarMapaBaseOnline("Google"))),
-
                 new("Mapa", "Navegação", "Mover mapa", "✥", "pan navegar mover", "Ativa a navegação pelo mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Navegacao))),
-                new("Mapa", "Consulta", "Identificar feições", "⌖", "identificar atributos consulta", "Ativa a identificação na camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Identificacao))),
-                new("Mapa", "Medição", "Medir distância e área", "∠", "medir distância comprimento area", "Ativa a ferramenta de medição.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Medicao))),
-                new("Mapa", "Camadas", "Mostrar ou ocultar camadas", "▱", "painel layers camadas", "Alterna o painel de camadas.", true, CreateRibbonCommand(() => _painelCamadasAberto = !_painelCamadasAberto)),
-                new("Mapa", "Camada ativa", "Abrir tabela de atributos", "▦", "tabela atributos registros", "Abre a tabela da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(async () => await AbrirTabela(CamadaAtivaFerramentas!.Nome))),
-                new("Mapa", "Camada ativa", "Propriedades da camada", "⚙", "camada simbologia estilo propriedades", "Abre as propriedades da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(() => AbrirPropriedadesSincronizadas(CamadaAtivaFerramentas!.Nome))),
+                new("Mapa", "Consulta", "Identificar feições", "⌖", "identificar atributos consulta", "Ativa a identificação de feições no mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Identificacao))),
+                new("Mapa", "Medição", "Medir distância e área", "∠", "medir comprimento área superficie", "Ativa a medição no mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Medicao))),
 
-                new("Vetor", "Criação", "Criar geometria", "◇", "desenhar vetor ponto linha poligono", "Inicia a criação na camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AtivarModoVetorizacao)),
-                new("Vetor", "Criação", "Concluir esboço", "✓", "finalizar desenho feicao", "Conclui a geometria desenhada.", FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count >= MinimoPontosAquisicao, CreateRibbonCommand(ConcluirAquisicaoGeometrica)),
-                new("Vetor", "Criação", "Cancelar esboço", "×", "cancelar desenho feicao", "Cancela o esboço atual.", FerramentaDesenhoAtiva, CreateRibbonCommand(CancelarAquisicao)),
-                new("Vetor", "Edição", "Editar feições e vértices", "⌖", "selecionar vertices editar", "Abre a edição da camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
-                new("Vetor", "Seleção", "Selecionar para mesclar", "⌖", "seleção multipla mesclar unir", "Inicia a seleção de feições compatíveis.", CamadaAtivaVetorialDisponivel && MapService.PontosAquisicao.Count == 0, CreateRibbonCommand(PrepararMesclagemPoligonos)),
-                new("Vetor", "Seleção", "Limpar seleção", "×", "limpar seleção feicoes", "Limpa a seleção vetorial atual.", _vectorFeatureEditSelection.Count > 0, CreateRibbonCommand(LimparSelecaoEdicaoVetorial)),
-                new("Vetor", "Geometria", "Adicionar vértice", "＋", "inserir nó ponto", "Ativa a inserção de vértices.", SelectedVectorFeatureState is not null, CreateRibbonCommand(AlternarModoInserirVertice)),
-                new("Vetor", "Geometria", "Remover vértices selecionados", "−", "apagar nós vertices", "Remove os vértices selecionados.", CanRemoveSelectedVectorVertices, CreateRibbonCommand(RemoverVerticesSelecionadosAsync)),
-                new("Vetor", "Geometria", "Remover vértice sob o cursor", "⌫", "apagar nó vertice", "Remove o vértice sob o cursor.", CanRemoveHoveredVectorVertex, CreateRibbonCommand(RemoverVerticeSelecionadoAsync)),
-                new("Vetor", "Operações", "Dividir feição", "╱", "cortar dividir geometria linha", "Inicia o corte da feição selecionada.", CanCutSelectedVectorGeometry, CreateRibbonCommand(PrepararCorteGeometria)),
-                new("Vetor", "Operações", "Adicionar anel interno", "◎", "furo poligono anel", "Desenha um anel interno no polígono selecionado.", CanEditSelectedPolygonRings, CreateRibbonCommand(PrepararAdicaoAnel)),
-                new("Vetor", "Operações", "Remodelar borda", "⌁", "reshape redesenhar borda poligono", "Remodela a borda da feição selecionada.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.Polygon or NetTopologySuite.Geometries.MultiPolygon, CreateRibbonCommand(PrepararRemodelagemGeometria)),
-                new("Vetor", "Operações", "Mesclar polígonos", "⊕", "unir polígonos dissolver", "Mescla os polígonos selecionados.", CanMergeSelectedPolygons, CreateRibbonCommand(MesclarPoligonosSelecionadosAsync)),
-                new("Vetor", "Operações", "Mesclar linhas", "⊕", "unir linhas conectadas", "Mescla linhas conectadas selecionadas.", CanMergeSelectedLines, CreateRibbonCommand(MesclarLinhasSelecionadasAsync)),
-                new("Vetor", "Operações", "Corrigir geometria", "⚠", "validar reparar geometria", "Repara a geometria inválida selecionada.", CanRepairSelectedVectorGeometry, CreateRibbonCommand(RepararGeometriaSelecionadaAsync)),
-                new("Vetor", "Operações", "Excluir feição", "⌫", "apagar excluir feicao", "Exclui a feição selecionada.", SelectedVectorFeatureState is not null, CreateRibbonCommand(ExcluirFeicaoSelecionadaAsync)),
-                new("Vetor", "Operações", "Remover anel sob o cursor", "⌫", "furo anel poligono remover", "Remove o anel interno sob o cursor.", CanRemoveHoveredVectorVertex, CreateRibbonCommand(RemoverAnelInternoSobCursorAsync)),
-                new("Vetor", "Precisão", "Coordenadas XY", "XY", "coordenadas absolutas precisas f6", "Abre a entrada de coordenadas absolutas.", FerramentaDesenhoAtiva && !_coordenadaAbsolutaTravada, CreateRibbonCommand((Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => { AbrirEntradaPrecisa(false, e.ClientX, e.ClientY); return Task.CompletedTask; })),
-                new("Vetor", "Precisão", "Vetor polar COGO", "∠", "azimute distancia tab", "Abre a entrada polar por distância e azimute.", FerramentaDesenhoAtiva, CreateRibbonCommand((Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => { AbrirEntradaPrecisa(true, e.ClientX, e.ClientY); return Task.CompletedTask; })),
-                new("Vetor", "Histórico", "Desfazer edição", "↶", "undo desfazer geometria", "Desfaz a última edição vetorial.", CanUndoVectorGeometryEdit, CreateRibbonCommand(DesfazerEdicaoVetorialAsync)),
-                new("Vetor", "Histórico", "Refazer edição", "↷", "redo refazer geometria", "Refaz a edição vetorial.", CanRedoVectorGeometryEdit, CreateRibbonCommand(RefazerEdicaoVetorialAsync)),
-                new("Vetor", "Histórico", "Desfazer ponto", "↶", "undo esboço ponto", "Desfaz o último ponto do esboço.", HistoricoAquisicao.CanUndo, CreateRibbonCommand(DesfazerUltimoPontoAquisicao)),
-                new("Vetor", "Histórico", "Refazer ponto", "↷", "redo esboço ponto", "Refaz o último ponto do esboço.", HistoricoAquisicao.CanRedo, CreateRibbonCommand(RefazerUltimoPontoAquisicao)),
+                new("Camadas", "Painel", "Mostrar ou ocultar camadas", "▱", "painel layers camadas", "Mostra ou recolhe o painel de camadas.", true, CreateRibbonCommand(() => _painelCamadasAberto = !_painelCamadasAberto)),
+                new("Camadas", "Atributos", "Abrir tabela de atributos", "▦", "tabela atributos registros", "Abre a tabela da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(async () => await AbrirTabela(CamadaAtivaFerramentas!.Nome))),
+                new("Camadas", "Camada ativa", "Propriedades da camada", "⚙", "camada simbologia estilo propriedades", "Abre as propriedades da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(() => AbrirPropriedadesSincronizadas(CamadaAtivaFerramentas!.Nome))),
+                new("Camadas", "Exportação", "Exportar camada", "⇧", "exportar vetor shp geojson kml", "Exporta uma camada vetorial para outro formato.", CamadasAtivas.Any(camada => camada.Tipo == "Vetor" && !camada.PendenteReconexao && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo)), CreateRibbonCommand(AbrirModalExportacao)),
 
-                new("Edição", "Geometria", "Editar vértices", "⌖", "vetor edição nó vértice", "Ativa a edição de feições vetoriais.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
-                new("Edição", "Geometria", "Adicionar vértice", "＋", "inserir nó", "Ativa a inserção de vértices.", SelectedVectorFeatureState is not null, CreateRibbonCommand(AlternarModoInserirVertice)),
-                new("Edição", "Geometria", "Dividir feição", "╱", "cortar dividir", "Inicia o corte da feição selecionada.", CanCutSelectedVectorGeometry, CreateRibbonCommand(PrepararCorteGeometria)),
-                new("Edição", "Geometria", "Adicionar anel interno", "◎", "furo poligono", "Desenha um anel interno.", CanEditSelectedPolygonRings, CreateRibbonCommand(PrepararAdicaoAnel)),
-                new("Edição", "Geometria", "Remodelar borda", "⌁", "redesenhar reshape", "Inicia a remodelagem da borda.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.Polygon or NetTopologySuite.Geometries.MultiPolygon, CreateRibbonCommand(PrepararRemodelagemGeometria)),
-                new("Edição", "Topologia", "Mesclar polígonos", "⊕", "unir dissolver", "Mescla polígonos selecionados.", CanMergeSelectedPolygons, CreateRibbonCommand(MesclarPoligonosSelecionadosAsync)),
-                new("Edição", "Topologia", "Mesclar linhas", "⊕", "unir conectadas", "Mescla linhas conectadas.", CanMergeSelectedLines, CreateRibbonCommand(MesclarLinhasSelecionadasAsync)),
-                new("Edição", "Topologia", "Corrigir geometria", "⚠", "reparar validar", "Repara a geometria selecionada.", CanRepairSelectedVectorGeometry, CreateRibbonCommand(RepararGeometriaSelecionadaAsync)),
-                new("Edição", "Transformação", "Deslocar linha à esquerda", "↶", "offset linha paralela esquerda", "Cria uma curva paralela à esquerda da linha.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString, CreateRibbonCommand(DeslocarLinhaParaEsquerdaAsync)),
-                new("Edição", "Transformação", "Deslocar linha à direita", "↷", "offset linha paralela direita", "Cria uma curva paralela à direita da linha.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString, CreateRibbonCommand(DeslocarLinhaParaDireitaAsync)),
-                new("Edição", "Transformação", "Refletir no eixo vertical", "↔", "espelhar refletir vertical", "Reflete a feição no eixo vertical.", SelectedVectorFeatureState is not null, CreateRibbonCommand(RefletirFeicaoVerticalmenteAsync)),
-                new("Edição", "Transformação", "Refletir no eixo horizontal", "↕", "espelhar refletir horizontal", "Reflete a feição no eixo horizontal.", SelectedVectorFeatureState is not null, CreateRibbonCommand(RefletirFeicaoHorizontalmenteAsync)),
-                new("Edição", "Geometria", "Remover anel sob o cursor", "⌫", "furo anel poligono remover", "Remove o anel interno sob o cursor.", CanRemoveHoveredVectorVertex, CreateRibbonCommand(RemoverAnelInternoSobCursorAsync)),
-                new("Edição", "Feição", "Excluir feição", "⌫", "apagar remover", "Exclui a feição selecionada.", SelectedVectorFeatureState is not null, CreateRibbonCommand(ExcluirFeicaoSelecionadaAsync)),
-                new("Edição", "Histórico", "Desfazer", "↶", "undo voltar", "Desfaz uma edição vetorial.", CanUndoVectorGeometryEdit, CreateRibbonCommand(DesfazerEdicaoVetorialAsync)),
-                new("Edição", "Histórico", "Refazer", "↷", "redo avançar", "Refaz uma edição vetorial.", CanRedoVectorGeometryEdit, CreateRibbonCommand(RefazerEdicaoVetorialAsync)),
-                new("Edição", "Gravação", "Salvar edições", "✓", "gravar pendencias camada", "Grava as feições alteradas.", temEdicoesPendentes && MapService.PontosAquisicao.Count == 0 && !_salvandoEdicoes, CreateRibbonCommand(ConfirmarTodasEdicoes)),
-
-                new("Análise", "Consulta", "Identificar feições", "⌖", "atributos consulta selecionar", "Identifica feições da camada ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Identificacao))),
-                new("Análise", "Medição", "Medir distância e área", "∠", "comprimento área superficie", "Ativa a ferramenta de medição.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Medicao))),
-                new("Análise", "Tabela", "Tabela da camada ativa", "▦", "atributos registros tabela", "Abre a tabela da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(async () => await AbrirTabela(CamadaAtivaFerramentas!.Nome))),
-
-                new("Raster", "Adicionar raster", "Imagem do computador", "▧", "raster geotiff ecw importar", "Importa um raster local.", true, CreateRibbonCommand(() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); })),
-                new("Raster", "Mapa base", "OpenStreetMap", "◎", "osm ruas mapa online", "Adiciona OpenStreetMap.", true, CreateRibbonCommand(() => CarregarMapaBaseOnline("OSM"))),
-                new("Raster", "Mapa base", "Imagem Esri", "▧", "satellite esri imagem", "Adiciona imagem de satélite Esri.", true, CreateRibbonCommand(() => CarregarMapaBaseOnline("ESRI"))),
-                new("Raster", "Mapa base", "Imagem Google", "✣", "satellite google imagem", "Adiciona imagem de satélite Google.", true, CreateRibbonCommand(() => CarregarMapaBaseOnline("Google"))),
-
-                new("Saída", "Impressão", "Compositor de impressão", "▤", "layout imprimir mapa", "Abre o compositor de impressão.", ProjetoService.TemProjetoAberto, CreateRibbonCommand(AbrirCompositorImpressao)),
-                new("Saída", "Exportar", "Exportar vetor", "⇧", "shp geojson exportar vetor", "Exporta uma camada vetorial.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(AbrirModalExportacao)),
-                new("Saída", "Exportar", "Exportar tabela CSV", "CSV", "csv tabela exportar", "Exportação de tabela CSV ainda não está disponível.", false, CreateRibbonCommand(() => { })),
-
-                new("GNSS/RTK", "Receptores", "Gerenciador de conexão", "⌁", "gnss rtk receptor conexao", "Ferramenta ainda não implementada.", false, CreateRibbonCommand(() => { })),
-                new("GNSS/RTK", "Receptores", "Monitor NMEA", "⌁", "gnss nmea monitor", "Ferramenta ainda não implementada.", false, CreateRibbonCommand(() => { }))
+                new("Vetorização", "Criação", "Criar geometria", "◇", "desenhar vetor ponto linha poligono", "Inicia o desenho de uma feição na camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AtivarModoVetorizacao)),
+                new("Vetorização", "Criação", _vectorCutMode ? "Aplicar corte" : _vectorRingMode ? "Aplicar anel interno" : _vectorReshapeMode ? "Aplicar remodelagem" : "Concluir esboço", "✓", "finalizar desenho corte anel remodelagem feicao", "Conclui o desenho ou aplica a operação ativa quando há pontos suficientes.", FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count >= MinimoPontosAquisicao, CreateRibbonCommand(ConcluirAquisicaoGeometrica)),
+                new("Vetorização", "Criação", _vectorCutMode ? "Cancelar corte" : _vectorRingMode ? "Cancelar anel" : _vectorReshapeMode ? "Cancelar remodelagem" : "Cancelar esboço", "×", "cancelar desenho corte anel remodelagem feicao", "Cancela o desenho ou a operação ativa.", FerramentaDesenhoAtiva, CreateRibbonCommand(CancelarAquisicao)),
+                new("Vetorização", "Edição", "Editar feições e vértices", "⌖", "selecionar vertices editar", "Ativa a edição para selecionar e modificar feições.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
+                new("Vetorização", "Seleção", "Selecionar para mesclar", "⌖", "seleção multipla mesclar unir", "Permite selecionar feições compatíveis da mesma camada para mesclagem.", CamadaAtivaVetorialDisponivel && MapService.PontosAquisicao.Count == 0, CreateRibbonCommand(PrepararMesclagemPoligonos)),
+                new("Vetorização", "Seleção", "Limpar seleção", "×", "limpar seleção feicoes", "Limpa a seleção vetorial atual.", _vectorFeatureEditSelection.Count > 0, CreateRibbonCommand(LimparSelecaoEdicaoVetorial)),
+                new("Vetorização", "Geometria", "Adicionar vértice", "＋", "inserir no ponto vertice", "Ativa a inserção de vértices na feição selecionada.", SelectedVectorFeatureState is not null, CreateRibbonCommand(AlternarModoInserirVertice)),
+                new("Vetorização", "Geometria", "Selecionar vértice sob o cursor", "⌖", "selecionar nó vertice coordenada", "Seleciona o vértice da feição indicado pelo cursor para edição precisa.", SelectedVectorFeatureState is not null, CreateRibbonCommand(SelecionarVerticeSobCursor)),
+                new("Vetorização", "Geometria", "Remover vértices selecionados", "−", "apagar nos vertices", "Remove os vértices selecionados.", CanRemoveSelectedVectorVertices, CreateRibbonCommand(RemoverVerticesSelecionadosAsync)),
+                new("Vetorização", "Geometria", "Remover vértice sob o cursor", "⌫", "apagar no vertice cursor", "Remove o vértice indicado pelo cursor.", CanRemoveHoveredVectorVertex, CreateRibbonCommand(RemoverVerticeSelecionadoAsync)),
+                new("Vetorização", "Operações", "Dividir feição", "╱", "cortar dividir geometria linha", "Inicia o corte da feição selecionada.", CanCutSelectedVectorGeometry, CreateRibbonCommand(PrepararCorteGeometria)),
+                new("Vetorização", "Operações", "Adicionar anel interno", "◎", "furo poligono anel", "Desenha um anel interno no polígono selecionado.", CanEditSelectedPolygonRings, CreateRibbonCommand(PrepararAdicaoAnel)),
+                new("Vetorização", "Operações", "Remodelar borda", "⌁", "reshape redesenhar borda poligono", "Redesenha parte da borda da feição selecionada.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.Polygon or NetTopologySuite.Geometries.MultiPolygon, CreateRibbonCommand(PrepararRemodelagemGeometria)),
+                new("Vetorização", "Operações", "Mesclar polígonos", "⊕", "unir polígonos dissolver", "Mescla polígonos compatíveis da mesma camada.", CanMergeSelectedPolygons, CreateRibbonCommand(MesclarPoligonosSelecionadosAsync)),
+                new("Vetorização", "Operações", "Mesclar linhas", "⊕", "unir linhas conectadas", "Mescla linhas conectadas da mesma camada.", CanMergeSelectedLines, CreateRibbonCommand(MesclarLinhasSelecionadasAsync)),
+                new("Vetorização", "Operações", "Corrigir geometria", "⚠", "validar reparar geometria", "Tenta reparar a geometria inválida selecionada.", CanRepairSelectedVectorGeometry, CreateRibbonCommand(RepararGeometriaSelecionadaAsync)),
+                new("Vetorização", "Operações", "Excluir feição", "⌫", "apagar excluir feicao", "Marca a feição selecionada para exclusão.", SelectedVectorFeatureState is not null, CreateRibbonCommand(ExcluirFeicaoSelecionadaAsync)),
+                new("Vetorização", "Operações", "Remover anel sob o cursor", "⌫", "furo anel poligono remover", "Remove o anel interno indicado pelo cursor.", CanRemoveHoveredVectorVertex, CreateRibbonCommand(RemoverAnelInternoSobCursorAsync)),
+                new("Vetorização", "Transformação", "Deslocar linha à esquerda", "↶", "offset linha paralela esquerda", "Cria uma curva paralela à esquerda da linha selecionada.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString, CreateRibbonCommand(DeslocarLinhaParaEsquerdaAsync)),
+                new("Vetorização", "Transformação", "Deslocar linha à direita", "↷", "offset linha paralela direita", "Cria uma curva paralela à direita da linha selecionada.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString, CreateRibbonCommand(DeslocarLinhaParaDireitaAsync)),
+                new("Vetorização", "Transformação", "Refletir no eixo vertical", "↔", "espelhar refletir vertical", "Reflete a feição selecionada no eixo vertical.", SelectedVectorFeatureState is not null, CreateRibbonCommand(RefletirFeicaoVerticalmenteAsync)),
+                new("Vetorização", "Transformação", "Refletir no eixo horizontal", "↕", "espelhar refletir horizontal", "Reflete a feição selecionada no eixo horizontal.", SelectedVectorFeatureState is not null, CreateRibbonCommand(RefletirFeicaoHorizontalmenteAsync)),
+                new("Vetorização", "Gravação", "Salvar edições", "✓", "gravar salvar pendencias feicoes", "Grava as edições pendentes na camada.", (temEdicoesPendentes || MapService.PontosAquisicao.Count > 0) && !_salvandoEdicoes, CreateRibbonCommand(ConfirmarTodasEdicoes)),
+                new("Vetorização", "Precisão", "Coordenadas XY", "XY", "coordenadas absolutas precisas f6", "Abre a entrada de coordenadas absolutas durante o desenho.", FerramentaDesenhoAtiva && !_coordenadaAbsolutaTravada, CreateRibbonCommand((Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => { AbrirEntradaPrecisa(false, e.ClientX, e.ClientY); return Task.CompletedTask; })),
+                new("Vetorização", "Precisão", "Vetor polar COGO", "∠", "azimute distancia tab", "Abre a entrada polar por distância e azimute.", FerramentaDesenhoAtiva, CreateRibbonCommand((Microsoft.AspNetCore.Components.Web.MouseEventArgs e) => { AbrirEntradaPrecisa(true, e.ClientX, e.ClientY); return Task.CompletedTask; })),
+                new("Vetorização", "Histórico", "Desfazer edição", "↶", "undo desfazer geometria", "Desfaz a última edição vetorial.", CanUndoVectorGeometryEdit, CreateRibbonCommand(DesfazerEdicaoVetorialAsync)),
+                new("Vetorização", "Histórico", "Refazer edição", "↷", "redo refazer geometria", "Refaz a edição vetorial.", CanRedoVectorGeometryEdit, CreateRibbonCommand(RefazerEdicaoVetorialAsync)),
+                new("Vetorização", "Histórico", "Desfazer ponto", "↶", "undo esboço ponto", "Desfaz o último ponto do esboço.", HistoricoAquisicao.CanUndo, CreateRibbonCommand(DesfazerUltimoPontoAquisicao)),
+                new("Vetorização", "Histórico", "Refazer ponto", "↷", "redo esboço ponto", "Refaz o último ponto do esboço.", HistoricoAquisicao.CanRedo, CreateRibbonCommand(RefazerUltimoPontoAquisicao))
             ];
 
-            foreach (string recentProject in _projetosRecentes)
+            if (_vectorFeatureEditSelection.Count > 1)
             {
-                string projectName = System.IO.Path.GetFileNameWithoutExtension(recentProject);
-                commands.Add(new RibbonCommand("Projeto", "Recentes", projectName, "↗", recentProject, recentProject, true,
-                    CreateRibbonCommand(() => AbrirProjetoRecenteAsync(recentProject))));
-            }
-
-            foreach (VectorFeatureKey featureKey in _vectorFeatureEditSelection)
-            {
-                string featureLabel = $"FID {featureKey.SourceFeatureId}";
-                commands.Add(new RibbonCommand("Edição", "Feição principal", featureLabel, "★", featureLabel,
-                    "Define a feição principal da mesclagem e preserva seus atributos.", true,
-                    CreateRibbonCommand(() => DefinirFeicaoPrincipal(featureKey))));
+                foreach (VectorFeatureKey featureKey in _vectorFeatureEditSelection)
+                {
+                    string featureLabel = $"FID {featureKey.SourceFeatureId}";
+                    commands.Add(new RibbonCommand("Vetorização", "Mesclagem", featureLabel, "★", featureLabel,
+                        "Define a feição principal da mesclagem e preserva seus atributos.", true,
+                        CreateRibbonCommand(() => DefinirFeicaoPrincipal(featureKey))));
+                }
             }
 
             return commands
@@ -5161,21 +5033,17 @@
                 {
                     IsPressed = command.Label switch
                     {
-                        "Navegar" or "Mover mapa" => _ferramentaAtiva == ModoFerramenta.Navegacao,
-                        "Identificar" or "Identificar feições" => _ferramentaAtiva == ModoFerramenta.Identificacao,
+                        "Mover mapa" => _ferramentaAtiva == ModoFerramenta.Navegacao,
+                        "Identificar feições" => _ferramentaAtiva == ModoFerramenta.Identificacao,
                         _ when command.Label.StartsWith("Medir", StringComparison.Ordinal) => _ferramentaAtiva == ModoFerramenta.Medicao,
-                        "Mostrar camadas" or "Mostrar ou ocultar camadas" => _painelCamadasAberto,
+                        "Mostrar ou ocultar camadas" => _painelCamadasAberto,
                         "Criar geometria" => FerramentaDesenhoAtiva,
-                        _ when command.Label.StartsWith("Editar", StringComparison.Ordinal) => _ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode,
+                        _ when command.Label.StartsWith("Editar", StringComparison.Ordinal) =>
+                            _ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode,
                         _ => null
                     },
-                    IsEnabled = command.Label.StartsWith("Identificar", StringComparison.Ordinal) || command.Label == "Identificar"
-                        ? true
-                        : command.IsEnabled
+                    IsEnabled = command.Label == "Identificar feições" ? true : command.IsEnabled
                 })
-                .Where(command => command.Tab is not ("Projeto" or "Dados" or "Raster" or "GNSS/RTK"))
-                .Where(command => command.Group is not ("Projeto" or "Dados"))
-                .Where(command => command.Label != "Exportar tabela CSV")
                 .ToList();
         }
     }
@@ -5191,7 +5059,8 @@
                 return commands.Where(command => NormalizeRibbonSearch($"{command.Tab} {command.Group} {command.Label} {command.Keywords} {command.Description}").Contains(query, StringComparison.Ordinal));
             }
 
-            return commands.Where(command => string.Equals(command.Tab, _activeRibbonTab, StringComparison.Ordinal));
+            commands = commands.Where(command => string.Equals(command.Tab, _activeRibbonTab, StringComparison.Ordinal));
+            return commands;
         }
     }
 
@@ -5231,11 +5100,15 @@
     private string MotivoComandoRibbon(RibbonCommand command)
     {
         if (command.IsEnabled) return command.Description;
-        if (command.Label == "Concluir esboço")
-            return "Adicione mais pontos para concluir esta geometria.";
+        if (command.Label.StartsWith("Aplicar", StringComparison.Ordinal) || command.Label == "Concluir esboço")
+            return $"Adicione os pontos necessários ({MapService.PontosAquisicao.Count}/{MinimoPontosAquisicao}) para concluir esta geometria.";
+        if (command.Label.StartsWith("Cancelar", StringComparison.Ordinal))
+            return "Não há desenho ou operação vetorial ativa para cancelar.";
+        if (command.Label == "Exportar camada")
+            return "Adicione ou reconecte uma camada vetorial local antes de exportar.";
         if (FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count > 0)
             return "Finalize ou descarte o esboço pendente antes de usar esta operação.";
-        if ((command.Tab is "Vetor" or "Edição") && !CamadaAtivaVetorialDisponivel)
+        if (command.Tab == "Vetorização" && !CamadaAtivaVetorialDisponivel)
             return OrientacaoCamadaAtiva;
         if (command.Label.Contains("Mesclar", StringComparison.OrdinalIgnoreCase))
             return "Selecione pelo menos duas feições compatíveis da mesma camada.";
@@ -5250,7 +5123,7 @@
             return "Não há alterações compatíveis para desfazer ou refazer.";
         if (command.Label == "Salvar edições")
             return "Não há alterações pendentes para salvar.";
-        if ((command.Tab is "Vetor" or "Edição") && SelectedVectorFeatureState is null)
+        if (command.Tab == "Vetorização" && SelectedVectorFeatureState is null)
             return "Ative Editar feições e selecione uma feição no mapa antes desta operação.";
         return command.Description;
     }
@@ -5756,13 +5629,15 @@
     {
         get
         {
-            if (_activeRibbonTab is "Vetor" or "Edição")
+            if (_activeRibbonTab == "Vetorização")
             {
                 if (!CamadaAtivaVetorialDisponivel) return OrientacaoCamadaAtiva;
                 if (_vectorFeatureEditSelection.Count > 1)
                     return "Seleção múltipla ativa · as operações de união exigem feições compatíveis da mesma camada.";
+                if (_ferramentaAtiva != ModoFerramenta.EdicaoVertice && !_vectorCutMode && !_vectorRingMode && !_vectorReshapeMode)
+                    return "Escolha Criar geometria para desenhar ou Editar feições para modificar uma feição existente.";
                 if (SelectedVectorFeatureState is not { } selectedFeature)
-                    return "Camada vetorial ativa · selecione Editar feições e depois clique numa feição no mapa; operações geométricas dependem dessa seleção.";
+                    return "Editor ativo · clique numa feição vetorial visível no mapa para habilitar as operações compatíveis.";
                 return $"Feição FID {selectedFeature.Key.SourceFeatureId} selecionada em {selectedFeature.Key.LayerName}.";
             }
 
@@ -5803,6 +5678,10 @@
         bool primeiraCamada = CamadasAtivas.Count == 0;
         if (inserirNoInicio) CamadasAtivas.Insert(0, camada);
         else CamadasAtivas.Add(camada);
+
+        bool novaCamadaVetorialDisponivel = camada.Tipo == "Vetor" && camada.Visivel && !camada.PendenteReconexao;
+        if (CamadaAtivaFerramentas is null || (!CamadaAtivaVetorialDisponivel && novaCamadaVetorialDisponivel))
+            _camadaAtivaFerramentas = camada.Nome;
 
         if (primeiraCamada) _painelCamadasAberto = true;
         return true;
@@ -6141,6 +6020,8 @@
 
         // === PREVENÇÃO DO BUG DO F5 ===
         // Zera a memória do servidor C# sempre que a UI é recarregada
+        MapService.PontosAquisicao.Clear();
+        MapService.PontosMedicao.Clear();
         MapService.CameraZoom = 1.0f;
         MapService.CameraPanX = 0f;
         MapService.CameraPanY = 0f;
@@ -6842,7 +6723,17 @@
     private void FecharModalImportacao() { exibirModalImportacao = false; }
     private void TrocarAbaModal(string nomeAba) { AbaModalAtiva = nomeAba; }
 
-    private void AbrirModalExportacao() { exibirModalExportacao = true; }
+    private void AbrirModalExportacao()
+    {
+        Camada? camadaAtivaExportavel = CamadaAtivaVetorialDisponivel &&
+            !string.IsNullOrWhiteSpace(CamadaAtivaFerramentas?.CaminhoArquivo)
+                ? CamadaAtivaFerramentas
+                : null;
+        Camada? camadaInicialExportacao = camadaAtivaExportavel ?? CamadasAtivas.FirstOrDefault(camada =>
+            camada.Tipo == "Vetor" && !camada.PendenteReconexao && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo));
+        exportCamadaOrigem = camadaInicialExportacao?.Nome ?? string.Empty;
+        exibirModalExportacao = true;
+    }
     private void FecharModalExportacao() { exibirModalExportacao = false; }
 
     private async Task ExecutarExportacao()
@@ -7850,9 +7741,42 @@
     // =========================================================================
     private void ToggleCamada(Camada camada, bool estaVisivel)
     {
+        bool eraCamadaAtiva = string.Equals(_camadaAtivaFerramentas, camada.Nome, StringComparison.OrdinalIgnoreCase);
+        if (!estaVisivel && eraCamadaAtiva &&
+            (MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada ||
+             _vectorCutMode || _vectorRingMode || _vectorReshapeMode))
+        {
+            const string aviso = "Conclua ou cancele a operação atual antes de ocultar a camada ativa.";
+            mensagemVetorizacao = aviso;
+            _mensagemIdentificacaoCamada = aviso;
+            if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice) _vectorEditMessage = aviso;
+            StateHasChanged();
+            return;
+        }
+
         camada.Visivel = estaVisivel;
         if (estaVisivel) MapService.CamadasInvisiveis.Remove(camada.Nome);
         else MapService.CamadasInvisiveis.Add(camada.Nome);
+
+        if (!estaVisivel && eraCamadaAtiva)
+        {
+            Camada? substituta = CamadasAtivas.FirstOrDefault(item =>
+                    !ReferenceEquals(item, camada) && item.Tipo == "Vetor" && item.Visivel && !item.PendenteReconexao)
+                ?? CamadasAtivas.FirstOrDefault(item =>
+                    !ReferenceEquals(item, camada) && item.Visivel && !item.PendenteReconexao);
+
+            if (substituta is not null)
+                DefinirCamadaAtiva(substituta);
+            else
+            {
+                _camadaAtivaFerramentas = null;
+                LimparSelecaoVetorialDaCamadaAtiva();
+                MapService.DestacarFeicao(null);
+                camadaSelecionadaPainel = string.Empty;
+                atributosFeicaoSelecionada.Clear();
+                _geometriaDestacada = null;
+            }
+        }
 
         // Atualiza a memória da Placa Gráfica e o Cérebro Matemático
         SincronizarHierarquia();

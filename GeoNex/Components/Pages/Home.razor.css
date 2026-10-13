@@ -1183,7 +1183,6 @@
 @media (hover: none) {
     .geonex-ui .workspace-area > .left-panel .layer-actions { position: static; padding-left: 0; transform: none; background: none; opacity: 1; pointer-events: auto; }
 }
-
 /* A ferramenta de medição fica sobre o mapa como um painel do QGIS, sem
    reservar largura no layout e sem reduzir a área de desenho. */
 .geonex-ui.is-measuring .workspace-area > .measurement-floating-panel {
@@ -1496,9 +1495,7 @@
 }
 .geonex-ui .top-bar .brand-group { flex: 0 0 auto; margin-right: 5px !important; }
 .geonex-ui .top-bar .brand-group h1 { font-size: 14px; letter-spacing: 1.5px; }
-.geonex-ui .top-bar :is(.legacy-ribbon-item, .legacy-header-actions, .app-menu-toggle) { display: none !important; }
 .geonex-ui .top-bar .preserved-file-data-menus { order: 1; display: flex !important; min-width: 0; flex: 0 0 auto; height: 100% !important; align-items: stretch; gap: 4px; margin: 0 5px 0 0 !important; }
-.geonex-ui .top-bar .preserved-file-data-menus > .dropdown:nth-child(n+3) { display: none !important; }
 .command-ribbon-tabs { order: 2; display: flex; min-width: 0; height: 100%; flex: 1 1 auto; align-items: stretch; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .command-ribbon-tabs::-webkit-scrollbar { display: none; }
 .command-ribbon-tab { position: relative; flex: 0 0 auto; min-width: 44px; padding: 0 9px; color: #a5b4c0; border: 0; border-bottom: 2px solid transparent; background: transparent; font: 600 10px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; }
@@ -1515,7 +1512,7 @@
 .command-quick-save, .command-core-button { min-height: 28px; padding: 0 9px; color: #d8e9e4; border: 1px solid #385246; border-radius: 6px; background: #172b26; font: 650 9px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; }
 .command-quick-save:hover:not(:disabled), .command-core-button:hover { border-color: #65b599; background: #1d3930; }
 .command-quick-save:disabled { color: #80908f; border-color: #2a3740; background: #18222b; cursor: default; opacity: .65; }
-.command-ribbon { position: relative; z-index: 4201; display: flex; flex: 0 0 auto; flex-direction: column; margin: 3px 12px 0; overflow: hidden; color: #e6eef5; border: 1px solid #2d4151; border-radius: 8px; background: linear-gradient(180deg, #15212d, #101923); box-shadow: 0 5px 16px #0004; }
+.command-ribbon { position: relative; z-index: 4201; display: flex; flex: 0 0 auto; flex-direction: column; margin: 3px 12px 0; overflow: hidden; pointer-events: auto; color: #e6eef5; border: 1px solid #2d4151; border-radius: 8px; background: linear-gradient(180deg, #15212d, #101923); box-shadow: 0 5px 16px #0004; }
 .command-ribbon-content { display: flex; min-height: 67px; align-items: stretch; overflow-x: auto; overflow-y: hidden; scrollbar-color: #526b7d #111923; scrollbar-width: thin; }
 .command-ribbon-group { display: flex; min-width: max-content; flex: 0 0 auto; flex-direction: column; align-items: stretch; justify-content: space-between; padding: 6px 8px 4px; border-right: 1px solid #2b3c4b; }
 .command-ribbon-group:last-child { border-right: 0; }

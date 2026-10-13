@@ -2428,7 +2428,6 @@ window.GeoNexGraphics = {
         }
         ctx.restore();
     },
-
     _definirTransformacaoAquisicao: function (ctx, referencia) {
         const larguraCss = Math.max(1, referencia.clientWidth);
         const alturaCss = Math.max(1, referencia.clientHeight);
@@ -2527,7 +2526,7 @@ window.GeoNexGraphics = {
         const escalaMapa = this._definirTransformacaoAquisicao(ctxLine, referencia);
         if (this._aquisicao.tipo === 'POLIGONO' && pontos.length >= 3) {
             this._definirTransformacaoAquisicao(ctxFill, referencia);
-            ctxFill.fillStyle = 'rgba(168, 85, 247, 0.18)';
+            ctxFill.fillStyle = 'rgba(239, 68, 68, 0.12)';
             this._desenharPathAquisicao(ctxFill, this._aquisicaoPath, true);
         }
 
@@ -2537,7 +2536,7 @@ window.GeoNexGraphics = {
         ctxLine.strokeStyle = 'rgba(255,255,255,.94)';
         this._desenharPathAquisicao(ctxLine, this._aquisicaoPath);
         ctxLine.lineWidth = 1.8 / escalaMapa;
-        ctxLine.strokeStyle = '#2563eb';
+        ctxLine.strokeStyle = '#e64f5d';
         this._desenharPathAquisicao(ctxLine, this._aquisicaoPath);
 
         const passoMarcador = Math.max(1, Math.ceil(pontos.length / 2048));
@@ -2552,7 +2551,7 @@ window.GeoNexGraphics = {
         this._limparCanvasAquisicao(this._aquisicaoFillCtx, this._aquisicaoFillCanvas);
         if (this._aquisicao.tipo !== 'POLIGONO' || this._aquisicao.pontos.length < 3) return;
         this._definirTransformacaoAquisicao(this._aquisicaoFillCtx, referencia);
-        this._aquisicaoFillCtx.fillStyle = 'rgba(168, 85, 247, 0.18)';
+        this._aquisicaoFillCtx.fillStyle = 'rgba(239, 68, 68, 0.12)';
         this._desenharPathAquisicao(this._aquisicaoFillCtx, this._aquisicaoPath, true);
     },
 
@@ -2662,7 +2661,7 @@ window.GeoNexGraphics = {
                 ctx.lineTo(relativePoint.x, relativePoint.y);
                 ctx.stroke();
                 ctx.lineWidth = 1.8 / escalaMapa;
-                ctx.strokeStyle = '#2563eb';
+                ctx.strokeStyle = '#e64f5d';
                 ctx.stroke();
             }
             this._desenharMarcadorAquisicao(ctx, point, this._aquisicao.pontos.length - 1, escalaMapa);
@@ -3012,7 +3011,7 @@ window.GeoNexGraphics = {
             ctx.moveTo(relativeAnchor.x, relativeAnchor.y);
             ctx.lineTo(relativeCursor.x, relativeCursor.y);
             ctx.lineWidth = 1.8 / escalaMapa;
-            ctx.strokeStyle = '#2563eb';
+            ctx.strokeStyle = '#e64f5d';
             ctx.stroke();
             ctx.restore();
         }
@@ -3028,7 +3027,7 @@ window.GeoNexGraphics = {
             ctx.fillStyle = '#f8fafc';
             ctx.fill();
             ctx.lineWidth = 1.6 / escalaMapa;
-            ctx.strokeStyle = '#2563eb';
+            ctx.strokeStyle = '#e64f5d';
             ctx.stroke();
         }
         this._aquisicaoCursorAnterior = {

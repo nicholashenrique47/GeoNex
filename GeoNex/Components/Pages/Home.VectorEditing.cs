@@ -146,7 +146,7 @@ public partial class Home
         {
             if (additiveSelection)
             {
-                _vectorEditMessage = "Clique em uma feiÃ§Ã£o vetorial para adicionÃ¡-la Ã  seleÃ§Ã£o.";
+                _vectorEditMessage = "Clique em uma feição vetorial para adicioná-la à seleção.";
                 return;
             }
             _selectedVectorFeatureForEdit = null;
@@ -209,7 +209,7 @@ public partial class Home
                 if (_vectorFeatureEditSelection.Count > 0 &&
                     !string.Equals(_vectorFeatureEditSelection[0].LayerName, key.LayerName, StringComparison.Ordinal))
                 {
-                    _vectorEditMessage = "A seleÃ§Ã£o mÃºltipla sÃ³ pode incluir feiÃ§Ãµes da mesma camada.";
+                    _vectorEditMessage = "A seleção múltipla só pode incluir feições da mesma camada.";
                     return;
                 }
 
@@ -221,7 +221,7 @@ public partial class Home
                         _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
                         MapService.DestacarFeicao(null);
                         MapService.LimparOverlayEdicao();
-                        _vectorEditMessage = "SeleÃ§Ã£o de feiÃ§Ãµes limpa.";
+                        _vectorEditMessage = "Seleção de feições limpa.";
                     }
                     else if (_selectedVectorFeatureForEdit == key)
                     {
@@ -229,14 +229,14 @@ public partial class Home
                     }
                     else
                     {
-                        _vectorEditMessage = $"FeiÃ§Ã£o {key.SourceFeatureId} removida da seleÃ§Ã£o.";
+                        _vectorEditMessage = $"Feição {key.SourceFeatureId} removida da seleção.";
                     }
                 }
                 else
                 {
                     _vectorFeatureEditSelection.Add(key);
                     SelecionarFeicaoPrincipal(key);
-                    _vectorEditMessage = $"{_vectorFeatureEditSelection.Count} feiÃ§Ã£o(Ãµes) selecionada(s) Â· a feiÃ§Ã£o {key.SourceFeatureId} Ã© a principal.";
+                    _vectorEditMessage = $"{_vectorFeatureEditSelection.Count} feição(ões) selecionada(s) · a feição {key.SourceFeatureId} é a principal.";
                 }
 
                 await InvokeAsync(StateHasChanged);
@@ -599,14 +599,14 @@ public partial class Home
                             selected.Key,
                             selected.Current,
                             geometries[i],
-                            GroupLabel: "EdiÃ§Ã£o topolÃ³gica"));
+                            GroupLabel: "Edição topológica"));
                     }
 
                     if (actions.Count > 1)
                     {
                         await AplicarAcoesGeometriaAsync(actions, forward: true);
                         RegistrarAcoesEdicao(actions);
-                        _vectorEditMessage = $"NÃ³ compartilhado movido em {actions.Count} feiÃ§Ãµes; use Desfazer para reverter o grupo.";
+                        _vectorEditMessage = $"Nó compartilhado movido em {actions.Count} feições; use Desfazer para reverter o grupo.";
                         return;
                     }
                 }
@@ -1386,7 +1386,7 @@ public partial class Home
     {
         if (_hoveredVectorVertexDisplayIndex < 0 || _hoveredVectorVertexDisplayIndex >= _selectedVectorVertices.Count)
         {
-            _vectorEditMessage = "Passe o cursor sobre um vÃ©rtice no mapa e tente novamente.";
+            _vectorEditMessage = "Passe o cursor sobre um vértice no mapa e tente novamente.";
             return;
         }
 
@@ -1399,7 +1399,7 @@ public partial class Home
         _vectorVertexCoordinateY = vertex.Y;
         MapService.DefinirIndiceVerticeEdicao(index);
         AtualizarIndicesVerticesEdicaoSelecionados();
-        _vectorEditMessage = $"VÃ©rtice {index + 1} selecionado para ediÃ§Ã£o por coordenadas.";
+        _vectorEditMessage = $"Vértice {index + 1} selecionado para edição por coordenadas.";
     }
 
     private bool SelecionarVerticeNoPonto(SKPoint point, SKMatrix matrix, bool toggle)
@@ -1486,18 +1486,18 @@ public partial class Home
                 : VectorGeometryEditingService.MoveVertex(before, selectedVertex.Address, targetX, targetY);
             if (before.EqualsExact(after))
             {
-                _vectorEditMessage = "As coordenadas informadas sÃ£o iguais Ã  posiÃ§Ã£o atual.";
+                _vectorEditMessage = "As coordenadas informadas são iguais à posição atual.";
                 return;
             }
 
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(state.Key, before, after);
             SelecionarVerticeEdicao(index, addresses);
-            _vectorEditMessage = $"Coordenadas do vÃ©rtice {index + 1} aplicadas Â· salve as ediÃ§Ãµes para gravar na fonte.";
+            _vectorEditMessage = $"Coordenadas do vértice {index + 1} aplicadas · salve as edições para gravar na fonte.";
         }
         catch (Exception ex)
         {
-            _vectorEditMessage = $"As coordenadas nÃ£o foram aplicadas: {MensagemPostgisSegura(ex)}";
+            _vectorEditMessage = $"As coordenadas não foram aplicadas: {MensagemPostgisSegura(ex)}";
         }
 
         await InvokeAsync(StateHasChanged);
@@ -1662,11 +1662,11 @@ public partial class Home
             _vectorFeatureEditSelection.Clear();
             _vectorFeatureEditSelection.Add(primaryKey);
             SelecionarFeicaoPrincipal(primaryKey);
-            _vectorEditMessage = $"{selectedStates.Length} polÃ­gonos mesclados na feiÃ§Ã£o {primaryKey.SourceFeatureId} Â· os demais atributos foram descartados. Salve para gravar na fonte.";
+            _vectorEditMessage = $"{selectedStates.Length} polígonos mesclados na feição {primaryKey.SourceFeatureId} · os demais atributos foram descartados. Salve para gravar na fonte.";
         }
         catch (Exception ex)
         {
-            _vectorEditMessage = $"NÃ£o foi possÃ­vel mesclar os polÃ­gonos: {MensagemPostgisSegura(ex)}";
+            _vectorEditMessage = $"Não foi possível mesclar os polígonos: {MensagemPostgisSegura(ex)}";
         }
 
         await InvokeAsync(StateHasChanged);
@@ -1719,7 +1719,7 @@ public partial class Home
             foreach (VectorGeometryEditAction action in actions)
             {
                 if (!_vectorFeatureEditStates.TryGetValue(action.Key, out VectorFeatureEditState? state))
-                    throw new InvalidOperationException($"A feiÃ§Ã£o {action.Key.SourceFeatureId} nÃ£o estÃ¡ mais carregada para ediÃ§Ã£o.");
+                    throw new InvalidOperationException($"A feição {action.Key.SourceFeatureId} não está mais carregada para edição.");
                 await PublicarEstadoGeometriaEdicaoAsync(
                     state,
                     forward ? action.After : action.Before,
@@ -1741,7 +1741,7 @@ public partial class Home
                 }
                 catch (Exception rollbackError)
                 {
-                    Console.Error.WriteLine($"Falha ao reverter a operaÃ§Ã£o vetorial {action.Key.SourceFeatureId}: {rollbackError.Message}");
+                    Console.Error.WriteLine($"Falha ao reverter a operação vetorial {action.Key.SourceFeatureId}: {rollbackError.Message}");
                 }
             }
             throw;
