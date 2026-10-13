@@ -118,12 +118,48 @@ const path = require('node:path');
             await assertMapStable(initial, 'return to simple digitizing');
 
             if (width < 1000) {
-                const menu = page.getByRole('button', { name: 'Menu', exact: true });
-                await reachable(menu);
-                await menu.click();
-                await assertMapStable(initial, 'application menu');
-                await reachable(page.locator('#geonex-main-menu').getByRole('button', { name: 'Ferramentas ▾', exact: true }));
-                await menu.click();
+                const fileDataMenu = page.locator('#geonex-main-menu');
+                const fileButton = fileDataMenu.getByRole('button', { name: 'Arquivo ▾', exact: true });
+                const dataButton = fileDataMenu.getByRole('button', { name: 'Dados ▾', exact: true });
+                await reachable(fileButton);
+                await reachable(dataButton);
+                const ribbonTabs = page.locator('.command-ribbon-tabs');
+                const mapTab = ribbonTabs.getByRole('button', { name: 'Mapa', exact: true });
+                const vectorTab = ribbonTabs.getByRole('button', { name: 'Vetor', exact: true });
+                await reachable(mapTab);
+                await vectorTab.click();
+                const unavailableCommand = page.locator('.command-ribbon-command').filter({ hasText: 'Desfazer ponto' }).first();
+                assert.equal(await unavailableCommand.getAttribute('disabled'), null, 'Unavailable commands must remain clickable to explain their prerequisites.');
+                assert.equal(await unavailableCommand.getAttribute('aria-disabled'), 'true');
+                await unavailableCommand.click();
+                await page.getByText('Não há alterações compatíveis para desfazer ou refazer.', { exact: true }).waitFor({ state: 'visible' });
+                await mapTab.click();
+
+                const hiddenSecondaryMenus = await fileDataMenu.locator(':scope > .dropdown:nth-child(n+3)')
+                    .evaluateAll(items => items.every(item => getComputedStyle(item).display === 'none'));
+                assert(hiddenSecondaryMenus, 'Tool commands belong in the permanent ribbon, not secondary dropdowns.');
+
+                await fileButton.click();
+                await page.locator('.file-menu-popover').waitFor({ state: 'visible' });
+                await assertMapStable(initial, 'Arquivo cascade');
+                const measureCommand = page.locator('.command-ribbon-command').filter({ hasText: 'Medir' }).first();
+                await measureCommand.click();
+                await page.waitForFunction(() => window.mapEngine.ferramentaAtual === 'Medicao');
+                await assertMapStable(initial, 'ribbon command while a cascade is open');
+
+                await dataButton.click();
+                await page.locator('.data-menu-popover').waitFor({ state: 'visible' });
+                await page.locator('.data-menu-entry').first().click();
+                await page.getByText('Arquivo local', { exact: true }).waitFor({ state: 'visible' });
+                await assertMapStable(initial, 'Dados cascade');
+                await page.locator('.data-menu-back').click();
+                await dataButton.click();
+
+                const search = page.getByRole('searchbox', { name: 'Buscar ferramentas em todas as categorias' });
+                await search.fill('medir');
+                assert((await page.locator('.command-ribbon-command').count()) > 0, 'Ribbon search must find implemented map tools.');
+                await search.press('Escape');
+                assert.equal(await search.inputValue(), '', 'Escape clears ribbon search.');
             }
         }
         assert.deepEqual(errors, []);

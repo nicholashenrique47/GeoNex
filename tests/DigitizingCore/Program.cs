@@ -308,4 +308,259 @@ catch (ArgumentException) { Check(true, "Geographic CRS rejects planar metre con
 try { measurements.ProjectGridVector(new(float.MaxValue, 0), 1, 90, "EPSG:31983"); throw new Exception("Collapsed vector accepted"); }
 catch (ArgumentException) { Check(true, "Float precision collapse rejected."); }
 
+var editingFactory = new GeometryFactory();
+Polygon CreateEditingPolygon(params Coordinate[] coordinates) =>
+    editingFactory.CreatePolygon(editingFactory.CreateLinearRing(coordinates));
+var cutTarget = CreateEditingPolygon(
+    new(0, 0), new(0, 10), new(10, 10), new(10, 0), new(0, 0));
+var invalidBowtie = CreateEditingPolygon(
+    new(0, 0), new(2, 2), new(0, 2), new(2, 0), new(0, 0));
+string? invalidBowtieMessage = VectorGeometryEditingService.GetGeometryValidationMessage(invalidBowtie);
+Check(invalidBowtieMessage is not null && invalidBowtieMessage.Contains("auto-interseção", StringComparison.OrdinalIgnoreCase),
+    "Geometry validation must report the bowtie self-intersection in user-facing language.");
+var repairedBowtie = VectorGeometryEditingService.FixGeometry(invalidBowtie);
+Check(repairedBowtie is MultiPolygon && repairedBowtie.IsValid && Math.Abs(repairedBowtie.Area - 2) < 1e-9,
+    "Repairing a self-intersecting polygon must preserve both valid lobes as a multipart result.");
+Check(VectorGeometryEditingService.GetGeometryValidationMessage(repairedBowtie) is null,
+    "A repaired multipart geometry must pass the same validity diagnostic.");
+try
+{
+    VectorGeometryEditingService.FixGeometry(cutTarget);
+    throw new InvalidOperationException("A valid polygon was modified by the repair operation.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("já é válida", StringComparison.OrdinalIgnoreCase),
+        "Repair must refuse valid geometries instead of making silent changes.");
+}
+var sharedEdgeLeft = CreateEditingPolygon(
+    new(0, 0), new(0, 5), new(5, 5), new(5, 0), new(0, 0));
+var sharedEdgeRight = CreateEditingPolygon(
+    new(5, 0), new(5, 5), new(10, 5), new(10, 0), new(5, 0));
+var separatePolygon = CreateEditingPolygon(
+    new(20, 0), new(20, 5), new(25, 5), new(25, 0), new(20, 0));
+var sharedVertexAddress = VectorGeometryEditingService.GetVertices(sharedEdgeLeft)
+    .Single(vertex => vertex.X == 5 && vertex.Y == 5).Address;
+var movedSharedGeometries = VectorGeometryEditingService.MoveCoincidentVertices(
+    [sharedEdgeLeft, sharedEdgeRight, separatePolygon], 0, sharedVertexAddress, 6, 5);
+Check(movedSharedGeometries[0].IsValid && movedSharedGeometries[1].IsValid &&
+    movedSharedGeometries[0].Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(6, 5))) &&
+    movedSharedGeometries[1].Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(6, 5))) &&
+    movedSharedGeometries[2].EqualsExact(separatePolygon),
+    "Moving a selected shared vertex must update coincident features and leave unrelated geometry unchanged.");
+var sharedEdgeAddresses = VectorGeometryEditingService.GetVertices(sharedEdgeLeft)
+    .Where(vertex => vertex.X == 5).Select(vertex => vertex.Address).ToArray();
+var movedSharedEdge = VectorGeometryEditingService.MoveCoincidentVerticesByDelta(
+    [sharedEdgeLeft, sharedEdgeRight, separatePolygon], 0, sharedEdgeAddresses, 1, 0);
+Check(movedSharedEdge[0].IsValid && movedSharedEdge[1].IsValid &&
+    movedSharedEdge[0].Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(6, 0))) &&
+    movedSharedEdge[0].Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(6, 5))) &&
+    movedSharedEdge[1].Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(6, 0))) &&
+    movedSharedEdge[1].Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(6, 5))) &&
+    movedSharedEdge[2].EqualsExact(separatePolygon),
+    "Moving multiple shared nodes must preserve a shared edge across selected features.");
+var cutLine = editingFactory.CreateLineString([new Coordinate(-1, 5), new Coordinate(11, 5)]);
+var cutParts = VectorGeometryEditingService.CutPolygonByLine(cutTarget, cutLine);
+Check(cutParts.Count == 2 && cutParts.All(part => part.IsValid) &&
+    Math.Abs(cutParts.Sum(part => part.Area) - cutTarget.Area) < 1e-9,
+    "A border-to-border cut must produce valid parts and preserve total area.");
+var bulgeReshape = VectorGeometryEditingService.ReshapePolygon(cutTarget,
+    editingFactory.CreateLineString([new Coordinate(0, 10), new Coordinate(5, 12), new Coordinate(10, 10)]));
+Check(bulgeReshape is Polygon bulgedPolygon && bulgedPolygon.IsValid &&
+    bulgedPolygon.Area > cutTarget.Area && Math.Abs(bulgedPolygon.EnvelopeInternal.MaxY - 12) < 1e-9,
+    "A reshape trace outside a polygon must add the traced bulge without splitting the feature.");
+var inwardReshape = VectorGeometryEditingService.ReshapePolygon(cutTarget,
+    editingFactory.CreateLineString([new Coordinate(0, 10), new Coordinate(5, 8), new Coordinate(10, 10)]));
+Check(inwardReshape is Polygon notchedPolygon && notchedPolygon.IsValid &&
+    notchedPolygon.Area < cutTarget.Area && notchedPolygon.Area > 0 &&
+    Math.Abs(notchedPolygon.EnvelopeInternal.MaxY - 10) < 1e-9,
+    "A reshape trace inside a polygon must cut a notch while retaining one valid feature.");
+var multiPolygonForReshape = editingFactory.CreateMultiPolygon([cutTarget, separatePolygon]);
+var reshapedMultiPolygon = VectorGeometryEditingService.ReshapePolygon(multiPolygonForReshape,
+    editingFactory.CreateLineString([new Coordinate(0, 10), new Coordinate(5, 12), new Coordinate(10, 10)]));
+Check(reshapedMultiPolygon is MultiPolygon reshapedParts && reshapedParts.IsValid &&
+    reshapedParts.NumGeometries == 2 && reshapedParts.Area > multiPolygonForReshape.Area,
+    "Reshaping one part of a multipolygon must preserve the multipart type and untouched components.");
+try
+{
+    VectorGeometryEditingService.ReshapePolygon(cutTarget,
+        editingFactory.CreateLineString([new Coordinate(2, 2), new Coordinate(8, 8)]));
+    throw new InvalidOperationException("A reshape trace without boundary crossings was accepted.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("exatamente duas vezes", StringComparison.OrdinalIgnoreCase),
+        "Reshape must require exactly two boundary crossings.");
+}
+try
+{
+    VectorGeometryEditingService.CutPolygonByLine(cutTarget,
+        editingFactory.CreateLineString([new Coordinate(5, 2), new Coordinate(5, 8)]));
+    throw new InvalidOperationException("An interior-only cut was accepted.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("atravessar", StringComparison.OrdinalIgnoreCase),
+        "A cut must reach the polygon boundary at both ends.");
+}
+var lineTarget = editingFactory.CreateLineString([new Coordinate(0, 0), new Coordinate(10, 0)]);
+var lineCutter = editingFactory.CreateLineString([new Coordinate(5, -2), new Coordinate(5, 2)]);
+var splitLines = VectorGeometryEditingService.SplitGeometryByLine(lineTarget, lineCutter);
+Check(splitLines.Count == 2 && splitLines.All(part => part is LineString && part.IsValid) &&
+    Math.Abs(splitLines.Sum(part => part.Length) - lineTarget.Length) < 1e-9,
+    "A crossing line must split a line feature into valid pieces without changing total length.");
+var multiLineTarget = editingFactory.CreateMultiLineString(
+    [editingFactory.CreateLineString([new Coordinate(0, 0), new Coordinate(10, 0)]),
+     editingFactory.CreateLineString([new Coordinate(0, 10), new Coordinate(10, 10)])]);
+var splitMultiLines = VectorGeometryEditingService.SplitGeometryByLine(
+    multiLineTarget, editingFactory.CreateLineString([new Coordinate(5, -2), new Coordinate(5, 2)]));
+Check(splitMultiLines.Count == 3 && splitMultiLines.All(part => part is MultiLineString && part.IsValid) &&
+    Math.Abs(splitMultiLines.Sum(part => part.Length) - multiLineTarget.Length) < 1e-9,
+    "Splitting a multipart line must preserve its type and all disconnected parts.");
+var mergedConnectedLines = VectorGeometryEditingService.MergeLines(
+    [editingFactory.CreateLineString([new Coordinate(0, 0), new Coordinate(5, 0)]),
+     editingFactory.CreateLineString([new Coordinate(10, 0), new Coordinate(5, 0)])], 0);
+Check(mergedConnectedLines is LineString mergedLine && mergedLine.IsValid && mergedLine.NumPoints == 3 &&
+    Math.Abs(mergedLine.Length - 10) < 1e-9,
+    "Connected lines with reversed endpoint order must merge into one continuous line.");
+try
+{
+    VectorGeometryEditingService.MergeLines(
+        [editingFactory.CreateLineString([new Coordinate(0, 0), new Coordinate(5, 0)]),
+         editingFactory.CreateLineString([new Coordinate(0, 5), new Coordinate(5, 5)])], 0);
+    throw new InvalidOperationException("Disconnected lines were merged into a single-line primary feature.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("conectada", StringComparison.OrdinalIgnoreCase),
+        "A single-line primary cannot silently absorb disconnected features.");
+}
+var mergedMultipartLines = VectorGeometryEditingService.MergeLines(
+    [editingFactory.CreateMultiLineString(
+        [editingFactory.CreateLineString([new Coordinate(0, 0), new Coordinate(5, 0)]),
+         editingFactory.CreateLineString([new Coordinate(0, 5), new Coordinate(5, 5)])]),
+     editingFactory.CreateLineString([new Coordinate(5, 0), new Coordinate(10, 0)])], 0);
+Check(mergedMultipartLines is MultiLineString mergedMulti && mergedMulti.IsValid && mergedMulti.NumGeometries == 2 &&
+    Math.Abs(mergedMulti.Length - 15) < 1e-9,
+    "A multiline primary must preserve disconnected parts while merging connected endpoints.");
+
+var redundantSquare = CreateEditingPolygon(
+    new(0, 0), new(0, 1), new(0, 2), new(0, 3), new(0, 4),
+    new(1, 4), new(2, 4), new(3, 4), new(4, 4),
+    new(4, 3), new(4, 2), new(4, 1), new(4, 0),
+    new(3, 0), new(2, 0), new(1, 0), new(0, 0));
+var simplifiedSquare = VectorGeometryEditingService.Simplify(redundantSquare, 0.6);
+Check(simplifiedSquare.IsValid && simplifiedSquare.GeometryType == redundantSquare.GeometryType &&
+    simplifiedSquare.NumPoints < redundantSquare.NumPoints && Math.Abs(simplifiedSquare.Area - 16) < 1e-9,
+    "Topology-preserving simplification must remove redundant vertices without changing area or type.");
+var movableVerticesPolygon = CreateEditingPolygon(
+    new(0, 0), new(0, 5), new(5, 5), new(5, 0), new(0, 0));
+var topVertexAddresses = VectorGeometryEditingService.GetVertices(movableVerticesPolygon)
+    .Where(vertex => vertex.Y == 5).Select(vertex => vertex.Address).ToArray();
+var movedVertexGroup = VectorGeometryEditingService.MoveVerticesByDelta(
+    movableVerticesPolygon, topVertexAddresses, 0, 1);
+Check(movedVertexGroup.IsValid &&
+    movedVertexGroup.Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(0, 6))) &&
+    movedVertexGroup.Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(5, 6))) &&
+    movedVertexGroup.Coordinates.Any(coordinate => coordinate.Equals2D(new Coordinate(0, 0))),
+    "A multi-vertex move must apply one common displacement and preserve ring closure and validity.");
+var editableFiveSidedPolygon = CreateEditingPolygon(
+    new(0, 0), new(0, 5), new(0, 10), new(10, 10), new(10, 0), new(0, 0));
+var polygonVerticesToRemove = VectorGeometryEditingService.GetVertices(editableFiveSidedPolygon)
+    .Where(vertex => (vertex.X == 0 && vertex.Y == 5) || (vertex.X == 10 && vertex.Y == 10))
+    .Select(vertex => vertex.Address)
+    .ToArray();
+var editedFiveSidedPolygon = VectorGeometryEditingService.RemoveVertices(
+    editableFiveSidedPolygon, polygonVerticesToRemove);
+Check(editedFiveSidedPolygon is Polygon editedPolygon && editedPolygon.IsValid &&
+    editedPolygon.NumPoints == 4 && Math.Abs(editedPolygon.Area - 50) < 1e-9 &&
+    editedPolygon.ExteriorRing.Coordinates[0].Equals2D(editedPolygon.ExteriorRing.Coordinates[^1]),
+    "Removing multiple polygon nodes must preserve the closed ring and produce one valid, smaller boundary.");
+try
+{
+    VectorGeometryEditingService.RemoveVertices(movableVerticesPolygon,
+        VectorGeometryEditingService.GetVertices(movableVerticesPolygon)
+            .Where(vertex => vertex.X == 0 && vertex.Y != 5 || vertex.X == 5 && vertex.Y == 5)
+            .Select(vertex => vertex.Address)
+            .ToArray());
+    throw new InvalidOperationException("A polygon ring with fewer than three nodes was accepted.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("três vértices", StringComparison.OrdinalIgnoreCase),
+        "Bulk vertex deletion must reject a ring that would have fewer than three unique nodes.");
+}
+var multiLineForVertexRemoval = editingFactory.CreateMultiLineString(
+    [editingFactory.CreateLineString([new Coordinate(0, 0), new Coordinate(5, 0), new Coordinate(10, 0)]),
+     editingFactory.CreateLineString([new Coordinate(0, 10), new Coordinate(5, 10), new Coordinate(10, 10)])]);
+var multiLineVerticesToRemove = VectorGeometryEditingService.GetVertices(multiLineForVertexRemoval)
+    .Where(vertex => vertex.X == 5)
+    .Select(vertex => vertex.Address)
+    .ToArray();
+var editedMultiLine = VectorGeometryEditingService.RemoveVertices(multiLineForVertexRemoval, multiLineVerticesToRemove);
+Check(editedMultiLine is MultiLineString editedLines && editedLines.IsValid &&
+    editedLines.NumGeometries == 2 && editedLines.Geometries.Cast<LineString>().All(line => line.NumPoints == 2),
+    "Bulk deletion across multipart lines must retain each part and its minimum two endpoints.");
+var offsetSource = editingFactory.CreateLineString([new(0, 0), new(10, 0)]);
+var offsetLeft = VectorGeometryEditingService.OffsetLine(offsetSource, 2);
+var offsetRight = VectorGeometryEditingService.OffsetLine(offsetSource, -2);
+Check(offsetLeft is LineString && offsetRight is LineString && offsetLeft.IsValid && offsetRight.IsValid &&
+    offsetLeft.Coordinates.All(coordinate => Math.Abs(coordinate.Y - 2) < 1e-9) &&
+    offsetRight.Coordinates.All(coordinate => Math.Abs(coordinate.Y + 2) < 1e-9),
+    "Parallel line offsets must honor left/right side, preserve type, and remain valid.");
+var offsetMultiLine = VectorGeometryEditingService.OffsetLine(multiLineTarget, 2);
+Check(offsetMultiLine is MultiLineString && offsetMultiLine.IsValid &&
+    Math.Abs(offsetMultiLine.Length - multiLineTarget.Length) < 1e-9,
+    "Offsetting a multipart line must preserve its geometry type and segment lengths.");
+try
+{
+    VectorGeometryEditingService.OffsetLine(offsetSource, 0);
+    throw new InvalidOperationException("A zero-distance offset was accepted.");
+}
+catch (ArgumentOutOfRangeException) { Check(true, "Parallel offset rejects zero distance."); }
+try
+{
+    VectorGeometryEditingService.Simplify(redundantSquare, 0);
+    throw new InvalidOperationException("A zero simplification tolerance was accepted.");
+}
+catch (ArgumentOutOfRangeException) { Check(true, "Simplification rejects non-positive tolerance."); }
+
+var polygonWithHole = editingFactory.CreatePolygon(
+    editingFactory.CreateLinearRing([new(0, 0), new(0, 20), new(20, 20), new(20, 0), new(0, 0)]),
+    [editingFactory.CreateLinearRing([new(2, 2), new(8, 2), new(8, 8), new(2, 8), new(2, 2)])]);
+var addedHole = CreateEditingPolygon(
+    new(11, 11), new(11, 16), new(16, 16), new(16, 11), new(11, 11));
+var polygonWithTwoHoles = VectorGeometryEditingService.AddInteriorRing(polygonWithHole, addedHole);
+Check(polygonWithTwoHoles.IsValid && ((Polygon)polygonWithTwoHoles).NumInteriorRings == 2 &&
+    Math.Abs(polygonWithTwoHoles.Area - 339) < 1e-9,
+    "Adding an interior ring must create a valid hole and subtract its area.");
+var addedHoleVertex = VectorGeometryEditingService.GetVertices(polygonWithTwoHoles)
+    .Single(vertex => vertex.X == 11 && vertex.Y == 11);
+var polygonAfterHoleRemoval = VectorGeometryEditingService.RemoveInteriorRing(polygonWithTwoHoles, addedHoleVertex.Address);
+Check(polygonAfterHoleRemoval.IsValid && ((Polygon)polygonAfterHoleRemoval).NumInteriorRings == 1 &&
+    Math.Abs(polygonAfterHoleRemoval.Area - 364) < 1e-9,
+    "Removing an interior ring by its vertex address must restore the polygon area.");
+try
+{
+    VectorGeometryEditingService.AddInteriorRing(polygonWithHole,
+        CreateEditingPolygon(new(18, 18), new(18, 22), new(22, 22), new(22, 18), new(18, 18)));
+    throw new InvalidOperationException("A hole crossing the exterior was accepted.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("dentro", StringComparison.OrdinalIgnoreCase),
+        "An interior ring crossing the exterior boundary must be rejected.");
+}
+try
+{
+    VectorGeometryEditingService.RemoveInteriorRing(polygonWithTwoHoles,
+        VectorGeometryEditingService.GetVertices(polygonWithTwoHoles).First().Address);
+    throw new InvalidOperationException("The exterior ring was removed as a hole.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("anel interno", StringComparison.OrdinalIgnoreCase),
+        "The exterior boundary cannot be removed through the hole-removal operation.");
+}
+
 Console.WriteLine($"Digitizing core contracts passed: {passed} assertions.");

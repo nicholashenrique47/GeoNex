@@ -33,6 +33,9 @@
 .tool-identity span:not(.tool-symbol) { color: var(--tool-muted); font-size: 11px; }
 .destination-field, .construction-field, .sides-field { display: grid; gap: 5px; font-size: 11px; color: var(--tool-muted); }
 .destination-field { flex: 1; max-width: 360px; min-width: 160px; }
+.cut-target-label { display: grid; min-width: 0; gap: 3px; padding: 6px 10px; border: 1px solid #3a665b; border-radius: 7px; background: #153129; }
+.cut-target-label span { color: #9fcabb; font-size: 9px; font-weight: 700; letter-spacing: .7px; }
+.cut-target-label strong { overflow: hidden; color: #e0f7ed; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .sketch-actions { display: flex; gap: 6px; align-items: center; margin-left: auto; }
 .geonex-ui .workbench-button {
     min-height: 36px; padding: 8px 12px; border: 1px solid var(--tool-line); border-radius: 7px;
@@ -260,15 +263,15 @@
     --tool-accent: #70e2bf;
 }
 .geonex-ui .top-bar {
-    box-sizing: border-box; height: 48px !important; min-height: 48px; margin: 8px 10px 0;
-    padding: 0 12px !important; gap: 8px !important; border-radius: 10px;
+    box-sizing: border-box; height: 34px !important; min-height: 34px; margin: 4px 8px 0;
+    padding: 0 10px !important; gap: 6px !important; border-radius: 7px;
     background: rgba(13, 21, 30, .96); box-shadow: 0 5px 18px #0003;
 }
-.geonex-ui .brand-group { margin-right: 4px !important; gap: 7px; }
-.geonex-ui .brand-group h1 { font-size: 15px; letter-spacing: 1.5px; }
-.geonex-ui .sub-brand { padding: 2px 5px; font-size: 9px; }
-.geonex-ui .main-menu { gap: 2px; }
-.geonex-ui .menu-btn { padding: 0 9px; font-size: 12px; }
+.geonex-ui .brand-group { margin-right: 2px !important; gap: 6px; }
+.geonex-ui .brand-group h1 { font-size: 13px; letter-spacing: 1.2px; }
+.geonex-ui .sub-brand { padding: 1px 4px; font-size: 8px; }
+.geonex-ui .main-menu { gap: 1px; }
+.geonex-ui .menu-btn { min-height: 26px; padding: 0 7px; font-size: 10px; }
 .geonex-ui .bottom-status-bar { box-sizing: border-box; height: 28px; min-height: 28px; padding: 0 12px; font-size: 10px; }
 .geonex-ui .workspace-area {
     position: relative; display: grid; grid-template-columns: var(--dock-rail) minmax(0, 1fr) var(--dock-rail);
@@ -376,7 +379,7 @@
 @media (max-width: 1000px) {
     .geonex-ui .top-bar { padding-inline: 9px !important; gap: 5px !important; }
     .geonex-ui .menu-btn { padding-inline: 7px; font-size: 11px; }
-    .geonex-ui.show-app-menu .top-bar { height: 48px !important; min-height: 48px; flex-wrap: nowrap; padding-top: 0 !important; padding-bottom: 0 !important; }
+    .geonex-ui.show-app-menu .top-bar { height: 34px !important; min-height: 34px; flex-wrap: nowrap; padding-top: 0 !important; padding-bottom: 0 !important; }
     .geonex-ui.show-app-menu .main-menu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 4200; display: flex; flex-wrap: wrap; height: auto !important; max-height: 55vh; overflow: auto; padding: 8px; background: #101923; border: 1px solid #334354; border-radius: 9px; box-shadow: 0 14px 36px #0008; }
     .geonex-ui.show-app-menu .main-menu > .dropdown { height: auto !important; flex: 1 1 140px; }
     .geonex-ui.show-app-menu .main-menu > .dropdown > button { min-height: 36px; }
@@ -822,6 +825,12 @@
     background: #192a38;
     box-shadow: 0 3px 12px rgba(1, 6, 11, .18);
 }
+.geonex-ui .workspace-area > .left-panel .layer-item.is-active {
+    border-color: rgba(104, 224, 187, .72);
+    background: linear-gradient(105deg, rgba(39, 94, 82, .36), rgba(20, 32, 44, .92));
+    box-shadow: inset 3px 0 #68e0bb, 0 0 0 1px rgba(104, 224, 187, .12);
+}
+.geonex-ui .workspace-area > .left-panel .layer-item.is-active .layer-title { color: #baf5e2; }
 .geonex-ui .workspace-area > .left-panel .layer-item input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: #70d9b6; }
 .geonex-ui .workspace-area > .left-panel .type-tag {
     display: inline-grid;
@@ -834,6 +843,32 @@
     font: 700 10px/1 'Segoe UI', system-ui, sans-serif;
 }
 .geonex-ui .workspace-area > .left-panel .layer-title { flex: 1 1 auto; color: #dce6ed; font-size: 11.5px; font-weight: 550; }
+.geonex-ui .workspace-area > .left-panel .layer-select-button {
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.geonex-ui .workspace-area > .left-panel .layer-select-button:focus-visible { outline: 2px solid #76e2c2; outline-offset: 2px; border-radius: 3px; }
+.geonex-ui .active-layer-status {
+    display: grid;
+    gap: 3px;
+    margin: 0 0 9px;
+    padding: 9px 10px;
+    border: 1px solid rgba(141, 164, 181, .18);
+    border-radius: 8px;
+    background: rgba(10, 18, 26, .58);
+}
+.geonex-ui .active-layer-status > span { color: #90a5b5; font-size: 9px; font-weight: 750; letter-spacing: .09em; }
+.geonex-ui .active-layer-status > strong { overflow: hidden; color: #e0e9ef; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.geonex-ui .active-layer-status > small { color: #91a5b3; font-size: 9px; line-height: 1.4; }
+.geonex-ui .active-layer-status.is-ready { border-color: rgba(104, 224, 187, .25); }
+.geonex-ui .active-layer-status.is-ready > span { color: #75dcb9; }
 .geonex-ui .workspace-area > .left-panel .drag-handle { color: #617789; opacity: .58; transition: color .14s ease, opacity .14s ease; }
 .geonex-ui .workspace-area > .left-panel .layer-item:hover .drag-handle,
 .geonex-ui .workspace-area > .left-panel .layer-item:focus-within .drag-handle { color: #a9bdca; opacity: 1; }
@@ -1229,11 +1264,29 @@
 .vector-edit-selection { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px 10px; padding: 11px; border: 1px solid #31485b; border-radius: 8px; background: #111d28; }
 .vector-edit-selection span { color: #8298a9; font-size: 9px; font-weight: 700; letter-spacing: .7px; }
 .vector-edit-selection strong { overflow: hidden; color: #dce7ef; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.vector-geometry-diagnostic { display: grid; gap: 7px; padding: 10px; border: 1px solid #31614f; border-radius: 8px; background: #10271f; color: #a6dfbd; font-size: 10px; }
+.vector-geometry-diagnostic small { color: #edb4a9; font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.vector-geometry-diagnostic.invalid { border-color: #805248; background: #291a19; color: #ffb6a8; }
+.vector-geometry-diagnostic .workbench-button { justify-self: start; }
+.vector-multi-selection { display: grid; gap: 8px; padding: 10px; border: 1px solid #2a3d4d; border-radius: 8px; background: #0e1923; }
+.vector-multi-selection > small { color: #91a6b5; font-size: 9px; line-height: 1.45; }
+.vector-multi-selection-list { display: grid; gap: 5px; max-height: 136px; overflow-y: auto; }
+.vector-selection-feature { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; }
+.vector-selection-feature.selected { color: #a6ecd7; border-color: #397b68; background: #1c3f35; }
+.vector-selection-feature span, .vector-selection-feature small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vector-selection-feature small { color: #91a6b5; font-size: 8px; }
 .vector-edit-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .vector-edit-actions .workbench-button.selected { color: #a6ecd7; border-color: #397b68; background: #1c3f35; }
+.vector-vertex-editor { display: grid; gap: 8px; padding: 10px; border: 1px solid #2a3d4d; border-radius: 8px; background: #0e1923; }
+.vector-vertex-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vector-vertex-editor-heading span { color: #8298a9; font-size: 9px; font-weight: 700; letter-spacing: .55px; }
+.vector-vertex-editor-heading small, .vector-vertex-editor > small { color: #91a6b5; font-size: 9px; line-height: 1.4; }
+.vector-vertex-editor .vector-transform-inputs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .vector-edit-snap { display: grid; gap: 8px; padding: 10px; border: 1px solid #2a3d4d; border-radius: 8px; background: #0e1923; color: #b8c9d5; font-size: 10px; }
 .vector-edit-snap > span { color: #8298a9; font-size: 9px; font-weight: 700; letter-spacing: .7px; }
 .vector-edit-snap label { display: flex; align-items: center; gap: 8px; }
+.vector-edit-snap label.vector-edit-snap-tolerance { display: grid; grid-template-columns: minmax(0, 1fr) minmax(112px, auto); }
+.vector-edit-snap-tolerance select { min-width: 0; }
 .vector-edit-snap input { accent-color: #52c9a7; }
 .vector-edit-transform { overflow: hidden; border: 1px solid #2a3d4d; border-radius: 8px; background: #0e1923; color: #b8c9d5; font-size: 10px; }
 .vector-edit-transform summary { padding: 10px; color: #c8d7e0; cursor: pointer; font-size: 11px; font-weight: 650; }
@@ -1248,3 +1301,272 @@
 .vector-transform-inputs input:focus { border-color: #4d9e8b; box-shadow: 0 0 0 2px #4d9e8b22; }
 .vector-edit-feedback { min-height: 40px; margin: 0; padding: 9px 10px; color: #b8d9dc; border: 1px solid #2d5260; border-radius: 7px; background: #10232d; font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
 .vector-edit-workbench .identify-empty-state { min-height: 128px; padding: 16px; }
+.geonex-ui.is-vector-editing { --panel-right-width: min(392px, calc(100vw - 72px)); }
+.geonex-ui.is-vector-editing .workspace-area > .right-panel { border-color: rgba(112, 226, 191, .32); }
+.geonex-ui.is-vector-editing .workspace-area > .right-panel > .panel-header { background: linear-gradient(115deg, #1a302f, #182632 70%); }
+.geonex-ui.is-vector-editing .workspace-area > .right-panel > .panel-header h2 { color: #d7f6e9; }
+.geonex-ui.is-vector-editing .workspace-area > .right-panel > .properties-content { padding: 10px !important; }
+.vectorization-mode-switch { display: grid; gap: 10px; padding: 12px; border: 1px solid #315b53; border-radius: 10px; background: radial-gradient(ellipse at 5% 0%, #1b4037 0, #14272a 48%, #111d28 100%); }
+.vectorization-mode-copy { display: grid; gap: 4px; }
+.vectorization-mode-copy > span { color: #83d8b7; font-size: 8px; font-weight: 750; letter-spacing: 1px; }
+.vectorization-mode-copy > strong { color: #e7f3ef; font-size: 14px; font-weight: 700; }
+.vectorization-mode-copy > small { color: #9db5b6; font-size: 10px; line-height: 1.4; }
+.vectorization-mode-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 3px; border: 1px solid #ffffff12; border-radius: 8px; background: #0c171f99; }
+.vectorization-mode-actions button { min-height: 32px; padding: 6px 9px; color: #a8b8c2; border: 1px solid transparent; border-radius: 6px; background: transparent; font: 650 10px 'Segoe UI', sans-serif; cursor: pointer; }
+.vectorization-mode-actions button:hover:not(:disabled) { color: #e7f5ef; background: #ffffff0b; }
+.vectorization-mode-actions button.selected { color: #c9f5e5; border-color: #43826f; background: #1c4438; box-shadow: inset 0 1px #ffffff12; }
+.vectorization-mode-actions button:disabled { cursor: default; }
+.vector-edit-workbench { gap: 9px; }
+.vector-edit-workbench .measurement-title { gap: 3px; }
+.vector-edit-workbench .measurement-title p { margin: 0; font-size: 10px; line-height: 1.4; }
+.vector-edit-section { overflow: hidden; border: 1px solid #2b4050; border-radius: 9px; background: linear-gradient(150deg, #13212c, #101a24); }
+.vector-edit-section > summary { display: flex; min-height: 48px; align-items: center; gap: 9px; padding: 7px 9px; color: #dce7ef; cursor: pointer; list-style: none; }
+.vector-edit-section > summary::-webkit-details-marker { display: none; }
+.vector-edit-section > summary::after { content: '+'; margin-left: auto; color: #94a9b7; font: 17px/1 'Segoe UI', sans-serif; }
+.vector-edit-section[open] > summary { border-bottom: 1px solid #ffffff10; }
+.vector-edit-section[open] > summary::after { content: '−'; }
+.vector-edit-section > summary > span:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
+.vector-edit-section > summary strong { font-size: 10px; font-weight: 700; }
+.vector-edit-section > summary small { color: #8fa4b3; font-size: 9px; }
+.vector-edit-section-icon { display: grid; flex: 0 0 26px; width: 26px; height: 26px; place-items: center; color: #a8e8d0; border: 1px solid #39705f; border-radius: 7px; background: #1b3a32; font-size: 9px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.vector-edit-section-content { display: grid; gap: 8px; padding: 9px; }
+.vector-edit-section > .vector-multi-selection { gap: 8px; padding: 9px; border: 0; border-radius: 0; background: transparent; }
+.vector-edit-section .vector-edit-actions { gap: 6px; }
+.geonex-ui.is-vector-editing .vector-edit-feedback { border-color: #386456; background: #142a28; }
+.geonex-ui.is-vector-editing .vector-edit-workbench .measurement-help { padding: 4px 2px 1px; text-align: center; }
+.vector-operation-workbench { display: grid; gap: 10px; padding: 12px; border: 1px solid #315b53; border-radius: 10px; background: linear-gradient(150deg, #162d2d, #111d28 75%); }
+.vector-operation-target { display: grid; gap: 4px; padding: 10px; border: 1px solid #355346; border-radius: 8px; background: #10221f; }
+.vector-operation-target > span { color: #88c8ae; font-size: 8px; font-weight: 750; letter-spacing: .8px; }
+.vector-operation-target > strong { overflow: hidden; color: #e1f2eb; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.vector-operation-target > small, .vector-operation-workbench > p { margin: 0; color: #9db1b8; font-size: 10px; line-height: 1.45; }
+@media (max-width: 700px) {
+    .geonex-ui.is-vector-editing { --panel-right-width: calc(100vw - 16px); }
+    .vectorization-mode-switch { padding: 9px; }
+    .vector-edit-section > summary { min-height: 44px; }
+}
+
+.geonex-ui.is-vector-workspace .workspace-area { grid-template-columns: var(--dock-rail) minmax(0, 1fr) 0; }
+.geonex-ui.is-vector-workspace .workspace-area > .right-panel { display: none !important; }
+.geonex-ui.is-vector-workspace .top-bar .tool-btn { display: none; }
+.global-map-tools { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: auto; padding-left: 6px; border-left: 1px solid #2c404f; }
+.global-map-tool {
+    display: inline-flex; min-height: 26px; align-items: center; justify-content: center; gap: 4px; padding: 2px 6px;
+    color: #aebdca; border: 1px solid transparent; border-radius: 5px; background: transparent;
+    font: 600 9px 'Segoe UI', sans-serif; white-space: nowrap; cursor: pointer; transition: color .14s, background .14s, border-color .14s;
+}
+.global-map-tool > span:first-child { color: #85d7b9; font: 14px/1 'Segoe UI Symbol', 'Segoe UI', sans-serif; }
+.global-map-tool:hover { color: #eff8f6; border-color: #3a5c5a; background: #1b302f; }
+.global-map-tool.selected { color: #d8f7ec; border-color: #397461; background: #17332d; }
+.global-map-tool.selected > span:first-child { color: #a0f0d4; }
+@media (max-width: 1150px) {
+    .global-map-tool-label { display: none; }
+    .global-map-tool { min-width: 27px; padding-inline: 5px; }
+}
+@media (max-width: 700px) {
+    .global-map-tools { gap: 0; padding-left: 3px; }
+    .global-map-tool { min-width: 25px; min-height: 25px; }
+}
+.advanced-vector-ribbon {
+    position: relative; z-index: 3500; display: grid; flex: 0 0 auto; gap: 0; margin: 3px 8px 0;
+    overflow: visible; color: #e6edf3; border: 1px solid #314556; border-radius: 7px;
+    background: linear-gradient(180deg, rgba(20, 32, 44, .985), rgba(13, 22, 32, .985));
+    box-shadow: 0 5px 16px #0005, inset 0 1px #ffffff0a; backdrop-filter: blur(14px);
+}
+.vector-ribbon-header { display: grid; grid-template-columns: auto minmax(170px, 245px) minmax(0, 1fr); align-items: center; gap: 6px; min-height: 34px; padding: 3px 7px; }
+.vector-ribbon-identity { display: none; }
+.vector-ribbon-mark { display: grid; flex: 0 0 27px; width: 27px; height: 27px; place-items: center; color: #a8efda; border: 1px solid #43816f; border-radius: 7px; background: linear-gradient(145deg, #214d40, #142e2b); font: 750 13px 'Segoe UI', sans-serif; box-shadow: inset 0 1px #ffffff14; }
+.vector-ribbon-identity > span:last-child { display: flex; align-items: center; }
+.vector-ribbon-identity strong { color: #edf5f4; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.vector-ribbon-identity small { display: none; }
+.vector-ribbon-mode { display: flex; gap: 2px; padding: 2px; border: 1px solid #2d4050; border-radius: 7px; background: #0b141d; }
+.vector-ribbon-mode button { display: inline-flex; min-height: 27px; align-items: center; gap: 5px; padding: 4px 9px; color: #a6b5c2; border: 1px solid transparent; border-radius: 5px; background: transparent; font: 650 9px 'Segoe UI', sans-serif; cursor: pointer; transition: background .14s, color .14s, border-color .14s; }
+.vector-ribbon-mode button span { color: #9ddfc9; font-size: 15px; line-height: 1; }
+.vector-ribbon-mode button:hover:not(:disabled) { color: #eaf4f1; background: #ffffff09; }
+.vector-ribbon-mode button.selected { color: #d6f8ed; border-color: #397b68; background: linear-gradient(180deg, #21493d, #19372f); box-shadow: inset 0 1px #ffffff10; }
+.vector-ribbon-mode button:disabled { cursor: default; opacity: .55; }
+.vector-ribbon-target { display: grid; min-width: 0; gap: 2px; color: #8fa5b4; font-size: 7px; font-weight: 750; letter-spacing: .75px; }
+.vector-ribbon-target .gis-select { width: 100%; min-width: 0; min-height: 27px; padding: 4px 26px 4px 8px; color: #e4edf3; border: 1px solid #354b5d; border-radius: 6px; background: #0d1822; font: 9px 'Segoe UI', sans-serif; }
+.vector-ribbon-target-summary { display: grid; min-width: 0; gap: 2px; padding: 3px 8px; border-left: 1px solid #304554; }
+.vector-ribbon-target-summary > span { color: #8fa5b4; font-size: 8px; font-weight: 750; letter-spacing: .85px; }
+.vector-ribbon-target-summary > strong { overflow: hidden; color: #d9e9e7; font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.vector-ribbon-target-summary > strong small { padding-left: 6px; color: #91b8ae; font-size: 9px; font-weight: 550; }
+.vector-ribbon-target-summary.is-empty > strong { color: #a3b1bc; font-weight: 500; }
+.vector-ribbon-header-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 4px; }
+.ribbon-icon-button { display: grid; width: 27px; height: 27px; place-items: center; color: #cad7e0; border: 1px solid #344958; border-radius: 6px; background: #14212c; font: 17px/1 'Segoe UI', sans-serif; cursor: pointer; }
+.ribbon-icon-button:hover:not(:disabled) { color: #eafff7; border-color: #57917e; background: #1a382f; }
+.ribbon-icon-button:disabled { cursor: default; opacity: .38; }
+.vector-ribbon-header-divider { width: 1px; height: 21px; margin: 0 3px; background: #354957; }
+.ribbon-save-button { display: inline-flex; min-height: 28px; align-items: center; justify-content: center; gap: 6px; padding: 4px 9px; color: #102920; border: 1px solid #83e2c3; border-radius: 6px; background: linear-gradient(180deg, #9be8cc, #70cfad); box-shadow: 0 3px 8px #61c9a122, inset 0 1px #ffffff75; font: 700 9px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; }
+.ribbon-save-button:hover:not(:disabled) { background: linear-gradient(180deg, #b0f3db, #83dfbd); }
+.ribbon-save-button:disabled { color: #899a9e; border-color: #34414b; background: #202b34; box-shadow: none; cursor: default; opacity: .68; }
+.vector-ribbon-tools { display: flex; min-width: 0; align-items: stretch; flex-wrap: wrap; border-top: 1px solid #ffffff0c; border-bottom: 1px solid #ffffff0c; background: linear-gradient(180deg, #111c27, #101923); }
+.vector-ribbon-group { position: relative; display: flex; min-width: 0; align-items: center; gap: 5px; padding: 3px 6px; border-right: 1px solid #283b49; }
+.vector-ribbon-group:last-child { border-right: 0; }
+.vector-ribbon-group-label { flex: 0 0 auto; color: #7891a3; font-size: 7px; font-weight: 750; letter-spacing: .55px; }
+.vector-ribbon-group-actions { display: flex; min-width: 0; align-items: center; flex-wrap: nowrap; gap: 3px; }
+.ribbon-tool-button { display: inline-flex; min-height: 25px; align-items: center; justify-content: center; gap: 4px; padding: 3px 6px; color: #c9d6df; border: 1px solid #2c4050; border-radius: 5px; background: linear-gradient(180deg, #1a2935, #15222d); font: 550 8px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; transition: background .14s, color .14s, border-color .14s; }
+.ribbon-tool-button > span[aria-hidden=true] { color: #91ddc3; font-size: 13px; line-height: 1; }
+.ribbon-tool-button:hover:not(:disabled) { color: #eff8f6; border-color: #4d776e; background: #203a38; }
+.ribbon-tool-button.selected { color: #c9f5e5; border-color: #43826f; background: #1b4035; }
+.ribbon-tool-button.danger, .ribbon-status-delete { color: #f0c1b8; border-color: #65413d; background: #2b201f; }
+.ribbon-tool-button:disabled, .ribbon-status-delete:disabled { cursor: default; opacity: .38; }
+.ribbon-tool-button kbd, .ribbon-save-button kbd { padding: 2px 4px; border: 1px solid #52677a; border-radius: 4px; background: #101922; color: #cedbe4; font: 8px 'Segoe UI', sans-serif; }
+.vector-ribbon-menu { position: relative; }
+.vector-ribbon-menu > summary { display: inline-flex; min-height: 25px; align-items: center; gap: 4px; padding: 3px 7px; color: #d0dce4; border: 1px solid #344a5b; border-radius: 5px; background: #1a2935; font: 600 8px 'Segoe UI', sans-serif; cursor: pointer; list-style: none; white-space: nowrap; }
+.vector-ribbon-menu > summary::-webkit-details-marker { display: none; }
+.vector-ribbon-menu > summary::after { content: '⌄'; color: #90a8b8; font-size: 11px; }
+.vector-ribbon-menu[open] > summary { color: #d5f7e9; border-color: #477767; background: #1b3731; }
+.ribbon-count { display: inline-grid; min-width: 16px; height: 16px; place-items: center; padding: 0 3px; color: #baf3df; border: 1px solid #3b7160; border-radius: 99px; background: #17372e; font-size: 8px; font-variant-numeric: tabular-nums; }
+.vector-ribbon-popover { position: absolute; top: calc(100% + 7px); left: 0; z-index: 4300; display: grid; width: min(310px, calc(100vw - 30px)); max-height: min(62vh, 470px); gap: 7px; box-sizing: border-box; padding: 11px; overflow: auto; color: #d8e3e9; border: 1px solid #40596a; border-radius: 9px; background: linear-gradient(155deg, #192936, #111b25); box-shadow: 0 16px 40px #000b, inset 0 1px #ffffff0a; }
+.vector-ribbon-popover > strong { color: #eaf4f2; font-size: 10px; font-weight: 700; }
+.vector-ribbon-popover > small { color: #9aafba; font-size: 9px; line-height: 1.4; }
+.selection-popover { width: min(340px, calc(100vw - 30px)); }
+.ribbon-selection-item { display: flex; min-height: 35px; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; color: #cbd9e0; border: 1px solid #2c414f; border-radius: 6px; background: #14212b; font: 600 9px 'Segoe UI', sans-serif; cursor: pointer; }
+.ribbon-selection-item small { color: #91a6b3; font-size: 8px; }
+.ribbon-selection-item.selected { color: #d3f5e7; border-color: #44836f; background: #1b3d34; }
+.ribbon-popover-action { display: inline-flex; min-height: 31px; align-items: center; justify-content: center; padding: 6px 8px; color: #cfe9df; border: 1px solid #3a6255; border-radius: 6px; background: #19342d; font: 650 9px 'Segoe UI', sans-serif; cursor: pointer; }
+.ribbon-popover-action:hover:not(:disabled) { border-color: #72b79e; background: #21473b; }
+.ribbon-popover-action:disabled { cursor: default; opacity: .4; }
+.ribbon-popover-actions { display: flex; gap: 5px; }
+.ribbon-popover-actions > * { flex: 1 1 0; }
+.ribbon-coordinate-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.ribbon-coordinate-inputs label, .ribbon-transform-block > label { display: grid; min-width: 0; gap: 4px; color: #9eb1bc; font-size: 8px; font-weight: 650; }
+.ribbon-coordinate-inputs input, .ribbon-transform-block input { width: 100%; min-width: 0; min-height: 30px; box-sizing: border-box; padding: 5px 7px; color: #e8f1f3; border: 1px solid #364d5d; border-radius: 6px; background: #0b151e; font: 10px 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; }
+.ribbon-transform-block { display: grid; gap: 6px; padding: 8px; border: 1px solid #293e4b; border-radius: 7px; background: #ffffff04; }
+.ribbon-transform-block > span { color: #80b7a5; font-size: 8px; font-weight: 750; letter-spacing: .6px; }
+.ribbon-transform-block > label { color: #9eb1bc; }
+.snap-popover label { display: flex; min-height: 29px; align-items: center; gap: 7px; color: #c6d3dc; font-size: 9px; }
+.snap-popover input[type=checkbox] { width: 14px; height: 14px; accent-color: #78d6b6; }
+.snap-popover .snap-toggle { min-height: 31px; padding: 6px 8px; font-size: 9px; }
+.snap-popover .snap-toggle span { font-size: 8px; }
+.snap-popover .ribbon-tolerance-field { display: grid; grid-template-columns: minmax(0, 1fr) 138px; }
+.snap-popover .gis-select, .ribbon-inline-select .gis-select { min-width: 0; min-height: 30px; padding: 5px 25px 5px 7px; color: #dce7eb; border: 1px solid #364d5d; border-radius: 6px; background-color: #0d1822; font: 9px 'Segoe UI', sans-serif; }
+.ribbon-inline-select { display: flex; align-items: center; gap: 7px; color: #91a7b6; font-size: 9px; white-space: nowrap; }
+.ribbon-inline-select .gis-select { width: 185px; }
+.ribbon-inline-select.compact .gis-select { width: 65px; }
+.ribbon-geometry-label { display: grid; gap: 2px; color: #e0e9ed; font-size: 10px; font-weight: 650; }
+.ribbon-geometry-label small { color: #8da1af; font-size: 8px; font-weight: 450; }
+.ribbon-sketch-actions { display: flex; gap: 5px; margin-left: 5px; padding-left: 9px; border-left: 1px solid #324653; }
+.vector-ribbon-status { display: flex; min-height: 21px; align-items: center; gap: 6px; padding: 1px 7px; background: linear-gradient(180deg, #101a23, #0d171f); }
+.ribbon-status-indicator { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #5addaa; box-shadow: 0 0 0 3px #5addaa18; }
+.ribbon-status-indicator.invalid, .ribbon-status-indicator.warning { background: #efbb66; box-shadow: 0 0 0 3px #efbb6618; }
+.ribbon-status-copy { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: 8px; }
+.ribbon-status-copy strong { color: #cfe0e1; font-size: 8px; font-weight: 650; white-space: nowrap; }
+.ribbon-status-copy small { overflow: hidden; color: #91a6b4; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.ribbon-status-metric { color: #8edfc0; font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ribbon-status-delete { min-height: 27px; padding: 4px 8px; border: 1px solid #65413d; border-radius: 6px; background: #2b201f; font: 600 8px 'Segoe UI', sans-serif; cursor: pointer; }
+.active-operation-group { display: flex; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 10px; }
+.vector-ribbon-operation-copy { display: grid; flex: 1 1 280px; gap: 3px; color: #dce8e5; font-size: 10px; }
+.vector-ribbon-operation-copy small { color: #9eb2b6; font-size: 9px; }
+
+@media (max-width: 1100px) {
+    .vector-ribbon-header { grid-template-columns: auto minmax(150px, 220px) minmax(0, 1fr); gap: 5px; }
+    .vector-ribbon-header-actions { grid-column: 3; grid-row: 1; }
+    .vector-ribbon-target, .vector-ribbon-target-summary { grid-column: 2; grid-row: 1; }
+    .vector-ribbon-tools { align-items: stretch; }
+    .vector-ribbon-group { flex: 0 1 auto; }
+}
+@media (max-width: 700px) {
+    .advanced-vector-ribbon { margin: 3px 6px 0; }
+    .vector-ribbon-header { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px 8px; }
+    .vector-ribbon-identity { min-width: 0; }
+    .vector-ribbon-identity strong { font-size: 10px; }
+    .vector-ribbon-header-actions { grid-column: 2; grid-row: 1; }
+    .vector-ribbon-target, .vector-ribbon-target-summary { grid-column: 1 / -1; grid-row: 2; }
+    .vector-ribbon-mode { grid-column: 1 / -1; grid-row: 3; }
+    .vector-ribbon-mode button { flex: 1 1 0; justify-content: center; }
+    .vector-ribbon-group { flex: 1 1 100%; padding: 5px 8px; border-right: 0; border-bottom: 1px solid #283b49; }
+    .vector-ribbon-group:last-child { border-bottom: 0; }
+    .vector-ribbon-group-actions { flex-wrap: wrap; gap: 4px; }
+    .ribbon-tool-button, .vector-ribbon-menu > summary { min-height: 28px; }
+    .vector-ribbon-status { align-items: center; padding: 3px 7px; }
+    .ribbon-status-copy small { white-space: normal; }
+    .vector-ribbon-popover { position: fixed; top: auto; left: 8px; right: 8px; bottom: 36px; width: auto; max-height: min(58vh, 470px); }
+    .ribbon-inline-select { flex: 1 1 100%; justify-content: space-between; }
+    .ribbon-inline-select .gis-select { width: min(65vw, 240px); }
+    .ribbon-sketch-actions { margin-left: 0; padding-left: 0; border-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .vector-ribbon-mode button, .ribbon-tool-button { transition: none; }
+}
+
+.geonex-ui .top-bar {
+    height: 48px; min-height: 48px; flex: 0 0 48px; gap: 8px !important; padding: 0 12px !important;
+    overflow: visible; background: #0f1821; border-color: #2b3d4d;
+}
+.geonex-ui .top-bar .brand-group { flex: 0 0 auto; margin-right: 5px !important; }
+.geonex-ui .top-bar .brand-group h1 { font-size: 14px; letter-spacing: 1.5px; }
+.geonex-ui .top-bar :is(.legacy-ribbon-item, .legacy-header-actions, .app-menu-toggle) { display: none !important; }
+.geonex-ui .top-bar .preserved-file-data-menus { order: 1; display: flex !important; min-width: 0; flex: 0 0 auto; height: 100% !important; align-items: stretch; gap: 4px; margin: 0 5px 0 0 !important; }
+.geonex-ui .top-bar .preserved-file-data-menus > .dropdown:nth-child(n+3) { display: none !important; }
+.command-ribbon-tabs { order: 2; display: flex; min-width: 0; height: 100%; flex: 1 1 auto; align-items: stretch; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.command-ribbon-tabs::-webkit-scrollbar { display: none; }
+.command-ribbon-tab { position: relative; flex: 0 0 auto; min-width: 44px; padding: 0 9px; color: #a5b4c0; border: 0; border-bottom: 2px solid transparent; background: transparent; font: 600 10px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; }
+.command-ribbon-tab:hover { color: #e8f3f6; background: #ffffff08; }
+.command-ribbon-tab.selected { color: #d7fff0; border-bottom-color: #70e2bf; background: linear-gradient(180deg, transparent, #70e2bf0c); }
+.command-ribbon-tab:focus-visible, .command-ribbon-search button:focus-visible, .command-quick-save:focus-visible, .command-ribbon-command:focus-visible { outline: 2px solid #70e2bf; outline-offset: -2px; }
+.command-ribbon-search { order: 3; display: flex; flex: 0 1 200px; min-width: 120px; height: 29px; align-items: center; gap: 3px; padding: 0 7px; border: 1px solid #344858; border-radius: 6px; background: #0b141d; }
+.command-ribbon-search:focus-within { border-color: #70e2bf; box-shadow: 0 0 0 2px #70e2bf1c; }
+.command-ribbon-search input { width: 100%; min-width: 0; color: #e5eef4; border: 0; outline: 0; background: transparent; font: 10px 'Segoe UI', sans-serif; }
+.command-ribbon-search input::placeholder { color: #7f93a2; }
+.command-ribbon-search button { display: grid; width: 21px; height: 21px; flex: 0 0 21px; place-items: center; color: #a7bac8; border: 0; border-radius: 4px; background: transparent; font-size: 15px; cursor: pointer; }
+.command-ribbon-search button:hover { color: #fff; background: #ffffff14; }
+.command-ribbon-quick-actions { order: 4; display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.command-quick-save, .command-core-button { min-height: 28px; padding: 0 9px; color: #d8e9e4; border: 1px solid #385246; border-radius: 6px; background: #172b26; font: 650 9px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; }
+.command-quick-save:hover:not(:disabled), .command-core-button:hover { border-color: #65b599; background: #1d3930; }
+.command-quick-save:disabled { color: #80908f; border-color: #2a3740; background: #18222b; cursor: default; opacity: .65; }
+.command-ribbon { position: relative; z-index: 4201; display: flex; flex: 0 0 auto; flex-direction: column; margin: 3px 12px 0; overflow: hidden; color: #e6eef5; border: 1px solid #2d4151; border-radius: 8px; background: linear-gradient(180deg, #15212d, #101923); box-shadow: 0 5px 16px #0004; }
+.command-ribbon-content { display: flex; min-height: 67px; align-items: stretch; overflow-x: auto; overflow-y: hidden; scrollbar-color: #526b7d #111923; scrollbar-width: thin; }
+.command-ribbon-group { display: flex; min-width: max-content; flex: 0 0 auto; flex-direction: column; align-items: stretch; justify-content: space-between; padding: 6px 8px 4px; border-right: 1px solid #2b3c4b; }
+.command-ribbon-group:last-child { border-right: 0; }
+.command-ribbon-group-title { overflow: hidden; max-width: 100%; color: #8197a7; font-size: 8px; font-weight: 750; letter-spacing: .65px; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.command-ribbon-group-items { display: flex; min-height: 45px; align-items: stretch; gap: 3px; }
+.command-ribbon-command { display: flex; min-width: 65px; max-width: 105px; min-height: 44px; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 3px 6px; color: #cbd8e1; border: 1px solid transparent; border-radius: 5px; background: transparent; font: 550 8px 'Segoe UI', sans-serif; cursor: pointer; }
+.command-ribbon-command:hover:not(:disabled) { color: #effcf8; border-color: #375c55; background: #1c3432; }
+.command-ribbon-command.selected:not(:disabled) { color: #e3fff5; border-color: #4d8e77; background: #1b3731; box-shadow: inset 0 0 0 1px #70e2bf22; }
+.command-ribbon-command.unavailable { color: #76858f; cursor: help; opacity: .55; }
+.command-ribbon-command.unavailable:hover { color: #f3d79a; border-color: #755f36; background: #2a261e; opacity: 1; }
+.command-ribbon-command-icon { display: grid; min-width: 19px; height: 19px; place-items: center; color: #8de0c2; font: 650 15px/1 'Segoe UI', sans-serif; }
+.command-ribbon-command-label { overflow: hidden; width: 100%; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.command-ribbon-empty { display: grid; min-height: 67px; flex: 1 1 auto; place-items: center; color: #9caeb9; font-size: 10px; }
+.command-ribbon-settings { display: flex; min-height: 46px; flex: 0 0 auto; align-items: stretch; overflow-x: auto; border-top: 1px solid #263846; background: #0f1922; scrollbar-color: #526b7d transparent; scrollbar-width: thin; }
+.command-ribbon-setting-group { display: flex; min-width: max-content; flex: 0 0 auto; align-items: center; gap: 7px; padding: 4px 9px; border-right: 1px solid #293b49; }
+.command-ribbon-setting-group > span { align-self: flex-start; margin-top: 4px; color: #8198a8; font-size: 7px; font-weight: 750; letter-spacing: .5px; white-space: nowrap; }
+.command-ribbon-setting-group label { display: flex; align-items: center; gap: 4px; color: #b7c5ce; font-size: 8px; white-space: nowrap; }
+.command-ribbon-setting-group label:not(.command-check) { flex-direction: column; align-items: flex-start; gap: 2px; }
+.command-ribbon-setting-group :is(input[type=number], .gis-select) { width: 70px; min-width: 54px; min-height: 24px; box-sizing: border-box; padding: 3px 5px; color: #dce8ed; border: 1px solid #354a5a; border-radius: 4px; background: #101a24; font: 9px 'Segoe UI', sans-serif; }
+.command-ribbon-setting-group .gis-select { width: 108px; }
+.command-ribbon-setting-group input[type=checkbox] { width: 13px; height: 13px; accent-color: #70e2bf; }
+.command-ribbon-mini { min-height: 25px; padding: 3px 7px; color: #c9d7df; border: 1px solid #354a5a; border-radius: 5px; background: #1a2935; font: 600 8px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; }
+.command-ribbon-mini:hover:not(:disabled) { border-color: #5b8c7b; background: #203a35; }
+.command-ribbon-mini.primary { color: #102c25; border-color: #78d6b5; background: #8be0c0; }
+.command-ribbon-mini.danger { color: #f1c2ba; border-color: #65413d; background: #2b201f; }
+.command-ribbon-mini:disabled { opacity: .45; cursor: default; }
+.command-ribbon-status { display: flex; min-height: 23px; flex: 0 0 auto; align-items: center; gap: 7px; padding: 2px 9px; overflow-x: auto; color: #9cafbb; border-top: 1px solid #263846; background: #0d161f; font-size: 8px; scrollbar-color: #526b7d transparent; scrollbar-width: thin; }
+.command-ribbon-status > span:nth-child(2) { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
+.command-ribbon-status-indicator { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #50d6a4; }
+.command-ribbon-status-indicator.warning { background: #efb85f; }
+.advanced-vector-ribbon, .digitizing-toolbar, .vector-edit-workbench { display: none !important; }
+
+@media (max-width: 1250px) {
+    .command-ribbon-search { flex-basis: 160px; }
+    .command-ribbon-quick-actions { gap: 5px; }
+    .command-ribbon-tab { padding-inline: 7px; font-size: 9px; }
+}
+@media (max-width: 900px) {
+    .geonex-ui .top-bar { gap: 5px !important; padding-inline: 7px !important; }
+    .geonex-ui .top-bar .brand-group h1 { font-size: 12px; }
+    .geonex-ui .top-bar .sub-brand { display: none; }
+    .command-ribbon-search { flex-basis: 125px; min-width: 90px; }
+    .command-ribbon { margin-inline: 6px; }
+    .command-ribbon-group { padding-inline: 6px; }
+}
+@media (max-width: 640px) {
+    .geonex-ui .top-bar { height: auto; min-height: 48px; flex-basis: auto; flex-wrap: wrap; padding-block: 4px !important; }
+    .command-ribbon-tabs { order: 3; flex: 1 1 100%; height: 30px; }
+    .command-ribbon-search { flex: 1 1 120px; }
+    .command-ribbon-quick-actions { margin-left: auto; }
+    .command-ribbon-content { min-height: 62px; }
+    .command-ribbon-command { min-width: 59px; }
+    .command-ribbon-setting-group { padding-inline: 6px; }
+}

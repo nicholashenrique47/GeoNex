@@ -339,7 +339,7 @@ public partial class LocalMapServer
 
         lock (_mapService.VectorEditOverlayGate)
         {
-            if (_mapService.CaminhoEdicaoPreview is { } preview)
+            foreach (SKPath preview in _mapService.CaminhosEdicaoPreview)
             {
                 canvas.SetMatrix(matriz);
                 if (_mapService.CaminhoDestaquePoligono != null)
@@ -370,12 +370,16 @@ public partial class LocalMapServer
                 using var handleFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(13, 26, 36), IsAntialias = true };
                 using var handleBorder = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(103, 232, 196), StrokeWidth = 1.6f / zoomReal, IsAntialias = true };
                 using var activeFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(255, 191, 71), IsAntialias = true };
+                using var selectedFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(34, 211, 238), IsAntialias = true };
+                HashSet<int> selectedVertices = _mapService.IndicesVerticesEdicaoSelecionados.ToHashSet();
                 for (int i = 0; i < _mapService.VerticesEdicao.Length; i++)
                 {
                     SKPoint vertex = _mapService.VerticesEdicao[i];
-                    float radius = (i == _mapService.IndiceVerticeEdicaoAtivo ? 6.5f : 5f) / zoomReal;
+                    bool active = i == _mapService.IndiceVerticeEdicaoAtivo;
+                    bool selected = selectedVertices.Contains(i);
+                    float radius = (active || selected ? 6.5f : 5f) / zoomReal;
                     canvas.DrawCircle(vertex, radius + 1.8f / zoomReal, handleFill);
-                    canvas.DrawCircle(vertex, radius, i == _mapService.IndiceVerticeEdicaoAtivo ? activeFill : handleFill);
+                    canvas.DrawCircle(vertex, radius, active ? activeFill : selected ? selectedFill : handleFill);
                     canvas.DrawCircle(vertex, radius, handleBorder);
                 }
             }

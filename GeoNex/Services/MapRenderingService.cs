@@ -249,8 +249,10 @@ namespace GeoNex.Services
         public Dictionary<string, NetTopologySuite.Features.FeatureCollection> FeicoesOriginais { get; } = new();
         private readonly object _vectorEditOverlayGate = new();
         public object VectorEditOverlayGate => _vectorEditOverlayGate;
-        public SKPath? CaminhoEdicaoPreview { get; private set; }
+        public IReadOnlyList<SKPath> CaminhosEdicaoPreview { get; private set; } = Array.Empty<SKPath>();
+        public SKPath? CaminhoEdicaoPreview => CaminhosEdicaoPreview.FirstOrDefault();
         public SKPoint[] VerticesEdicao { get; private set; } = Array.Empty<SKPoint>();
+        public int[] IndicesVerticesEdicaoSelecionados { get; private set; } = Array.Empty<int>();
         public int IndiceVerticeEdicaoAtivo { get; set; } = -1;
         public Dictionary<string, List<SKPath>> VetoresPorCamada { get; } = new();
         public Dictionary<string, List<SKPath>> LinhasPorCamada { get; } = new();
@@ -459,7 +461,8 @@ namespace GeoNex.Services
 
         public SkiaSharp.SKPoint? EncontrarVerticeProximo(SkiaSharp.SKPoint ptClique, float toleranciaMundo,
             bool checarVertices = true, bool checarArestas = false, bool checarMeios = false,
-            bool checarIntersecoes = false, string? ignorarCamada = null, long? ignorarFid = null)
+            bool checarIntersecoes = false, string? ignorarCamada = null, long? ignorarFid = null,
+            IReadOnlySet<long>? ignorarFidsNaCamada = null)
         {
             if (!float.IsFinite(ptClique.X) || !float.IsFinite(ptClique.Y) ||
                 !float.IsFinite(toleranciaMundo) || toleranciaMundo <= 0 ||
@@ -480,8 +483,9 @@ namespace GeoNex.Services
                 using var candidates = indexLease.Resource.Query(envelope);
                 foreach (var candidate in candidates)
                 {
-                    if (ignorarFid.HasValue && ignorarFid.Value == candidate.FID &&
-                        string.Equals(layerName, ignorarCamada, StringComparison.Ordinal)) continue;
+                    if (string.Equals(layerName, ignorarCamada, StringComparison.Ordinal) &&
+                        ((ignorarFid.HasValue && ignorarFid.Value == candidate.FID) ||
+                         (ignorarFidsNaCamada?.Contains(candidate.FID) == true))) continue;
                     // Consume the path while both resources are pinned. Avoid a
                     // second candidate list and the full Path.Points allocation.
                     var path = candidate.GetPath(shapefileLease?.Resource, OffsetMundoX, OffsetMundoY);
@@ -1015,6 +1019,36 @@ namespace GeoNex.Services
             }
         }
 
+        public void AdicionarFeicaoVetorial(string nomeCamada, CompiledFeature feature)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(nomeCamada);
+            ArgumentNullException.ThrowIfNull(feature);
+            if (!FeaturesPorCamada.TryGetValue(nomeCamada, out List<CompiledFeature>? features))
+                throw new InvalidOperationException($"A camada '{nomeCamada}' não está carregada no mapa.");
+            if (features.Any(item => item.FID == feature.FID))
+                throw new InvalidOperationException($"A feição temporária {feature.FID} já está presente no mapa.");
+
+            features.Add(feature);
+            try
+            {
+                ConstruirIndiceEspacial(nomeCamada, features);
+                if (EstilosPorCamada.TryGetValue(nomeCamada, out EstiloCamada? style) &&
+                    string.Equals(style.TipoSimbologia, "CATEGORIZADA", StringComparison.OrdinalIgnoreCase))
+                    CompilarCategorias(nomeCamada, style.ColunaSimbologia);
+                RecalcularLimitesCamadasVetoriais();
+                RequestRedraw();
+            }
+            catch
+            {
+                features.Remove(feature);
+                feature.Path?.Dispose();
+                try { ConstruirIndiceEspacial(nomeCamada, features); }
+                catch (Exception rollbackError) { Console.Error.WriteLine($"Falha ao reverter inserção vetorial temporária: {rollbackError.Message}"); }
+                RecalcularLimitesCamadasVetoriais();
+                throw;
+            }
+        }
+
         /// <summary>Publishes a changed in-memory feature and rebuilds the layer's interaction index.</summary>
         public void AtualizarGeometriaVetorial(string nomeCamada, long fid, NetTopologySuite.Geometries.Geometry geometry)
         {
@@ -1116,12 +1150,18 @@ namespace GeoNex.Services
         }
 
         public void DefinirOverlayEdicao(SKPath? preview, IReadOnlyList<SKPoint> vertices, int indiceAtivo = -1)
+            => DefinirOverlayEdicao(preview is null ? Array.Empty<SKPath>() : [preview], vertices, indiceAtivo);
+
+        public void DefinirOverlayEdicao(IReadOnlyList<SKPath> previews, IReadOnlyList<SKPoint> vertices, int indiceAtivo = -1)
         {
+            ArgumentNullException.ThrowIfNull(previews);
             lock (_vectorEditOverlayGate)
             {
-                CaminhoEdicaoPreview?.Dispose();
-                CaminhoEdicaoPreview = preview;
+                foreach (SKPath previous in CaminhosEdicaoPreview)
+                    previous.Dispose();
+                CaminhosEdicaoPreview = previews.ToArray();
                 VerticesEdicao = vertices.ToArray();
+                IndicesVerticesEdicaoSelecionados = Array.Empty<int>();
                 IndiceVerticeEdicaoAtivo = indiceAtivo;
             }
             RequestRedraw();
@@ -1137,7 +1177,19 @@ namespace GeoNex.Services
             RequestRedraw();
         }
 
-        public void LimparOverlayEdicao() => DefinirOverlayEdicao(null, Array.Empty<SKPoint>());
+        public void DefinirIndicesVerticesEdicaoSelecionados(IEnumerable<int> indices)
+        {
+            ArgumentNullException.ThrowIfNull(indices);
+            int[] selected = indices.Where(index => index >= 0).Distinct().ToArray();
+            lock (_vectorEditOverlayGate)
+            {
+                if (IndicesVerticesEdicaoSelecionados.SequenceEqual(selected)) return;
+                IndicesVerticesEdicaoSelecionados = selected;
+            }
+            RequestRedraw();
+        }
+
+        public void LimparOverlayEdicao() => DefinirOverlayEdicao((SKPath?)null, Array.Empty<SKPoint>());
 
         private void RecalcularLimitesCamadasVetoriais()
         {
@@ -1174,7 +1226,7 @@ namespace GeoNex.Services
             }
         }
 
-        public CompiledFeature? DispararRaycast(double lat, double lng, double toleranciaMetros, out string camadaAtingida)
+        public CompiledFeature? DispararRaycast(double lat, double lng, double toleranciaMetros, out string camadaAtingida, string? camadaAlvo = null)
         {
             camadaAtingida = string.Empty;
             var ptTarget = new NetTopologySuite.Geometries.Point(lng, lat);
@@ -1187,6 +1239,8 @@ namespace GeoNex.Services
             for (int i = OrdemCamadas.Count - 1; i >= 0; i--)
             {
                 string camada = OrdemCamadas[i];
+                if (!string.IsNullOrWhiteSpace(camadaAlvo) &&
+                    !string.Equals(camada, camadaAlvo, StringComparison.OrdinalIgnoreCase)) continue;
                 if (CamadasInvisiveis.Contains(camada)) continue;
 
                 if (HasRaster(camada))
@@ -1280,9 +1334,11 @@ namespace GeoNex.Services
 
             lock (_vectorEditOverlayGate)
             {
-                CaminhoEdicaoPreview?.Dispose();
-                CaminhoEdicaoPreview = null;
+                foreach (SKPath preview in CaminhosEdicaoPreview)
+                    preview.Dispose();
+                CaminhosEdicaoPreview = Array.Empty<SKPath>();
                 VerticesEdicao = Array.Empty<SKPoint>();
+                IndicesVerticesEdicaoSelecionados = Array.Empty<int>();
             }
 
             lock (_vectorResourceGate)

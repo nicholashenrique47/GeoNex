@@ -286,7 +286,7 @@ public partial class Home
                 SincronizarHierarquia(solicitarFrame: false);
                 renderFeatures = loaded.Features.ToList();
                 MapService.PreCompilarPoligonos(layerName, renderFeatures);
-                _camadaDestinoAquisicao = layerName;
+                DefinirCamadaAtiva(camada);
                 _postgisMensagem = $"Adicionada: {layerName} · {loaded.FeatureCount:N0} feição(ões) · EPSG:{loaded.Srid}.";
                 exibirModalImportacao = false;
             }
@@ -391,7 +391,7 @@ public partial class Home
             int pontosAntesDeConcluir = MapService.PontosAquisicao.Count;
             if (pontosAntesDeConcluir >= MinimoPontosAquisicao)
             {
-                ConcluirAquisicaoGeometrica();
+                await ConcluirAquisicaoGeometrica();
                 if (MapService.PontosAquisicao.Count > 0)
                     avisoEsboco = string.IsNullOrWhiteSpace(mensagemVetorizacao)
                         ? "O desenho atual não foi concluído e continua preservado na tela."
@@ -448,9 +448,10 @@ public partial class Home
                     }
                     totalGravados += operacoesCamada;
 
-                    bool exclusaoPersistida = pendentes.Any(feicao =>
-                        VectorEditPersistenceService.IsDeletionPending(feicao) && VectorEditPersistenceService.IsPersisted(feicao));
-                    if (exclusaoPersistida)
+                    bool fonteVetorialAlterada = camada.FontePostgis is null && pendentes.Any(feicao =>
+                        (VectorEditPersistenceService.IsNewFeature(feicao) || VectorEditPersistenceService.IsDeletionPending(feicao)) &&
+                        VectorEditPersistenceService.IsPersisted(feicao));
+                    if (fonteVetorialAlterada)
                         await RecarregarCamadaVetorialAposExclusaoAsync(camada);
                 }
                 catch (Exception ex)
@@ -460,24 +461,24 @@ public partial class Home
                     // remaining features pending for a safe retry.
                     int operacoesPersistidas = pendentes.Count(VectorEditPersistenceService.IsPersisted);
                     totalGravados += Math.Max(0, operacoesPersistidas - operacoesCamada);
-                    bool exclusaoPersistida = pendentes.Any(feicao =>
-                        VectorEditPersistenceService.IsDeletionPending(feicao) && VectorEditPersistenceService.IsPersisted(feicao));
+                    bool fonteVetorialAlterada = camada.FontePostgis is null && pendentes.Any(feicao =>
+                        (VectorEditPersistenceService.IsNewFeature(feicao) || VectorEditPersistenceService.IsDeletionPending(feicao)) &&
+                        VectorEditPersistenceService.IsPersisted(feicao));
                     string detalhe = MensagemPostgisSegura(ex);
-                    if (exclusaoPersistida)
+                    if (fonteVetorialAlterada)
                     {
                         IFeature[] exclusoesRestantes = pendentes
-                            .Where(feicao => VectorEditPersistenceService.IsDeletionPending(feicao) &&
-                                !VectorEditPersistenceService.IsPersisted(feicao))
+                            .Where(feicao => !VectorEditPersistenceService.IsPersisted(feicao))
                             .ToArray();
                         try
                         {
                             await RecarregarCamadaVetorialAposExclusaoAsync(camada, exclusoesRestantes);
                             if (exclusoesRestantes.Length > 0)
-                                detalhe += $" {exclusoesRestantes.Length} exclusão(ões) não concluída(s) foram recarregadas como pendentes.";
+                                detalhe += $" {exclusoesRestantes.Length} edição(ões) não concluída(s) foram recarregadas como pendentes.";
                         }
                         catch (Exception refreshError)
                         {
-                            detalhe += $" A camada também não pôde ser atualizada após a exclusão parcial: {MensagemPostgisSegura(refreshError)}";
+                            detalhe += $" A camada também não pôde ser atualizada após a gravação parcial: {MensagemPostgisSegura(refreshError)}";
                         }
                     }
                     falhas.Add($"{camada.Nome}: {detalhe}");
@@ -635,7 +636,7 @@ public partial class Home
         _srsCamadaDestinoEntrada = string.Empty;
 
         Camada? destino = CamadasAtivas.FirstOrDefault(c => c.Tipo == "Vetor" &&
-            string.Equals(c.Nome, _camadaDestinoAquisicao, StringComparison.Ordinal));
+            string.Equals(c.Nome, CamadaDestinoAquisicao, StringComparison.Ordinal));
         if (destino?.FontePostgis is { Table.Srid: > 0 } fontePostgis)
         {
             _srsCamadaDestinoEntrada = $"EPSG:{fontePostgis.Table.Srid}";
@@ -910,7 +911,7 @@ public partial class Home
         }
     }
     private bool ConstrucaoParametrica => ModoConstrucao != ConstructionMode.Vertices;
-    private int MinimoPontosAquisicao => ConstrucaoParametrica
+    private int MinimoPontosAquisicao => _vectorRingMode ? 3 : (_vectorCutMode || _vectorReshapeMode) ? 2 : ConstrucaoParametrica
         ? SketchConstruction.RequiredControls(ModoConstrucao)
         : _ferramentaAtiva == ModoFerramenta.AquisicaoPonto ? 1
         : _ferramentaAtiva == ModoFerramenta.AquisicaoLinha ? 2 : 3;
@@ -949,7 +950,7 @@ public partial class Home
 
     private bool AdicionarControleAquisicao(SKPoint point)
     {
-        if (!FerramentaDesenhoAtiva || string.IsNullOrEmpty(_camadaDestinoAquisicao))
+        if (!FerramentaDesenhoAtiva || string.IsNullOrEmpty(CamadaDestinoAquisicao))
         {
             mensagemVetorizacao = "Selecione uma camada de destino antes de adicionar pontos.";
             return false;
@@ -1151,7 +1152,8 @@ public partial class Home
         long pointerSequence = 0,
         double[]? displayedMatrix = null,
         double? vertexPointerStartX = null,
-        double? vertexPointerStartY = null)
+        double? vertexPointerStartY = null,
+        bool shiftVertexSelection = false)
     {
         if (_ferramentaAtiva == ModoFerramenta.Medicao && _medicaoConcluida) return;
         if (exibirModalAtributos || _isPanning || !double.IsFinite(pixelX) || !double.IsFinite(pixelY)) return;
@@ -1167,7 +1169,7 @@ public partial class Home
             if (vertexPointerStartX is { } startX && vertexPointerStartY is { } startY &&
                 TentarMapearPontoTelaParaLocal(startX, startY, displayedMatrix, matrix, out SKPoint mappedStart))
                 pointerStart = mappedStart;
-            ProcessarMovimentoEdicaoVetorial(cursor, matrix, pointerStart);
+            ProcessarMovimentoEdicaoVetorial(cursor, matrix, pointerStart, shiftVertexSelection);
             return;
         }
         var result = _coordenadaAbsolutaTravada && FerramentaDesenhoAtiva &&

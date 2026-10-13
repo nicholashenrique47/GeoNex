@@ -13,6 +13,7 @@ public static class VectorEditPersistenceService
     private const string TransactionsCapability = "Transactions";
     public const string ExistingFeatureIdAttribute = "_SYS_EDIT_FID";
     public const string DeleteFeatureAttribute = "_SYS_EDIT_DELETE";
+    public const string NewFeatureAttribute = "_SYS_EDIT_NEW";
 
     public static int SaveToOgr(
         string path,
@@ -100,7 +101,9 @@ public static class VectorEditPersistenceService
                     using OSGeo.OGR.Feature? existingFeature = layer.GetFeature(existingFeatureId);
                     if (existingFeature is null)
                         throw new InvalidDataException($"A feição {existingFeatureId} não existe mais em '{Path.GetFileName(path)}'.");
+                    using FeatureDefn updateDefinition = layer.GetLayerDefn();
                     EnsureSuccess(existingFeature.SetGeometry(geometry), $"atualizar a geometria da feição {existingFeatureId}");
+                    UpdateDerivedAttributes(existingFeature, updateDefinition, ntsFeature.Geometry);
                     EnsureSuccess(layer.SetFeature(existingFeature), $"gravar a geometria da feição {existingFeatureId}");
                     if (!supportsTransactions)
                     {
@@ -166,6 +169,10 @@ public static class VectorEditPersistenceService
         feature.Attributes != null && feature.Attributes.Exists(DeleteFeatureAttribute) &&
         string.Equals(Convert.ToString(feature.Attributes[DeleteFeatureAttribute], CultureInfo.InvariantCulture), "SIM", StringComparison.Ordinal);
 
+    public static bool IsNewFeature(NetTopologySuite.Features.IFeature feature) =>
+        feature.Attributes != null && feature.Attributes.Exists(NewFeatureAttribute) &&
+        string.Equals(Convert.ToString(feature.Attributes[NewFeatureAttribute], CultureInfo.InvariantCulture), "SIM", StringComparison.Ordinal);
+
     private static void MarkPersisted(NetTopologySuite.Features.IFeature feature)
     {
         if (feature.Attributes == null) return;
@@ -186,6 +193,7 @@ public static class VectorEditPersistenceService
             string name = field.GetNameRef();
             string normalizedName = name.ToUpperInvariant();
             if (normalizedName.StartsWith("_SYS_", StringComparison.Ordinal)) continue;
+            if (TrySetDerivedAttribute(ogrFeature, i, field.GetFieldType(), normalizedName, ntsFeature.Geometry)) continue;
             if (ntsFeature.Attributes != null && ntsFeature.Attributes.Exists(name))
             {
                 object? value = ntsFeature.Attributes[name];
@@ -214,6 +222,39 @@ public static class VectorEditPersistenceService
             else if (normalizedName == "COORD_Y" && ntsFeature.Geometry is NetTopologySuite.Geometries.Point pointY)
                 SetFieldValue(ogrFeature, i, field.GetFieldType(), pointY.Y);
         }
+    }
+
+    private static void UpdateDerivedAttributes(
+        OSGeo.OGR.Feature ogrFeature,
+        FeatureDefn definition,
+        NetTopologySuite.Geometries.Geometry? geometry)
+    {
+        if (geometry is null) return;
+        for (int i = 0; i < definition.GetFieldCount(); i++)
+        {
+            using FieldDefn field = definition.GetFieldDefn(i);
+            TrySetDerivedAttribute(ogrFeature, i, field.GetFieldType(), field.GetNameRef().ToUpperInvariant(), geometry);
+        }
+    }
+
+    private static bool TrySetDerivedAttribute(
+        OSGeo.OGR.Feature feature,
+        int index,
+        FieldType fieldType,
+        string normalizedName,
+        NetTopologySuite.Geometries.Geometry? geometry)
+    {
+        if (geometry is null) return false;
+        if (normalizedName == "AREA_M2" && geometry is NetTopologySuite.Geometries.Polygon or NetTopologySuite.Geometries.MultiPolygon)
+            SetFieldValue(feature, index, fieldType, geometry.Area);
+        else if (normalizedName == "COMPRIM_M" && geometry is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString)
+            SetFieldValue(feature, index, fieldType, geometry.Length);
+        else if (normalizedName == "COORD_X" && geometry is NetTopologySuite.Geometries.Point pointX)
+            SetFieldValue(feature, index, fieldType, pointX.X);
+        else if (normalizedName == "COORD_Y" && geometry is NetTopologySuite.Geometries.Point pointY)
+            SetFieldValue(feature, index, fieldType, pointY.Y);
+        else return false;
+        return true;
     }
 
     private static void SetFieldValue(OSGeo.OGR.Feature feature, int index, FieldType type, object value)

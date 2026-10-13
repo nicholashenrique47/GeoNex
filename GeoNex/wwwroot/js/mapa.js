@@ -1263,7 +1263,7 @@ window.mapEngine = {
             window.GeoNexGraphics.invalidarCursorAquisicao(this.toolPointerSequence);
     },
 
-    queueToolPointer: function (clientX, clientY) {
+    queueToolPointer: function (clientX, clientY, shiftVertexSelection = false) {
         if (this.viewportResizePending) {
             this.resetToolPointer();
             return;
@@ -1272,6 +1272,7 @@ window.mapEngine = {
         const sequence = ++this.toolPointerSequence;
         const sample = {
             clientX, clientY, point, sequence,
+            shiftVertexSelection: shiftVertexSelection === true,
             vertexEditStart: this.ferramentaAtual === 'EdicaoVertice' ? this.vertexEditPointerStart : null
         };
         this.toolPointerLatest = sample;
@@ -1307,7 +1308,8 @@ window.mapEngine = {
         this.toolPointerInFlight = true;
         this.dotNetHelper.invokeMethodAsync('ReceberMovimentoFerramentas',
             point.x, point.y, interacaoRapida, sample.sequence, digitizingMatrix,
-            sample.vertexEditStart?.x ?? null, sample.vertexEditStart?.y ?? null)
+            sample.vertexEditStart?.x ?? null, sample.vertexEditStart?.y ?? null,
+            sample.shiftVertexSelection)
             .catch(err => console.warn('Erro na prévia da ferramenta:', err))
             .finally(() => {
                 this.toolPointerInFlight = false;
@@ -1362,7 +1364,7 @@ window.mapEngine = {
 
         if (!this.isDragging) {
             if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto', 'EdicaoVertice'].includes(this.ferramentaAtual))
-                this.queueToolPointer(e.clientX, e.clientY);
+                this.queueToolPointer(e.clientX, e.clientY, e.shiftKey);
             return;
         }
 
@@ -1552,12 +1554,12 @@ window.mapEngine = {
         }
 
         if (e.button === 0 && tempoDecorrido < 300 && distMovida < 10) {
-            this.dispararRaycast(e.clientX, e.clientY);
+            this.dispararRaycast(e.clientX, e.clientY, e.ctrlKey || e.metaKey, e.shiftKey);
         }
         this.vertexEditPointerStart = null;
     },
 
-    dispararRaycast: function (clientX, clientY) {
+    dispararRaycast: function (clientX, clientY, additiveSelection = false, toggleVertexSelection = false) {
         if (this.viewportResizePending) return;
         if (!this.dotNetHelper) return;
         this.resetToolPointer();
@@ -1565,7 +1567,7 @@ window.mapEngine = {
         const digitizingMatrix = window.GeoNexGraphics
             ? window.GeoNexGraphics.obterMatrizApresentada()
             : null;
-        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y, digitizingMatrix)
+        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y, digitizingMatrix, additiveSelection, toggleVertexSelection)
             .catch(err => console.warn("Erro no Túnel:", err));
     },
 
