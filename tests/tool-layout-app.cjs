@@ -125,7 +125,7 @@ const path = require('node:path');
                 await reachable(dataButton);
                 const ribbonTabs = page.locator('.command-ribbon-tabs');
                 const mapTab = ribbonTabs.getByRole('button', { name: 'Mapa', exact: true });
-                const vectorTab = ribbonTabs.getByRole('button', { name: 'Vetor', exact: true });
+                const vectorTab = ribbonTabs.getByRole('button', { name: 'Vetorização', exact: true });
                 await reachable(mapTab);
                 await vectorTab.click();
                 const unavailableCommand = page.locator('.command-ribbon-command').filter({ hasText: 'Desfazer ponto' }).first();
@@ -162,8 +162,6 @@ const path = require('node:path');
                 assert.equal(await search.inputValue(), '', 'Escape clears ribbon search.');
             }
         }
-        assert.deepEqual(errors, []);
-
         for (const width of [760, 390]) {
             await page.setViewportSize({ width, height: 600 });
             for (const key of ['m', 'd']) {
@@ -175,6 +173,45 @@ const path = require('node:path');
                 await assertMapStable(before, `${key} tool at short height`);
             }
         }
+
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.evaluate(() => document.activeElement?.blur());
+        const ribbonTabs = page.locator('.command-ribbon-tabs');
+        const vectorTab = ribbonTabs.getByRole('button', { name: 'Vetorização', exact: true });
+        const mapTab = ribbonTabs.getByRole('button', { name: 'Mapa', exact: true });
+        await vectorTab.click();
+        await page.getByRole('button', { name: 'Editar feições e vértices', exact: true }).click();
+        await page.waitForFunction(() => window.mapEngine.ferramentaAtual === 'EdicaoVertice');
+        let box = await readyMap(page);
+        await page.mouse.click(box.x + box.width * .79, box.y + box.height * .46);
+        await page.waitForFunction(() => document.querySelector('.command-ribbon-status')?.textContent.includes('selecionada'));
+        await mapTab.click();
+        await page.locator('.command-ribbon-command').filter({ hasText: 'Medir distância e área' }).click();
+        await page.waitForFunction(() => window.mapEngine.ferramentaAtual === 'Medicao');
+        await vectorTab.click();
+        const addVertex = page.getByRole('button', { name: 'Adicionar vértice', exact: true });
+        await addVertex.click();
+        await page.waitForFunction(() => window.mapEngine.ferramentaAtual === 'EdicaoVertice');
+        await page.getByText('Inserção ativa · clique próximo ao meio de uma aresta da feição selecionada.', { exact: true }).waitFor();
+        await addVertex.click();
+        await page.getByText('Inserção de vértices desativada.', { exact: true }).waitFor();
+
+        await page.evaluate(() => document.activeElement?.blur());
+        await page.keyboard.press('d');
+        await page.waitForFunction(() => window.mapEngine.ferramentaAtual.startsWith('Aquisicao'));
+        box = await readyMap(page);
+        await page.mouse.click(box.x + box.width * .34, box.y + box.height * .35);
+        await page.waitForFunction(() => document.querySelector('.command-ribbon-status')?.textContent.includes('1 ponto(s)'));
+        await mapTab.click();
+        await page.locator('.command-ribbon-command').filter({ hasText: 'Medir distância e área' }).click();
+        await page.getByRole('button', { name: 'Manter desenho', exact: true }).click();
+        await page.waitForFunction(() => document.querySelector('.command-ribbon-status')?.textContent.includes('1 ponto(s)'));
+        await page.locator('.command-ribbon-command').filter({ hasText: 'Medir distância e área' }).click();
+        await page.getByRole('button', { name: 'Descartar e trocar', exact: true }).click();
+        await page.waitForFunction(() => window.mapEngine.ferramentaAtual === 'Medicao');
+        await page.waitForFunction(() => document.querySelector('.command-ribbon-status')?.textContent.includes('0 ponto(s)'));
+
+        assert.deepEqual(errors, []);
         console.log('Map-first layout: stable viewport, compact digitizing bar, usable dock rails and reachable controls at 1440/760/390px.');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

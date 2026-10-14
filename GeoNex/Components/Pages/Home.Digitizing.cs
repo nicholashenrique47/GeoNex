@@ -1165,11 +1165,23 @@ public partial class Home
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
             MapService.PontoCursorMundo = cursor;
+            MapService.PontoCursorSnap = null;
+            MapService.PontoCursorSnapTipo = null;
             SKPoint? pointerStart = null;
             if (vertexPointerStartX is { } startX && vertexPointerStartY is { } startY &&
                 TentarMapearPontoTelaParaLocal(startX, startY, displayedMatrix, matrix, out SKPoint mappedStart))
                 pointerStart = mappedStart;
             ProcessarMovimentoEdicaoVetorial(cursor, matrix, pointerStart, shiftVertexSelection);
+            SKPoint cursorScreen = MapearPontoLocalParaTela(cursor, displayedMatrix, matrix);
+            SKPoint? snapScreen = MapService.PontoCursorSnap is { } snapPosition
+                ? MapearPontoLocalParaTela(snapPosition, displayedMatrix, matrix)
+                : null;
+            JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirCursorEdicao",
+                cursorScreen.X, cursorScreen.Y,
+                snapScreen?.X, snapScreen?.Y,
+                MapService.PontoCursorSnap.HasValue ? MapService.PontoCursorSnapTipo?.ToString() : null,
+                pointerSequence,
+                _draggedVectorVertexDisplayIndex >= 0 ? _draggedVectorVertexDisplayIndex : _hoveredVectorVertexDisplayIndex);
             return;
         }
         var result = _coordenadaAbsolutaTravada && FerramentaDesenhoAtiva &&

@@ -222,7 +222,9 @@ namespace GeoNex.Services
                  _mapService.PontoCursorSnap.HasValue)) || _mapService.PontoRestricaoAbsoluta.HasValue ||
                 _mapService.PontosMedicao.Count > 0 ||
                 _mapService.CaminhoDestaquePoligono != null ||
-                _mapService.CaminhoDestaqueLinha != null) return false;
+                _mapService.CaminhoDestaqueLinha != null ||
+                _mapService.CaminhosEdicaoPreview.Count > 0 ||
+                _mapService.VerticesEdicao.Length > 0) return false;
             var q = context.Request.QueryString;
             if (q["nav"] != "1" || q["i"] != "1" || q["c"] == "1" || q["rot"] != null ||
                 q["ox"] != null || q["oy"] != null) return false;

@@ -981,6 +981,8 @@ window.mapEngine = {
     isFetching: false, hasPendingRequest: false,
 
     isDragging: false,
+    panCandidate: false,
+    panPointerId: null,
     startX: 0, startY: 0, startPanX: 0, startPanY: 0,
 
     velocityX: 0, velocityY: 0,
@@ -1012,7 +1014,15 @@ window.mapEngine = {
     toolPointerInFlight: false,
     toolPointerSequence: 0,
     vertexEditDragging: false,
+    vertexEditPlacementArmed: false,
+    vertexMoveFeatureMode: false,
     vertexEditPointerStart: null,
+    vertexSelectionGesture: false,
+    featureSelectionMode: false,
+    featureSelectionShape: 'rectangle',
+    featureSelectionGesture: null,
+    featureSelectionPolygon: [],
+    featureSelectionOverlay: null,
     lastPointerClientX: -1,
     lastPointerClientY: -1,
 
@@ -1035,6 +1045,12 @@ window.mapEngine = {
             this.container.addEventListener('pointermove', (e) => this.onPointerMove(e));
             this.container.addEventListener('pointerup', (e) => this.onPointerUp(e, false));
             this.container.addEventListener('pointercancel', (e) => this.onPointerUp(e, true));
+            this.container.addEventListener('contextmenu', (e) => {
+                if (this.featureSelectionMode && this.featureSelectionShape === 'polygon' && this.featureSelectionPolygon.length >= 3) {
+                    e.preventDefault();
+                    this.finalizarSelecaoPorForma(this.featureSelectionPolygon, e);
+                }
+            });
 
             this.initialized = true;
             this.aplicarTransformacao();
@@ -1152,8 +1168,89 @@ window.mapEngine = {
     onDoubleClick: function (e) {
         e.preventDefault();
         if (this.uiModalAberto()) return;
+        if (this.featureSelectionMode && this.featureSelectionShape === 'polygon') {
+            if (this.featureSelectionPolygon.length >= 3)
+                this.finalizarSelecaoPorForma(this.featureSelectionPolygon, e);
+            return;
+        }
         if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(this.ferramentaAtual)) return;
         this.aplicarZoomCentralizado(2.0, e.clientX, e.clientY, false);
+    },
+
+    setFeatureSelectionMode: function (active, shape = 'rectangle') {
+        this.featureSelectionMode = active === true;
+        this.featureSelectionShape = ['rectangle', 'polygon', 'freehand', 'radius'].includes(shape) ? shape : 'rectangle';
+        this.featureSelectionPolygon = [];
+        this.featureSelectionGesture = null;
+        this.limparSelecaoOverlay();
+        if (this.container && this.featureSelectionMode) this.container.style.cursor = 'crosshair';
+    },
+
+    setFeatureSelectionShape: function (shape) {
+        this.setFeatureSelectionMode(this.featureSelectionMode, shape);
+    },
+
+    obterOverlaySelecao: function () {
+        if (this.featureSelectionOverlay || !this.container) return this.featureSelectionOverlay;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('aria-hidden', 'true');
+        Object.assign(svg.style, {
+            position: 'absolute', inset: '0', width: '100%', height: '100%',
+            pointerEvents: 'none', overflow: 'hidden', zIndex: '20'
+        });
+        const shape = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        shape.setAttribute('fill', 'rgba(56, 189, 248, 0.14)');
+        shape.setAttribute('stroke', '#38bdf8');
+        shape.setAttribute('stroke-width', '1.5');
+        shape.setAttribute('stroke-dasharray', '5 3');
+        svg.appendChild(shape);
+        this.container.appendChild(svg);
+        this.featureSelectionOverlay = { svg, shape };
+        return this.featureSelectionOverlay;
+    },
+
+    atualizarSelecaoOverlay: function (points) {
+        const overlay = this.obterOverlaySelecao();
+        if (!overlay) return;
+        const rect = this.container.getBoundingClientRect();
+        overlay.shape.setAttribute('points', points.map(point =>
+            `${point.x - rect.left - this.container.clientLeft},${point.y - rect.top - this.container.clientTop}`).join(' '));
+    },
+
+    limparSelecaoOverlay: function () {
+        if (this.featureSelectionOverlay)
+            this.featureSelectionOverlay.shape.setAttribute('points', '');
+    },
+
+    gerarCirculoSelecao: function (centerX, centerY, radius, segments = 48) {
+        return Array.from({ length: segments }, (_, index) => {
+            const angle = (index / segments) * Math.PI * 2;
+            return { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius };
+        });
+    },
+
+    finalizarSelecaoPorForma: function (clientPoints, event) {
+        if (!this.dotNetHelper || !Array.isArray(clientPoints) || clientPoints.length < 3) {
+            this.featureSelectionPolygon = [];
+            this.limparSelecaoOverlay();
+            return;
+        }
+        const imagePoints = [];
+        for (const point of clientPoints) {
+            const imagePoint = this.obterPontoImagem(point.x, point.y);
+            imagePoints.push(imagePoint.x, imagePoint.y);
+        }
+        const displayedMatrix = window.GeoNexGraphics
+            ? window.GeoNexGraphics.obterMatrizApresentada()
+            : null;
+        const ctrl = event?.ctrlKey === true || event?.metaKey === true;
+        const shift = event?.shiftKey === true;
+        this.dotNetHelper.invokeMethodAsync('ProcessarSelecaoPorForma', imagePoints, displayedMatrix,
+            shift && !ctrl, ctrl && !shift, shift && ctrl, event?.altKey === true)
+            .catch(err => console.warn('Erro ao selecionar feiÃ§Ãµes pela Ã¡rea:', err));
+        this.featureSelectionPolygon = [];
+        this.featureSelectionGesture = null;
+        this.limparSelecaoOverlay();
     },
 
     onWheel: function (e) {
@@ -1233,7 +1330,9 @@ window.mapEngine = {
     scheduleToolPointerFlush: function () {
         if (this.toolPointerFrame !== null || this.toolPointerInFlight ||
             !this.toolPointerPending || !this.dotNetHelper) return;
-        if (this.ferramentaAtual === 'Medicao' && window.GeoNexGraphics?._medicaoCursorAtiva) {
+        const cursorToolActive = (this.ferramentaAtual === 'Medicao' && window.GeoNexGraphics?._medicaoCursorAtiva) ||
+            (this.ferramentaAtual === 'EdicaoVertice' && window.GeoNexGraphics?._edicaoCursorAtiva);
+        if (cursorToolActive) {
             const wait = 34 - (performance.now() - this.toolPointerLastSentAt);
             if (wait > 0) {
                 if (this.toolPointerThrottleTimer === null) {
@@ -1280,6 +1379,8 @@ window.mapEngine = {
         this.toolPointerPendingInteractive = true;
         if (this.ferramentaAtual === 'Medicao' && window.GeoNexGraphics)
             window.GeoNexGraphics.atualizarCursorMedicao(point.x, point.y, sequence);
+        if (this.ferramentaAtual === 'EdicaoVertice' && window.GeoNexGraphics)
+            window.GeoNexGraphics.atualizarCursorEdicao(point.x, point.y, sequence);
         if (['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(this.ferramentaAtual) && window.GeoNexGraphics)
             window.GeoNexGraphics.atualizarCursorAquisicao(point.x, point.y, sequence);
         if (this.toolPointerSettleTimer !== null) clearTimeout(this.toolPointerSettleTimer);
@@ -1300,7 +1401,9 @@ window.mapEngine = {
         const interacaoRapida = this.toolPointerPendingInteractive;
         this.toolPointerPending = null;
         if (this.ferramentaAtual === 'Medicao' && !window.GeoNexGraphics?._medicaoCursorAtiva) return;
-        if (this.ferramentaAtual === 'Medicao') this.toolPointerLastSentAt = performance.now();
+        if (this.ferramentaAtual === 'EdicaoVertice' && !window.GeoNexGraphics?._edicaoCursorAtiva) return;
+        if (this.ferramentaAtual === 'Medicao' || this.ferramentaAtual === 'EdicaoVertice')
+            this.toolPointerLastSentAt = performance.now();
         const point = sample.point || this.obterPontoImagem(sample.clientX, sample.clientY);
         const digitizingMatrix = window.GeoNexGraphics
             ? window.GeoNexGraphics.obterMatrizApresentada()
@@ -1323,6 +1426,43 @@ window.mapEngine = {
         if (this.uiModalAberto()) {
             this.resetToolPointer();
             return;
+        }
+        if (this.featureSelectionMode) {
+            const gesture = this.featureSelectionGesture;
+            if (gesture && gesture.pointerId === e.pointerId && this.featureSelectionShape !== 'polygon') {
+                const distance = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY);
+                if (distance > 4) gesture.dragged = true;
+                if (this.featureSelectionShape === 'freehand' && gesture.dragged) {
+                    const last = gesture.points[gesture.points.length - 1];
+                    if (!last || Math.hypot(e.clientX - last.x, e.clientY - last.y) >= 3)
+                        gesture.points.push({ x: e.clientX, y: e.clientY });
+                }
+                if (gesture.dragged) {
+                    const points = this.featureSelectionShape === 'rectangle'
+                        ? [{ x: gesture.startX, y: gesture.startY }, { x: e.clientX, y: gesture.startY },
+                            { x: e.clientX, y: e.clientY }, { x: gesture.startX, y: e.clientY }]
+                        : this.featureSelectionShape === 'radius'
+                            ? this.gerarCirculoSelecao(gesture.startX, gesture.startY,
+                                Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY))
+                            : gesture.points;
+                    this.atualizarSelecaoOverlay(points);
+                }
+                return;
+            }
+            if (this.featureSelectionShape === 'polygon' && this.featureSelectionPolygon.length > 0)
+                this.atualizarSelecaoOverlay([...this.featureSelectionPolygon, { x: e.clientX, y: e.clientY }]);
+            return;
+        }
+        if (this.ferramentaAtual === 'EdicaoVertice' && this.pointerIds.has(e.pointerId) &&
+            !this.vertexEditDragging && !this.vertexEditPlacementArmed && !this.vertexMoveFeatureMode) {
+            const distance = Math.hypot(e.clientX - this.startX, e.clientY - this.startY);
+            if (distance > 10) {
+                this.vertexSelectionGesture = true;
+                this.atualizarSelecaoOverlay([
+                    { x: this.startX, y: this.startY }, { x: e.clientX, y: this.startY },
+                    { x: e.clientX, y: e.clientY }, { x: this.startX, y: e.clientY }
+                ]);
+            }
         }
         if (e.pointerType === 'touch' && this.activeTouches.has(e.pointerId)) {
             this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1362,6 +1502,21 @@ window.mapEngine = {
             }
         }
 
+        let panStartedThisMove = false;
+        if (this.panCandidate && this.panPointerId === e.pointerId &&
+            Math.hypot(e.clientX - this.startX, e.clientY - this.startY) >= 10) {
+            this.panCandidate = false;
+            this.panPointerId = null;
+            this.isDragging = true;
+            this.lastX = this.startX;
+            this.lastY = this.startY;
+            this.lastEventTime = performance.now();
+            panStartedThisMove = true;
+            this.velocityX = 0;
+            this.velocityY = 0;
+            this.container.style.cursor = 'grabbing';
+        }
+
         if (!this.isDragging) {
             if (['Medicao', 'AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto', 'EdicaoVertice'].includes(this.ferramentaAtual))
                 this.queueToolPointer(e.clientX, e.clientY, e.shiftKey);
@@ -1382,7 +1537,7 @@ window.mapEngine = {
         this.currentX = this.targetX;
         this.currentY = this.targetY;
 
-        if (deltaTime > 0) {
+        if (deltaTime > 0 && !panStartedThisMove) {
             this.velocityX = dx / deltaTime;
             this.velocityY = dy / deltaTime;
         }
@@ -1407,7 +1562,12 @@ window.mapEngine = {
         this.resetToolPointer();
         this.ferramentaAtual = nomeFerramenta;
         if (nomeFerramenta !== 'EdicaoVertice') {
+            this.setFeatureSelectionMode(false, this.featureSelectionShape);
+            this.setVertexMoveFeatureMode(false);
+        }
+        if (nomeFerramenta !== 'EdicaoVertice') {
             this.vertexEditDragging = false;
+            this.vertexEditPlacementArmed = false;
             this.vertexEditPointerStart = null;
         }
         if (this.container) {
@@ -1421,6 +1581,18 @@ window.mapEngine = {
         this.vertexEditDragging = active === true;
     },
 
+    setVertexEditPlacementArmed: function (active) {
+        this.vertexEditPlacementArmed = active === true;
+        this.vertexEditPointerStart = null;
+        if (this.vertexEditPlacementArmed) this.vertexEditDragging = false;
+    },
+
+    setVertexMoveFeatureMode: function (active) {
+        this.vertexMoveFeatureMode = active === true;
+        this.vertexSelectionGesture = false;
+        this.limparSelecaoOverlay();
+    },
+
     onPointerDown: function (e) {
         this.lastPointerClientX = e.clientX;
         this.lastPointerClientY = e.clientY;
@@ -1431,15 +1603,34 @@ window.mapEngine = {
         }
         if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
 
+        if (this.pointerIds.size === 0) {
+            this.isDragging = false;
+            this.panCandidate = false;
+            this.panPointerId = null;
+        }
+
         this.pointerIds.add(e.pointerId);
         try { this.container.setPointerCapture(e.pointerId); } catch (_) { }
 
         this.startX = e.clientX;
         this.startY = e.clientY;
         this.clickStartTime = performance.now();
+        this.vertexSelectionGesture = false;
         this.vertexEditPointerStart = this.ferramentaAtual === 'EdicaoVertice'
             ? this.obterPontoImagem(e.clientX, e.clientY)
             : null;
+
+        if (this.featureSelectionMode && e.button === 0) {
+            this.featureSelectionGesture = {
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                dragged: false,
+                points: [{ x: e.clientX, y: e.clientY }]
+            };
+            if (this.featureSelectionShape !== 'polygon') e.preventDefault();
+            return;
+        }
 
         if (e.pointerType === 'touch') {
             this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1448,6 +1639,8 @@ window.mapEngine = {
                 if (pinch) {
                     this.isPinching = true;
                     this.isDragging = true;
+                    this.panCandidate = false;
+                    this.panPointerId = null;
                     this.touchGestureMoved = true;
                     this.lastPinchDistance = pinch.distancia;
                     this.lastPinchCenterX = pinch.centroX;
@@ -1461,24 +1654,23 @@ window.mapEngine = {
         }
 
         if (e.button === 1 || (e.button === 0 && this.ferramentaAtual === 'Navegacao')) {
-            this.isDragging = true;
+            this.panCandidate = true;
+            this.panPointerId = e.pointerId;
             this.startPanX = this.targetX;
             this.startPanY = this.targetY;
 
-            this.lastX = e.clientX;
-            this.lastY = e.clientY;
-            this.lastEventTime = performance.now();
-
             this.velocityX = 0;
             this.velocityY = 0;
-
-            this.container.style.cursor = 'grabbing';
         }
     },
 
     onPointerUp: function (e, cancelado) {
         if (this.uiModalAberto()) {
             this.pointerIds.delete(e.pointerId);
+            if (this.panPointerId === e.pointerId) {
+                this.panCandidate = false;
+                this.panPointerId = null;
+            }
             return;
         }
         if (!this.pointerIds.has(e.pointerId)) return;
@@ -1488,10 +1680,21 @@ window.mapEngine = {
             if (this.container.hasPointerCapture(e.pointerId)) this.container.releasePointerCapture(e.pointerId);
         } catch (_) { }
 
+        if (this.panPointerId === e.pointerId) {
+            this.panCandidate = false;
+            this.panPointerId = null;
+        }
+
         if (cancelado) {
+            this.featureSelectionGesture = null;
+            this.vertexSelectionGesture = false;
+            this.limparSelecaoOverlay();
             this.vertexEditDragging = false;
+            this.vertexEditPlacementArmed = false;
             this.vertexEditPointerStart = null;
             this.isDragging = false;
+            this.panCandidate = false;
+            this.panPointerId = null;
             this.isPinching = false;
             this.touchGestureMoved = false;
             this.velocityX = 0;
@@ -1502,9 +1705,67 @@ window.mapEngine = {
 
         if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexEditDragging) {
             this.vertexEditDragging = false;
+            this.vertexSelectionGesture = false;
+            this.limparSelecaoOverlay();
             this.vertexEditPointerStart = null;
             this.resetToolPointer();
             this.scheduleRender();
+            return;
+        }
+
+        if (this.featureSelectionMode && this.featureSelectionGesture) {
+            const gesture = this.featureSelectionGesture;
+            this.featureSelectionGesture = null;
+            if (this.featureSelectionShape === 'polygon') {
+                if (e.button === 0 && !gesture.dragged) {
+                    const last = this.featureSelectionPolygon[this.featureSelectionPolygon.length - 1];
+                    if (!last || Math.hypot(last.x - e.clientX, last.y - e.clientY) > 2)
+                        this.featureSelectionPolygon.push({ x: e.clientX, y: e.clientY });
+                    this.atualizarSelecaoOverlay(this.featureSelectionPolygon);
+                }
+                return;
+            }
+            if (gesture.dragged && e.button === 0) {
+                let points = gesture.points;
+                if (this.featureSelectionShape === 'rectangle') {
+                    points = [{ x: gesture.startX, y: gesture.startY }, { x: e.clientX, y: gesture.startY },
+                        { x: e.clientX, y: e.clientY }, { x: gesture.startX, y: e.clientY }];
+                } else if (this.featureSelectionShape === 'radius') {
+                    points = this.gerarCirculoSelecao(gesture.startX, gesture.startY,
+                        Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY));
+                } else if (!points.some(point => point.x === e.clientX && point.y === e.clientY)) {
+                    points = [...points, { x: e.clientX, y: e.clientY }];
+                }
+                this.finalizarSelecaoPorForma(points, e);
+                return;
+            }
+            this.limparSelecaoOverlay();
+        }
+
+        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexEditPlacementArmed && e.button === 0) {
+            this.vertexEditPointerStart = null;
+            this.resetToolPointer();
+            return;
+        }
+
+        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexSelectionGesture && !this.vertexMoveFeatureMode &&
+            !this.vertexEditDragging && e.button === 0 && this.dotNetHelper) {
+            this.vertexSelectionGesture = false;
+            const points = [{ x: this.startX, y: this.startY }, { x: e.clientX, y: this.startY },
+                { x: e.clientX, y: e.clientY }, { x: this.startX, y: e.clientY }]
+                .flatMap(point => {
+                    const imagePoint = this.obterPontoImagem(point.x, point.y);
+                    return [imagePoint.x, imagePoint.y];
+                });
+            const displayedMatrix = window.GeoNexGraphics
+                ? window.GeoNexGraphics.obterMatrizApresentada()
+                : null;
+            this.dotNetHelper.invokeMethodAsync('ProcessarSelecaoVerticesPorRetangulo', points, displayedMatrix,
+                e.shiftKey, e.ctrlKey || e.metaKey)
+                .catch(err => console.warn('Erro ao selecionar vÃ©rtices:', err));
+            this.limparSelecaoOverlay();
+            this.vertexEditPointerStart = null;
+            this.resetToolPointer();
             return;
         }
 
@@ -1551,15 +1812,19 @@ window.mapEngine = {
                 this.scheduleRender();
                 return;
             }
+            this.velocityX = 0;
+            this.velocityY = 0;
         }
 
         if (e.button === 0 && tempoDecorrido < 300 && distMovida < 10) {
-            this.dispararRaycast(e.clientX, e.clientY, e.ctrlKey || e.metaKey, e.shiftKey);
+            this.dispararRaycast(e.clientX, e.clientY, e.ctrlKey || e.metaKey || e.shiftKey,
+                e.shiftKey, e.ctrlKey || e.metaKey);
         }
         this.vertexEditPointerStart = null;
     },
 
-    dispararRaycast: function (clientX, clientY, additiveSelection = false, toggleVertexSelection = false) {
+    dispararRaycast: function (clientX, clientY, additiveSelection = false,
+        toggleVertexSelection = false, removeVertexSelection = false) {
         if (this.viewportResizePending) return;
         if (!this.dotNetHelper) return;
         this.resetToolPointer();
@@ -1567,7 +1832,8 @@ window.mapEngine = {
         const digitizingMatrix = window.GeoNexGraphics
             ? window.GeoNexGraphics.obterMatrizApresentada()
             : null;
-        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y, digitizingMatrix, additiveSelection, toggleVertexSelection)
+        this.dotNetHelper.invokeMethodAsync('ProcessarCliqueRaycast', point.x, point.y, digitizingMatrix,
+            additiveSelection, toggleVertexSelection, removeVertexSelection)
             .catch(err => console.warn("Erro no Túnel:", err));
     },
 
@@ -2102,10 +2368,13 @@ window.GeoNexGraphics = {
     _destaque: [], _medicao: [], _mouse: null, _snap: null,
     _futuroDestaque: null, _futuroMedicao: null,
     _mostrarArea: false, _futuroMostrarArea: null,
-    _medicaoCursorAtiva: false, _medicaoCursorFrame: null,
+    _medicaoCursorAtiva: false, _edicaoCursorAtiva: false, _medicaoCursorFrame: null,
     _medicaoPointerSequence: 0, _medicaoSnapTipo: null,
+    _edicaoPointerSequence: 0,
     _medicaoStaticCanvas: null, _medicaoStaticCtx: null,
     _medicaoCursorCanvas: null, _medicaoCursorCtx: null,
+    _edicaoPreviewCanvas: null, _edicaoPreviewCtx: null,
+    _edicaoPreview: null, _edicaoPreviewDrag: null,
     _fase: 0, _animId: null,
     _aquisicao: {
         pontos: [], ativa: false, tipo: 'POLIGONO',
@@ -2267,9 +2536,21 @@ window.GeoNexGraphics = {
             parent.appendChild(this._medicaoCursorCanvas);
             changed = true;
         }
+        if (!this._edicaoPreviewCanvas) {
+            this._edicaoPreviewCanvas = document.createElement('canvas');
+            this._edicaoPreviewCanvas.id = 'vector-edit-preview';
+            this._edicaoPreviewCanvas.style.cssText =
+                'width:100%;height:100%;position:absolute;left:0;top:0;pointer-events:none;z-index:13;';
+            this._edicaoPreviewCtx = this._edicaoPreviewCanvas.getContext('2d');
+            parent.appendChild(this._edicaoPreviewCanvas);
+            changed = true;
+        } else if (this._edicaoPreviewCanvas.parentElement !== parent) {
+            parent.appendChild(this._edicaoPreviewCanvas);
+            changed = true;
+        }
 
         let resized = false;
-        for (const canvas of [this._medicaoStaticCanvas, this._medicaoCursorCanvas]) {
+        for (const canvas of [this._medicaoStaticCanvas, this._medicaoCursorCanvas, this._edicaoPreviewCanvas]) {
             if (canvas.width !== referencia.width || canvas.height !== referencia.height) {
                 canvas.width = referencia.width;
                 canvas.height = referencia.height;
@@ -2277,7 +2558,8 @@ window.GeoNexGraphics = {
             }
         }
         this._medicaoStaticCanvas.style.display = this._medicao.length > 0 ? '' : 'none';
-        this._medicaoCursorCanvas.style.display = this._medicaoCursorAtiva ? '' : 'none';
+        this._medicaoCursorCanvas.style.display = this._medicaoCursorAtiva || this._edicaoCursorAtiva ? '' : 'none';
+        this._edicaoPreviewCanvas.style.display = this._edicaoCursorAtiva && this._edicaoPreview ? '' : 'none';
         return changed || resized;
     },
 
@@ -2348,19 +2630,122 @@ window.GeoNexGraphics = {
         this._medicaoCursorFrame = requestAnimationFrame(() => {
             this._medicaoCursorFrame = null;
             this._desenharCursorMedicao();
+            this._desenharPreviaEdicaoVetorial();
         });
+    },
+
+    _pontoImagemParaLocalEdicao: function (point) {
+        const [a, b, c, d, e, f, originX, originY] = this._aquisicao.matriz;
+        const determinant = a * d - b * c;
+        if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-18) return null;
+        const x = point.x - e;
+        const y = point.y - f;
+        return {
+            x: (d * x - c * y) / determinant + (originX || 0),
+            y: (-b * x + a * y) / determinant + (originY || 0)
+        };
+    },
+
+    _pontoLocalParaImagemEdicao: function (point) {
+        return this._localParaImagemAquisicao(point);
+    },
+
+    _desenharPreviaEdicaoVetorial: function () {
+        const referencia = document.getElementById('overlayCanvas');
+        if (!referencia) return;
+        this._garantirCamadasMedicao(referencia);
+        const canvas = this._edicaoPreviewCanvas;
+        const ctx = this._edicaoPreviewCtx;
+        if (!canvas || !ctx) return;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const preview = this._edicaoPreview;
+        if (!this._edicaoCursorAtiva || !preview) return;
+
+        const scaleX = canvas.width / Math.max(1, canvas.clientWidth);
+        const scaleY = canvas.height / Math.max(1, canvas.clientHeight);
+        const mapScale = Math.max(0.05, Math.abs(window.mapEngine?.currentScale || 1));
+        const targetImage = this._snap || this._mouse;
+        const targetLocal = targetImage ? this._pontoImagemParaLocalEdicao(targetImage) : null;
+        const drag = this._edicaoPreviewDrag;
+        const delta = drag && targetLocal
+            ? { x: targetLocal.x - drag.start.x, y: targetLocal.y - drag.start.y }
+            : { x: 0, y: 0 };
+        ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        for (let featureIndex = 0; featureIndex < preview.features.length; featureIndex++) {
+            const feature = preview.features[featureIndex];
+            ctx.beginPath();
+            for (const path of feature.paths) {
+                if (!path.points.length) continue;
+                const first = this._pontoLocalParaImagemEdicao(this._pontoPreviaEdicao(featureIndex, path.points[0], delta));
+                ctx.moveTo(first.x, first.y);
+                for (let i = 1; i < path.points.length; i++) {
+                    const point = this._pontoLocalParaImagemEdicao(this._pontoPreviaEdicao(featureIndex, path.points[i], delta));
+                    ctx.lineTo(point.x, point.y);
+                }
+                if (path.closed) ctx.closePath();
+            }
+            if (feature.polygon) {
+                ctx.fillStyle = 'rgba(34,211,184,.16)';
+                ctx.fill('evenodd');
+            }
+            ctx.strokeStyle = 'rgba(34,211,184,.88)';
+            ctx.lineWidth = 2.2 / mapScale;
+            ctx.stroke();
+        }
+
+        const primary = preview.features[preview.primaryFeatureIndex];
+        if (!primary) return;
+        const moving = new Set(preview.selectedVertexIndices || []);
+        const activeIndex = Number.isInteger(preview.activeVertexIndex) ? preview.activeVertexIndex : -1;
+        for (let i = 0; i < primary.vertices.length; i++) {
+            const vertex = primary.vertices[i];
+            const moved = drag && drag.mode === 'feature' ||
+                drag && drag.mode === 'vertex' && (moving.has(i) || i === activeIndex);
+            const local = moved ? { x: vertex.x + delta.x, y: vertex.y + delta.y } : vertex;
+            const point = this._pontoLocalParaImagemEdicao(local);
+            const active = i === activeIndex;
+            const selected = moving.has(i);
+            const radius = (active || selected ? 6.3 : 4.8) / mapScale;
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, radius + 1.5 / mapScale, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(13,26,36,.42)';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = active ? 'rgba(255,191,71,.72)' : selected ? 'rgba(34,211,238,.58)' : 'rgba(103,232,196,.48)';
+            ctx.fill();
+            ctx.lineWidth = 1.4 / mapScale;
+            ctx.strokeStyle = 'rgba(235,255,250,.88)';
+            ctx.stroke();
+        }
+    },
+
+    _pontoPreviaEdicao: function (featureIndex, point, delta) {
+        const drag = this._edicaoPreviewDrag;
+        if (!drag) return point;
+        if (drag.mode === 'feature' && featureIndex === drag.featureIndex)
+            return { x: point.x + delta.x, y: point.y + delta.y };
+        const moving = drag.movingVertices?.[featureIndex];
+        if (drag.mode === 'vertex' && moving?.has(point.vertexIndex))
+            return { x: point.x + delta.x, y: point.y + delta.y };
+        return point;
     },
 
     _desenharCursorMedicao: function () {
         const referencia = document.getElementById('overlayCanvas');
-        if (!referencia || !this._medicaoCursorCanvas) return;
+        if (!referencia) return;
         this._garantirCamadasMedicao(referencia);
         const canvas = this._medicaoCursorCanvas;
         const ctx = this._medicaoCursorCtx;
         if (!ctx) return;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (!this._medicaoCursorAtiva || !this._mouse) return;
+        const edicaoAtiva = this._edicaoCursorAtiva;
+        if ((!this._medicaoCursorAtiva && !edicaoAtiva) || !this._mouse) return;
 
         const scaleX = canvas.width / Math.max(1, canvas.clientWidth);
         const scaleY = canvas.height / Math.max(1, canvas.clientHeight);
@@ -2370,7 +2755,7 @@ window.GeoNexGraphics = {
         const cursor = this._snap || this._mouse;
         ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
         ctx.save();
-        if (this._medicao.length > 0) {
+        if (!edicaoAtiva && this._medicao.length > 0) {
             const anchor = this._medicao[this._medicao.length - 1];
             ctx.beginPath();
             ctx.moveTo(anchor.x, anchor.y);
@@ -2382,22 +2767,25 @@ window.GeoNexGraphics = {
             ctx.setLineDash([]);
         }
 
-        ctx.beginPath();
-        ctx.moveTo(0, cursor.y);
-        ctx.lineTo(cssWidth, cursor.y);
-        ctx.moveTo(cursor.x, 0);
-        ctx.lineTo(cursor.x, cssHeight);
-        ctx.strokeStyle = 'rgba(255,255,255,.20)';
-        ctx.lineWidth = 1 / mapScale;
-        ctx.stroke();
+        if (!edicaoAtiva) {
+            ctx.beginPath();
+            ctx.moveTo(0, cursor.y);
+            ctx.lineTo(cssWidth, cursor.y);
+            ctx.moveTo(cursor.x, 0);
+            ctx.lineTo(cursor.x, cssHeight);
+            ctx.strokeStyle = 'rgba(255,255,255,.20)';
+            ctx.lineWidth = 1 / mapScale;
+            ctx.stroke();
+        }
 
         if (this._snap) {
             const size = 7 / mapScale;
             const type = this._medicaoSnapTipo;
             const colors = { Vertex: '#fde047', Midpoint: '#22d3ee', Edge: '#fb923c', Intersection: '#e879f9' };
+            ctx.globalAlpha = edicaoAtiva ? .72 : 1;
             ctx.strokeStyle = colors[type] || '#fde047';
-            ctx.fillStyle = type === 'Vertex' ? 'rgba(253,224,71,.2)' : 'rgba(34,211,238,.18)';
-            ctx.lineWidth = 2 / mapScale;
+            ctx.fillStyle = type === 'Vertex' ? 'rgba(253,224,71,.16)' : 'rgba(34,211,238,.14)';
+            ctx.lineWidth = 1.8 / mapScale;
             if (type === 'Edge') {
                 ctx.beginPath();
                 ctx.moveTo(cursor.x, cursor.y - size);
@@ -2419,11 +2807,15 @@ window.GeoNexGraphics = {
             }
         } else {
             ctx.beginPath();
+            ctx.arc(cursor.x, cursor.y, (edicaoAtiva ? 6.5 : 3.5) / mapScale, 0, Math.PI * 2);
+            ctx.fillStyle = edicaoAtiva ? 'rgba(34,211,184,.18)' : '#f8fafc';
+            ctx.fill();
+            ctx.beginPath();
             ctx.arc(cursor.x, cursor.y, 3.5 / mapScale, 0, Math.PI * 2);
-            ctx.fillStyle = '#f8fafc';
+            ctx.fillStyle = edicaoAtiva ? 'rgba(34,211,184,.68)' : '#f8fafc';
             ctx.fill();
             ctx.lineWidth = 1.6 / mapScale;
-            ctx.strokeStyle = '#2563eb';
+            ctx.strokeStyle = edicaoAtiva ? 'rgba(255,255,255,.78)' : '#2563eb';
             ctx.stroke();
         }
         ctx.restore();
@@ -2728,12 +3120,12 @@ window.GeoNexGraphics = {
         }
         if (!this._aquisicao.ativa && this._aquisicao.pontos.length === 0 &&
             !estadoPreviaAlterado) {
-            if (matrizAlterada && this._medicaoCursorAtiva)
+            if (matrizAlterada && (this._medicaoCursorAtiva || this._edicaoCursorAtiva))
                 this._recalcularCursorFerramentaApresentado();
             return;
         }
         this.desenharFrameEstatico();
-        if (matrizAlterada && (this._aquisicao.ativa || this._medicaoCursorAtiva))
+        if (matrizAlterada && (this._aquisicao.ativa || this._medicaoCursorAtiva || this._edicaoCursorAtiva))
             this._recalcularCursorFerramentaApresentado();
     },
 
@@ -3065,6 +3457,101 @@ window.GeoNexGraphics = {
         this._medicaoCursorAtiva = !!ativo;
         const referencia = document.getElementById('overlayCanvas');
         if (referencia) this._garantirCamadasMedicao(referencia);
+        this._agendarCursorMedicao();
+    },
+
+    definirCursorEdicaoAtivo: function (ativo) {
+        this._edicaoCursorAtiva = !!ativo;
+        this._edicaoPointerSequence = 0;
+        this._mouse = null;
+        this._snap = null;
+        this._medicaoSnapTipo = null;
+        const referencia = document.getElementById('overlayCanvas');
+        if (referencia) this._garantirCamadasMedicao(referencia);
+        this._agendarCursorMedicao();
+    },
+
+    atualizarCursorEdicao: function (imageX, imageY, pointerSequence) {
+        if (!this._edicaoCursorAtiva) return;
+        pointerSequence = Number(pointerSequence) || 0;
+        if (pointerSequence > 0 && pointerSequence < this._edicaoPointerSequence) return;
+        if (pointerSequence > 0) this._edicaoPointerSequence = pointerSequence;
+        this._mouse = Number.isFinite(imageX) && Number.isFinite(imageY)
+            ? { x: imageX, y: imageY }
+            : null;
+        this._snap = null;
+        this._medicaoSnapTipo = null;
+        this._agendarCursorMedicao();
+    },
+
+    definirCursorEdicao: function (mx, my, sx, sy, snapTipo, pointerSequence, activeVertexIndex) {
+        if (!this._edicaoCursorAtiva) return;
+        pointerSequence = Number(pointerSequence) || 0;
+        if (pointerSequence > 0 && pointerSequence < this._edicaoPointerSequence) return;
+        if (pointerSequence > 0) this._edicaoPointerSequence = pointerSequence;
+        this._mouse = Number.isFinite(mx) && Number.isFinite(my) ? { x: mx, y: my } : null;
+        this._snap = Number.isFinite(sx) && Number.isFinite(sy) ? { x: sx, y: sy } : null;
+        this._medicaoSnapTipo = this._snap ? snapTipo : null;
+        if (this._edicaoPreview && Number.isInteger(activeVertexIndex))
+            this._edicaoPreview.activeVertexIndex = activeVertexIndex;
+        this._agendarCursorMedicao();
+    },
+
+    definirPreviaEdicaoVetorial: function (preview) {
+        this._edicaoPreview = preview && Array.isArray(preview.features) ? preview : null;
+        this._edicaoPreviewDrag = null;
+        const referencia = document.getElementById('overlayCanvas');
+        if (referencia) this._garantirCamadasMedicao(referencia);
+        this._agendarCursorMedicao();
+    },
+
+    definirVerticeAtivoEdicao: function (index) {
+        if (!this._edicaoPreview) return;
+        this._edicaoPreview.activeVertexIndex = Number.isInteger(index) ? index : -1;
+        this._agendarCursorMedicao();
+    },
+
+    iniciarArrasteVerticeEdicao: function (index, startX, startY, movingVertices) {
+        if (!this._edicaoPreview || !this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex]) return;
+        this._edicaoPreview.activeVertexIndex = Number.isInteger(index) ? index : -1;
+        const start = Number.isFinite(startX) && Number.isFinite(startY)
+            ? { x: startX, y: startY }
+            : this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex].vertices[index];
+        if (!start) return;
+        const moving = Array.isArray(movingVertices) ? movingVertices : this._edicaoPreview.movingVertices || [];
+        this._edicaoPreviewDrag = {
+            mode: 'vertex', start,
+            movingVertices: moving.map(indices => new Set(Array.isArray(indices) ? indices : []))
+        };
+        this._agendarCursorMedicao();
+    },
+
+    iniciarReposicionamentoVerticeEdicao: function (index) {
+        if (!this._edicaoPreview || !this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex]) return;
+        const vertex = this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex].vertices[index];
+        if (!vertex) return;
+        this._edicaoPreview.activeVertexIndex = index;
+        this._edicaoPreview.selectedVertexIndices = [index];
+        const moving = this._edicaoPreview.movingVertices || [];
+        this._edicaoPreviewDrag = {
+            mode: 'vertex', start: vertex,
+            movingVertices: moving.map(indices => new Set(Array.isArray(indices) ? indices : []))
+        };
+        this._agendarCursorMedicao();
+    },
+
+    iniciarArrasteFeicaoEdicao: function (startX, startY) {
+        if (!this._edicaoPreview || !this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex] ||
+            !Number.isFinite(startX) || !Number.isFinite(startY)) return;
+        this._edicaoPreviewDrag = {
+            mode: 'feature', featureIndex: this._edicaoPreview.primaryFeatureIndex,
+            start: { x: startX, y: startY }
+        };
+        this._agendarCursorMedicao();
+    },
+
+    finalizarArrasteEdicaoVetorial: function () {
+        this._edicaoPreviewDrag = null;
         this._agendarCursorMedicao();
     },
 

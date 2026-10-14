@@ -58,6 +58,7 @@ public partial class LocalMapServer
 
         // 8. FERRAMENTA DE MEDIÇÃO
         if (!clientRenderedDigitizingPreview && !_mapService.ClientRenderedMeasurementPreview &&
+            !_mapService.ClientRenderedVertexEditingCursor &&
             (_mapService.PontosMedicao.Count > 0 || _mapService.PontoCursorMundo.HasValue))
         {
             canvas.SetMatrix(matriz);
@@ -166,7 +167,8 @@ public partial class LocalMapServer
             // ==========================================================
             // >>> UPGRADE PROFISSIONAL: CROSSHAIR E HUD DINÂMICO <<<
             // ==========================================================
-            if (_mapService.PontoCursorMundo.HasValue && !_mapService.ClientRenderedMeasurementPreview)
+            if (_mapService.PontoCursorMundo.HasValue && !_mapService.ClientRenderedMeasurementPreview &&
+                !_mapService.ClientRenderedVertexEditingCursor)
             {
                 var cursorPts = _mapService.PontoCursorMundo.Value;
 
@@ -257,7 +259,8 @@ public partial class LocalMapServer
         } // Fim do bloco if (ptsAquisicao.Count > 0)
 
         // 9. SNAP HOVER MAGNÉTICO
-        if (!clientRenderedDigitizingPreview && !_mapService.ClientRenderedMeasurementPreview && _mapService.PontoCursorSnap.HasValue)
+        if (!clientRenderedDigitizingPreview && !_mapService.ClientRenderedMeasurementPreview &&
+            !_mapService.ClientRenderedVertexEditingCursor && _mapService.PontoCursorSnap.HasValue)
         {
             canvas.SetMatrix(matriz);
             var snapPt = _mapService.PontoCursorSnap.Value;
@@ -269,8 +272,8 @@ public partial class LocalMapServer
                 SnapKind.Intersection => SKColors.Magenta,
                 _ => SKColors.Yellow
             };
-            using var pincelSnap = new SKPaint { Style = SKPaintStyle.Stroke, Color = snapColor, StrokeWidth = 2.0f / zoomReal, IsAntialias = true };
-            using var pincelSnapFill = new SKPaint { Style = SKPaintStyle.Fill, Color = snapColor.WithAlpha(80), IsAntialias = true };
+            using var pincelSnap = new SKPaint { Style = SKPaintStyle.Stroke, Color = snapColor.WithAlpha(190), StrokeWidth = 2.0f / zoomReal, IsAntialias = true };
+            using var pincelSnapFill = new SKPaint { Style = SKPaintStyle.Fill, Color = snapColor.WithAlpha(55), IsAntialias = true };
             float size = 14f / zoomReal;
             var rect = new SKRect(snapPt.X - size / 2, snapPt.Y - size / 2, snapPt.X + size / 2, snapPt.Y + size / 2);
             switch (_mapService.PontoCursorSnapTipo)
@@ -308,7 +311,7 @@ public partial class LocalMapServer
         // =========================================================================
         // 10. CONTORNO ANIMADO DA FEIÇÃO SELECIONADA (MARCHING ANTS)
         // =========================================================================
-        if (_mapService.CaminhoDestaquePoligono != null)
+        if (!_mapService.ClientRenderedVectorEditOverlay && _mapService.CaminhoDestaquePoligono != null)
         {
             canvas.SetMatrix(matriz);
             using var paintM = new SKPaint
@@ -323,7 +326,7 @@ public partial class LocalMapServer
             canvas.DrawPath(_mapService.CaminhoDestaquePoligono, paintFill);
             canvas.DrawPath(_mapService.CaminhoDestaquePoligono, paintM);
         }
-        if (_mapService.CaminhoDestaqueLinha != null)
+        if (!_mapService.ClientRenderedVectorEditOverlay && _mapService.CaminhoDestaqueLinha != null)
         {
             canvas.SetMatrix(matriz);
             using var paintM = new SKPaint
@@ -339,48 +342,51 @@ public partial class LocalMapServer
 
         lock (_mapService.VectorEditOverlayGate)
         {
-            foreach (SKPath preview in _mapService.CaminhosEdicaoPreview)
+            if (!_mapService.ClientRenderedVectorEditOverlay)
             {
-                canvas.SetMatrix(matriz);
-                if (_mapService.CaminhoDestaquePoligono != null)
+                foreach (SKPath preview in _mapService.CaminhosEdicaoPreview)
                 {
-                    using var previewFill = new SKPaint
+                    canvas.SetMatrix(matriz);
+                    if (_mapService.CaminhoDestaquePoligono != null)
                     {
-                        Style = SKPaintStyle.Fill,
-                        Color = new SKColor(34, 211, 184, 48),
+                        using var previewFill = new SKPaint
+                        {
+                            Style = SKPaintStyle.Fill,
+                            Color = new SKColor(34, 211, 184, 48),
+                            IsAntialias = true
+                        };
+                        canvas.DrawPath(preview, previewFill);
+                    }
+                    using var previewStroke = new SKPaint
+                    {
+                        Style = SKPaintStyle.Stroke,
+                        Color = new SKColor(34, 211, 184),
+                        StrokeWidth = 2.5f / zoomReal,
+                        StrokeJoin = SKStrokeJoin.Round,
+                        StrokeCap = SKStrokeCap.Round,
                         IsAntialias = true
                     };
-                    canvas.DrawPath(preview, previewFill);
+                    canvas.DrawPath(preview, previewStroke);
                 }
-                using var previewStroke = new SKPaint
-                {
-                    Style = SKPaintStyle.Stroke,
-                    Color = new SKColor(34, 211, 184),
-                    StrokeWidth = 2.5f / zoomReal,
-                    StrokeJoin = SKStrokeJoin.Round,
-                    StrokeCap = SKStrokeCap.Round,
-                    IsAntialias = true
-                };
-                canvas.DrawPath(preview, previewStroke);
-            }
 
-            if (_mapService.VerticesEdicao.Length > 0)
-            {
-                canvas.SetMatrix(matriz);
-                using var handleFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(13, 26, 36), IsAntialias = true };
-                using var handleBorder = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(103, 232, 196), StrokeWidth = 1.6f / zoomReal, IsAntialias = true };
-                using var activeFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(255, 191, 71), IsAntialias = true };
-                using var selectedFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(34, 211, 238), IsAntialias = true };
-                HashSet<int> selectedVertices = _mapService.IndicesVerticesEdicaoSelecionados.ToHashSet();
-                for (int i = 0; i < _mapService.VerticesEdicao.Length; i++)
+                if (_mapService.VerticesEdicao.Length > 0)
                 {
-                    SKPoint vertex = _mapService.VerticesEdicao[i];
-                    bool active = i == _mapService.IndiceVerticeEdicaoAtivo;
-                    bool selected = selectedVertices.Contains(i);
-                    float radius = (active || selected ? 6.5f : 5f) / zoomReal;
-                    canvas.DrawCircle(vertex, radius + 1.8f / zoomReal, handleFill);
-                    canvas.DrawCircle(vertex, radius, active ? activeFill : selected ? selectedFill : handleFill);
-                    canvas.DrawCircle(vertex, radius, handleBorder);
+                    canvas.SetMatrix(matriz);
+                    using var handleFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(13, 26, 36, 105), IsAntialias = true };
+                    using var handleBorder = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(103, 232, 196, 215), StrokeWidth = 1.6f / zoomReal, IsAntialias = true };
+                    using var activeFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(255, 191, 71, 175), IsAntialias = true };
+                    using var selectedFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(34, 211, 238, 145), IsAntialias = true };
+                    HashSet<int> selectedVertices = _mapService.IndicesVerticesEdicaoSelecionados.ToHashSet();
+                    for (int i = 0; i < _mapService.VerticesEdicao.Length; i++)
+                    {
+                        SKPoint vertex = _mapService.VerticesEdicao[i];
+                        bool active = i == _mapService.IndiceVerticeEdicaoAtivo;
+                        bool selected = selectedVertices.Contains(i);
+                        float radius = (active || selected ? 6.5f : 5f) / zoomReal;
+                        canvas.DrawCircle(vertex, radius + 1.8f / zoomReal, handleFill);
+                        canvas.DrawCircle(vertex, radius, active ? activeFill : selected ? selectedFill : handleFill);
+                        canvas.DrawCircle(vertex, radius, handleBorder);
+                    }
                 }
             }
         }

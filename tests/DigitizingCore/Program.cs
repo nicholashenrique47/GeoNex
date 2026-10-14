@@ -339,6 +339,25 @@ var sharedEdgeRight = CreateEditingPolygon(
     new(5, 0), new(5, 5), new(10, 5), new(10, 0), new(5, 0));
 var separatePolygon = CreateEditingPolygon(
     new(20, 0), new(20, 5), new(25, 5), new(25, 0), new(20, 0));
+var mergedAdjacentPolygons = VectorGeometryEditingService.MergePolygons([sharedEdgeLeft, sharedEdgeRight], 0);
+Check(mergedAdjacentPolygons is Polygon && mergedAdjacentPolygons.IsValid &&
+    Math.Abs(mergedAdjacentPolygons.Area - 50) < 1e-9,
+    "Merging adjacent selected polygons must dissolve their shared edge and preserve their combined area.");
+try
+{
+    VectorGeometryEditingService.MergePolygons([sharedEdgeLeft, separatePolygon], 0);
+    throw new InvalidOperationException("Disconnected polygons were stored in a single-polygon primary feature.");
+}
+catch (InvalidOperationException exception)
+{
+    Check(exception.Message.Contains("multipartes", StringComparison.OrdinalIgnoreCase),
+        "A single-polygon primary must reject a disconnected merge instead of losing geometry.");
+}
+var multiPolygonPrimary = editingFactory.CreateMultiPolygon([sharedEdgeLeft]);
+var mergedDisconnectedPolygons = VectorGeometryEditingService.MergePolygons([multiPolygonPrimary, separatePolygon], 0);
+Check(mergedDisconnectedPolygons is MultiPolygon mergedMultiPolygon && mergedMultiPolygon.IsValid &&
+    mergedMultiPolygon.NumGeometries == 2 && Math.Abs(mergedMultiPolygon.Area - 50) < 1e-9,
+    "A multipolygon primary must preserve disconnected selected polygons in the merge result.");
 var sharedVertexAddress = VectorGeometryEditingService.GetVertices(sharedEdgeLeft)
     .Single(vertex => vertex.X == 5 && vertex.Y == 5).Address;
 var movedSharedGeometries = VectorGeometryEditingService.MoveCoincidentVertices(

@@ -1403,6 +1403,7 @@
 .vector-ribbon-group:last-child { border-right: 0; }
 .vector-ribbon-group-label { flex: 0 0 auto; color: #7891a3; font-size: 7px; font-weight: 750; letter-spacing: .55px; }
 .vector-ribbon-group-actions { display: flex; min-width: 0; align-items: center; flex-wrap: nowrap; gap: 3px; }
+.vector-ribbon-group.selection-tools .vector-ribbon-group-actions { flex-wrap: wrap; }
 .ribbon-tool-button { display: inline-flex; min-height: 25px; align-items: center; justify-content: center; gap: 4px; padding: 3px 6px; color: #c9d6df; border: 1px solid #2c4050; border-radius: 5px; background: linear-gradient(180deg, #1a2935, #15222d); font: 550 8px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; transition: background .14s, color .14s, border-color .14s; }
 .ribbon-tool-button > span[aria-hidden=true] { color: #91ddc3; font-size: 13px; line-height: 1; }
 .ribbon-tool-button:hover:not(:disabled) { color: #eff8f6; border-color: #4d776e; background: #203a38; }

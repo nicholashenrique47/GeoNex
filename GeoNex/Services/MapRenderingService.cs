@@ -266,6 +266,8 @@ namespace GeoNex.Services
         public List<SkiaSharp.SKPoint> PontosAquisicao { get; set; } = new();
         public volatile bool ClientRenderedDigitizingPreview;
         public volatile bool ClientRenderedMeasurementPreview;
+        public volatile bool ClientRenderedVertexEditingCursor;
+        public volatile bool ClientRenderedVectorEditOverlay;
         public SkiaSharp.SKPoint? PontoCursorSnap { get; set; }
         public SnapKind? PontoCursorSnapTipo { get; set; }
         public SkiaSharp.SKPoint? PontoCursorMundo { get; set; }
@@ -819,6 +821,8 @@ namespace GeoNex.Services
             OnMapInvalidated?.Invoke();
         }
 
+        public void RequestOverlayRedraw() => OnMapInvalidated?.Invoke();
+
         public void InvalidateGlobalCache()
             => InvalidatePresentationCache(vectorChanged: true);
 
@@ -1164,7 +1168,7 @@ namespace GeoNex.Services
                 IndicesVerticesEdicaoSelecionados = Array.Empty<int>();
                 IndiceVerticeEdicaoAtivo = indiceAtivo;
             }
-            RequestRedraw();
+            RequestOverlayRedraw();
         }
 
         public void DefinirIndiceVerticeEdicao(int indiceAtivo)
@@ -1174,7 +1178,7 @@ namespace GeoNex.Services
                 if (IndiceVerticeEdicaoAtivo == indiceAtivo) return;
                 IndiceVerticeEdicaoAtivo = indiceAtivo;
             }
-            RequestRedraw();
+            RequestOverlayRedraw();
         }
 
         public void DefinirIndicesVerticesEdicaoSelecionados(IEnumerable<int> indices)
@@ -1186,7 +1190,7 @@ namespace GeoNex.Services
                 if (IndicesVerticesEdicaoSelecionados.SequenceEqual(selected)) return;
                 IndicesVerticesEdicaoSelecionados = selected;
             }
-            RequestRedraw();
+            RequestOverlayRedraw();
         }
 
         public void LimparOverlayEdicao() => DefinirOverlayEdicao((SKPath?)null, Array.Empty<SKPoint>());
@@ -1235,6 +1239,15 @@ namespace GeoNex.Services
             float skiaX = (float)(lng - OffsetMundoX);
             float skiaY = (float)-(lat - OffsetMundoY);
             var rectClique = new SkiaSharp.SKRect(skiaX - (float)toleranciaMetros, skiaY - (float)toleranciaMetros, skiaX + (float)toleranciaMetros, skiaY + (float)toleranciaMetros);
+            using var hitPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = (float)Math.Max(1e-8, toleranciaMetros * 2),
+                StrokeCap = SKStrokeCap.Round,
+                StrokeJoin = SKStrokeJoin.Round,
+                IsAntialias = true
+            };
+            using var strokedPath = new SKPath();
 
             for (int i = OrdemCamadas.Count - 1; i >= 0; i--)
             {
@@ -1259,24 +1272,30 @@ namespace GeoNex.Services
                     
                     foreach (var c in candidatos)
                     {
-                        var path = c.GetPath(shapefile, OffsetMundoX, OffsetMundoY);
-                        if (path != null)
+                        bool hit;
+                        if (c.Kind == GeometryKind.Point)
                         {
-                            bool hit = false;
-                            if (c.Kind == GeometryKind.Polygon)
-                            {
-                                hit = path.Contains(skiaX, skiaY);
-                            }
-                            else
-                            {
-                                hit = path.Bounds.IntersectsWith(rectClique);
-                            }
+                            MapLocalCoordinate point = c.CentroidLocalPrecise;
+                            double dx = skiaX - point.X;
+                            double dy = skiaY - point.Y;
+                            hit = dx * dx + dy * dy <= toleranciaMetros * toleranciaMetros;
+                        }
+                        else if (c.GetPath(shapefile, OffsetMundoX, OffsetMundoY) is { } path &&
+                            path.Bounds.IntersectsWith(rectClique))
+                        {
+                            hit = c.Kind == GeometryKind.Polygon && path.Contains(skiaX, skiaY);
+                            if (!hit && hitPaint.GetFillPath(path, strokedPath))
+                                hit = strokedPath.Contains(skiaX, skiaY);
+                        }
+                        else
+                        {
+                            hit = false;
+                        }
 
-                            if (hit)
-                            {
-                                melhorCandidato = c;
-                                break;
-                            }
+                        if (hit)
+                        {
+                            melhorCandidato = c;
+                            break;
                         }
                     }
 
@@ -1313,7 +1332,7 @@ namespace GeoNex.Services
                     CaminhoDestaqueLinha = new SKPath(path);
                 }
             }
-            RequestRedraw();
+            RequestOverlayRedraw();
         }
 
         public void Dispose()

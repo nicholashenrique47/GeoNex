@@ -83,6 +83,14 @@ internal static class HighZoomPreviewContracts
                     if (!replacementImage.Pixels.SequenceEqual(expected))
                         throw new InvalidOperationException("Same-camera replacement served stale PNG");
 
+                    long overlayRevision = (long)mapType.GetProperty("SceneRevision")!.GetValue(map)!;
+                    mapType.GetMethod("RequestOverlayRedraw")!.Invoke(map, null);
+                    if ((long)mapType.GetProperty("SceneRevision")!.GetValue(map)! != overlayRevision)
+                        throw new InvalidOperationException("Overlay redraw invalidated the base scene");
+                    object?[] overlayArgs = { null };
+                    using (var overlayCache = (IDisposable?)mapType.GetMethod("AcquireGlobalCache")!.Invoke(map, overlayArgs))
+                        if (overlayCache is null) throw new InvalidOperationException("Overlay redraw discarded the reusable base scene");
+
                     // Simulate an old preview still inside a native encoder while
                     // the final renderer is also busy. Its successor must stay in
                     // the preview lane instead of joining the full-render queue.

@@ -832,11 +832,11 @@
                 }
                 else if (SelectedVectorFeatureState is { } ribbonFeature)
                 {
-                    <div class="vector-ribbon-target-summary" title="@ribbonFeature.Key.LayerName"><span>FEIÇÃO ATIVA</span><strong>@ribbonFeature.Key.LayerName <small>FID @ribbonFeature.Key.SourceFeatureId</small></strong></div>
+                    <div class="vector-ribbon-target-summary" title="@ribbonFeature.Key.LayerName"><span>FEIÇÃO ATIVA</span><strong>@ribbonFeature.Key.LayerName <small>FID @IdentificadorFeicaoExibicao(ribbonFeature.Key)</small></strong></div>
                 }
                 else if (_vectorCutMode || _vectorRingMode || _vectorReshapeMode)
                 {
-                    <div class="vector-ribbon-target-summary"><span>OPERAÇÃO SOBRE</span><strong>@CamadaDestinoAquisicao · FID @SelectedVectorFeatureState?.Key.SourceFeatureId</strong></div>
+                    <div class="vector-ribbon-target-summary"><span>OPERAÇÃO SOBRE</span><strong>@CamadaDestinoAquisicao · FID @(SelectedVectorFeatureState is { } activeFeature ? IdentificadorFeicaoExibicao(activeFeature.Key) : "—")</strong></div>
                 }
                 else
                 {
@@ -861,21 +861,30 @@
             <div class="vector-ribbon-tools">
                 @if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorCutMode && !_vectorRingMode && !_vectorReshapeMode)
                 {
-                    <section class="vector-ribbon-group" aria-label="Seleção e topologia">
+                    <section class="vector-ribbon-group selection-tools" aria-label="Seleção e topologia">
                         <span class="vector-ribbon-group-label">SELEÇÃO</span>
                         <div class="vector-ribbon-group-actions">
-                            <button type="button" class="ribbon-tool-button" @onclick="PrepararMesclagemPoligonos" title="Ctrl+clique em feições da mesma camada para seleção múltipla"><span aria-hidden="true">⌖</span> Selecionar feições</button>
+                            <button type="button" class="ribbon-tool-button @(!_vectorFeatureSelectionMode && !_vectorMoveFeatureMode ? "selected" : "")" aria-pressed="@(!_vectorFeatureSelectionMode && !_vectorMoveFeatureMode)" @onclick="AbrirEdicaoVetorialAvancada" title="Arraste um nó para mover; arraste uma área para selecionar vários vértices"><span aria-hidden="true">✥</span> Editar vértices</button>
+                            <button type="button" class="ribbon-tool-button @(_vectorMoveFeatureMode ? "selected" : "")" aria-pressed="@_vectorMoveFeatureMode" disabled="@(SelectedVectorFeatureState is null || _vectorFeatureSelectionMode)" @onclick="AlternarModoMoverFeicao" title="Ativa o movimento do corpo da feição, separado da seleção de nós"><span aria-hidden="true">⤧</span> Mover feição</button>
+                            <button type="button" class="ribbon-tool-button @(_vectorFeatureSelectionMode ? "selected" : "")" aria-pressed="@_vectorFeatureSelectionMode" @onclick="PrepararMesclagemPoligonos" title="Clique seleciona; Ctrl/Shift alterna. Arraste retângulo, polígono, mão livre ou raio"><span aria-hidden="true">⌖</span> Selecionar feições</button>
                             <button type="button" class="ribbon-tool-button" disabled="@(_vectorFeatureEditSelection.Count == 0)" @onclick="LimparSelecaoEdicaoVetorial"><span aria-hidden="true">×</span> Limpar</button>
+                            @if (_vectorFeatureSelectionMode)
+                            {
+                                <button type="button" class="ribbon-tool-button @(_vectorFeatureSelectionShape == "rectangle" ? "selected" : "")" aria-pressed="@(_vectorFeatureSelectionShape == "rectangle")" @onclick="SelecionarFormaRetangular" title="Arraste um retângulo; clique seleciona uma feição"><span aria-hidden="true">▱</span> Retângulo</button>
+                                <button type="button" class="ribbon-tool-button @(_vectorFeatureSelectionShape == "polygon" ? "selected" : "")" aria-pressed="@(_vectorFeatureSelectionShape == "polygon")" @onclick="SelecionarFormaPoligonal" title="Clique para desenhar o polígono; clique direito conclui"><span aria-hidden="true">⬠</span> Polígono</button>
+                                <button type="button" class="ribbon-tool-button @(_vectorFeatureSelectionShape == "freehand" ? "selected" : "")" aria-pressed="@(_vectorFeatureSelectionShape == "freehand")" @onclick="SelecionarFormaMaoLivre" title="Arraste à mão livre para selecionar feições"><span aria-hidden="true">〰</span> Mão livre</button>
+                                <button type="button" class="ribbon-tool-button @(_vectorFeatureSelectionShape == "radius" ? "selected" : "")" aria-pressed="@(_vectorFeatureSelectionShape == "radius")" @onclick="SelecionarFormaRaio" title="Arraste do centro até definir o raio de seleção"><span aria-hidden="true">◉</span> Raio</button>
+                            }
                             @if (_vectorFeatureEditSelection.Count > 1)
                             {
                                 <details class="vector-ribbon-menu">
                                     <summary>Mesclar <span class="ribbon-count">@_vectorFeatureEditSelection.Count</span></summary>
                                     <div class="vector-ribbon-popover selection-popover">
                                         <strong>Feições selecionadas</strong>
-                                        <small>A feição principal preserva os atributos. Ctrl+clique adiciona ou remove feições da mesma camada.</small>
+                                        <small>A feição principal preserva os atributos. Clique alterna; Shift adiciona; Ctrl remove; Ctrl+Shift intersecta.</small>
                                         @foreach (var featureKey in _vectorFeatureEditSelection)
                                         {
-                                            <button type="button" class="ribbon-selection-item @(_selectedVectorFeatureForEdit == featureKey ? "selected" : "")" @onclick="() => DefinirFeicaoPrincipal(featureKey)"><span>FID @featureKey.SourceFeatureId</span><small>@(_selectedVectorFeatureForEdit == featureKey ? "Principal · mantém atributos" : "Definir como principal")</small></button>
+                                            <button type="button" class="ribbon-selection-item @(_selectedVectorFeatureForEdit == featureKey ? "selected" : "")" @onclick="() => DefinirFeicaoPrincipal(featureKey)"><span>FID @IdentificadorFeicaoExibicao(featureKey)</span><small>@(_selectedVectorFeatureForEdit == featureKey ? "Principal · mantém atributos" : "Definir como principal")</small></button>
                                         }
                                         <button type="button" class="ribbon-popover-action" disabled="@(!CanMergeSelectedPolygons)" @onclick="MesclarPoligonosSelecionadosAsync">Mesclar polígonos</button>
                                         <button type="button" class="ribbon-popover-action" disabled="@(!CanMergeSelectedLines)" @onclick="MesclarLinhasSelecionadasAsync">Mesclar linhas conectadas</button>
@@ -888,7 +897,7 @@
                     <section class="vector-ribbon-group" aria-label="Edição da geometria">
                         <span class="vector-ribbon-group-label">GEOMETRIA</span>
                         <div class="vector-ribbon-group-actions">
-                            <button type="button" class="ribbon-tool-button @(_insertVectorVertexMode ? "selected" : "")" aria-pressed="@_insertVectorVertexMode" disabled="@(SelectedVectorFeatureState is null)" @onclick="AlternarModoInserirVertice"><span aria-hidden="true">＋</span> Vértice</button>
+                            <button type="button" class="ribbon-tool-button @(_insertVectorVertexMode ? "selected" : "")" aria-pressed="@_insertVectorVertexMode" disabled="@(SelectedVectorFeatureState is null || _vectorMoveFeatureMode)" @onclick="AlternarModoInserirVertice"><span aria-hidden="true">＋</span> Vértice</button>
                             <button type="button" class="ribbon-tool-button" disabled="@(!CanRemoveSelectedVectorVertices)" @onclick="RemoverVerticesSelecionadosAsync" title="Remove os nós selecionados em uma única edição"><span aria-hidden="true">−</span> Nós (@SelectedVectorVertexSelectionCount)</button>
                             <button type="button" class="ribbon-tool-button" disabled="@(!CanRemoveHoveredVectorVertex)" @onclick="RemoverVerticeSelecionadoAsync" title="Passe o cursor sobre o vértice a remover"><span aria-hidden="true">⌫</span> Vértice</button>
                             <button type="button" class="ribbon-tool-button" disabled="@(!CanCutSelectedVectorGeometry)" @onclick="PrepararCorteGeometria"><span aria-hidden="true">╱</span> Dividir</button>
@@ -1076,7 +1085,7 @@
                 <div class="tool-identity"><span class="tool-symbol" aria-hidden="true">◇</span><div><h2>@(_vectorCutMode ? "Corte de geometria" : _vectorRingMode ? "Anel interno" : _vectorReshapeMode ? "Remodelagem de borda" : "Vetorização")</h2><span>@(_vectorCutMode || _vectorRingMode || _vectorReshapeMode ? "Edição vetorial" : _modoAvancadoVetorizacao ? "Ferramentas e precisão" : $"{MapService.PontosAquisicao.Count} ponto(s)")</span></div></div>
                 @if (_vectorCutMode || _vectorRingMode || _vectorReshapeMode)
                 {
-                    <div class="cut-target-label"><span>@(_vectorRingMode ? "POLÍGONO ALVO" : "FEIÇÃO ALVO")</span><strong>@CamadaDestinoAquisicao · FID @SelectedVectorFeatureState?.Key.SourceFeatureId</strong></div>
+                    <div class="cut-target-label"><span>@(_vectorRingMode ? "POLÍGONO ALVO" : "FEIÇÃO ALVO")</span><strong>@CamadaDestinoAquisicao · FID @(SelectedVectorFeatureState is { } targetFeature ? IdentificadorFeicaoExibicao(targetFeature.Key) : "—")</strong></div>
                 }
                 else
                 {
@@ -1486,7 +1495,7 @@
                                         @foreach (var featureKey in _vectorFeatureEditSelection)
                                         {
                                             <button type="button" class="workbench-button vector-selection-feature @(_selectedVectorFeatureForEdit == featureKey ? "selected" : "")" @onclick="() => DefinirFeicaoPrincipal(featureKey)">
-                                                <span>FID @featureKey.SourceFeatureId</span><small>@(_selectedVectorFeatureForEdit == featureKey ? "Principal · mantém atributos" : "Definir como principal")</small>
+                                                <span>FID @IdentificadorFeicaoExibicao(featureKey)</span><small>@(_selectedVectorFeatureForEdit == featureKey ? "Principal · mantém atributos" : "Definir como principal")</small>
                                             </button>
                                         }
                                     </div>
@@ -1630,7 +1639,7 @@
                 {
                     <section class="vector-operation-workbench" aria-label="Operação de edição vetorial">
                         <div class="vectorization-mode-copy"><span>VETORIZAÇÃO AVANÇADA · OPERAÇÃO ATIVA</span><strong>@(_vectorCutMode ? "Dividir feição" : _vectorRingMode ? "Adicionar anel interno" : "Remodelar borda")</strong></div>
-                        <div class="vector-operation-target"><span>FEIÇÃO ALVO</span><strong>@CamadaDestinoAquisicao · FID @SelectedVectorFeatureState?.Key.SourceFeatureId</strong><small>@MapService.PontosAquisicao.Count ponto(s) no esboço</small></div>
+                        <div class="vector-operation-target"><span>FEIÇÃO ALVO</span><strong>@CamadaDestinoAquisicao · FID @(SelectedVectorFeatureState is { } targetFeature ? IdentificadorFeicaoExibicao(targetFeature.Key) : "—")</strong><small>@MapService.PontosAquisicao.Count ponto(s) no esboço</small></div>
                         <p>@(_vectorCutMode ? "Trace uma linha que atravesse a feição. Enter aplica o corte; Esc cancela." : _vectorRingMode ? "Desenhe o anel inteiramente dentro do polígono. Enter aplica; Esc cancela." : "Conecte dois pontos da borda. Um traço externo cria uma saliência; um traço interno remove uma região. Enter aplica; Esc cancela.")</p>
                         <button type="button" class="workbench-button danger" @onclick="CancelarAquisicao">Cancelar operação</button>
                     </section>
@@ -4990,7 +4999,7 @@
                 new("Vetorização", "Criação", _vectorCutMode ? "Aplicar corte" : _vectorRingMode ? "Aplicar anel interno" : _vectorReshapeMode ? "Aplicar remodelagem" : "Concluir esboço", "✓", "finalizar desenho corte anel remodelagem feicao", "Conclui o desenho ou aplica a operação ativa quando há pontos suficientes.", FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count >= MinimoPontosAquisicao, CreateRibbonCommand(ConcluirAquisicaoGeometrica)),
                 new("Vetorização", "Criação", _vectorCutMode ? "Cancelar corte" : _vectorRingMode ? "Cancelar anel" : _vectorReshapeMode ? "Cancelar remodelagem" : "Cancelar esboço", "×", "cancelar desenho corte anel remodelagem feicao", "Cancela o desenho ou a operação ativa.", FerramentaDesenhoAtiva, CreateRibbonCommand(CancelarAquisicao)),
                 new("Vetorização", "Edição", "Editar feições e vértices", "⌖", "selecionar vertices editar", "Ativa a edição para selecionar e modificar feições.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
-                new("Vetorização", "Seleção", "Selecionar para mesclar", "⌖", "seleção multipla mesclar unir", "Permite selecionar feições compatíveis da mesma camada para mesclagem.", CamadaAtivaVetorialDisponivel && MapService.PontosAquisicao.Count == 0, CreateRibbonCommand(PrepararMesclagemPoligonos)),
+                new("Vetorização", "Seleção", "Selecionar feições", "⌖", "seleção simples multipla qgis mesclar unir retângulo poligono mão livre raio", "Ativa seleção persistente na camada ativa por clique, retângulo, polígono, mão livre ou raio.", CamadaAtivaVetorialDisponivel && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada, CreateRibbonCommand(PrepararMesclagemPoligonos)),
                 new("Vetorização", "Seleção", "Limpar seleção", "×", "limpar seleção feicoes", "Limpa a seleção vetorial atual.", _vectorFeatureEditSelection.Count > 0, CreateRibbonCommand(LimparSelecaoEdicaoVetorial)),
                 new("Vetorização", "Geometria", "Adicionar vértice", "＋", "inserir no ponto vertice", "Ativa a inserção de vértices na feição selecionada.", SelectedVectorFeatureState is not null, CreateRibbonCommand(AlternarModoInserirVertice)),
                 new("Vetorização", "Geometria", "Selecionar vértice sob o cursor", "⌖", "selecionar nó vertice coordenada", "Seleciona o vértice da feição indicado pelo cursor para edição precisa.", SelectedVectorFeatureState is not null, CreateRibbonCommand(SelecionarVerticeSobCursor)),
@@ -5021,7 +5030,7 @@
             {
                 foreach (VectorFeatureKey featureKey in _vectorFeatureEditSelection)
                 {
-                    string featureLabel = $"FID {featureKey.SourceFeatureId}";
+                    string featureLabel = $"FID {IdentificadorFeicaoExibicao(featureKey)}";
                     commands.Add(new RibbonCommand("Vetorização", "Mesclagem", featureLabel, "★", featureLabel,
                         "Define a feição principal da mesclagem e preserva seus atributos.", true,
                         CreateRibbonCommand(() => DefinirFeicaoPrincipal(featureKey))));
@@ -5039,7 +5048,8 @@
                         "Mostrar ou ocultar camadas" => _painelCamadasAberto,
                         "Criar geometria" => FerramentaDesenhoAtiva,
                         _ when command.Label.StartsWith("Editar", StringComparison.Ordinal) =>
-                            _ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode,
+                            (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode) || _vectorCutMode || _vectorRingMode || _vectorReshapeMode,
+                        "Selecionar feições" => _vectorFeatureSelectionMode,
                         _ => null
                     },
                     IsEnabled = command.Label == "Identificar feições" ? true : command.IsEnabled
@@ -5921,8 +5931,13 @@
         }
         else if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
+            _vectorFeatureSelectionMode = false;
+            _vectorMoveFeatureMode = false;
             modoEdicaoVerticeLigado = false;
+            _insertVectorVertexMode = false;
             _vectorEditPointerPressed = false;
+            _hoveredVectorVertexDisplayIndex = -1;
+            LimparSelecaoVerticeEdicao();
             LimparEstadoArrasteVertice();
             MapService.LimparOverlayEdicao();
         }
@@ -5933,8 +5948,13 @@
             _painelIdentificarAberto = false;
 
         _ferramentaAtiva = novaFerramenta;
+        MapService.PontoCursorMundo = null;
+        MapService.PontoCursorSnap = null;
+        MapService.PontoCursorSnapTipo = null;
         MapService.ClientRenderedMeasurementPreview = novaFerramenta == ModoFerramenta.Medicao;
+        MapService.ClientRenderedVertexEditingCursor = novaFerramenta == ModoFerramenta.EdicaoVertice;
         JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirCursorMedicaoAtivo", novaFerramenta == ModoFerramenta.Medicao);
+        JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirCursorEdicaoAtivo", novaFerramenta == ModoFerramenta.EdicaoVertice);
         if (novaFerramenta == ModoFerramenta.Medicao)
         {
             if (!_measurementPanelPositionInitialized)
@@ -5969,6 +5989,11 @@
         try
         {
             JSRuntime.InvokeVoidAsyncSafe("mapEngine.setFerramenta", novaFerramenta.ToString());
+            JSRuntime.InvokeVoidAsyncSafe("mapEngine.setFeatureSelectionMode",
+                novaFerramenta == ModoFerramenta.EdicaoVertice && _vectorFeatureSelectionMode,
+                _vectorFeatureSelectionShape);
+            JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexMoveFeatureMode",
+                novaFerramenta == ModoFerramenta.EdicaoVertice && _vectorMoveFeatureMode);
             _ = SincronizarOverlay(false);
             SolicitarNovoFrame();
         }
@@ -6116,6 +6141,7 @@
         WindowCloseCoordinator.CloseRequested -= AoSolicitarFechamentoNativo;
         _autosaveProjetoCts?.Cancel();
         MapService.ClientRenderedDigitizingPreview = false;
+        MapService.ClientRenderedVertexEditingCursor = false;
         if (_server != null) _server.OnOnlineFrameReady -= AtualizarImagemOnline;
         foreach (var raster in CamadasAtivas.Where(c => c.Tipo == "Raster"))
             GeoNex.Services.RasterOverviewBuilder.Cancel(raster.CaminhoArquivo);
@@ -8372,7 +8398,8 @@
     [JSInvokable]
     public async Task ProcessarCliqueRaycast(
         double telaX, double telaY, double[]? displayedMatrix = null,
-        bool additiveSelection = false, bool toggleVertexSelection = false)
+        bool additiveSelection = false, bool toggleVertexSelection = false,
+        bool removeVertexSelection = false)
     {
         var matriz = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
             if (TentarMapearPontoTelaParaLocal(telaX, telaY, displayedMatrix, matriz, out var ptMundo))
@@ -8403,21 +8430,29 @@
                     float escalaEdicao = Math.Max(0.0001f, Math.Abs(matriz.ScaleX));
                     CompiledFeature? featureEdit = MapService.DispararRaycast(
                         yMundo, xMundo, 7.0 / escalaEdicao, out string layerEdit, _camadaAtivaFerramentas);
-                    if (SelectedVectorFeatureState is { } selectedVertexFeature && toggleVertexSelection)
+                    if (_vectorFeatureSelectionMode)
+                    {
+                        await SelecionarFeicaoParaEdicaoAsync(featureEdit, layerEdit, additiveSelection || toggleVertexSelection);
+                        break;
+                    }
+                    if (SelectedVectorFeatureState is { } selectedVertexFeature &&
+                        (toggleVertexSelection || removeVertexSelection))
                     {
                         bool sameFeature = featureEdit is null ||
                             (featureEdit.FID == selectedVertexFeature.Key.FeatureId &&
                              string.Equals(layerEdit, selectedVertexFeature.Key.LayerName, StringComparison.Ordinal));
-                        if (sameFeature) SelecionarVerticeNoPonto(ptMundo, matriz, toggle: true);
-                        else _vectorEditMessage = "Shift+clique em nós da feição ativa; Ctrl+clique continua selecionando feições.";
+                        if (sameFeature)
+                            SelecionarVerticeNoPonto(ptMundo, matriz, add: toggleVertexSelection, remove: removeVertexSelection);
+                        else _vectorEditMessage = "Shift+clique adiciona nós; Ctrl+clique remove nós da feição ativa.";
                         await InvokeAsync(StateHasChanged);
                         break;
                     }
                     if (!_insertVectorVertexMode && !additiveSelection && SelectedVectorFeatureState is { } vertexFeature &&
                         (featureEdit is null || (featureEdit.FID == vertexFeature.Key.FeatureId &&
                          string.Equals(layerEdit, vertexFeature.Key.LayerName, StringComparison.Ordinal))) &&
-                        SelecionarVerticeNoPonto(ptMundo, matriz, toggle: false))
+                        SelecionarVerticeNoPonto(ptMundo, matriz, add: false))
                     {
+                        ArmarReposicionamentoVerticeSelecionado();
                         await InvokeAsync(StateHasChanged);
                         break;
                     }
@@ -8444,10 +8479,22 @@
                         camadaSelecionadaPainel = camadaAtingida;
                         atributosFeicaoSelecionada = new Dictionary<string, string>();
                         
-                        using var shapefileLease = MapService.AcquireShapefile(feicao.LayerName);
-                        if (shapefileLease != null)
+                        VectorFeatureEditState? pendingFeatureState = _vectorFeatureEditStates.Values.FirstOrDefault(state =>
+                            state.IsNewFeature && state.Key.FeatureId == feicao.FID &&
+                            string.Equals(state.Key.LayerName, feicao.LayerName, StringComparison.Ordinal));
+                        if (pendingFeatureState?.PendingFeature?.Attributes is { } pendingAttributes)
                         {
-                            atributosFeicaoSelecionada = shapefileLease.Resource.LerAtributos((int)feicao.FID);
+                            foreach (string name in pendingAttributes.GetNames())
+                            {
+                                if (name.StartsWith("_SYS_", StringComparison.OrdinalIgnoreCase)) continue;
+                                atributosFeicaoSelecionada[name] = pendingAttributes[name]?.ToString() ?? string.Empty;
+                            }
+                        }
+                        else if (feicao.FID >= 0)
+                        {
+                            using var shapefileLease = MapService.AcquireShapefile(feicao.LayerName);
+                            if (shapefileLease != null)
+                                atributosFeicaoSelecionada = shapefileLease.Resource.LerAtributos((int)feicao.FID);
                         }
                     }
                     else
@@ -8524,6 +8571,8 @@
                     if (usarCoordenadaAbsoluta || !PreviaVetorizacaoClienteAtiva) SolicitarNovoFrame();
                     break;
             }
+            if (_ferramentaAtiva is ModoFerramenta.EdicaoVertice or ModoFerramenta.Identificacao)
+                SolicitarNovoFrame(interacaoRapida: true);
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -8734,7 +8783,7 @@
                 if (tecla is "ctrl+y" or "ctrl+shift+z") { await RefazerEdicaoVetorialAsync(); return; }
                 if (tecla == "escape")
                 {
-                    if (_vectorEditPointerPressed) CancelarArrasteVerticeEdicao();
+                    if (_vectorEditPointerPressed || _vectorEditPlacementArmed) CancelarArrasteVerticeEdicao();
                     else LimparSelecaoEdicaoVetorial();
                     await InvokeAsync(StateHasChanged);
                     return;
@@ -8808,14 +8857,18 @@
     private void ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
         if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
-        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && e.Button == 0)
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode && e.Button == 0)
         {
             _vectorEditPointerPressed = true;
-            _draggedVectorVertex = null;
-            _draggedVectorVertexAddresses = Array.Empty<VectorGeometryEditingService.VertexAddress>();
-            _draggedVectorVertexOriginal = null;
-            _geometryAtDragStart = null;
-            _geometryDragPreview = null;
+            _vectorEditCommitOnRelease = _vectorEditPlacementArmed;
+            if (!_vectorEditPlacementArmed)
+            {
+                _draggedVectorVertex = null;
+                _draggedVectorVertexAddresses = Array.Empty<VectorGeometryEditingService.VertexAddress>();
+                _draggedVectorVertexOriginal = null;
+                _geometryAtDragStart = null;
+                _geometryDragPreview = null;
+            }
             return;
         }
         // GATILHO TÁTICO: Clique Direito durante a vetorização
@@ -8980,8 +9033,23 @@
     // ✔️ O SEU MÉTODO LIMPO DEVE FICAR ASSIM:
     private async Task ProcessarSoltarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && _vectorEditPointerPressed)
-            await FinalizarArrasteVerticeEdicaoAsync(e.ClientX, e.ClientY);
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode && _vectorEditPointerPressed)
+        {
+            _vectorEditPointerPressed = false;
+            if (_vectorEditCommitOnRelease && _vectorEditPlacementArmed)
+                await FinalizarArrasteVerticeEdicaoAsync(e.ClientX, e.ClientY);
+            else if (_draggingWholeVectorFeature)
+                await FinalizarArrasteVerticeEdicaoAsync(e.ClientX, e.ClientY);
+            else if (_draggedVectorVertex is not null)
+            {
+                _vectorEditPlacementArmed = true;
+                _vectorEditCommitOnRelease = false;
+                JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditPlacementArmed", true);
+                JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditDragging", false);
+                _vectorEditMessage = "Vértice preso ao cursor · mova e clique para aplicar; Esc cancela.";
+                await InvokeAsync(StateHasChanged);
+            }
+        }
         if (_isPanning)
         {
             _isPanning = false;
@@ -8992,7 +9060,7 @@
 
     private void ProcessarCancelarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice) CancelarArrasteVerticeEdicao();
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode) CancelarArrasteVerticeEdicao();
         if (_isPanning)
         {
             _isPanning = false;
@@ -9538,9 +9606,14 @@
             {
                 foreach (var nomeAtributo in colecao[0].Attributes.GetNames())
                 {
+                    if (nomeAtributo.StartsWith("_SYS_", StringComparison.OrdinalIgnoreCase)) continue;
                     atributos.Add(nomeAtributo, "");
                 }
             }
+
+            atributos.Add(VectorEditPersistenceService.NewFeatureAttribute, "SIM");
+            atributos.Add(VectorEditPersistenceService.DeleteFeatureAttribute, "NAO");
+            atributos.Add("_SYS_GRAVADO", "NAO");
 
             novaFeicao = new NetTopologySuite.Features.Feature(geometriaNts, atributos);
             colecao.Add(novaFeicao);
@@ -9556,7 +9629,7 @@
 
             novaFeicaoVisual = new GeoNex.Services.CompiledFeature
             {
-                FID = colecao.Count > 0 ? (long)colecao.Count : 0,
+                FID = ProximoFidTemporario(),
                 LayerName = camadaAlvo,
                 CentroidLocal = new SKPoint((float)(geometriaNts.Centroid.X - MapService.OffsetMundoX),
                     (float)(MapService.OffsetMundoY - geometriaNts.Centroid.Y)),
@@ -9586,6 +9659,17 @@
             {
                 MapService.CompilarCategorias(camadaAlvo, estilo.ColunaSimbologia);
             }
+
+            novaFeicaoVisual.SourceFeatureId = -1;
+            var featureKey = new VectorFeatureKey(camadaAlvo, novaFeicaoVisual.FID, -1);
+            _vectorFeatureEditStates.Add(featureKey, new VectorFeatureEditState
+            {
+                Key = featureKey,
+                Baseline = geometriaNts,
+                Current = geometriaNts,
+                PendingFeature = novaFeicao,
+                IsNewFeature = true
+            });
         }
         catch (Exception ex)
         {
