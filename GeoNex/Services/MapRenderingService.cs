@@ -9,6 +9,9 @@ using System.Linq;
 
 namespace GeoNex.Services
 {
+    public readonly record struct LabelFieldBinding(
+        string Column, int Offset, int Length, int Version, bool UseCategoryValue = false);
+
     public readonly record struct RasterCacheMetadata(
         string CacheKey,
         double PanX,
@@ -126,6 +129,22 @@ namespace GeoNex.Services
 
         /// <summary>Ponteiro bruto do DBF — acesso direto sem syscall.</summary>
         public byte* DbfPointerDirect => _dbfPtr;
+
+        public string? ReadDbfString(long featureId, int fieldOffset, int fieldLength)
+        {
+            if (_dbfPtr == null || _dbfAccessor == null || featureId < 0 ||
+                DbfRecordBytes <= 0 || DbfHeaderBytes < 0 || fieldOffset < 0 || fieldLength <= 0 ||
+                fieldOffset > DbfRecordBytes - fieldLength)
+                return null;
+
+            long recordOffset;
+            try { recordOffset = checked(DbfHeaderBytes + checked(featureId * (long)DbfRecordBytes)); }
+            catch (OverflowException) { return null; }
+            if (recordOffset < 0 || recordOffset > _dbfAccessor.Capacity - fieldOffset - fieldLength)
+                return null;
+
+            return GeoHelpers.ReadDbfString(_dbfPtr + recordOffset + fieldOffset, fieldLength, GeoHelpers.Iso8859);
+        }
 
         public void SetDbfMapped(System.IO.MemoryMappedFiles.MemoryMappedFile mmf, System.IO.MemoryMappedFiles.MemoryMappedViewAccessor accessor)
         {
@@ -260,6 +279,8 @@ namespace GeoNex.Services
 
         public Dictionary<string, Dictionary<string, List<SKPath>>> VetoresCategorizados { get; } = new();
         public Dictionary<string, Dictionary<string, List<SKPath>>> LinhasCategorizadas { get; } = new();
+        public Dictionary<string, CategorizedPathSpatialIndex> IndiceVetoresCategorizados { get; } = new();
+        public Dictionary<string, CategorizedPathSpatialIndex> IndiceLinhasCategorizadas { get; } = new();
 
         public List<string> OrdemCamadas { get; set; } = new();
         public List<SkiaSharp.SKPoint> PontosMedicao { get; set; } = new();
@@ -282,38 +303,48 @@ namespace GeoNex.Services
         {
             try
             {
-                if (string.IsNullOrEmpty(colunaRotulo)) return;
-                if (!FeaturesPorCamada.TryGetValue(nomeCamada, out var feicoes)) return;
-                using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(nomeCamada);
-                if (shapefileLease == null) return;
-                MemoryMappedShapefile shp = shapefileLease.Resource;
-                if (string.IsNullOrEmpty(shp.DbfPath) || !System.IO.File.Exists(shp.DbfPath)) return;
-
-                var dbfField = shp.DbfFields.FirstOrDefault(f => f.Name == colunaRotulo);
-                if (dbfField == null) return;
-
-                // Usar ponteiro DBF persistente do MemoryMappedShapefile (zero I/O)
-                byte* dbfPtr = shp.DbfPointerDirect;
-                if (dbfPtr == null) return;
-
-                var ancoras = new List<(SkiaSharp.SKPoint Ponto, NetTopologySuite.Features.IAttributesTable Atributos, float LarguraMundo)>(feicoes.Count);
-
-                for (int i = 0; i < feicoes.Count; i++)
+                if (string.IsNullOrWhiteSpace(colunaRotulo))
                 {
-                    var f = feicoes[i];
-                    if (f.EnvelopeWorld.IsNull) continue;
-                    
-                    long dbfRecOffset = shp.DbfHeaderBytes + (f.FID * shp.DbfRecordBytes);
-                    string valor = GeoHelpers.ReadDbfString(dbfPtr + dbfRecOffset + dbfField.Offset, dbfField.Length, GeoHelpers.Iso8859);
-                    
-                    var attrs = new NetTopologySuite.Features.AttributesTable { { colunaRotulo, valor } };
-                    float larguraMundo = (float)f.EnvelopeWorld.Width;
-                    if (larguraMundo == 0) larguraMundo = 999999f;
-                    
-                    ancoras.Add((f.CentroidLocal, attrs, larguraMundo));
+                    LabelFieldsPorCamada.TryRemove(nomeCamada, out _);
+                    PontosAncoragemRotulo.Remove(nomeCamada);
+                    RequestRedraw();
+                    return;
                 }
 
-                PontosAncoragemRotulo[nomeCamada] = ancoras;
+                using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(nomeCamada);
+                LabelFieldBinding binding;
+                if (shapefileLease == null)
+                {
+                    if (!string.Equals(colunaRotulo, "rotulo", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LabelFieldsPorCamada.TryRemove(nomeCamada, out _);
+                        PontosAncoragemRotulo.Remove(nomeCamada);
+                        RequestRedraw();
+                        return;
+                    }
+                    binding = new LabelFieldBinding(colunaRotulo, 0, 0,
+                        Interlocked.Increment(ref _nextLabelFieldVersion), UseCategoryValue: true);
+                }
+                else
+                {
+                    MemoryMappedShapefile shp = shapefileLease.Resource;
+                    DbfField? field = shp.DbfFields.FirstOrDefault(f => f.Name == colunaRotulo);
+                    if (field == null || shp.DbfPointerDirect == null)
+                    {
+                        LabelFieldsPorCamada.TryRemove(nomeCamada, out _);
+                        PontosAncoragemRotulo.Remove(nomeCamada);
+                        RequestRedraw();
+                        return;
+                    }
+                    binding = new LabelFieldBinding(field.Name, field.Offset, field.Length,
+                        Interlocked.Increment(ref _nextLabelFieldVersion));
+                }
+
+                LabelFieldsPorCamada[nomeCamada] = binding;
+                // Remove legacy per-feature AttributesTable anchors. The render
+                // loop now queries only visible feature candidates and reads DBF
+                // text lazily when a label can actually be drawn.
+                PontosAncoragemRotulo.Remove(nomeCamada);
                 RequestRedraw();
             }
             catch (Exception ex)
@@ -406,6 +437,11 @@ namespace GeoNex.Services
                     if (!currentLineChunk[cat].IsEmpty) dicCategoriasLine[cat].Add(currentLineChunk[cat]);
                 }
 
+                // Index chunk bounds once at style compilation so each frame visits
+                // only categorized chunks intersecting the current map extent.
+                var polygonSpatialIndex = new CategorizedPathSpatialIndex(dicCategoriasPoly);
+                var lineSpatialIndex = new CategorizedPathSpatialIndex(dicCategoriasLine);
+
                 if (VetoresCategorizados.TryGetValue(nomeCamada, out var oldPolygons))
                     foreach (SKPath path in oldPolygons.Values.SelectMany(paths => paths)) path.Dispose();
                 if (LinhasCategorizadas.TryGetValue(nomeCamada, out var oldLines))
@@ -413,6 +449,8 @@ namespace GeoNex.Services
                 
                 VetoresCategorizados[nomeCamada] = dicCategoriasPoly;
                 LinhasCategorizadas[nomeCamada] = dicCategoriasLine;
+                IndiceVetoresCategorizados[nomeCamada] = polygonSpatialIndex;
+                IndiceLinhasCategorizadas[nomeCamada] = lineSpatialIndex;
             }
             catch (Exception ex)
             {
@@ -522,6 +560,8 @@ namespace GeoNex.Services
         public Dictionary<string, Envelope> LimitesVetoresWorld { get; } = new();
         public SkiaSharp.SKRect LimitesGlobaisVetor { get; set; } = SkiaSharp.SKRect.Empty;
         public Dictionary<string, List<(SkiaSharp.SKPoint Ponto, NetTopologySuite.Features.IAttributesTable Atributos, float LarguraMundo)>> PontosAncoragemRotulo { get; set; } = new(); 
+        public System.Collections.Concurrent.ConcurrentDictionary<string, LabelFieldBinding> LabelFieldsPorCamada { get; } = new(StringComparer.Ordinal);
+        private int _nextLabelFieldVersion;
         public System.Collections.Concurrent.ConcurrentDictionary<string, EstiloCamada> EstilosPorCamada { get; } = new();
         private const string GlobalCacheResourceKey = "global";
         private readonly object _rasterResourceGate = new();
@@ -629,6 +669,9 @@ namespace GeoNex.Services
                 _spatialIndexResources.Remove(layerName);
                 _shapefileResources.Remove(layerName);
             }
+            IndiceVetoresCategorizados.Remove(layerName);
+            IndiceLinhasCategorizadas.Remove(layerName);
+            LabelFieldsPorCamada.TryRemove(layerName, out _);
         }
 
         public bool HasRaster(string layerName)
@@ -961,20 +1004,14 @@ namespace GeoNex.Services
             }
             
             if (PontosAncoragemRotulo.ContainsKey(nomeCamada)) PontosAncoragemRotulo.Remove(nomeCamada);
-            PontosAncoragemRotulo[nomeCamada] = new();
+            LabelFieldsPorCamada.TryRemove(nomeCamada, out _);
 
             FeaturesPorCamada[nomeCamada] = feicoes;
             
             ConstruirIndiceEspacial(nomeCamada, feicoes);
-
-            foreach (var feicao in feicoes)
-            {
-                if (!string.IsNullOrEmpty(feicao.CategoryValue))
-                {
-                    var attr = new NetTopologySuite.Features.AttributesTable { { "rotulo", feicao.CategoryValue } };
-                    PontosAncoragemRotulo[nomeCamada].Add((feicao.CentroidLocal, attr, (float)feicao.EnvelopeWorld.Width));
-                }
-            }
+            if (EstilosPorCamada.TryGetValue(nomeCamada, out EstiloCamada? style) &&
+                style.ExibirRotulos && !string.IsNullOrWhiteSpace(style.ColunaRotulo))
+                AtualizarRotulosCamada(nomeCamada, style.ColunaRotulo);
 
             RequestRedraw();
         }

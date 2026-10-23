@@ -16,6 +16,10 @@ Essa é uma causa plausível da regressão percebida, não um diagnóstico exclu
 - Prévias idênticas à requisição em andamento são descartadas.
 - Ao retomar um gesto, a requisição final pendente da pausa anterior volta a ser prévia; a nova pausa agenda novamente a qualidade completa.
 - Mantidos IDs, rebase da câmera, rejeição de imagens obsoletas, limites de tentativas e recuperação após falha.
+- O worker agora expõe contadores leves de enfileiramento, início, publicação, falha,
+  cancelamento, substituição, expulsão por limite e descarte por irrelevância. O
+  `LocalMapServer` publica esses contadores em `OnlineWorkerMetrics` para que a
+  telemetria de produção possa separar pressão de fila de custo de leitura.
 
 Não altera vértices, algoritmos de desenho, antialiasing final, resolução final do satélite, cache por qualidade ou filtros. Trade-off explícito: a fase final espera uma pausa maior, enquanto o retorno visual por prévia ocorre antes. Não separa I/O online em um backend independente e não torna chamadas GDAL em andamento interrompíveis.
 

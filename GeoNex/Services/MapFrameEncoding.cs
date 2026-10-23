@@ -119,9 +119,10 @@ public static class MapFrameEncoding
         if (pixels == null || pixels.GetPixels() == IntPtr.Zero ||
             (pixels.ColorType != SKColorType.Rgba8888 && pixels.ColorType != SKColorType.Bgra8888)) return 1;
         if (pixelCount * 4 + overhead > byteBudget && !IsFullyOpaque(pixels, token)) return 1;
-        // Full-HD raster frames are local navigation responses. Avoid DEFLATE
-        // when the complete uncompressed payload fits the transient budget.
-        if (rasterContent && pixelCount >= 2L * 1024 * 1024) return 0;
+        // Keep navigation latency predictable by default. Raster compression is
+        // available as an explicit opt-in after measurements on the target PC.
+        if (rasterContent && pixelCount >= 2L * 1024 * 1024 &&
+            Environment.GetEnvironmentVariable("GEONEX_RASTER_PNG_COMPRESSION_PROBE") != "1") return 0;
         int changed = 0, samples = 0;
         int stepX = Math.Max(1, image.Width / 512);
         int stepY = Math.Max(1, image.Height / 32);

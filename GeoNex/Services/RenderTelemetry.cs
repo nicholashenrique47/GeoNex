@@ -46,7 +46,10 @@ public sealed record RenderTelemetrySummary(
     RenderMetricDistribution OutputBytes,
     RenderMetricDistribution ManagedAllocatedBytes,
     IReadOnlyDictionary<string, RenderMetricDistribution> StageMilliseconds,
-    IReadOnlyDictionary<string, RenderMetricDistribution> LayerStageMilliseconds);
+    IReadOnlyDictionary<string, RenderMetricDistribution> LayerStageMilliseconds)
+{
+    public RenderWorkerMetrics? OnlineWorkerMetrics { get; init; }
+}
 
 /// <summary>
 /// Opt-in, bounded frame tracing. Disabled collectors do not allocate traces or scopes.
@@ -83,6 +86,7 @@ public sealed class RenderTelemetryCollector
                 if (expired != correlationId) _frames.Remove(expired);
             }
         }
+
         return trace;
     }
 
@@ -157,7 +161,14 @@ public sealed class RenderFrameTrace
     public long CorrelationId { get; }
     public long Generation { get; }
     public long AcceptedTicks { get; }
-    public bool IsResponseCompleted { get { lock (_gate) return _responseCompleted; } }
+
+    public bool IsResponseCompleted
+    {
+        get
+        {
+            lock (_gate) return _responseCompleted;
+        }
+    }
 
     public void Configure(int cssWidth, int cssHeight, float dpi, bool isInteracting, int layerCount)
     {
@@ -236,11 +247,13 @@ public sealed class RenderFrameTrace
                 _queueCompleted = true;
                 AddSpanUnsafe("queue", null, AcceptedTicks, now, 0, 0, 0);
             }
+
             if (!_renderCompleted && _renderStartedTicks != 0)
             {
                 _renderCompleted = true;
                 AddSpanUnsafe("render", null, _renderStartedTicks, now, 0, 0, 0);
             }
+
             _responseCompleted = true;
             _responseCompletedTicks = now;
             _status = string.IsNullOrWhiteSpace(status) ? "unknown" : status;
@@ -251,6 +264,7 @@ public sealed class RenderFrameTrace
                     0,
                     GC.GetAllocatedBytesForCurrentThread() - _renderStartedAllocatedBytes);
             }
+
             return true;
         }
     }
@@ -449,10 +463,12 @@ public static class RenderTelemetryStatistics
                 currentEnd = Math.Max(currentEnd, span.EndTicks);
                 continue;
             }
+
             totalTicks += currentEnd - currentStart;
             currentStart = span.StartTicks;
             currentEnd = span.EndTicks;
         }
+
         totalTicks += currentEnd - currentStart;
         return TicksToMilliseconds(totalTicks);
     }

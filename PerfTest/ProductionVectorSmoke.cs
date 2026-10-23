@@ -16,7 +16,7 @@ internal static class ProductionVectorSmoke
         var reader = assembly.GetType("GeoNex.Services.FastShapeReader", throwOnError: true)!;
         var clock = Stopwatch.StartNew();
         object tuple = reader.GetMethod("ReadAllFeatures")!.Invoke(null,
-            new object?[] { source, "smoke", 0d, 0d, null })!;
+            new object?[] { source, "smoke", 0d, 0d, null, null, true })!;
         var features = (IList)tuple.GetType().GetField("Item1")!.GetValue(tuple)!;
         using var resource = (IDisposable)tuple.GetType().GetField("Item2")!.GetValue(tuple)!;
         clock.Stop();
@@ -51,7 +51,7 @@ internal static class ProductionVectorSmoke
             object feature = features[index]!;
             object envelope = feature.GetType().GetField("EnvelopeWorld")!.GetValue(feature)!;
             double Value(string field) => (double)envelope.GetType().GetField(field)!.GetValue(envelope)!;
-            var center = (SKPoint)feature.GetType().GetField("CentroidLocal")!.GetValue(feature)!;
+            var center = (SKPoint)feature.GetType().GetProperty("CentroidLocal")!.GetValue(feature)!;
             double[] x = { Value("MinX"), Value("MinX"), Value("MaxX"), Value("MaxX"), center.X };
             double[] y = { Value("MinY"), Value("MaxY"), Value("MinY"), Value("MaxY"), -center.Y };
             transform.TransformPoints(5, x, y, new double[5]);
@@ -68,7 +68,7 @@ internal static class ProductionVectorSmoke
             for (int i = 0; i < fields.Length; i++)
                 if ((double)envelope.GetType().GetField(fields[i])!.GetValue(envelope)! != metadata.Bounds[i])
                     throw new InvalidOperationException("Production metadata envelope differs");
-            if ((SKPoint)metadata.Feature.GetType().GetField("CentroidLocal")!.GetValue(metadata.Feature)! != metadata.Center)
+            if ((SKPoint)metadata.Feature.GetType().GetProperty("CentroidLocal")!.GetValue(metadata.Feature)! != metadata.Center)
                 throw new InvalidOperationException("Production metadata centroid differs");
         }
         Console.WriteLine("Production metadata: PASS (ProjetoService integration, first/last envelopes and centroids vs serial GDAL)");
@@ -100,7 +100,8 @@ internal static class ProductionVectorSmoke
             }
             if (worst * 100 > .01) throw new InvalidOperationException($"Rebased vertex error at 100px/m: {worst * 100}");
             Console.WriteLine($"Production high-zoom precision: PASS vertices={points.Length} max_error_m={worst:G5} previous_world_float_error_m={oldWorst:G5}");
-            var cacheOrigin = new SKPoint((float)ox, (float)oy);
+            Type localCoordinate = assembly.GetType("GeoNex.Services.MapLocalCoordinate", true)!;
+            object cacheOrigin = Activator.CreateInstance(localCoordinate, ox, oy)!;
             resource.GetType().GetMethod("StorePreciseRenderPath")!.Invoke(resource,
                 new object[] { local, local.Bounds, cacheOrigin, 100f, false, false, true });
             object?[] preciseArgs = { local.Bounds, cacheOrigin, 125f, false, null, false };

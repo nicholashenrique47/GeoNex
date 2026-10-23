@@ -15,6 +15,7 @@ namespace GeoNex.Services
     public sealed unsafe class NativeShapeSpatialIndex : IDisposable
     {
         private readonly List<CompiledFeature> _features;
+        private readonly IList<CompiledFeature> _allFeaturesView;
         private NativeIndexHandle? _handle;
         private NetTopologySuite.Index.Strtree.STRtree<int>? _memoryIndex;
         public bool HasInMemoryFeatures { get; }
@@ -38,7 +39,7 @@ namespace GeoNex.Services
         public int GridEntries { get; }
         public int OversizedFeatures { get; }
         public NativeShapeSpatialIndex? UniformRenderIndex { get; private set; }
-        public IList<CompiledFeature> AllFeatures => _features.AsReadOnly();
+        public IList<CompiledFeature> AllFeatures => _allFeaturesView;
 
         public NativeShapeSpatialIndex(MemoryMappedShapefile? shapefile, List<CompiledFeature> features)
             : this(shapefile, features, buildCatalog: true) { }
@@ -48,6 +49,7 @@ namespace GeoNex.Services
             ArgumentNullException.ThrowIfNull(features);
             // Queries retain a stable ID-to-feature mapping while the editing list changes.
             _features = new List<CompiledFeature>(features);
+            _allFeaturesView = _features.AsReadOnly();
             features = _features;
 
             if (features.Count == 0) return;
@@ -220,18 +222,47 @@ namespace GeoNex.Services
 
     public sealed class NativeFeatureQuery : IList<CompiledFeature>, IDisposable
     {
-        private readonly List<CompiledFeature> _features;
+        private readonly IList<CompiledFeature> _features;
         private int[]? _indices;
 
-        internal NativeFeatureQuery(List<CompiledFeature> features, int[] indices, int count)
+        internal NativeFeatureQuery(IList<CompiledFeature> features, int[] indices, int count)
         {
             _features = features;
             _indices = indices;
             Count = count;
         }
 
-        internal static NativeFeatureQuery Empty(List<CompiledFeature> features) =>
+        internal static NativeFeatureQuery Empty(IList<CompiledFeature> features) =>
             new(features, Array.Empty<int>(), 0);
+
+        /// <summary>
+        /// Creates a pooled index view containing only records backed by the mapped SHP.
+        /// In-memory edit features have no valid file offset and must be drawn separately.
+        /// </summary>
+        public static NativeFeatureQuery? CreateShapefileRecordView(IList<CompiledFeature> features)
+        {
+            ArgumentNullException.ThrowIfNull(features);
+            int[] indices = ArrayPool<int>.Shared.Rent(Math.Max(1, features.Count));
+            int count = 0;
+            for (int i = 0; i < features.Count; ++i)
+            {
+                if (features[i].DataOffset >= 100) indices[count++] = i;
+            }
+
+            if (count == features.Count)
+            {
+                ArrayPool<int>.Shared.Return(indices);
+                return null;
+            }
+
+            if (count == 0)
+            {
+                ArrayPool<int>.Shared.Return(indices);
+                indices = Array.Empty<int>();
+            }
+
+            return new NativeFeatureQuery(features, indices, count);
+        }
 
         public int Count { get; }
         public bool IsReadOnly => true;

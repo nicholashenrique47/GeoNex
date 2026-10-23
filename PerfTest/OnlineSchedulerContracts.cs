@@ -51,7 +51,8 @@ internal static class OnlineSchedulerContracts
             Check(retryDraws == 1, "Hidden retry performed I/O");
         }
         await CheckFailureCapacity();
-        Console.WriteLine("Online scheduler: PASS (hidden active/pending/retry, late requests, exactly-once disposal, earliest retry, bounded failure eviction)");
+        await CheckPriority();
+        Console.WriteLine("Online scheduler: PASS (hidden active/pending/retry, priority, late requests, exactly-once disposal, earliest retry, bounded failure eviction)");
     }
 
     private static async Task CheckRetryFairness()
@@ -87,5 +88,51 @@ internal static class OnlineSchedulerContracts
             Check(await notifications.WaitAsync(TimeSpan.FromSeconds(2)), "Failure fixture timed out");
         }
         Check(worker.FailureCount == 16, "Overflow erased other sources' cooldowns");
+    }
+
+    private static async Task CheckPriority()
+    {
+        using var release = new ManualResetEventSlim();
+        var entered = Signal();
+        var completed = Signal();
+        var order = new List<string>();
+        using var worker = new LatestRenderWorker<Result>(
+            () =>
+            {
+                lock (order)
+                    if (order.Count == 2) completed.TrySetResult();
+            },
+            _ => throw new InvalidOperationException("Priority fixture failed"));
+
+        worker.Request("active", "1", _ =>
+        {
+            entered.TrySetResult();
+            if (!release.Wait(5000)) throw new TimeoutException();
+            return new Result();
+        }, result => result.Dispose());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        worker.Request("low", "1", _ =>
+        {
+            lock (order) order.Add("low");
+            return new Result();
+        }, result => result.Dispose(), priority: 20);
+        worker.Request("high", "1", _ =>
+        {
+            lock (order) order.Add("high");
+            return new Result();
+        }, result => result.Dispose(), priority: 1);
+
+        release.Set();
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        lock (order)
+        {
+            Check(order.SequenceEqual(new[] { "high", "low" }), "Pending jobs ignored explicit priority");
+        }
+
+        RenderWorkerMetrics metrics = worker.Metrics;
+        Check(metrics.Enqueued == 3 && metrics.Started == 3 && metrics.Published == 3 &&
+              metrics.Failed == 0 && metrics.Canceled == 0,
+            "Scheduler metrics did not account for the priority fixture");
     }
 }

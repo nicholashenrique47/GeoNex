@@ -1,4 +1,5 @@
 using OSGeo.GDAL;
+using System.Runtime.CompilerServices;
 
 namespace GeoNex.Services;
 
@@ -9,21 +10,62 @@ public readonly record struct RasterDatasetSemantics(
 
 public static class RasterDatasetPolicy
 {
+    private sealed record RenderMetadata(
+        int[] RgbaBandMap,
+        RasterDatasetSemantics Semantics,
+        double[] GeoTransform);
+
+    private static readonly ConditionalWeakTable<Dataset, Lazy<RenderMetadata>> RenderMetadataByDataset = new();
+
     public static int[] GetRgbaBandMap(Dataset dataset)
     {
         ArgumentNullException.ThrowIfNull(dataset);
-        int bandCount = Math.Min(dataset.RasterCount, 3);
-        if (bandCount < 3)
-            return Enumerable.Range(1, bandCount).ToArray();
+        return (int[])GetRenderMetadata(dataset).RgbaBandMap.Clone();
+    }
 
-        for (int index = 4; index <= dataset.RasterCount; index++)
+    // Render paths consume but never modify these cached arrays. Keeping them
+    // alongside the dataset avoids repeating GDAL metadata calls and allocating
+    // a new band map for every frame.
+    internal static int[] GetCachedRgbaBandMap(Dataset dataset)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        return GetRenderMetadata(dataset).RgbaBandMap;
+    }
+
+    internal static double[] GetCachedGeoTransform(Dataset dataset)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        return GetRenderMetadata(dataset).GeoTransform;
+    }
+
+    private static RenderMetadata GetRenderMetadata(Dataset dataset) =>
+        RenderMetadataByDataset.GetValue(dataset, static key =>
+            new Lazy<RenderMetadata>(() => InspectForRendering(key), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    private static RenderMetadata InspectForRendering(Dataset dataset)
+    {
+        int bandCount = Math.Min(dataset.RasterCount, 3);
+        int[] bandMap;
+        if (bandCount < 3)
         {
-            using Band band = dataset.GetRasterBand(index);
-            if (band.GetRasterColorInterpretation() == ColorInterp.GCI_AlphaBand)
-                return [1, 2, 3, index];
+            bandMap = Enumerable.Range(1, bandCount).ToArray();
+        }
+        else
+        {
+            bandMap = [1, 2, 3];
+            for (int index = 4; index <= dataset.RasterCount; index++)
+            {
+                using Band band = dataset.GetRasterBand(index);
+                if (band.GetRasterColorInterpretation() != ColorInterp.GCI_AlphaBand) continue;
+                bandMap = [1, 2, 3, index];
+                break;
+            }
         }
 
-        return [1, 2, 3];
+        RasterDatasetSemantics semantics = InspectSemantics(dataset);
+        double[] geoTransform = new double[6];
+        dataset.GetGeoTransform(geoTransform);
+        return new RenderMetadata(bandMap, semantics, geoTransform);
     }
 
     public static bool SupportsExternalOverviews(Dataset dataset)
@@ -36,6 +78,11 @@ public static class RasterDatasetPolicy
     public static RasterDatasetSemantics Inspect(Dataset dataset)
     {
         ArgumentNullException.ThrowIfNull(dataset);
+        return InspectSemantics(dataset);
+    }
+
+    private static RasterDatasetSemantics InspectSemantics(Dataset dataset)
+    {
         if (dataset.RasterCount <= 0) return default;
 
         using Band firstBand = dataset.GetRasterBand(1);
@@ -56,7 +103,8 @@ public static class RasterDatasetPolicy
 
     public static string SelectRenderResampling(Dataset dataset, bool isInteracting)
     {
-        RasterDatasetSemantics semantics = Inspect(dataset);
+        ArgumentNullException.ThrowIfNull(dataset);
+        RasterDatasetSemantics semantics = GetRenderMetadata(dataset).Semantics;
         return RasterRenderingPolicy.SelectRenderResampling(
             semantics.HasPalette,
             semantics.IsFloatingPoint,

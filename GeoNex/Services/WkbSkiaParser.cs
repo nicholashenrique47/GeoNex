@@ -74,6 +74,10 @@ namespace GeoNex.Services
             _centroidLocalPrecise = new MapLocalCoordinate(x, y);
         public FeatureEnvelope EnvelopeWorld;
         public string? CategoryValue; // Opcional, apenas quando Symbology ativa
+        // Label text is decoded lazily for visible features and cached per active
+        // label-field revision, avoiding one attribute object per feature.
+        public string? LabelValue;
+        public int LabelValueVersion;
         public string LayerName = ""; // Referência à camada para lazy loading
 
         /// <summary>

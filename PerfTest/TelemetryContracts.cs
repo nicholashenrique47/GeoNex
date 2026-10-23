@@ -40,6 +40,7 @@ internal static class TelemetryContracts
         }
 
         RenderTelemetrySummary summary = RenderTelemetryStatistics.Summarize(frames);
+        Require(summary.OnlineWorkerMetrics == null, "static telemetry summary unexpectedly contains worker state");
         RequireNear(summary.ResponseMilliseconds.P50, 50, 0.02, "response p50");
         RequireNear(summary.ResponseMilliseconds.P95, 95, 0.02, "response p95");
         RequireNear(summary.ResponseMilliseconds.P99, 99, 0.02, "response p99");

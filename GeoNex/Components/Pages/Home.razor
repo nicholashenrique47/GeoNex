@@ -637,7 +637,7 @@
                                 </button>
                                 <button type="button" class="data-menu-action" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>
                                     <span class="data-menu-icon vector" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 5 14 2-3 12-11-4V5Z"/><circle cx="5" cy="5" r="1.5"/><circle cx="19" cy="7" r="1.5"/><circle cx="16" cy="19" r="1.5"/></svg></span>
-                                    <span class="data-menu-copy"><strong>Dados vetoriais</strong><small>SHP · KML · GeoJSON</small></span>
+                                    <span class="data-menu-copy"><strong>Dados vetoriais</strong><small>SHP · GPKG · KML · GeoJSON</small></span>
                                     <span class="data-menu-arrow" aria-hidden="true">›</span>
                                 </button>
                                 <button type="button" class="data-menu-action" @onclick="AbrirImportacaoTabelaPontos">
@@ -821,7 +821,7 @@
                 </div>
                 <div class="vector-ribbon-mode" role="group" aria-label="Fluxo de vetorização">
                     <button type="button" class="@(!(_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode) ? "selected" : "")" aria-pressed="@(!(_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode))" disabled="@(FerramentaDesenhoAtiva && (MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada))" @onclick="RetornarAVetorizacaoAvancada"><span aria-hidden="true">＋</span> Criar</button>
-                    <button type="button" class="@(_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode ? "selected" : "")" aria-pressed="@(_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode)" disabled="@(FerramentaDesenhoAtiva && (MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada))" @onclick="AbrirEdicaoVetorialAvancada"><span aria-hidden="true">⌖</span> Editar</button>
+                    <button type="button" class="@(_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode || _vectorCutMode || _vectorRingMode || _vectorReshapeMode ? "selected" : "")" aria-pressed="@(_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode || _vectorCutMode || _vectorRingMode || _vectorReshapeMode)" disabled="@(SelectedVectorFeatureState is null || FerramentaDesenhoAtiva && (MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada))" @onclick="AbrirEdicaoVetorialAvancada"><span aria-hidden="true">⌖</span> Editar</button>
                 </div>
                 @if (FerramentaDesenhoAtiva && !_vectorCutMode && !_vectorRingMode && !_vectorReshapeMode)
                 {
@@ -840,7 +840,7 @@
                 }
                 else
                 {
-                    <div class="vector-ribbon-target-summary is-empty"><span>FEIÇÃO ATIVA</span><strong>Selecione uma feição no mapa</strong></div>
+                    <div class="vector-ribbon-target-summary is-empty"><span>FEIÇÃO ATIVA</span><strong>Use Selecionar feições antes de editar</strong></div>
                 }
                 <div class="vector-ribbon-header-actions" role="group" aria-label="Histórico e gravação">
                     @if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorCutMode && !_vectorRingMode && !_vectorReshapeMode)
@@ -864,9 +864,9 @@
                     <section class="vector-ribbon-group selection-tools" aria-label="Seleção e topologia">
                         <span class="vector-ribbon-group-label">SELEÇÃO</span>
                         <div class="vector-ribbon-group-actions">
-                            <button type="button" class="ribbon-tool-button @(!_vectorFeatureSelectionMode && !_vectorMoveFeatureMode ? "selected" : "")" aria-pressed="@(!_vectorFeatureSelectionMode && !_vectorMoveFeatureMode)" @onclick="AbrirEdicaoVetorialAvancada" title="Arraste um nó para mover; arraste uma área para selecionar vários vértices"><span aria-hidden="true">✥</span> Editar vértices</button>
+                            <button type="button" class="ribbon-tool-button @(SelectedVectorFeatureState is not null && !_vectorFeatureSelectionMode && !_vectorMoveFeatureMode ? "selected" : "")" aria-pressed="@(SelectedVectorFeatureState is not null && !_vectorFeatureSelectionMode && !_vectorMoveFeatureMode)" disabled="@(SelectedVectorFeatureState is null)" @onclick="AbrirEdicaoVetorialAvancada" title="Ativa a edição da feição previamente selecionada"><span aria-hidden="true">✥</span> Editar vértices</button>
                             <button type="button" class="ribbon-tool-button @(_vectorMoveFeatureMode ? "selected" : "")" aria-pressed="@_vectorMoveFeatureMode" disabled="@(SelectedVectorFeatureState is null || _vectorFeatureSelectionMode)" @onclick="AlternarModoMoverFeicao" title="Ativa o movimento do corpo da feição, separado da seleção de nós"><span aria-hidden="true">⤧</span> Mover feição</button>
-                            <button type="button" class="ribbon-tool-button @(_vectorFeatureSelectionMode ? "selected" : "")" aria-pressed="@_vectorFeatureSelectionMode" @onclick="PrepararMesclagemPoligonos" title="Clique seleciona; Ctrl/Shift alterna. Arraste retângulo, polígono, mão livre ou raio"><span aria-hidden="true">⌖</span> Selecionar feições</button>
+                            <button type="button" class="ribbon-tool-button @(_vectorFeatureSelectionMode ? "selected" : "")" aria-pressed="@_vectorFeatureSelectionMode" @onclick="PrepararMesclagemPoligonos" title="Selecione uma ou mais feições antes de ativar a edição de vértices"><span aria-hidden="true">⌖</span> Selecionar feições</button>
                             <button type="button" class="ribbon-tool-button" disabled="@(_vectorFeatureEditSelection.Count == 0)" @onclick="LimparSelecaoEdicaoVetorial"><span aria-hidden="true">×</span> Limpar</button>
                             @if (_vectorFeatureSelectionMode)
                             {
@@ -1942,7 +1942,7 @@
                 <div class="modal-body">
                     <div class="modal-tabs">
                         <button class="tab-btn @(AbaModalAtiva == "Raster" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Raster"))">Raster (ECW, TIF)</button>
-                        <button class="tab-btn @(AbaModalAtiva == "Vetor" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Vetor"))">Vetor (SHP, GeoJSON)</button>
+                        <button class="tab-btn @(AbaModalAtiva == "Vetor" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Vetor"))">Vetor (SHP, GPKG, GeoJSON)</button>
                         <button class="tab-btn @(AbaModalAtiva == "Texto" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Texto"))">Tabela de pontos</button>
                         <button class="tab-btn @(AbaModalAtiva == "Nuvem" ? "active" : "")" @onclick="@(() => TrocarAbaModal("Nuvem"))">PostGIS</button>
                     </div>
@@ -1970,7 +1970,7 @@
                         else if (AbaModalAtiva == "Vetor")
                         {
                             <div class="form-group mb-15">
-                                <label>Arquivo Fonte Vetorial (Shapefile, KML, GeoJSON)</label>
+                                <label>Arquivo Fonte Vetorial (Shapefile, GeoPackage, KML, GeoJSON)</label>
                                 <div class="file-input-group">
                                     <input type="text" class="glass-input file-path" value="@caminhoArquivoVetor" placeholder="C:\Caminho\para\lotes.shp" readonly />
                                     <button class="btn-browse" @onclick="SelecionarArquivoVetor">PROCURAR...</button>
@@ -4998,11 +4998,11 @@
                 new("Vetorização", "Criação", "Criar geometria", "◇", "desenhar vetor ponto linha poligono", "Inicia o desenho de uma feição na camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AtivarModoVetorizacao)),
                 new("Vetorização", "Criação", _vectorCutMode ? "Aplicar corte" : _vectorRingMode ? "Aplicar anel interno" : _vectorReshapeMode ? "Aplicar remodelagem" : "Concluir esboço", "✓", "finalizar desenho corte anel remodelagem feicao", "Conclui o desenho ou aplica a operação ativa quando há pontos suficientes.", FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count >= MinimoPontosAquisicao, CreateRibbonCommand(ConcluirAquisicaoGeometrica)),
                 new("Vetorização", "Criação", _vectorCutMode ? "Cancelar corte" : _vectorRingMode ? "Cancelar anel" : _vectorReshapeMode ? "Cancelar remodelagem" : "Cancelar esboço", "×", "cancelar desenho corte anel remodelagem feicao", "Cancela o desenho ou a operação ativa.", FerramentaDesenhoAtiva, CreateRibbonCommand(CancelarAquisicao)),
-                new("Vetorização", "Edição", "Editar feições e vértices", "⌖", "selecionar vertices editar", "Ativa a edição para selecionar e modificar feições.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
+                new("Vetorização", "Edição", "Editar feição selecionada", "⌖", "vertices editar geometria", "Ativa a edição da feição previamente selecionada.", SelectedVectorFeatureState is { IsDeleted: false } && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
                 new("Vetorização", "Seleção", "Selecionar feições", "⌖", "seleção simples multipla qgis mesclar unir retângulo poligono mão livre raio", "Ativa seleção persistente na camada ativa por clique, retângulo, polígono, mão livre ou raio.", CamadaAtivaVetorialDisponivel && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada, CreateRibbonCommand(PrepararMesclagemPoligonos)),
                 new("Vetorização", "Seleção", "Limpar seleção", "×", "limpar seleção feicoes", "Limpa a seleção vetorial atual.", _vectorFeatureEditSelection.Count > 0, CreateRibbonCommand(LimparSelecaoEdicaoVetorial)),
-                new("Vetorização", "Geometria", "Adicionar vértice", "＋", "inserir no ponto vertice", "Ativa a inserção de vértices na feição selecionada.", SelectedVectorFeatureState is not null, CreateRibbonCommand(AlternarModoInserirVertice)),
-                new("Vetorização", "Geometria", "Selecionar vértice sob o cursor", "⌖", "selecionar nó vertice coordenada", "Seleciona o vértice da feição indicado pelo cursor para edição precisa.", SelectedVectorFeatureState is not null, CreateRibbonCommand(SelecionarVerticeSobCursor)),
+                new("Vetorização", "Geometria", "Adicionar vértice", "＋", "inserir no ponto vertice", "Ativa a inserção de vértices na feição selecionada.", SelectedVectorFeatureState is { IsDeleted: false } && _ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode, CreateRibbonCommand(AlternarModoInserirVertice)),
+                new("Vetorização", "Geometria", "Selecionar vértice sob o cursor", "⌖", "selecionar nó vertice coordenada", "Seleciona o vértice da feição indicado pelo cursor para edição precisa.", SelectedVectorFeatureState is { IsDeleted: false } && _ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode, CreateRibbonCommand(SelecionarVerticeSobCursor)),
                 new("Vetorização", "Geometria", "Remover vértices selecionados", "−", "apagar nos vertices", "Remove os vértices selecionados.", CanRemoveSelectedVectorVertices, CreateRibbonCommand(RemoverVerticesSelecionadosAsync)),
                 new("Vetorização", "Geometria", "Remover vértice sob o cursor", "⌫", "apagar no vertice cursor", "Remove o vértice indicado pelo cursor.", CanRemoveHoveredVectorVertex, CreateRibbonCommand(RemoverVerticeSelecionadoAsync)),
                 new("Vetorização", "Operações", "Dividir feição", "╱", "cortar dividir geometria linha", "Inicia o corte da feição selecionada.", CanCutSelectedVectorGeometry, CreateRibbonCommand(PrepararCorteGeometria)),
@@ -6037,6 +6037,7 @@
     {
         var resourceBudget = GeoNex.Services.GdalRuntimeConfiguration.Apply();
         WindowCloseCoordinator.CloseRequested += AoSolicitarFechamentoNativo;
+        MapService.OnMapInvalidated += AgendarRedesenhoAposInvalidacao;
         _gdalLimitMB = resourceBudget.GdalCacheMb.ToString(System.Globalization.CultureInfo.InvariantCulture);
         _ramEmUsoMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
         CarregarProjetosRecentes();
@@ -6062,6 +6063,25 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_frameAberturaProjetoPendente && !_mostrarTelaInicialProjeto && ProjetoService.TemProjetoAberto)
+        {
+            _frameAberturaProjetoPendente = false;
+            try
+            {
+                long serial = await JSRuntime.InvokeAsync<long>(
+                    "mapEngine.sincronizarCameraComBlazor",
+                    MapService.CameraPanX,
+                    MapService.CameraPanY,
+                    MapService.CameraZoom);
+                _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
+                await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
+            }
+            catch
+            {
+                SolicitarNovoFrame();
+            }
+        }
+
         if (_focoMenuDadosPendente is { } focoMenuDados)
         {
             _focoMenuDadosPendente = null;
@@ -6126,9 +6146,48 @@
     }
 
     [JSInvokable]
-    public void AtualizarDimensoesTela(int w, int h, float dpi)
+    public void AtualizarDimensoesTela(int w, int h, float dpi, double deslocamentoCentroX = 0, double deslocamentoCentroY = 0)
     {
         if (!MapViewportMetrics.TryCreate(w, h, dpi, out MapViewportMetrics viewport)) return;
+        bool tamanhoMudou = viewport.CssWidth != _larguraTela || viewport.CssHeight != _alturaTela;
+        bool dpiMudou = Math.Abs(viewport.RequestedDpi - _dpiTela) > 0.001f;
+        bool centroMudou = double.IsFinite(deslocamentoCentroX) && double.IsFinite(deslocamentoCentroY) &&
+            (Math.Abs(deslocamentoCentroX) > 0.01 || Math.Abs(deslocamentoCentroY) > 0.01);
+        if (!tamanhoMudou && !dpiMudou && !centroMudou) return;
+
+        if (centroMudou)
+        {
+            MapService.CameraPanX -= deslocamentoCentroX;
+            MapService.CameraPanY -= deslocamentoCentroY;
+        }
+
+        if (tamanhoMudou && _escalaAutoFitInicializada && _ultimaEscalaUI > 0 &&
+            double.IsFinite(MapService.CameraZoom) && MapService.CameraZoom > 0)
+        {
+            SkiaSharp.SKRect bounds = new();
+            bool hasBounds = false;
+            SkiaSharp.SKRect rasterBounds = MapService.LimitesRasterGlobal;
+            if (MapService.TemRaster && !rasterBounds.IsEmpty)
+            {
+                bounds = rasterBounds;
+                hasBounds = true;
+            }
+            if (!MapService.LimitesGlobaisVetor.IsEmpty)
+            {
+                if (hasBounds) bounds.Union(MapService.LimitesGlobaisVetor);
+                else bounds = MapService.LimitesGlobaisVetor;
+                hasBounds = true;
+            }
+
+            if (hasBounds && bounds.Width >= 0.001f && bounds.Height >= 0.001f)
+            {
+                double newFitScale = Math.Min(viewport.CssWidth / bounds.Width, viewport.CssHeight / bounds.Height) * 0.8d;
+                double displayedScale = _ultimaEscalaUI * MapService.CameraZoom;
+                if (double.IsFinite(newFitScale) && newFitScale > 0 && double.IsFinite(displayedScale) && displayedScale > 0)
+                    MapService.CameraZoom = Math.Clamp(displayedScale / newFitScale, 0.05, 1_000_000);
+            }
+        }
+
         _larguraTela = viewport.CssWidth;
         _alturaTela = viewport.CssHeight;
         _dpiTela = viewport.RequestedDpi;
@@ -6139,6 +6198,7 @@
     {
         _renderDisposed = true;
         WindowCloseCoordinator.CloseRequested -= AoSolicitarFechamentoNativo;
+        MapService.OnMapInvalidated -= AgendarRedesenhoAposInvalidacao;
         _autosaveProjetoCts?.Cancel();
         MapService.ClientRenderedDigitizingPreview = false;
         MapService.ClientRenderedVertexEditingCursor = false;
@@ -6187,6 +6247,8 @@
     }
 
     private bool _renderDisposed;
+    private bool _frameAberturaProjetoPendente;
+    private int _redesenhoMapaPendente;
     private readonly System.Threading.SemaphoreSlim _projectSaveGate = new(1, 1);
     private System.Threading.CancellationTokenSource? _autosaveProjetoCts;
     private DateTime _ultimoAutosaveProjetoUtc = DateTime.UtcNow;
@@ -6257,6 +6319,35 @@
 
     private void AtualizarImagemOnline()
         => _ = InvokeAsync(() => { if (!_renderDisposed) SolicitarNovoFrame(); });
+
+    private void AgendarRedesenhoAposInvalidacao()
+    {
+        if (_renderDisposed || System.Threading.Interlocked.Exchange(ref _redesenhoMapaPendente, 1) != 0)
+            return;
+        long sequenciaFrameAoAgendar = System.Threading.Interlocked.Read(ref _sequenciaFrame);
+
+        try
+        {
+            _ = InvokeAsync(async () =>
+            {
+                try
+                {
+                    await Task.Delay(16);
+                    if (!_renderDisposed &&
+                        System.Threading.Interlocked.Read(ref _sequenciaFrame) == sequenciaFrameAoAgendar)
+                        SolicitarNovoFrame();
+                }
+                finally
+                {
+                    System.Threading.Interlocked.Exchange(ref _redesenhoMapaPendente, 0);
+                }
+            });
+        }
+        catch
+        {
+            System.Threading.Interlocked.Exchange(ref _redesenhoMapaPendente, 0);
+        }
+    }
 
     private async Task AdicionarCamadaAoMapa(string? nomeCamada = null, bool propagarErros = false)
     {
@@ -6559,8 +6650,8 @@
         {
             var opcoes = new PickOptions
             {
-                PickerTitle = "Selecione o Vetor (SHP, GeoJSON)",
-                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".shp", ".geojson", ".kml" } } })
+                PickerTitle = "Selecione o Vetor (SHP, GPKG, GeoJSON ou KML)",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".shp", ".geojson", ".json", ".gpkg", ".kml" } } })
             };
             var resultado = await FilePicker.Default.PickAsync(opcoes);
             if (resultado != null) { caminhoArquivoVetor = resultado.FullPath; StateHasChanged(); }
@@ -7018,6 +7109,7 @@
                     GeoNex.Services.GnxProjectStore.DescartarAutosave(projeto.CaminhoArquivo);
                 if (transicaoProjetoAnterior.ProjetoDoAutosaveParaDescartar is { } projetoAnteriorDescartado)
                     GeoNex.Services.GnxProjectStore.DescartarAutosave(projetoAnteriorDescartado);
+                _frameAberturaProjetoPendente = true;
             }
             catch (Exception ex)
             {
@@ -7595,6 +7687,13 @@
             Math.Abs(projeto.CameraPanX) <= 1_000_000_000 &&
             Math.Abs(projeto.CameraPanY) <= 1_000_000_000 &&
             double.IsFinite(projeto.CameraZoom) && projeto.CameraZoom is >= 0.05 and <= 1_000_000;
+        if (cameraSalvaValida && !CameraProjetoMostraExtensao(
+                MapService.GetSceneBounds(), _larguraTela, _alturaTela,
+                projeto.CameraPanX, projeto.CameraPanY, projeto.CameraZoom))
+        {
+            cameraSalvaValida = false;
+            Console.WriteLine("[GEONEX] A câmera salva estava fora das camadas; a vista inicial foi ajustada à extensão do projeto.");
+        }
         MapService.CameraPanX = cameraSalvaValida ? projeto.CameraPanX : 0;
         MapService.CameraPanY = cameraSalvaValida ? projeto.CameraPanY : 0;
         MapService.CameraZoom = cameraSalvaValida ? projeto.CameraZoom : 1;
@@ -7609,6 +7708,37 @@
         await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
         SolicitarNovoFrame();
         return avisos;
+    }
+
+    private static bool CameraProjetoMostraExtensao(
+        SkiaSharp.SKRect bounds,
+        int viewportWidth,
+        int viewportHeight,
+        double panX,
+        double panY,
+        double zoom)
+    {
+        if (bounds.IsEmpty || bounds.Width < 0.001f || bounds.Height < 0.001f ||
+            viewportWidth <= 0 || viewportHeight <= 0)
+            return true;
+
+        double fitScale = Math.Min(viewportWidth / (double)bounds.Width, viewportHeight / (double)bounds.Height) * 0.8d;
+        double scale = fitScale * zoom;
+        if (!double.IsFinite(scale) || scale <= 0) return false;
+
+        double centerX = bounds.MidX - panX / scale;
+        double centerY = bounds.MidY - panY / scale;
+        double halfWidth = viewportWidth / (2d * scale);
+        double halfHeight = viewportHeight / (2d * scale);
+        double left = centerX - halfWidth;
+        double right = centerX + halfWidth;
+        double top = centerY - halfHeight;
+        double bottom = centerY + halfHeight;
+
+        return double.IsFinite(left) && double.IsFinite(right) &&
+            double.IsFinite(top) && double.IsFinite(bottom) &&
+            left < bounds.Right && right > bounds.Left &&
+            top < bounds.Bottom && bottom > bounds.Top;
     }
 
     private static GeoNex.Models.ProjetoFonteCamada? TentarLerFonteProjeto(GeoNex.Models.Camada camada)
@@ -8401,6 +8531,7 @@
         bool additiveSelection = false, bool toggleVertexSelection = false,
         bool removeVertexSelection = false)
     {
+        if (_vectorEditOperationInProgress) return;
         var matriz = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
             if (TentarMapearPontoTelaParaLocal(telaX, telaY, displayedMatrix, matriz, out var ptMundo))
             {
@@ -8435,6 +8566,12 @@
                         await SelecionarFeicaoParaEdicaoAsync(featureEdit, layerEdit, additiveSelection || toggleVertexSelection);
                         break;
                     }
+                    if (SelectedVectorFeatureState is not { IsDeleted: false } activeEditFeature)
+                    {
+                        _vectorEditMessage = "Use Selecionar feições para escolher uma feição antes de editar vértices.";
+                        await InvokeAsync(StateHasChanged);
+                        break;
+                    }
                     if (SelectedVectorFeatureState is { } selectedVertexFeature &&
                         (toggleVertexSelection || removeVertexSelection))
                     {
@@ -8463,7 +8600,13 @@
                         await InserirVerticeSelecionadoAsync(xMundo, yMundo, escalaEdicao);
                         break;
                     }
-                    await SelecionarFeicaoParaEdicaoAsync(featureEdit, layerEdit, additiveSelection);
+                    if (featureEdit is not null &&
+                        (featureEdit.FID != activeEditFeature.Key.FeatureId ||
+                         !string.Equals(layerEdit, activeEditFeature.Key.LayerName, StringComparison.Ordinal)))
+                    {
+                        _vectorEditMessage = "Outra feição foi atingida. Use Selecionar feições para trocar a feição ativa.";
+                        await InvokeAsync(StateHasChanged);
+                    }
                     break;
                 }
                 case ModoFerramenta.Identificacao:
@@ -8856,6 +8999,7 @@
          (_ferramentaAtiva == ModoFerramenta.Medicao || _ferramentaAtiva == ModoFerramenta.AquisicaoPoligono || _ferramentaAtiva == ModoFerramenta.EdicaoVertice ? "crosshair" : "default"));
     private void ProcessarPressionarMouse(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
+        if (_vectorEditOperationInProgress) return;
         if (exibirModalAtributos) return; // <-- ADICIONE ESTA LINHA AQUI
         if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode && e.Button == 0)
         {
@@ -9271,8 +9415,9 @@
     // =========================================================================
     // APLICAÇÃO DE SIMBOLOGIA (MODAL DE PROPRIEDADES)
     // =========================================================================
-    private void AplicarPropriedadesUnificadas()
+    private async Task AplicarPropriedadesUnificadas()
     {
+        using IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync();
         if (string.IsNullOrEmpty(camadaEmEdicao)) return;
         var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, new GeoNex.Services.EstiloCamada());
 
@@ -9418,6 +9563,7 @@
     private float _ultimoMidXUI = 0f;
     private float _ultimoMidYUI = 0f;
     private float _ultimaEscalaUI = 1f;
+    private bool _escalaAutoFitInicializada;
 
     private SkiaSharp.SKMatrix ObterMatrizMatematica()
 {
@@ -9446,6 +9592,7 @@
         midX = limitesTotais.MidX; midY = limitesTotais.MidY;
 
         _ultimaEscalaUI = escalaAutoFit; _ultimoMidXUI = midX; _ultimoMidYUI = midY;
+        _escalaAutoFitInicializada = true;
     }
 
     float zoomReal = (float)(escalaAutoFit * Math.Clamp(MapService.CameraZoom, 0.05, 1_000_000));
@@ -9657,7 +9804,8 @@
             // 3. Recalcula as cores se for um mapa temático
             if (MapService.EstilosPorCamada.TryGetValue(camadaAlvo, out var estilo) && estilo.TipoSimbologia == "CATEGORIZADA")
             {
-                MapService.CompilarCategorias(camadaAlvo, estilo.ColunaSimbologia);
+                using (IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync())
+                    MapService.CompilarCategorias(camadaAlvo, estilo.ColunaSimbologia);
             }
 
             novaFeicaoVisual.SourceFeatureId = -1;

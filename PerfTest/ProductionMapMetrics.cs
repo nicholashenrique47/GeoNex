@@ -32,10 +32,15 @@ internal static class ProductionMapMetrics
         mapType.GetProperty("OffsetMundoDefinido")!.SetValue(map, true);
         var project = Activator.CreateInstance(projectType)!;
         var clock = Stopwatch.StartNew();
-        string compiled = (string)projectType.GetMethod("CompilarParaShapefileNativo")!.Invoke(project, new object[] { source })!;
+        MethodInfo compileMethod = projectType.GetMethods()
+            .Single(method => method.Name == "CompilarParaShapefileNativo" &&
+                              method.GetParameters() is { Length: 1 } parameters &&
+                              parameters[0].ParameterType == typeof(string));
+        string compiled = (string)compileMethod.Invoke(project, new object[] { source })!;
         Console.WriteLine($"BENCH conversion_ms={clock.Elapsed.TotalMilliseconds:F2} source={source} compiled={compiled}");
         clock.Restart();
-        projectType.GetMethod("CarregarShapefileParaMotorMapas")!.Invoke(project, new object[] { compiled, "benchmark", map });
+        projectType.GetMethod("CarregarShapefileParaMotorMapas")!.Invoke(project,
+            new object?[] { compiled, "benchmark", map, false, null, true });
         Console.WriteLine($"BENCH load_ms={clock.Elapsed.TotalMilliseconds:F2}");
         var layerBounds = (SKRect)mapType.GetProperty("LimitesGlobaisVetor")!.GetValue(map)!;
         using var fixture = delayed ? new DelayedTileServer() : null;
@@ -84,7 +89,7 @@ internal static class ProductionMapMetrics
                 var layers = (System.Collections.IDictionary)mapType.GetProperty("FeaturesPorCamada")!.GetValue(map)!;
                 var features = (System.Collections.IList)layers["benchmark"]!;
                 object focus = features[features.Count / 2]!;
-                var center = (SKPoint)focus.GetType().GetField("CentroidLocal")!.GetValue(focus)!;
+                var center = (SKPoint)focus.GetType().GetProperty("CentroidLocal")!.GetValue(focus)!;
                 float cx = center.X, cy = center.Y;
                 var scene = (SKRect)mapType.GetMethod("GetSceneBounds")!.Invoke(map, null)!;
                 var target = new SKRect(cx - 640 / targetScale, cy - 360 / targetScale,
@@ -152,9 +157,13 @@ internal static class ProductionMapMetrics
                         using var global = (IDisposable?)mapType.GetMethod("AcquireGlobalCache")!.Invoke(map, cacheArgs);
                         object metadata = cacheArgs[0]!;
                         object productionFrame = metadata.GetType().GetProperty("Frame")!.GetValue(metadata)!;
-                        var origin = (SKPoint)productionFrame.GetType().GetProperty("LocalCenter")!.GetValue(productionFrame)!;
-                        float scale = (float)metadata.GetType().GetProperty("Zoom")!.GetValue(metadata)!;
-                        Console.WriteLine(FormattableString.Invariant($"HIGH_ZOOM frame_center_x={origin.X:R} frame_center_y={origin.Y:R} css_scale={scale:R}"));
+                        var localCenter = (SKPoint)productionFrame.GetType().GetProperty("LocalCenter")!.GetValue(productionFrame)!;
+                        Type localCoordinateType = assembly.GetType("GeoNex.Services.MapLocalCoordinate", true)!;
+                        object origin = Activator.CreateInstance(localCoordinateType,
+                            (double)localCenter.X, (double)localCenter.Y)!;
+                        float scale = Convert.ToSingle(metadata.GetType().GetProperty("Zoom")!.GetValue(metadata),
+                            System.Globalization.CultureInfo.InvariantCulture);
+                        Console.WriteLine(FormattableString.Invariant($"HIGH_ZOOM frame_center_x={localCenter.X:R} frame_center_y={localCenter.Y:R} css_scale={scale:R}"));
                         var viewport = MapViewportMetrics.Create(
                             (int)metadata.GetType().GetProperty("CssWidth")!.GetValue(metadata)!,
                             (int)metadata.GetType().GetProperty("CssHeight")!.GetValue(metadata)!, dpi);

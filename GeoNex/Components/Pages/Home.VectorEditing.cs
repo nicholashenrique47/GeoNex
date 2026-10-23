@@ -1,6 +1,7 @@
 using GeoNex.Services;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Features;
+using NetTopologySuite.Index.Strtree;
 using SkiaSharp;
 
 namespace GeoNex.Components.Pages;
@@ -45,6 +46,7 @@ public partial class Home
     private int _vectorGeometryEditHistoryCursor;
     private VectorFeatureKey? _selectedVectorFeatureForEdit;
     private IReadOnlyList<VectorGeometryEditingService.Vertex> _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+    private STRtree<int>? _selectedVectorVertexSpatialIndex;
     private VectorGeometryEditingService.VertexAddress? _draggedVectorVertex;
     private bool _draggingWholeVectorFeature;
     private SKPoint? _wholeFeatureDragStart;
@@ -59,6 +61,7 @@ public partial class Home
     private int _selectedVectorVertexDisplayIndex = -1;
     private readonly List<VectorGeometryEditingService.VertexAddress> _selectedVectorVertexAddresses = new();
     private IReadOnlyList<VectorGeometryEditingService.VertexAddress> _draggedVectorVertexAddresses = Array.Empty<VectorGeometryEditingService.VertexAddress>();
+    private readonly HashSet<long> _snapIgnoredFeatureIds = new();
     private Coordinate? _draggedVectorVertexOriginal;
     private double? _vectorVertexCoordinateX;
     private double? _vectorVertexCoordinateY;
@@ -68,6 +71,7 @@ public partial class Home
     private bool _snapVectorEditMidpoints;
     private bool _snapVectorEditIntersections;
     private bool _propagateSelectedSharedVertices;
+    private bool _vectorEditOperationInProgress;
     private double _vectorMoveDeltaX;
     private double _vectorMoveDeltaY;
     private double _vectorRotationDegrees = 15;
@@ -86,13 +90,37 @@ public partial class Home
             ? $"temporária {-key.FeatureId}"
             : key.SourceFeatureId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    private int SelectedVectorVertexCount => SelectedVectorFeatureState is { } state
-        ? VectorGeometryEditingService.GetVertices(state.Current).Count
-        : 0;
+    private int SelectedVectorVertexCount => _selectedVectorVertices.Count;
 
-    private bool CanUndoVectorGeometryEdit => _vectorGeometryEditHistoryCursor > 0 &&
+    private void DefinirVerticesSelecionados(IReadOnlyList<VectorGeometryEditingService.Vertex> vertices)
+    {
+        _selectedVectorVertices = vertices;
+        if (vertices.Count < 256)
+        {
+            _selectedVectorVertexSpatialIndex = null;
+            return;
+        }
+
+        var index = new STRtree<int>();
+        for (int i = 0; i < vertices.Count; i++)
+        {
+            VectorGeometryEditingService.Vertex vertex = vertices[i];
+            if (!double.IsFinite(vertex.X) || !double.IsFinite(vertex.Y)) continue;
+            index.Insert(new Envelope(vertex.X, vertex.X, vertex.Y, vertex.Y), i);
+        }
+        index.Build();
+        _selectedVectorVertexSpatialIndex = index;
+    }
+
+    private void LimparVerticesSelecionados()
+    {
+        _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+        _selectedVectorVertexSpatialIndex = null;
+    }
+
+    private bool CanUndoVectorGeometryEdit => !_vectorEditOperationInProgress && _vectorGeometryEditHistoryCursor > 0 &&
         GrupoHistoricoPertenceCamadaAtiva(_vectorGeometryEditHistoryCursor - 1);
-    private bool CanRedoVectorGeometryEdit => _vectorGeometryEditHistoryCursor < _vectorGeometryEditHistory.Count &&
+    private bool CanRedoVectorGeometryEdit => !_vectorEditOperationInProgress && _vectorGeometryEditHistoryCursor < _vectorGeometryEditHistory.Count &&
         GrupoHistoricoPertenceCamadaAtiva(_vectorGeometryEditHistoryCursor);
     private bool GrupoHistoricoPertenceCamadaAtiva(int indiceAcao)
     {
@@ -103,15 +131,15 @@ public partial class Home
             .Where(action => action.GroupId == grupo)
             .All(action => string.Equals(action.Key.LayerName, _camadaAtivaFerramentas, StringComparison.OrdinalIgnoreCase));
     }
-    private bool CanApplyVectorVertexCoordinates => SelectedVectorFeatureState is not null &&
-        !_vectorFeatureSelectionMode && !_vectorMoveFeatureMode &&
+    private bool CanApplyVectorVertexCoordinates => !_vectorEditOperationInProgress && SelectedVectorFeatureState is not null &&
+        _ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode && !_vectorMoveFeatureMode &&
         _selectedVectorVertexDisplayIndex >= 0 && _selectedVectorVertexDisplayIndex < _selectedVectorVertices.Count &&
         _vectorVertexCoordinateX.HasValue && _vectorVertexCoordinateY.HasValue;
-    private bool CanRepairSelectedVectorGeometry => SelectedVectorFeatureState is
+    private bool CanRepairSelectedVectorGeometry => !_vectorEditOperationInProgress && SelectedVectorFeatureState is
         { IsDeleted: false, IsNewFeature: false } && _vectorGeometryValidationMessage is not null;
-    private bool CanCutSelectedVectorGeometry => SelectedVectorFeatureState is
+    private bool CanCutSelectedVectorGeometry => !_vectorEditOperationInProgress && SelectedVectorFeatureState is
         { IsDeleted: false, Current: Polygon or MultiPolygon or LineString or MultiLineString };
-    private bool CanEditSelectedPolygonRings => SelectedVectorFeatureState is
+    private bool CanEditSelectedPolygonRings => !_vectorEditOperationInProgress && SelectedVectorFeatureState is
         { IsDeleted: false, IsNewFeature: false, Current: Polygon or MultiPolygon };
     private bool VetorizacaoAvancadaAtiva => _modoAvancadoVetorizacao &&
         (FerramentaDesenhoAtiva || _ferramentaAtiva == ModoFerramenta.EdicaoVertice);
@@ -125,19 +153,19 @@ public partial class Home
         .Select(key => _vectorFeatureEditStates[key])
         .Where(state => !state.IsDeleted)
         .ToArray();
-    private bool CanMergeSelectedPolygons => SelectedVectorFeatureStates.Count >= 2 &&
+    private bool CanMergeSelectedPolygons => !_vectorEditOperationInProgress && SelectedVectorFeatureStates.Count >= 2 &&
         SelectedVectorFeatureStates.All(state => state.Key.LayerName == _vectorFeatureEditSelection[0].LayerName &&
             state.Current is Polygon or MultiPolygon);
-    private bool CanMergeSelectedLines => SelectedVectorFeatureStates.Count >= 2 &&
+    private bool CanMergeSelectedLines => !_vectorEditOperationInProgress && SelectedVectorFeatureStates.Count >= 2 &&
         SelectedVectorFeatureStates.All(state => state.Key.LayerName == _vectorFeatureEditSelection[0].LayerName &&
             state.Current is LineString or MultiLineString);
-    private bool CanRemoveHoveredVectorVertex => SelectedVectorFeatureState is not null &&
+    private bool CanRemoveHoveredVectorVertex => !_vectorEditOperationInProgress && SelectedVectorFeatureState is not null &&
         _ferramentaAtiva == ModoFerramenta.EdicaoVertice &&
         !_vectorFeatureSelectionMode && !_vectorMoveFeatureMode &&
         _hoveredVectorVertexDisplayIndex >= 0 && _hoveredVectorVertexDisplayIndex < _selectedVectorVertices.Count;
     private int SelectedVectorVertexSelectionCount => _selectedVectorVertexAddresses.Count;
-    private bool CanRemoveSelectedVectorVertices => SelectedVectorFeatureState is not null &&
-        !_vectorFeatureSelectionMode && !_vectorMoveFeatureMode &&
+    private bool CanRemoveSelectedVectorVertices => !_vectorEditOperationInProgress && SelectedVectorFeatureState is not null &&
+        _ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode && !_vectorMoveFeatureMode &&
         _selectedVectorVertexAddresses.Count > 0;
     private bool CanPropagateSelectedSharedVertices => SelectedVectorFeatureStates.Count >= 2 &&
         SelectedVectorFeatureStates.All(state => state.Key.LayerName == _vectorFeatureEditSelection[0].LayerName);
@@ -164,7 +192,7 @@ public partial class Home
                 return;
             }
             _selectedVectorFeatureForEdit = null;
-            _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+            LimparVerticesSelecionados();
             _vectorFeatureEditSelection.Clear();
             LimparSelecaoVerticeEdicao();
             _vectorEditMessage = "Nenhuma feição encontrada nesse ponto. Clique sobre um vetor para selecionar.";
@@ -189,7 +217,7 @@ public partial class Home
             }
             _vectorEditMessage = "Edição PostGIS indisponível: esta conexão ainda não identifica a chave primária real da feição. O GeoNex não usará o índice temporário como identificador.";
             _selectedVectorFeatureForEdit = null;
-            _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+            LimparVerticesSelecionados();
             if (!additiveSelection) _vectorFeatureEditSelection.Clear();
             MapService.DestacarFeicao(null);
             MapService.LimparOverlayEdicao();
@@ -235,7 +263,7 @@ public partial class Home
                     if (_vectorFeatureEditSelection.Count == 0)
                     {
                         _selectedVectorFeatureForEdit = null;
-                        _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+                        LimparVerticesSelecionados();
                         MapService.DestacarFeicao(null);
                         MapService.LimparOverlayEdicao();
                         _vectorEditMessage = "Seleção de feições limpa.";
@@ -265,9 +293,10 @@ public partial class Home
             _vectorFeatureEditSelection.Add(key);
             _selectedVectorFeatureForEdit = key;
             camadaSelecionadaPainel = layerName;
-            _selectedVectorVertices = VectorGeometryEditingService.GetVertices(state.Current);
             AtualizarDiagnosticoGeometriaSelecionada();
-            _vectorEditMessage = $"Feição {IdentificadorFeicaoExibicao(key)} selecionada · arraste um vértice para remodelar ou o corpo para mover.";
+            _vectorEditMessage = _vectorFeatureSelectionMode
+                ? $"Feição {IdentificadorFeicaoExibicao(key)} selecionada · clique em Editar vértices para iniciar a edição."
+                : $"Feição {IdentificadorFeicaoExibicao(key)} selecionada · arraste um vértice para remodelar ou o corpo para mover.";
             MapService.DestacarFeicao(compiledFeature);
             if (_vectorFeatureSelectionMode) AtualizarOverlaySelecaoFeicoes();
             else AtualizarOverlayEdicaoVetorial(state.Current, -1);
@@ -276,7 +305,7 @@ public partial class Home
         catch (Exception ex)
         {
             _selectedVectorFeatureForEdit = null;
-            _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+            LimparVerticesSelecionados();
             _vectorEditMessage = $"A feição não pôde ser preparada para edição: {MensagemPostgisSegura(ex)}";
             MapService.DestacarFeicao(null);
             MapService.LimparOverlayEdicao();
@@ -294,7 +323,7 @@ public partial class Home
         }
 
         IReadOnlyList<VectorGeometryEditingService.Vertex> vertices = VectorGeometryEditingService.GetVertices(geometry);
-        _selectedVectorVertices = vertices;
+        DefinirVerticesSelecionados(vertices);
         if (FerramentaEdicaoVetorialNoCliente())
         {
             bool overlayModeChanged = !MapService.ClientRenderedVectorEditOverlay;
@@ -355,7 +384,7 @@ public partial class Home
         }
 
         IReadOnlyList<VectorGeometryEditingService.Vertex> vertices = VectorGeometryEditingService.GetVertices(primary.Geometry);
-        _selectedVectorVertices = vertices;
+        DefinirVerticesSelecionados(vertices);
         if (FerramentaEdicaoVetorialNoCliente())
         {
             bool overlayModeChanged = !MapService.ClientRenderedVectorEditOverlay;
@@ -396,8 +425,15 @@ public partial class Home
     private void AtualizarIndicesVerticesEdicaoSelecionados()
     {
         var indices = new List<int>(_selectedVectorVertexAddresses.Count);
+        if (_selectedVectorVertexAddresses.Count == 0)
+        {
+            MapService.DefinirIndicesVerticesEdicaoSelecionados(indices);
+            return;
+        }
+
+        var selectedAddresses = _selectedVectorVertexAddresses.ToHashSet();
         for (int i = 0; i < _selectedVectorVertices.Count; i++)
-            if (_selectedVectorVertexAddresses.Contains(_selectedVectorVertices[i].Address))
+            if (selectedAddresses.Contains(_selectedVectorVertices[i].Address))
                 indices.Add(i);
         MapService.DefinirIndicesVerticesEdicaoSelecionados(indices);
     }
@@ -454,9 +490,22 @@ public partial class Home
         {
             double nearestDistance = toleranceSquared;
             SKPoint reference = _vectorEditPointerPressed && pointerStart is { } start ? start : cursor;
-            for (int i = 0; i < _selectedVectorVertices.Count; i++)
+            if (_selectedVectorVertexSpatialIndex is { } spatialIndex)
             {
-                var vertex = _selectedVectorVertices[i];
+                double worldX = reference.X + MapService.OffsetMundoX;
+                double worldY = MapService.OffsetMundoY - reference.Y;
+                var search = new Envelope(worldX - tolerance, worldX + tolerance,
+                    worldY - tolerance, worldY + tolerance);
+                foreach (int candidate in spatialIndex.Query(search)) ConsiderVertex(candidate);
+            }
+            else
+            {
+                for (int i = 0; i < _selectedVectorVertices.Count; i++) ConsiderVertex(i);
+            }
+
+            void ConsiderVertex(int i)
+            {
+                VectorGeometryEditingService.Vertex vertex = _selectedVectorVertices[i];
                 double dx = reference.X - (vertex.X - MapService.OffsetMundoX);
                 double dy = reference.Y - (MapService.OffsetMundoY - vertex.Y);
                 double distance = dx * dx + dy * dy;
@@ -470,8 +519,10 @@ public partial class Home
 
         if (_vectorEditPointerPressed && _draggedVectorVertex is null && !_draggingWholeVectorFeature &&
             pointerStart is { } dragStart &&
-            Math.Sqrt(Math.Pow((cursor.X - dragStart.X) * Math.Abs(matrix.ScaleX), 2) +
-                Math.Pow((cursor.Y - dragStart.Y) * Math.Abs(matrix.ScaleY), 2)) < 3)
+            (cursor.X - dragStart.X) * (cursor.X - dragStart.X) *
+                matrix.ScaleX * matrix.ScaleX +
+            (cursor.Y - dragStart.Y) * (cursor.Y - dragStart.Y) *
+                matrix.ScaleY * matrix.ScaleY < 9)
         {
             _hoveredVectorVertexDisplayIndex = nearest;
             MapService.DefinirIndiceVerticeEdicao(nearest);
@@ -537,11 +588,18 @@ public partial class Home
         if (_draggingWholeVectorFeature && _wholeFeatureDragStart is { } featureStart &&
             _geometryAtDragStart is { } featureGeometry)
         {
+            if (FerramentaEdicaoVetorialNoCliente())
+            {
+                MapService.PontoCursorSnap = null;
+                MapService.PontoCursorSnapTipo = null;
+                _vectorEditMessage = "Prévia da feição · solte para mover toda a geometria.";
+                return;
+            }
             try
             {
                 MapService.PontoCursorSnap = null;
                 MapService.PontoCursorSnapTipo = null;
-                _geometryDragPreview = VectorGeometryEditingService.Translate(
+                _geometryDragPreview = VectorGeometryEditingService.TranslatePreview(
                     featureGeometry, cursor.X - featureStart.X, featureStart.Y - cursor.Y);
                 AtualizarOverlayEdicaoVetorial(_geometryDragPreview, -1);
                 _vectorEditMessage = "Prévia da feição · solte para mover toda a geometria.";
@@ -556,16 +614,27 @@ public partial class Home
 
         try
         {
-            SKPoint adjustedCursor = AjustarCursorSnapEdicao(cursor, matrix);
+            bool deferSnapForHeavyPreview = FerramentaEdicaoVetorialNoCliente() &&
+                _selectedVectorVertices.Count >= 10_000 &&
+                (_vectorEditPointerPressed || _vectorEditPlacementArmed);
+            SKPoint adjustedCursor = deferSnapForHeavyPreview ? cursor : AjustarCursorSnapEdicao(cursor, matrix);
             double targetX = adjustedCursor.X + MapService.OffsetMundoX;
             double targetY = MapService.OffsetMundoY - adjustedCursor.Y;
             Coordinate vertexOrigin = _draggedVectorVertexOriginal ?? throw new InvalidOperationException("O vértice inicial não está disponível.");
             IReadOnlyList<VectorGeometryEditingService.VertexAddress> addresses = _draggedVectorVertexAddresses.Count > 0
                 ? _draggedVectorVertexAddresses
                 : [address];
+            if (FerramentaEdicaoVetorialNoCliente())
+            {
+                _vectorEditMessage = deferSnapForHeavyPreview
+                    ? "Prévia leve · o encaixe será calculado ao aplicar; Esc cancela."
+                    : "Prévia do vértice · mova o cursor e clique para aplicar; Esc cancela.";
+                return;
+            }
             _geometryDragPreview = addresses.Count > 1
-                ? VectorGeometryEditingService.MoveVerticesByDelta(origin, addresses, targetX - vertexOrigin.X, targetY - vertexOrigin.Y)
-                : VectorGeometryEditingService.MoveVertex(origin, address, targetX, targetY);
+                ? VectorGeometryEditingService.MoveVerticesByDeltaPreview(
+                    origin, addresses, targetX - vertexOrigin.X, targetY - vertexOrigin.Y)
+                : VectorGeometryEditingService.MoveVertexPreview(origin, address, targetX, targetY);
             if (!AtualizarPreviaVerticeCompartilhado(
                 state, addresses, address, _geometryDragPreview, _draggedVectorVertexDisplayIndex))
                 AtualizarOverlayEdicaoVetorial(_geometryDragPreview, _draggedVectorVertexDisplayIndex);
@@ -591,7 +660,12 @@ public partial class Home
             return;
         }
 
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Validando a edição da geometria…";
+        await InvokeAsync(StateHasChanged);
         Geometry? after = _geometryDragPreview;
+        double? sharedVertexDeltaX = null;
+        double? sharedVertexDeltaY = null;
         try
         {
             try
@@ -605,8 +679,9 @@ public partial class Home
                 {
                     if (_draggingWholeVectorFeature && _wholeFeatureDragStart is { } featureStart)
                     {
-                        after = VectorGeometryEditingService.Translate(
-                            before, finalPosition.X - featureStart.X, featureStart.Y - finalPosition.Y);
+                        double deltaX = finalPosition.X - featureStart.X;
+                        double deltaY = featureStart.Y - finalPosition.Y;
+                        after = await Task.Run(() => VectorGeometryEditingService.Translate(before, deltaX, deltaY));
                     }
                     else if (_draggedVectorVertex is { } address)
                     {
@@ -617,9 +692,13 @@ public partial class Home
                         IReadOnlyList<VectorGeometryEditingService.VertexAddress> addresses = _draggedVectorVertexAddresses.Count > 0
                             ? _draggedVectorVertexAddresses
                             : [address];
-                        after = addresses.Count > 1
-                            ? VectorGeometryEditingService.MoveVerticesByDelta(before, addresses, targetX - vertexOrigin.X, targetY - vertexOrigin.Y)
-                            : VectorGeometryEditingService.MoveVertex(before, address, targetX, targetY);
+                        double deltaX = targetX - vertexOrigin.X;
+                        double deltaY = targetY - vertexOrigin.Y;
+                        sharedVertexDeltaX = deltaX;
+                        sharedVertexDeltaY = deltaY;
+                        after = await Task.Run(() => addresses.Count > 1
+                            ? VectorGeometryEditingService.MoveVerticesByDelta(before, addresses, deltaX, deltaY)
+                            : VectorGeometryEditingService.MoveVertex(before, address, targetX, targetY));
                     }
                 }
             }
@@ -635,33 +714,23 @@ public partial class Home
                 return;
             }
 
-            if (_draggedVectorVertex is { } sharedAddress && _propagateSelectedSharedVertices &&
+            if (_draggedVectorVertex is { } sharedAddress && sharedVertexDeltaX is { } sharedDeltaX &&
+                sharedVertexDeltaY is { } sharedDeltaY && _propagateSelectedSharedVertices &&
                 CanPropagateSelectedSharedVertices)
             {
                 VectorFeatureEditState[] selectedStates = SelectedVectorFeatureStates
                     .Where(selected => selected.Key.LayerName == key.LayerName)
                     .ToArray();
                 int primaryIndex = Array.FindIndex(selectedStates, selected => selected.Key == key);
-                VectorGeometryEditingService.Vertex? movedVertex = null;
-                foreach (VectorGeometryEditingService.Vertex vertex in VectorGeometryEditingService.GetVertices(after))
+                if (primaryIndex >= 0)
                 {
-                    if (vertex.Address != sharedAddress) continue;
-                    movedVertex = vertex;
-                    break;
-                }
-
-                if (primaryIndex >= 0 && movedVertex is { } target)
-                {
-                    Coordinate vertexOrigin = _draggedVectorVertexOriginal ?? throw new InvalidOperationException("O vértice inicial não está disponível.");
                     IReadOnlyList<VectorGeometryEditingService.VertexAddress> addresses = _draggedVectorVertexAddresses.Count > 0
                         ? _draggedVectorVertexAddresses
                         : [sharedAddress];
-                    IReadOnlyList<Geometry> geometries = VectorGeometryEditingService.MoveCoincidentVerticesByDelta(
-                        selectedStates.Select(selected => selected.Current).ToArray(),
-                        primaryIndex,
-                        addresses,
-                        target.X - vertexOrigin.X,
-                        target.Y - vertexOrigin.Y);
+                    Geometry[] sourceGeometries = selectedStates.Select(selected => selected.Current).ToArray();
+                    IReadOnlyList<Geometry> geometries = await Task.Run(() =>
+                        VectorGeometryEditingService.MoveCoincidentVerticesByDelta(
+                            sourceGeometries, primaryIndex, addresses, sharedDeltaX, sharedDeltaY));
                     Guid groupId = Guid.NewGuid();
                     var actions = new List<VectorGeometryEditAction>(selectedStates.Length);
                     for (int i = 0; i < selectedStates.Length; i++)
@@ -696,6 +765,7 @@ public partial class Home
         }
         finally
         {
+            _vectorEditOperationInProgress = false;
             LimparEstadoArrasteVertice();
             if (_selectedVectorFeatureForEdit == key && _vectorFeatureEditStates.TryGetValue(key, out var selected))
                 AtualizarOverlayEdicaoVetorial(selected.Current, -1);
@@ -922,7 +992,7 @@ public partial class Home
             if (_selectedVectorFeatureForEdit == state.Key)
             {
                 _selectedVectorFeatureForEdit = null;
-                _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+                LimparVerticesSelecionados();
                 _hoveredVectorVertexDisplayIndex = -1;
             }
             _vectorFeatureEditSelection.Clear();
@@ -948,7 +1018,6 @@ public partial class Home
         LimparSelecaoVerticeEdicao();
         _selectedVectorFeatureForEdit = state.Key;
         camadaSelecionadaPainel = state.Key.LayerName;
-        _selectedVectorVertices = VectorGeometryEditingService.GetVertices(state.Current);
         AtualizarDiagnosticoGeometriaSelecionada();
         if (MapService.FeaturesPorCamada.TryGetValue(state.Key.LayerName, out List<CompiledFeature>? features))
             MapService.DestacarFeicao(features.FirstOrDefault(feature => feature.FID == state.Key.FeatureId));
@@ -985,9 +1054,11 @@ public partial class Home
         }
 
         IReadOnlyList<VectorGeometryEditingService.Vertex> primaryVertices = featureVertices[0];
+        HashSet<VectorGeometryEditingService.VertexAddress> selectedAddresses =
+            _selectedVectorVertexAddresses.ToHashSet();
         int[] selectedIndices = primaryVertices
             .Select((vertex, index) => (vertex, index))
-            .Where(item => _selectedVectorVertexAddresses.Contains(item.vertex.Address))
+            .Where(item => selectedAddresses.Contains(item.vertex.Address))
             .Select(item => item.index)
             .ToArray();
         var movingVertices = new int[ordered.Length][];
@@ -1098,7 +1169,7 @@ public partial class Home
                 if (compiled.Path is { } path) previews.Add(path);
             }
 
-            _selectedVectorVertices = VectorGeometryEditingService.GetVertices(primary.Current);
+            DefinirVerticesSelecionados(VectorGeometryEditingService.GetVertices(primary.Current));
             SKPoint[] pointHandles = primary.Current is NetTopologySuite.Geometries.Point or NetTopologySuite.Geometries.MultiPoint
                 ? _selectedVectorVertices.Select(vertex => new SKPoint(
                     (float)(vertex.X - MapService.OffsetMundoX),
@@ -1141,7 +1212,7 @@ public partial class Home
         if (layer is null || layer.FontePostgis is not null ||
             string.IsNullOrWhiteSpace(layer.CaminhoArquivo) || !File.Exists(layer.CaminhoArquivo))
         {
-            _vectorEditMessage = "A camada local da geometria nao esta disponivel; reconecte-a antes de reparar.";
+            _vectorEditMessage = "A camada local da geometria não está disponível; reconecte-a antes de reparar.";
             await InvokeAsync(StateHasChanged);
             return;
         }
@@ -1160,7 +1231,7 @@ public partial class Home
                     .ToArray()
                 : [repaired];
             if (repairedParts.Length == 0)
-                throw new InvalidOperationException("O reparo nao produziu partes de poligono utilizaveis.");
+                throw new InvalidOperationException("O reparo não produziu partes de polígono utilizáveis.");
 
             Guid groupId = Guid.NewGuid();
             const string groupLabel = "Reparo de geometria";
@@ -1227,7 +1298,7 @@ public partial class Home
                     collection.Remove(newState.PendingFeature);
                 _vectorFeatureEditStates.Remove(newState.Key);
             }
-            _vectorEditMessage = $"O reparo nao foi aplicado; a geometria original foi preservada. {MensagemPostgisSegura(ex)}";
+            _vectorEditMessage = $"O reparo não foi aplicado; a geometria original foi preservada. {MensagemPostgisSegura(ex)}";
         }
 
         await InvokeAsync(StateHasChanged);
@@ -1247,6 +1318,7 @@ public partial class Home
 
     private void PrepararSelecaoFeicoes()
     {
+        _ribbonCommandFeedback = string.Empty;
         if (!CamadaAtivaVetorialDisponivel)
         {
             _vectorEditMessage = OrientacaoCamadaAtiva;
@@ -1271,7 +1343,7 @@ public partial class Home
         JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexMoveFeatureMode", false);
         if (SelectedVectorFeatureState is { IsDeleted: false } state)
             SelecionarFeicaoPrincipal(state.Key);
-        _vectorEditMessage = "Seleção ativa · clique seleciona; Ctrl/Shift alterna feições. Arraste para área; Shift adiciona, Ctrl remove, Ctrl+Shift intersecta e Alt exige feições contidas.";
+        _vectorEditMessage = "Seleção ativa · escolha uma feição; depois clique em Editar vértices. Ctrl/Shift alterna feições. Arraste para selecionar por área.";
     }
 
     private void DefinirFormaSelecaoFeicoes(string shape)
@@ -1296,6 +1368,13 @@ public partial class Home
 
     private void AlternarModoMoverFeicao()
     {
+        if (SelectedVectorFeatureState is not { IsDeleted: false })
+        {
+            _vectorEditMessage = "Selecione uma feição antes de ativar o movimento.";
+            _ = InvokeAsync(StateHasChanged);
+            return;
+        }
+
         _vectorMoveFeatureMode = !_vectorMoveFeatureMode;
         _vectorFeatureSelectionMode = false;
         _insertVectorVertexMode = false;
@@ -1313,8 +1392,19 @@ public partial class Home
         bool additiveSelection = false, bool subtractSelection = false,
         bool intersectSelection = false, bool containedOnly = false)
     {
-        if (!_vectorFeatureSelectionMode || !CamadaAtivaVetorialDisponivel || imagePoints.Length < 6 || imagePoints.Length % 2 != 0)
+        if (!_vectorFeatureSelectionMode) return;
+        if (!CamadaAtivaVetorialDisponivel)
+        {
+            _vectorEditMessage = OrientacaoCamadaAtiva;
+            await InvokeAsync(StateHasChanged);
             return;
+        }
+        if (imagePoints is null || imagePoints.Length < 6 || imagePoints.Length % 2 != 0)
+        {
+            _vectorEditMessage = "A área ficou pequena demais. Arraste uma área maior e tente novamente.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
 
         Camada? layer = CamadasAtivas.FirstOrDefault(candidate =>
             string.Equals(candidate.Nome, _camadaAtivaFerramentas, StringComparison.Ordinal) && candidate.Tipo == "Vetor");
@@ -1327,22 +1417,38 @@ public partial class Home
 
         try
         {
+            _vectorEditMessage = "Procurando feições dentro da área…";
+            await InvokeAsync(StateHasChanged);
             SKMatrix matrix = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
             var coordinates = new List<Coordinate>(imagePoints.Length / 2 + 1);
             for (int i = 0; i < imagePoints.Length; i += 2)
             {
                 if (!TentarMapearPontoTelaParaLocal(imagePoints[i], imagePoints[i + 1], displayedMatrix, matrix, out SKPoint local))
+                {
+                    _vectorEditMessage = "Não foi possível converter os limites da área para o mapa. Tente selecionar novamente.";
+                    await InvokeAsync(StateHasChanged);
                     return;
+                }
                 coordinates.Add(new Coordinate(local.X + MapService.OffsetMundoX, MapService.OffsetMundoY - local.Y));
             }
             coordinates = coordinates.Where((coordinate, index) => index == 0 || !coordinate.Equals2D(coordinates[index - 1])).ToList();
             if (coordinates.Count > 1 && coordinates[0].Equals2D(coordinates[^1])) coordinates.RemoveAt(coordinates.Count - 1);
-            if (coordinates.DistinctBy(coordinate => (coordinate.X, coordinate.Y)).Count() < 3) return;
+            if (coordinates.DistinctBy(coordinate => (coordinate.X, coordinate.Y)).Count() < 3)
+            {
+                _vectorEditMessage = "A área ficou pequena demais. Arraste uma área maior e tente novamente.";
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
 
             var ringCoordinates = coordinates.Select(coordinate => coordinate.Copy()).Append(coordinates[0].Copy()).ToArray();
             Geometry selectionArea = new GeometryFactory().CreatePolygon(new LinearRing(ringCoordinates));
             if (!selectionArea.IsValid) selectionArea = NetTopologySuite.Geometries.Utilities.GeometryFixer.Fix(selectionArea);
-            if (selectionArea.IsEmpty) return;
+            if (selectionArea.IsEmpty)
+            {
+                _vectorEditMessage = "A área de seleção não formou um polígono válido. Desenhe outra área.";
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
 
             var candidates = new List<CompiledFeature>();
             using (ResourceLease<NativeShapeSpatialIndex>? indexLease = MapService.AcquireSpatialIndex(layer.Nome))
@@ -1451,7 +1557,7 @@ public partial class Home
             if (_vectorFeatureEditSelection.Count == 0)
             {
                 _selectedVectorFeatureForEdit = null;
-                _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+                LimparVerticesSelecionados();
                 LimparSelecaoVerticeEdicao();
                 MapService.DestacarFeicao(null);
                 MapService.LimparOverlayEdicao();
@@ -1529,7 +1635,7 @@ public partial class Home
             _vectorVertexCoordinateY = null;
         }
         AtualizarIndicesVerticesEdicaoSelecionados();
-        _vectorEditMessage = $"{_selectedVectorVertexAddresses.Count} vÃ©rtice(s) selecionado(s) na feiÃ§Ã£o {IdentificadorFeicaoExibicao(state.Key)}.";
+        _vectorEditMessage = $"{_selectedVectorVertexAddresses.Count} vértice(s) selecionado(s) na feição {IdentificadorFeicaoExibicao(state.Key)}.";
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1537,10 +1643,8 @@ public partial class Home
     {
         if (FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count > 0)
         {
-            _modoAvancadoVetorizacao = true;
-            _painelIdentificarAberto = false;
-            _vectorEditMessage = "Conclua ou descarte o esboço para abrir o editor de feições.";
-            TrocarFerramenta(ModoFerramenta.EdicaoVertice);
+            mensagemVetorizacao = "Conclua ou descarte o esboço antes de abrir o editor de feições.";
+            _ = InvokeAsync(StateHasChanged);
             return;
         }
         if (MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada)
@@ -1548,7 +1652,15 @@ public partial class Home
             _ribbonCommandFeedback = "Libere a coordenada F6 ou conclua/cancele o esboço antes de editar feições.";
             return;
         }
+        if (SelectedVectorFeatureState is not { IsDeleted: false } selectedState)
+        {
+            _vectorEditMessage = "Primeiro use Selecionar feições e escolha uma feição. Depois, ative Editar vértices.";
+            _ribbonCommandFeedback = _vectorEditMessage;
+            _ = InvokeAsync(StateHasChanged);
+            return;
+        }
 
+        _ribbonCommandFeedback = string.Empty;
         _modoAvancadoVetorizacao = true;
         _vectorCutMode = false;
         _vectorRingMode = false;
@@ -1559,12 +1671,9 @@ public partial class Home
         JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexMoveFeatureMode", false);
         RestaurarSnapAposRemodelagem();
         TrocarFerramenta(ModoFerramenta.EdicaoVertice);
-        if (SelectedVectorFeatureState is { IsDeleted: false } selectedState)
-            SelecionarFeicaoPrincipal(selectedState.Key);
+        SelecionarFeicaoPrincipal(selectedState.Key);
         _painelIdentificarAberto = false;
-        _vectorEditMessage = SelectedVectorFeatureState is null
-            ? "Editor integrado · selecione uma feição local para mover, inserir, remover ou transformar vértices."
-            : _vectorEditMessage;
+        _vectorEditMessage = $"Edição ativa para a feição {IdentificadorFeicaoExibicao(selectedState.Key)}. Para trocar de feição, volte a Selecionar feições.";
     }
 
     private void RetornarAVetorizacaoAvancada()
@@ -1727,7 +1836,7 @@ public partial class Home
 
     private async Task ConcluirRemodelagemGeometriaAsync()
     {
-        if (!_vectorReshapeMode || SelectedVectorFeatureState is not { IsDeleted: false, IsNewFeature: false } state)
+        if (_vectorEditOperationInProgress || !_vectorReshapeMode || SelectedVectorFeatureState is not { IsDeleted: false, IsNewFeature: false } state)
             return;
         if (MapService.PontosAquisicao.Count < 2)
         {
@@ -1736,6 +1845,9 @@ public partial class Home
             return;
         }
 
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Calculando a remodelagem do polígono...";
+        await InvokeAsync(StateHasChanged);
         try
         {
             Coordinate[] coordinates = MapService.PontosAquisicao
@@ -1743,7 +1855,7 @@ public partial class Home
                 .ToArray();
             LineString reshapeLine = state.Current.Factory.CreateLineString(coordinates);
             Geometry before = state.Current;
-            Geometry after = VectorGeometryEditingService.ReshapePolygon(before, reshapeLine);
+            Geometry after = await Task.Run(() => VectorGeometryEditingService.ReshapePolygon(before, reshapeLine));
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(state.Key, before, after);
             HistoricoAquisicao.Clear();
@@ -1762,6 +1874,7 @@ public partial class Home
             _vectorEditMessage = mensagemVetorizacao;
         }
 
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1774,7 +1887,7 @@ public partial class Home
 
     private async Task ConcluirAdicaoAnelAsync()
     {
-        if (!_vectorRingMode || SelectedVectorFeatureState is not { IsDeleted: false, IsNewFeature: false } state)
+        if (_vectorEditOperationInProgress || !_vectorRingMode || SelectedVectorFeatureState is not { IsDeleted: false, IsNewFeature: false } state)
             return;
         if (MapService.PontosAquisicao.Count < 3)
         {
@@ -1783,6 +1896,9 @@ public partial class Home
             return;
         }
 
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Adicionando anel interno...";
+        await InvokeAsync(StateHasChanged);
         try
         {
             Coordinate[] coordinates = MapService.PontosAquisicao
@@ -1790,7 +1906,7 @@ public partial class Home
                 .ToArray();
             Polygon interiorRing = (Polygon)DigitizingGeometry.Create(DigitizingGeometry.Kind.Polygon, coordinates);
             Geometry before = state.Current;
-            Geometry after = VectorGeometryEditingService.AddInteriorRing(before, interiorRing);
+            Geometry after = await Task.Run(() => VectorGeometryEditingService.AddInteriorRing(before, interiorRing));
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(state.Key, before, after);
             HistoricoAquisicao.Clear();
@@ -1808,12 +1924,13 @@ public partial class Home
             _vectorEditMessage = mensagemVetorizacao;
         }
 
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task ConcluirCorteGeometriaAsync()
     {
-        if (!_vectorCutMode || SelectedVectorFeatureState is not { IsDeleted: false } state)
+        if (_vectorEditOperationInProgress || !_vectorCutMode || SelectedVectorFeatureState is not { IsDeleted: false } state)
             return;
         if (MapService.PontosAquisicao.Count < 2)
         {
@@ -1832,13 +1949,17 @@ public partial class Home
         }
 
         var newStates = new List<VectorFeatureEditState>();
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Calculando a divisão da geometria...";
+        await InvokeAsync(StateHasChanged);
         try
         {
             Coordinate[] coordinates = MapService.PontosAquisicao
                 .Select(point => new Coordinate(point.X + MapService.OffsetMundoX, -point.Y + MapService.OffsetMundoY))
                 .ToArray();
             LineString cutter = state.Current.Factory.CreateLineString(coordinates);
-            IReadOnlyList<Geometry> pieces = VectorGeometryEditingService.SplitGeometryByLine(state.Current, cutter);
+            IReadOnlyList<Geometry> pieces = await Task.Run(() =>
+                VectorGeometryEditingService.SplitGeometryByLine(state.Current, cutter));
             AttributesTable sourceAttributes;
             if (state.IsNewFeature)
             {
@@ -1923,6 +2044,7 @@ public partial class Home
             _vectorEditMessage = mensagemVetorizacao;
         }
 
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1953,14 +2075,24 @@ public partial class Home
         double tolerance = 10d / Math.Max(0.0001, Math.Abs(matrix.ScaleX));
         double nearestDistance = tolerance * tolerance;
         int nearest = -1;
-        for (int i = 0; i < _selectedVectorVertices.Count; i++)
+        if (_selectedVectorVertexSpatialIndex is { } spatialIndex)
         {
-            VectorGeometryEditingService.Vertex vertex = _selectedVectorVertices[i];
+            double worldX = point.X + MapService.OffsetMundoX;
+            double worldY = MapService.OffsetMundoY - point.Y;
+            var search = new Envelope(worldX - tolerance, worldX + tolerance,
+                worldY - tolerance, worldY + tolerance);
+            foreach (int candidate in spatialIndex.Query(search)) ConsiderVertex(candidate);
+        }
+        else for (int i = 0; i < _selectedVectorVertices.Count; i++) ConsiderVertex(i);
+
+        void ConsiderVertex(int index)
+        {
+            VectorGeometryEditingService.Vertex vertex = _selectedVectorVertices[index];
             double dx = point.X - (vertex.X - MapService.OffsetMundoX);
             double dy = point.Y - (MapService.OffsetMundoY - vertex.Y);
             double distance = dx * dx + dy * dy;
-            if (distance > nearestDistance) continue;
-            nearest = i;
+            if (distance > nearestDistance) return;
+            nearest = index;
             nearestDistance = distance;
         }
 
@@ -2026,14 +2158,18 @@ public partial class Home
             ? _selectedVectorVertexAddresses.ToArray()
             : [selectedVertex.Address];
         Geometry before = state.Current;
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Validando as coordenadas do vértice…";
+        await InvokeAsync(StateHasChanged);
         try
         {
             double targetX = _vectorVertexCoordinateX!.Value;
             double targetY = _vectorVertexCoordinateY!.Value;
-            Geometry after = addresses.Length > 1
-                ? VectorGeometryEditingService.MoveVerticesByDelta(
-                    before, addresses, targetX - selectedVertex.X, targetY - selectedVertex.Y)
-                : VectorGeometryEditingService.MoveVertex(before, selectedVertex.Address, targetX, targetY);
+            double deltaX = targetX - selectedVertex.X;
+            double deltaY = targetY - selectedVertex.Y;
+            Geometry after = await Task.Run(() => addresses.Length > 1
+                ? VectorGeometryEditingService.MoveVerticesByDelta(before, addresses, deltaX, deltaY)
+                : VectorGeometryEditingService.MoveVertex(before, selectedVertex.Address, targetX, targetY));
             if (before.EqualsExact(after))
             {
                 _vectorEditMessage = "As coordenadas informadas são iguais à posição atual.";
@@ -2049,7 +2185,7 @@ public partial class Home
         {
             _vectorEditMessage = $"As coordenadas não foram aplicadas: {MensagemPostgisSegura(ex)}";
         }
-
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
@@ -2107,17 +2243,10 @@ public partial class Home
             _ribbonCommandFeedback = "Libere a coordenada F6 antes de entrar na edição de vértices.";
             return false;
         }
-        if (_ferramentaAtiva != ModoFerramenta.EdicaoVertice)
+        if (_vectorFeatureSelectionMode || _ferramentaAtiva != ModoFerramenta.EdicaoVertice)
         {
-            TrocarFerramenta(ModoFerramenta.EdicaoVertice);
-            if (_ferramentaAtiva != ModoFerramenta.EdicaoVertice) return false;
-        }
-
-        if (_vectorFeatureSelectionMode)
-        {
-            _vectorFeatureSelectionMode = false;
-            if (SelectedVectorFeatureState is { IsDeleted: false } state)
-                AtualizarOverlayEdicaoVetorial(state.Current, -1);
+            _vectorEditMessage = "Ative Editar vértices depois de selecionar a feição para usar esta ferramenta.";
+            return false;
         }
 
         return true;
@@ -2151,13 +2280,14 @@ public partial class Home
 
     private async Task InserirVerticeSelecionadoAsync(double x, double y, double pixelScale)
     {
-        if (SelectedVectorFeatureState is not { } state) return;
+        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { } state) return;
         Geometry before = state.Current;
+        _vectorEditOperationInProgress = true;
         try
         {
             double tolerance = 10d / Math.Max(0.0001, Math.Abs(pixelScale));
             VectorGeometryEditingService.VertexInsertion insertion =
-                VectorGeometryEditingService.InsertVertexAtPoint(before, x, y, tolerance);
+                await Task.Run(() => VectorGeometryEditingService.InsertVertexAtPoint(before, x, y, tolerance));
             await PublicarGeometriaEdicaoAsync(state, insertion.Geometry);
             RegistrarAcaoGeometria(state.Key, before, insertion.Geometry);
             _vectorEditMessage = $"Vértice inserido na feição {state.Key.SourceFeatureId} · salve as edições para gravar na fonte.";
@@ -2177,17 +2307,19 @@ public partial class Home
         {
             _vectorEditMessage = ex.Message;
         }
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task RemoverVerticeSelecionadoAsync()
     {
-        if (SelectedVectorFeatureState is not { } state || !CanRemoveHoveredVectorVertex) return;
+        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { } state || !CanRemoveHoveredVectorVertex) return;
         Geometry before = state.Current;
         VectorGeometryEditingService.VertexAddress address = _selectedVectorVertices[_hoveredVectorVertexDisplayIndex].Address;
+        _vectorEditOperationInProgress = true;
         try
         {
-            Geometry after = VectorGeometryEditingService.RemoveVertex(before, address);
+            Geometry after = await Task.Run(() => VectorGeometryEditingService.RemoveVertex(before, address));
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(state.Key, before, after);
             _hoveredVectorVertexDisplayIndex = -1;
@@ -2198,17 +2330,19 @@ public partial class Home
         {
             _vectorEditMessage = ex.Message;
         }
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task RemoverVerticesSelecionadosAsync()
     {
-        if (SelectedVectorFeatureState is not { } state || !CanRemoveSelectedVectorVertices) return;
+        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { } state || !CanRemoveSelectedVectorVertices) return;
         Geometry before = state.Current;
         VectorGeometryEditingService.VertexAddress[] addresses = _selectedVectorVertexAddresses.ToArray();
+        _vectorEditOperationInProgress = true;
         try
         {
-            Geometry after = VectorGeometryEditingService.RemoveVertices(before, addresses);
+            Geometry after = await Task.Run(() => VectorGeometryEditingService.RemoveVertices(before, addresses));
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(state.Key, before, after);
             _hoveredVectorVertexDisplayIndex = -1;
@@ -2219,17 +2353,19 @@ public partial class Home
         {
             _vectorEditMessage = $"Os vértices selecionados não foram removidos: {MensagemPostgisSegura(ex)}";
         }
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task RemoverAnelInternoSobCursorAsync()
     {
-        if (SelectedVectorFeatureState is not { } state || !CanRemoveHoveredVectorVertex) return;
+        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { } state || !CanRemoveHoveredVectorVertex) return;
         Geometry before = state.Current;
         VectorGeometryEditingService.VertexAddress address = _selectedVectorVertices[_hoveredVectorVertexDisplayIndex].Address;
+        _vectorEditOperationInProgress = true;
         try
         {
-            Geometry after = VectorGeometryEditingService.RemoveInteriorRing(before, address);
+            Geometry after = await Task.Run(() => VectorGeometryEditingService.RemoveInteriorRing(before, address));
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(state.Key, before, after);
             _hoveredVectorVertexDisplayIndex = -1;
@@ -2240,21 +2376,25 @@ public partial class Home
         {
             _vectorEditMessage = ex.Message;
         }
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task MesclarPoligonosSelecionadosAsync()
     {
-        if (!CanMergeSelectedPolygons || _selectedVectorFeatureForEdit is not { } primaryKey) return;
+        if (_vectorEditOperationInProgress || !CanMergeSelectedPolygons || _selectedVectorFeatureForEdit is not { } primaryKey) return;
 
         VectorFeatureEditState[] selectedStates = SelectedVectorFeatureStates.ToArray();
         int primaryIndex = Array.FindIndex(selectedStates, state => state.Key == primaryKey);
         if (primaryIndex < 0) return;
 
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Mesclando e validando polígonos...";
+        await InvokeAsync(StateHasChanged);
         try
         {
-            Geometry merged = VectorGeometryEditingService.MergePolygons(
-                selectedStates.Select(state => state.Current).ToArray(), primaryIndex);
+            Geometry[] sourceGeometries = selectedStates.Select(state => state.Current).ToArray();
+            Geometry merged = await Task.Run(() => VectorGeometryEditingService.MergePolygons(sourceGeometries, primaryIndex));
             Guid groupId = Guid.NewGuid();
             var actions = new List<VectorGeometryEditAction>(selectedStates.Length);
             VectorFeatureEditState primary = selectedStates[primaryIndex];
@@ -2279,21 +2419,25 @@ public partial class Home
             _vectorEditMessage = $"Não foi possível mesclar os polígonos: {MensagemPostgisSegura(ex)}";
         }
 
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task MesclarLinhasSelecionadasAsync()
     {
-        if (!CanMergeSelectedLines || _selectedVectorFeatureForEdit is not { } primaryKey) return;
+        if (_vectorEditOperationInProgress || !CanMergeSelectedLines || _selectedVectorFeatureForEdit is not { } primaryKey) return;
 
         VectorFeatureEditState[] selectedStates = SelectedVectorFeatureStates.ToArray();
         int primaryIndex = Array.FindIndex(selectedStates, state => state.Key == primaryKey);
         if (primaryIndex < 0) return;
 
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Mesclando e validando linhas...";
+        await InvokeAsync(StateHasChanged);
         try
         {
-            Geometry merged = VectorGeometryEditingService.MergeLines(
-                selectedStates.Select(state => state.Current).ToArray(), primaryIndex);
+            Geometry[] sourceGeometries = selectedStates.Select(state => state.Current).ToArray();
+            Geometry merged = await Task.Run(() => VectorGeometryEditingService.MergeLines(sourceGeometries, primaryIndex));
             Guid groupId = Guid.NewGuid();
             var actions = new List<VectorGeometryEditAction>(selectedStates.Length);
             VectorFeatureEditState primary = selectedStates[primaryIndex];
@@ -2318,6 +2462,7 @@ public partial class Home
             _vectorEditMessage = $"Não foi possível mesclar as linhas: {MensagemPostgisSegura(ex)}";
         }
 
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
@@ -2417,11 +2562,14 @@ public partial class Home
 
     private async Task AplicarTransformacaoSelecionadaAsync(Func<Geometry, Geometry> transform, string successMessage)
     {
-        if (SelectedVectorFeatureState is not { } state) return;
+        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { } state) return;
         Geometry before = state.Current;
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Calculando a operação geométrica...";
+        await InvokeAsync(StateHasChanged);
         try
         {
-            Geometry after = transform(before);
+            Geometry after = await Task.Run(() => transform(before));
             if (before.EqualsExact(after))
             {
                 _vectorEditMessage = "A transformação não alterou a geometria.";
@@ -2436,6 +2584,7 @@ public partial class Home
         {
             _vectorEditMessage = $"A transformação não foi aplicada: {ex.Message}";
         }
+        finally { _vectorEditOperationInProgress = false; }
         await InvokeAsync(StateHasChanged);
     }
 
@@ -2492,7 +2641,7 @@ public partial class Home
     {
         if (_vectorEditPointerPressed) CancelarArrasteVerticeEdicao();
         _selectedVectorFeatureForEdit = null;
-        _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+        LimparVerticesSelecionados();
         _vectorFeatureEditSelection.Clear();
         LimparSelecaoVerticeEdicao();
         _vectorEditMessage = _vectorFeatureSelectionMode
@@ -2510,7 +2659,7 @@ public partial class Home
         if (_selectedVectorFeatureForEdit is { } selected && removedKeys.Contains(selected))
         {
             _selectedVectorFeatureForEdit = null;
-            _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+            LimparVerticesSelecionados();
             LimparSelecaoVerticeEdicao();
             MapService.LimparOverlayEdicao();
         }
@@ -2552,7 +2701,7 @@ public partial class Home
                 if (_selectedVectorFeatureForEdit == key)
                 {
                     _selectedVectorFeatureForEdit = null;
-                    _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
+                    LimparVerticesSelecionados();
                     LimparSelecaoVerticeEdicao();
                 }
             }
@@ -2679,6 +2828,21 @@ public partial class Home
 
         float tolerance = Math.Clamp(ToleranciaSnapPixels, 6, 30) /
             Math.Max(0.0001f, Math.Abs(matrix.ScaleX));
+        HashSet<long>? ignoredFeatureIds = null;
+        if (_propagateSelectedSharedVertices)
+        {
+            _snapIgnoredFeatureIds.Clear();
+            foreach (VectorFeatureKey selectedKey in _vectorFeatureEditSelection)
+            {
+                if (selectedKey.LayerName != key.LayerName ||
+                    !_vectorFeatureEditStates.TryGetValue(selectedKey, out VectorFeatureEditState? state) ||
+                    state.IsDeleted)
+                    continue;
+                _snapIgnoredFeatureIds.Add(selectedKey.FeatureId);
+            }
+            ignoredFeatureIds = _snapIgnoredFeatureIds;
+        }
+
         SKPoint? snap = MapService.EncontrarVerticeProximo(
             cursor, tolerance,
             _snapVectorEditVertices,
@@ -2687,12 +2851,7 @@ public partial class Home
             checarIntersecoes: _snapVectorEditIntersections,
             ignorarCamada: key.LayerName,
             ignorarFid: key.FeatureId,
-            ignorarFidsNaCamada: _propagateSelectedSharedVertices
-                ? SelectedVectorFeatureStates
-                    .Where(state => state.Key.LayerName == key.LayerName)
-                    .Select(state => state.Key.FeatureId)
-                    .ToHashSet()
-                : null);
+            ignorarFidsNaCamada: ignoredFeatureIds);
         MapService.PontoCursorSnap = snap;
         if (!snap.HasValue) MapService.PontoCursorSnapTipo = null;
         return snap ?? cursor;

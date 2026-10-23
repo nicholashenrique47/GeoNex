@@ -238,17 +238,62 @@ public class ProjetoService
 
         using var dsOrigem = OSGeo.OGR.Ogr.Open(caminhoOriginal, 0);
         if (dsOrigem == null) throw new Exception("Falha ao abrir o ficheiro vetorial original via OGR.");
+        if (dsOrigem.GetLayerCount() <= 0)
+            throw new InvalidDataException($"A fonte vetorial '{Path.GetFileName(caminhoOriginal)}' não contém camadas.");
 
         var driverShp = OSGeo.OGR.Ogr.GetDriverByName("ESRI Shapefile");
         if (driverShp == null) throw new Exception("Driver ESRI Shapefile não encontrado no GDAL.");
 
-        using var dsDestino = driverShp.CopyDataSource(dsOrigem, caminhoShpDestino, null);
-        if (dsDestino == null) throw new Exception("Falha na compilação do Shapefile JIT.");
-
+        // GeoPackage can contain multiple layers. The import dialog selects the
+        // first one deterministically; project reconnection keeps the same rule.
         using var camadaOrigem = dsOrigem.GetLayerByIndex(0)
-            ?? throw new InvalidDataException("A fonte vetorial não contém uma camada editável.");
-        using var camadaDestino = dsDestino.GetLayerByIndex(0)
-            ?? throw new InvalidDataException("O Shapefile de cache não contém uma camada.");
+            ?? throw new InvalidDataException("A primeira camada do GeoPackage não pôde ser lida.");
+        string nomeCamadaCache = Path.GetFileNameWithoutExtension(caminhoShpDestino);
+        using var srsOrigem = camadaOrigem.GetSpatialRef();
+        using var dsDestino = driverShp.CreateDataSource(cacheDir, []);
+        if (dsDestino is null) throw new Exception("Falha ao criar o dataset Shapefile de cache.");
+        using var camadaDestino = dsDestino.CreateLayer(
+            nomeCamadaCache, srsOrigem, camadaOrigem.GetGeomType(), []);
+        if (camadaDestino is null)
+            throw new InvalidDataException("Não foi possível criar a camada Shapefile de cache.");
+
+        using var defnOrigem = camadaOrigem.GetLayerDefn();
+        for (int fieldIndex = 0; fieldIndex < defnOrigem.GetFieldCount(); fieldIndex++)
+        {
+            using var fieldDefn = defnOrigem.GetFieldDefn(fieldIndex);
+            using var fieldDefnDestino = CriarDefinicaoCampoCompativelComShapefile(fieldDefn);
+            if (camadaDestino.CreateField(fieldDefnDestino, 1) != 0)
+                throw new InvalidDataException($"Não foi possível criar o campo '{fieldDefn.GetName()}' no cache.");
+        }
+
+        camadaOrigem.ResetReading();
+        long copiedFeatures = 0;
+        while (true)
+        {
+            using OSGeo.OGR.Feature? sourceFeature = camadaOrigem.GetNextFeature();
+            if (sourceFeature is null) break;
+            using var geometry = sourceFeature.GetGeometryRef()?.Clone();
+            if (geometry is null || geometry.IsEmpty()) continue;
+            using var destinationFeature = new OSGeo.OGR.Feature(camadaDestino.GetLayerDefn());
+            if (destinationFeature.SetGeometry(geometry) != 0)
+                throw new InvalidDataException("Não foi possível copiar a geometria para o cache Shapefile.");
+            for (int fieldIndex = 0; fieldIndex < defnOrigem.GetFieldCount(); fieldIndex++)
+            {
+                if (sourceFeature.IsFieldSetAndNotNull(fieldIndex))
+                    destinationFeature.SetField(fieldIndex, sourceFeature.GetFieldAsString(fieldIndex));
+                else
+                    destinationFeature.SetFieldNull(fieldIndex);
+            }
+            if (camadaDestino.CreateFeature(destinationFeature) != 0)
+                throw new InvalidDataException("Não foi possível gravar uma feição no cache Shapefile.");
+            copiedFeatures++;
+        }
+        if (copiedFeatures == 0)
+            throw new InvalidDataException(
+                $"A primeira camada de '{Path.GetFileName(caminhoOriginal)}' não contém geometrias utilizáveis.");
+        camadaDestino.SyncToDisk();
+        dsDestino.SyncToDisk();
+
         sourceFidMappingPath = caminhoShpDestino + ".gnxfid";
         camadaOrigem.ResetReading();
         long copiedRows = 0;
@@ -273,6 +318,39 @@ public class ProjetoService
 
         return caminhoShpDestino;
     }
+
+    private static OSGeo.OGR.FieldDefn CriarDefinicaoCampoCompativelComShapefile(
+        OSGeo.OGR.FieldDefn campoOrigem)
+    {
+        OSGeo.OGR.FieldType tipoOrigem = campoOrigem.GetFieldType();
+        bool tipoSuportado = tipoOrigem is
+            OSGeo.OGR.FieldType.OFTInteger or
+            OSGeo.OGR.FieldType.OFTInteger64 or
+            OSGeo.OGR.FieldType.OFTReal or
+            OSGeo.OGR.FieldType.OFTString or
+            OSGeo.OGR.FieldType.OFTDate;
+
+        if (tipoSuportado)
+        {
+            var campoCompativel = new OSGeo.OGR.FieldDefn(campoOrigem.GetName(), tipoOrigem);
+            int largura = campoOrigem.GetWidth();
+            if (largura > 0) campoCompativel.SetWidth(largura);
+            int precisao = campoOrigem.GetPrecision();
+            if (precisao > 0) campoCompativel.SetPrecision(precisao);
+            return campoCompativel;
+        }
+
+        // DBF, usado pelo driver Shapefile, não suporta campos de lista
+        // (StringList/IntegerList/RealList), binários ou DateTime. O OGR
+        // consegue representá-los como texto sem perder o atributo original.
+        Console.WriteLine(
+            $"[GEONEX] Campo '{campoOrigem.GetName()}' ({tipoOrigem}) convertido para texto no cache Shapefile.");
+        var campoTexto = new OSGeo.OGR.FieldDefn(campoOrigem.GetName(), OSGeo.OGR.FieldType.OFTString);
+        int larguraTexto = campoOrigem.GetWidth();
+        if (larguraTexto > 0) campoTexto.SetWidth(Math.Min(larguraTexto, 254));
+        return campoTexto;
+    }
+
     /// <summary>
     /// Lê o Shapefile e carrega-o para a Memória RAM, alimentando a GPU (Visão) e a Árvore (Cérebro).
     /// </summary>

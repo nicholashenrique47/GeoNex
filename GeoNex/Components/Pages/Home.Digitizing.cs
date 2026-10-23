@@ -1156,7 +1156,8 @@ public partial class Home
         bool shiftVertexSelection = false)
     {
         if (_ferramentaAtiva == ModoFerramenta.Medicao && _medicaoConcluida) return;
-        if (exibirModalAtributos || _isPanning || !double.IsFinite(pixelX) || !double.IsFinite(pixelY)) return;
+        if (_vectorEditOperationInProgress || exibirModalAtributos || _isPanning ||
+            !double.IsFinite(pixelX) || !double.IsFinite(pixelY)) return;
         if (_ferramentaAtiva is not (ModoFerramenta.Medicao or ModoFerramenta.AquisicaoPoligono or
             ModoFerramenta.AquisicaoLinha or ModoFerramenta.AquisicaoPonto or ModoFerramenta.EdicaoVertice)) return;
 

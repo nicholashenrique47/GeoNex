@@ -1,5 +1,13 @@
 # Retomada — 14/09/2026
 
+## Incremento atual — índice espacial para simbologia categorizada
+
+- Compilação de categorias agora mantém um índice `STRtree` por camada para polígonos e linhas, indexando os chunks já agrupados por categoria e preservando a ordem original de desenho.
+- O servidor consulta somente os chunks que intersectam o viewport antes de rasterizar; o caminho de estilo sem categorias não foi alterado.
+- Preenchimentos categorizados não pequenos agora são agrupados por categoria em um único `SKPath` por trecho visível do frame, reduzindo chamadas `DrawPath`; bordas continuam sendo desenhadas por chunk para preservar o LOD durante interação.
+- Adicionado teste isolado em `tests/VectorRenderIndex`, cobrindo reutilização do buffer, ordem de desenho e equivalência com filtragem linear em uma amostra de 10.000 chunks.
+- Validação concluída: teste do índice passou com 26 asserções; `GeoNex.csproj` Release compilou com 0 erros (avisos RZ preexistentes); análise do `LocalMapServer` não encontrou erros; `git diff --check` passou (somente avisos de normalização LF/CRLF do Git).
+
 ## Pesquisa GDAL após compilação
 
 - Pedido atual: pesquisar repositório GDAL, sem implementar. Registrado em `docs/pesquisa-gdal-3.12.1.md`, com links para tag compatível com o projeto.
@@ -43,3 +51,37 @@
 - Build: `dotnet build GeoNex/GeoNex.csproj -c Release -p:GeoNexBuildNative=false --no-restore -v:q`.
 - Teste: `dotnet PerfTest/bin/Release/net10.0/PerfTest.dll --frame-encoding-contracts`.
 - Preservar worktree sujo e mudanças anteriores. Não usar reset/reverter arquivos inteiros. Atualizar este MD após testes ou antes de interromper.
+
+## Validação com dados reais — lotes e ortofotos
+
+- `PerfTest/ProductionVectorSmoke.cs` foi ajustado para construir `MapLocalCoordinate` via reflexão; o harness não deve passar `SKPoint` para a API de cache preciso.
+- `LOTES.shp`: 77.146 feições lidas em 41,55 ms; metadados reprojetados em 101,64 ms; precisão em alto zoom com erro máximo de `5,7556E-07 m` (contra `0,12425 m` no caminho anterior); cache preciso e equivalência de pixels em três zooms passaram.
+- `GUARATUBA_ESTRADAS_ORTOFOTO_2022.tif`: abertura em 282,689 ms, GeoTIFF `238248x101815`, 4 bandas, blocos `256x256`, 10 overviews. No zoom 1, após aquecimento, I/O ficou em aproximadamente 33–36 ms e renderização em 41–44 ms.
+- `Compress2.ecw`: abertura em 238,499 ms, driver ECW `100286x180795`, 3 bandas, blocos `256x256`, 9 overviews. No zoom 1, após aquecimento, I/O ficou em aproximadamente 3–4 ms e renderização em 9–10 ms.
+- O teste do TIF em zoom 8 atingiu uma janela sem pixels no foco central e falhou pelo guard do próprio benchmark (`Empty raster focus`); não indica corrupção do raster. O próximo benchmark deve calibrar foco/extent por zoom antes de comparar p50/p95.
+- Corrigido o batching categorizado para não adiar preenchimentos quando a camada possui borda: isso preserva a ordem visual de polígonos sobrepostos; o agrupamento continua ativo para camadas preenchidas sem borda. Build Release do GeoNex e teste do índice categorizado (26 asserções) passaram.
+- No overlay de edição vetorial, buscas repetidas de vértices selecionados foram trocadas por `HashSet<VertexAddress>` durante a montagem dos índices e do payload cliente. O custo deixa de crescer quadraticamente quando uma feição possui muitos vértices selecionados; análise do arquivo não encontrou erros e o build Release passou com 0 erros.
+- O hover de vértices também deixou de calcular `sqrt/pow` a cada movimento: a tolerância de arraste agora é comparada diretamente em distância ao quadrado. O lote real continuou aprovado: 77.146 feições, reprojeção em 99,87 ms, precisão/cache/pixels aprovados. Foi testada faixa RasterIO de 256 linhas, mas o TIF apresentou I/O de aproximadamente 38–47 ms contra 33–36 ms anteriormente; a mudança foi revertida e 128 linhas foi preservado.
+- O snap de edição passou a reutilizar um `HashSet<long>` para os FIDs selecionados, em vez de criar `SelectedVectorFeatureStates`, LINQ e outro conjunto a cada movimento do mouse. O build Release passou sem erros, a análise do arquivo não encontrou problemas e o smoke test real de `LOTES.shp` manteve leitura, reprojeção, precisão, cache e pixels aprovados.
+mas - A tolerância de arraste no hover de vértices agora usa distância ao quadrado, eliminando `Math.Sqrt/Math.Pow` por evento. O teste do índice categorizado continuou com 26 asserções aprovadas.
+- A faixa RasterIO de 256 linhas foi reavaliada no ECW e apresentou aquecimento estável em aproximadamente 36–45 ms no HTTP completo, sem alteração de pixels; como o TIF ficou pior no teste anterior, a política conservadora de 128 linhas permanece. O ECW real abriu com 9 overviews e todas as sete amostras renderizaram pixels não vazios.
+
+## Benchmark integrado final — vetor, pintura e frame
+
+- O harness `ProductionMapMetrics` foi corrigido para as APIs atuais: seleção explícita da sobrecarga de compilação, passagem dos seis argumentos de carregamento e construção reflexiva de `MapLocalCoordinate`. O benchmark completo agora termina sem exceção.
+- Em `LOTES.shp` (77.146 feições, escala 4, viewport real), a conversão levou `7,57 ms`, o carregamento total `176,31 ms`, a reprojeção `98,84 ms`, a leitura `148 ms`, a publicação do índice `25 ms` e o índice nativo ocupou `3,0 MB` (`1.218` células, `83.370` entradas, `0` oversized).
+- Primeiro frame frio: geometria `13,32 ms`, pintura/draw `21,60 ms`, render `56,62 ms`, encode PNG `28,81 ms`, escrita `2,61 ms`, resposta HTTP `110,04 ms`, PNG de `470.580 bytes`. Isso separa o custo inicial de preparação do custo de frames repetidos.
+- Frames aquecidos: geometria foi reutilizada (`0 ms`), draw ficou entre `0,01–4,46 ms`, encode entre `1,91–13,11 ms` e respostas entre `2,98–21,60 ms`; não houve alteração de pixels e as alocações caíram para `0 bytes` nos frames reutilizados.
+- A repetição com pintura experimental/bandas não demonstrou ganho adicional mensurável no cenário real, portanto nenhum modo experimental foi ativado por padrão. O gargalo restante observado é principalmente encode PNG e transporte no primeiro frame, não o índice ou o culling vetorial.
+- Build Release do `PerfTest` passou com `0` erros. Os números são baseline de uma execução; superioridade global sobre QGIS/ArcGIS ainda exige comparação controlada no mesmo viewport, resolução, hardware e percentis.
+
+## Otimização raster — compressão adaptativa validada
+
+- O benchmark real mostrou que o modo PNG sem DEFLATE enviava aproximadamente `34,4 MB` por frame de ortofoto. Foi adicionada uma sondagem limitada para raster que escolhe compressão/paleta exata quando o conteúdo se beneficia; nenhum pixel é alterado.
+- No TIF real, o frame caiu para aproximadamente `307 KB`, com encode aquecido de `28–31 ms` e resposta de `143–161 ms`, contra aproximadamente `34,4 MB`, `52–67 ms` e `205–269 ms` no modo anterior.
+- No ECW real, o frame caiu para aproximadamente `1,96–2,08 MB`, com respostas aquecidas de `86–96 ms`, contra `34,4 MB` e `122–142 ms`; a leitura GDAL aquecida permaneceu em aproximadamente `11–13 ms`.
+- A política adaptativa foi medida, mas não ficou ativa por padrão: em máquinas reais ela pode aumentar o trabalho de CPU e atrasar a sensação de carregamento apesar de reduzir bytes. O padrão voltou para `png-store` em raster grande; `GEONEX_RASTER_PNG_COMPRESSION_PROBE=1` habilita a alternativa apenas para teste controlado.
+- A captura visual de uso real mostrou refinamento lento/pixelado durante a chegada do frame. A decisão foi priorizar latência percebida e resposta imediata, sem alterar pixels, resolução ou qualidade da fonte.
+- Após recompilar o harness, o padrão restaurado foi confirmado no ECW: `34.385.414 bytes` por frame e encode de aproximadamente `49–54 ms`, sem a sondagem adaptativa. Para aplicar no aplicativo já aberto, é necessário reiniciar o processo do GeoNex/WebView.
+- O cache de identidade foi experimentado também durante frames raster interativos. Como as amostras de pan/zoom produziram pixels diferentes e não houve hits, a ativação foi removida para evitar o custo de hash sem benefício mensurável.
+- Regressão final do vetor real após a mudança raster: `LOTES.shp` continuou com `0 ms` de geometria nos frames aquecidos, draw de `0,01–6,02 ms`, encode de `2,03–13,94 ms` e respostas de `3,56–24,95 ms`; as variações de carregamento ocorreram sob menor memória disponível e não alteraram o caminho de renderização.

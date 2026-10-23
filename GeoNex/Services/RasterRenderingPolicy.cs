@@ -25,7 +25,10 @@ public static class RasterRenderingPolicy
         if (configured != null) return configured;
 
         bool categorical = hasPalette || (!isFloatingPoint && !isRgbLike);
-        return categorical ? "near" : isInteracting ? "bilinear" : "cubicspline";
+        // Rasters are ultimately presented at screen resolution. Bilinear keeps
+        // continuous imagery smooth while substantially reducing the per-pixel
+        // work of cubic-spline resampling on large ECW/TIFF sources.
+        return categorical ? "near" : "bilinear";
     }
 
     public static string SelectOverviewResampling(

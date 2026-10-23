@@ -299,6 +299,15 @@ public static class VectorGeometryEditingService
 
     public static NtsGeometry MoveVertex(NtsGeometry geometry, VertexAddress address, double x, double y)
     {
+        NtsGeometry result = MoveVertexPreview(geometry, address, x, y);
+        if (!result.IsValid)
+            throw new InvalidOperationException("A edição criaria uma geometria inválida. O vértice voltou à posição anterior.");
+        return result;
+    }
+
+    /// <summary>Builds a drag preview without running the full topology validation on every pointer frame.</summary>
+    public static NtsGeometry MoveVertexPreview(NtsGeometry geometry, VertexAddress address, double x, double y)
+    {
         ArgumentNullException.ThrowIfNull(geometry);
         if (!double.IsFinite(x) || !double.IsFinite(y))
             throw new ArgumentOutOfRangeException(nameof(x), "A nova coordenada precisa ser finita.");
@@ -309,10 +318,6 @@ public static class VectorGeometryEditingService
         NtsGeometry result = Rebuild(geometry, address, x, y, ref sequence);
         if (sequence <= address.Sequence)
             throw new ArgumentOutOfRangeException(nameof(address), "O vértice selecionado não pertence à geometria.");
-        if (!result.IsValid)
-        {
-            throw new InvalidOperationException("A edição criaria uma geometria inválida. O vértice voltou à posição anterior.");
-        }
         return result;
     }
 
@@ -339,6 +344,23 @@ public static class VectorGeometryEditingService
         IReadOnlyCollection<VertexAddress> addresses,
         double deltaX,
         double deltaY)
+        => MoveCoincidentVerticesByDeltaCore(geometries, primaryIndex, addresses, deltaX, deltaY, validate: true);
+
+    public static IReadOnlyList<NtsGeometry> MoveCoincidentVerticesByDeltaPreview(
+        IReadOnlyList<NtsGeometry> geometries,
+        int primaryIndex,
+        IReadOnlyCollection<VertexAddress> addresses,
+        double deltaX,
+        double deltaY)
+        => MoveCoincidentVerticesByDeltaCore(geometries, primaryIndex, addresses, deltaX, deltaY, validate: false);
+
+    private static IReadOnlyList<NtsGeometry> MoveCoincidentVerticesByDeltaCore(
+        IReadOnlyList<NtsGeometry> geometries,
+        int primaryIndex,
+        IReadOnlyCollection<VertexAddress> addresses,
+        double deltaX,
+        double deltaY,
+        bool validate)
     {
         ArgumentNullException.ThrowIfNull(geometries);
         ArgumentNullException.ThrowIfNull(addresses);
@@ -381,7 +403,7 @@ public static class VectorGeometryEditingService
         for (int i = 0; i < moved.Length; i++)
         {
             if (movedAddresses[i].Count == 0) continue;
-            moved[i] = MoveVerticesByDelta(geometries[i], movedAddresses[i], deltaX, deltaY);
+            moved[i] = MoveVerticesByDeltaCore(geometries[i], movedAddresses[i], deltaX, deltaY, validate);
         }
         return moved;
     }
@@ -392,45 +414,58 @@ public static class VectorGeometryEditingService
         double deltaX,
         double deltaY)
     {
+        NtsGeometry result = MoveVerticesByDeltaCore(geometry, addresses, deltaX, deltaY, validate: false);
+        if (result.IsEmpty || !result.IsValid)
+            throw new InvalidOperationException("O movimento conjunto criaria uma geometria vazia ou inválida.");
+        return result;
+    }
+
+    public static NtsGeometry MoveVerticesByDeltaPreview(
+        NtsGeometry geometry,
+        IReadOnlyCollection<VertexAddress> addresses,
+        double deltaX,
+        double deltaY)
+        => MoveVerticesByDeltaCore(geometry, addresses, deltaX, deltaY, validate: false);
+
+    private static NtsGeometry MoveVerticesByDeltaCore(
+        NtsGeometry geometry,
+        IReadOnlyCollection<VertexAddress> addresses,
+        double deltaX,
+        double deltaY,
+        bool validate)
+    {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(addresses);
         if (addresses.Count == 0) throw new ArgumentException("Selecione pelo menos um vértice.", nameof(addresses));
         if (!double.IsFinite(deltaX) || !double.IsFinite(deltaY))
             throw new ArgumentOutOfRangeException(nameof(deltaX), "O deslocamento precisa ser finito.");
 
-        Dictionary<VertexAddress, Vertex> sourceVertices = GetVertices(geometry)
-            .ToDictionary(vertex => vertex.Address);
-        var moves = new Dictionary<VertexAddress, Coordinate>();
-        foreach (VertexAddress address in addresses.Distinct())
-        {
-            if (!sourceVertices.TryGetValue(address, out Vertex vertex))
-                throw new ArgumentOutOfRangeException(nameof(addresses), "Um vértice selecionado não pertence à geometria.");
-            double x = vertex.X + deltaX;
-            double y = vertex.Y + deltaY;
-            if (!double.IsFinite(x) || !double.IsFinite(y))
-                throw new ArgumentOutOfRangeException(nameof(deltaX), "O movimento produziria coordenadas não finitas.");
-            moves.Add(address, new Coordinate(x, y));
-        }
-
+        var moves = addresses.ToHashSet();
+        if (moves.Count == 0) throw new ArgumentException("Selecione pelo menos um vértice.", nameof(addresses));
         int sequence = 0;
         var applied = new HashSet<VertexAddress>();
-        NtsGeometry result = RebuildVertices(geometry, moves, applied, ref sequence);
+        NtsGeometry result = RebuildVerticesByDelta(geometry, moves, applied, deltaX, deltaY, ref sequence);
         if (applied.Count != moves.Count)
             throw new ArgumentOutOfRangeException(nameof(addresses), "Um vértice selecionado não pôde ser localizado.");
-        if (result.IsEmpty || !result.IsValid)
+        if (validate && (result.IsEmpty || !result.IsValid))
             throw new InvalidOperationException("O movimento conjunto criaria uma geometria vazia ou inválida.");
         return result;
     }
 
     public static NtsGeometry Translate(NtsGeometry geometry, double deltaX, double deltaY)
     {
-        ArgumentNullException.ThrowIfNull(geometry);
-        if (!double.IsFinite(deltaX) || !double.IsFinite(deltaY))
-            throw new ArgumentOutOfRangeException(nameof(deltaX), "O deslocamento precisa ser finito.");
-        NtsGeometry result = AffineTransformation.TranslationInstance(deltaX, deltaY).Transform(geometry);
+        NtsGeometry result = TranslatePreview(geometry, deltaX, deltaY);
         if (result.IsEmpty || !result.IsValid)
             throw new InvalidOperationException("O deslocamento produziu uma geometria inválida.");
         return result;
+    }
+
+    public static NtsGeometry TranslatePreview(NtsGeometry geometry, double deltaX, double deltaY)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        if (!double.IsFinite(deltaX) || !double.IsFinite(deltaY))
+            throw new ArgumentOutOfRangeException(nameof(deltaX), "O deslocamento precisa ser finito.");
+        return AffineTransformation.TranslationInstance(deltaX, deltaY).Transform(geometry);
     }
 
     public static NtsGeometry RotateAroundCentroid(NtsGeometry geometry, double degrees)
@@ -1127,6 +1162,96 @@ public static class VectorGeometryEditingService
             default:
                 throw new NotSupportedException($"Edição de vértices não dá suporte a {geometry.GeometryType}.");
         }
+    }
+
+    private static NtsGeometry RebuildVerticesByDelta(
+        NtsGeometry geometry,
+        HashSet<VertexAddress> moves,
+        HashSet<VertexAddress> applied,
+        double deltaX,
+        double deltaY,
+        ref int sequence)
+    {
+        GeometryFactory factory = geometry.Factory;
+        switch (geometry)
+        {
+            case Polygon polygon:
+            {
+                LinearRing shell = (LinearRing)RebuildVerticesByDelta(
+                    polygon.ExteriorRing, moves, applied, deltaX, deltaY, ref sequence);
+                var holes = new LinearRing[polygon.NumInteriorRings];
+                for (int i = 0; i < holes.Length; i++)
+                    holes[i] = (LinearRing)RebuildVerticesByDelta(
+                        polygon.GetInteriorRingN(i), moves, applied, deltaX, deltaY, ref sequence);
+                return factory.CreatePolygon(shell, holes);
+            }
+            case LinearRing ring:
+            {
+                int currentSequence = sequence++;
+                return factory.CreateLinearRing(UpdateCoordinatesByDelta(
+                    ring.Coordinates, currentSequence, moves, applied, deltaX, deltaY));
+            }
+            case LineString line:
+            {
+                int currentSequence = sequence++;
+                return factory.CreateLineString(UpdateCoordinatesByDelta(
+                    line.Coordinates, currentSequence, moves, applied, deltaX, deltaY));
+            }
+            case NtsPoint point:
+            {
+                int currentSequence = sequence++;
+                Coordinate[] coordinates = UpdateCoordinatesByDelta(
+                    point.Coordinates, currentSequence, moves, applied, deltaX, deltaY);
+                return coordinates.Length == 0 ? factory.CreatePoint() : factory.CreatePoint(coordinates[0]);
+            }
+            case GeometryCollection collection:
+            {
+                var parts = new NtsGeometry[collection.NumGeometries];
+                for (int i = 0; i < parts.Length; i++)
+                    parts[i] = RebuildVerticesByDelta(
+                        collection.GetGeometryN(i), moves, applied, deltaX, deltaY, ref sequence);
+                return collection is MultiPoint
+                    ? factory.CreateMultiPoint(parts.Cast<NtsPoint>().ToArray())
+                    : collection is MultiLineString
+                        ? factory.CreateMultiLineString(parts.Cast<LineString>().ToArray())
+                        : collection is MultiPolygon
+                            ? factory.CreateMultiPolygon(parts.Cast<Polygon>().ToArray())
+                            : factory.CreateGeometryCollection(parts);
+            }
+            default:
+                throw new NotSupportedException($"Edição de vértices não dá suporte a {geometry.GeometryType}.");
+        }
+    }
+
+    private static Coordinate[] UpdateCoordinatesByDelta(
+        Coordinate[] source,
+        int sequence,
+        HashSet<VertexAddress> moves,
+        HashSet<VertexAddress> applied,
+        double deltaX,
+        double deltaY)
+    {
+        Coordinate[] coordinates = source.Select(coordinate => coordinate.Copy()).ToArray();
+        bool closed = coordinates.Length > 2 && coordinates[0].Equals2D(coordinates[^1]);
+        int uniqueCount = closed ? coordinates.Length - 1 : coordinates.Length;
+        for (int i = 0; i < uniqueCount; i++)
+        {
+            var address = new VertexAddress(sequence, i);
+            if (!moves.Contains(address)) continue;
+            double x = coordinates[i].X + deltaX;
+            double y = coordinates[i].Y + deltaY;
+            if (!double.IsFinite(x) || !double.IsFinite(y))
+                throw new ArgumentOutOfRangeException(nameof(deltaX), "O movimento produziria coordenadas não finitas.");
+            coordinates[i].X = x;
+            coordinates[i].Y = y;
+            if (closed && i == 0)
+            {
+                coordinates[^1].X = x;
+                coordinates[^1].Y = y;
+            }
+            applied.Add(address);
+        }
+        return coordinates;
     }
 
     private static Coordinate[] UpdateCoordinates(

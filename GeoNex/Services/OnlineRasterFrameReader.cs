@@ -40,8 +40,7 @@ public static class OnlineRasterFrameReader
         token.ThrowIfCancellationRequested();
         double left = localBounds.Left + offsetX, right = localBounds.Right + offsetX;
         double top = offsetY - localBounds.Top, bottom = offsetY - localBounds.Bottom;
-        double[] geo = new double[6];
-        source.GetGeoTransform(geo);
+        double[] geo = RasterDatasetPolicy.GetCachedGeoTransform(source);
         if (SrsFactory.IsSame(source.GetProjection(), targetSrs) && RasterGeometry.IsAxisAligned(geo) && geo[1] > 0 && geo[5] < 0)
         {
             int available = GdalRuntimeConfiguration.Apply().AvailablePhysicalMb;
@@ -155,8 +154,7 @@ public static class OnlineRasterFrameReader
                     "TMS", StringComparison.OrdinalIgnoreCase)) return false;
             using var source = OpenSource(xml);
             if (source.RasterCount != 3 || !SrsFactory.IsSame(source.GetProjection(), targetSrs)) return false;
-            double[] geo = new double[6];
-            source.GetGeoTransform(geo);
+            double[] geo = RasterDatasetPolicy.GetCachedGeoTransform(source);
             if (!RasterGeometry.IsAxisAligned(geo) || geo[1] <= 0 || geo[5] >= 0) return false;
 
             double left = localBounds.Left + offsetX, right = localBounds.Right + offsetX;
@@ -176,7 +174,7 @@ public static class OnlineRasterFrameReader
         try
         {
             bitmap.Erase(SKColors.Black); // RGB tiles retain opaque alpha; RGBA overwrites it.
-            int[] bandMap = RasterDatasetPolicy.GetRgbaBandMap(source);
+            int[] bandMap = RasterDatasetPolicy.GetCachedRgbaBandMap(source);
             int bands = bandMap.Length;
             if (bands < 3) throw new InvalidDataException("Online imagery must provide RGB/RGBA bands.");
             using var extra = new RasterIOExtraArg { eResampleAlg = RIOResampleAlg.GRIORA_Bilinear };

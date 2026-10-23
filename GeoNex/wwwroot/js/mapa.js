@@ -911,15 +911,31 @@ window.atualizarCanvasMapa = function (base64Image) {
 };
 
 window.dimensoesJanela = {
+    ultimaValida: null,
     obterDpi: function () {
         const dpi = Number(window.devicePixelRatio) || 1;
         return Math.max(0.5, Math.min(4, dpi));
     },
     obter: function () {
         const map = document.getElementById('map-container');
+        const rect = map?.getBoundingClientRect();
+        const larguraMapa = rect && Number.isFinite(rect.width) ? Math.round(rect.width) : 0;
+        const alturaMapa = rect && Number.isFinite(rect.height) ? Math.round(rect.height) : 0;
+        // During the first WebView layout pass the map can report 0x0. Never
+        // publish that transient size to the renderer: it creates a valid but
+        // tiny PNG which then appears centered inside the real viewport.
+        if (larguraMapa >= 32 && alturaMapa >= 32) {
+            this.ultimaValida = {
+                largura: larguraMapa,
+                altura: alturaMapa,
+                dpi: this.obterDpi()
+            };
+            return this.ultimaValida;
+        }
+        if (this.ultimaValida) return this.ultimaValida;
         return {
-            largura: Math.max(1, map ? map.clientWidth : Math.round(window.innerWidth)),
-            altura: Math.max(1, map ? map.clientHeight : Math.round(window.innerHeight)),
+            largura: Math.max(32, Math.round(window.innerWidth)),
+            altura: Math.max(32, Math.round(window.innerHeight)),
             dpi: window.dimensoesJanela.obterDpi()
         };
     },
@@ -927,8 +943,24 @@ window.dimensoesJanela = {
         this.resizeObserver?.disconnect();
         if (this.resizeListener) window.removeEventListener('resize', this.resizeListener);
         let timer = null;
+        let centroAnterior = null;
+        let tamanhoJanelaAnterior = { largura: window.innerWidth, altura: window.innerHeight };
+        let deslocamentoCentroPendenteX = 0;
+        let deslocamentoCentroPendenteY = 0;
         const notificar = function () {
             if (window.mapEngine) window.mapEngine.viewportResizePending = true;
+            const map = document.getElementById('map-container');
+            const rect = map?.getBoundingClientRect();
+            const centroAtual = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+            const tamanhoJanelaAtual = { largura: window.innerWidth, altura: window.innerHeight };
+            const janelaMudou = tamanhoJanelaAtual.largura !== tamanhoJanelaAnterior.largura ||
+                tamanhoJanelaAtual.altura !== tamanhoJanelaAnterior.altura;
+            if (centroAnterior && centroAtual && !janelaMudou) {
+                deslocamentoCentroPendenteX += centroAtual.x - centroAnterior.x;
+                deslocamentoCentroPendenteY += centroAtual.y - centroAnterior.y;
+            }
+            centroAnterior = centroAtual;
+            tamanhoJanelaAnterior = tamanhoJanelaAtual;
             clearTimeout(timer);
             timer = setTimeout(function () {
                 const dimensoes = window.dimensoesJanela.obter();
@@ -936,13 +968,19 @@ window.dimensoesJanela = {
                     'AtualizarDimensoesTela',
                     dimensoes.largura,
                     dimensoes.altura,
-                    dimensoes.dpi).catch(err => console.warn('Erro ao redimensionar mapa:', err));
+                    dimensoes.dpi,
+                    deslocamentoCentroPendenteX,
+                    deslocamentoCentroPendenteY).catch(err => console.warn('Erro ao redimensionar mapa:', err));
+                deslocamentoCentroPendenteX = 0;
+                deslocamentoCentroPendenteY = 0;
             }, 60);
         };
         window.addEventListener('resize', notificar);
         this.resizeListener = notificar;
         const map = document.getElementById('map-container');
         if (map && window.ResizeObserver) {
+            const rect = map.getBoundingClientRect();
+            centroAnterior = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
             this.resizeObserver = new ResizeObserver(notificar);
             this.resizeObserver.observe(map);
         }
@@ -1182,8 +1220,12 @@ window.mapEngine = {
         this.featureSelectionShape = ['rectangle', 'polygon', 'freehand', 'radius'].includes(shape) ? shape : 'rectangle';
         this.featureSelectionPolygon = [];
         this.featureSelectionGesture = null;
+        this.vertexSelectionGesture = false;
         this.limparSelecaoOverlay();
-        if (this.container && this.featureSelectionMode) this.container.style.cursor = 'crosshair';
+        if (this.container) this.container.style.cursor = this.featureSelectionMode
+            ? 'crosshair'
+            : (this.ferramentaAtual === 'Navegacao' ? 'grab' :
+                (this.ferramentaAtual === 'Medicao' || this.ferramentaAtual === 'AquisicaoPoligono' || this.ferramentaAtual === 'EdicaoVertice' ? 'crosshair' : 'default'));
     },
 
     setFeatureSelectionShape: function (shape) {
@@ -1429,6 +1471,8 @@ window.mapEngine = {
         }
         if (this.featureSelectionMode) {
             const gesture = this.featureSelectionGesture;
+            const isPanPointer = this.panCandidate && this.panPointerId === e.pointerId;
+            const isTouchPan = e.pointerType === 'touch' && this.activeTouches.size >= 2;
             if (gesture && gesture.pointerId === e.pointerId && this.featureSelectionShape !== 'polygon') {
                 const distance = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY);
                 if (distance > 4) gesture.dragged = true;
@@ -1449,11 +1493,16 @@ window.mapEngine = {
                 }
                 return;
             }
-            if (this.featureSelectionShape === 'polygon' && this.featureSelectionPolygon.length > 0)
+            if (gesture && gesture.pointerId === e.pointerId) {
+                if (this.featureSelectionShape === 'polygon' && this.featureSelectionPolygon.length > 0)
+                    this.atualizarSelecaoOverlay([...this.featureSelectionPolygon, { x: e.clientX, y: e.clientY }]);
+                return;
+            }
+            if (this.featureSelectionShape === 'polygon' && this.featureSelectionPolygon.length > 0 && !isPanPointer && !isTouchPan)
                 this.atualizarSelecaoOverlay([...this.featureSelectionPolygon, { x: e.clientX, y: e.clientY }]);
-            return;
+            if (!isPanPointer && !isTouchPan) return;
         }
-        if (this.ferramentaAtual === 'EdicaoVertice' && this.pointerIds.has(e.pointerId) &&
+        if (this.ferramentaAtual === 'EdicaoVertice' && !this.featureSelectionMode && this.pointerIds.has(e.pointerId) &&
             !this.vertexEditDragging && !this.vertexEditPlacementArmed && !this.vertexMoveFeatureMode) {
             const distance = Math.hypot(e.clientX - this.startX, e.clientY - this.startY);
             if (distance > 10) {
@@ -1620,21 +1669,11 @@ window.mapEngine = {
             ? this.obterPontoImagem(e.clientX, e.clientY)
             : null;
 
-        if (this.featureSelectionMode && e.button === 0) {
-            this.featureSelectionGesture = {
-                pointerId: e.pointerId,
-                startX: e.clientX,
-                startY: e.clientY,
-                dragged: false,
-                points: [{ x: e.clientX, y: e.clientY }]
-            };
-            if (this.featureSelectionShape !== 'polygon') e.preventDefault();
-            return;
-        }
-
         if (e.pointerType === 'touch') {
             this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
             if (this.activeTouches.size >= 2) {
+                this.featureSelectionGesture = null;
+                this.limparSelecaoOverlay();
                 const pinch = this.obterEstadoPinch();
                 if (pinch) {
                     this.isPinching = true;
@@ -1651,6 +1690,18 @@ window.mapEngine = {
                     return;
                 }
             }
+        }
+
+        if (this.featureSelectionMode && e.button === 0) {
+            this.featureSelectionGesture = {
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                dragged: false,
+                points: [{ x: e.clientX, y: e.clientY }]
+            };
+            if (this.featureSelectionShape !== 'polygon') e.preventDefault();
+            return;
         }
 
         if (e.button === 1 || (e.button === 0 && this.ferramentaAtual === 'Navegacao')) {
@@ -1716,6 +1767,9 @@ window.mapEngine = {
         if (this.featureSelectionMode && this.featureSelectionGesture) {
             const gesture = this.featureSelectionGesture;
             this.featureSelectionGesture = null;
+            if (this.featureSelectionShape !== 'polygon' &&
+                Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > 4)
+                gesture.dragged = true;
             if (this.featureSelectionShape === 'polygon') {
                 if (e.button === 0 && !gesture.dragged) {
                     const last = this.featureSelectionPolygon[this.featureSelectionPolygon.length - 1];
@@ -1748,7 +1802,7 @@ window.mapEngine = {
             return;
         }
 
-        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexSelectionGesture && !this.vertexMoveFeatureMode &&
+        if (this.ferramentaAtual === 'EdicaoVertice' && !this.featureSelectionMode && this.vertexSelectionGesture && !this.vertexMoveFeatureMode &&
             !this.vertexEditDragging && e.button === 0 && this.dotNetHelper) {
             this.vertexSelectionGesture = false;
             const points = [{ x: this.startX, y: this.startY }, { x: e.clientX, y: this.startY },
@@ -1796,7 +1850,8 @@ window.mapEngine = {
             this.isDragging = false;
 
             this.container.style.cursor =
-                this.ferramentaAtual === 'Navegacao' ? 'grab' :
+                this.featureSelectionMode ? 'crosshair' :
+                    this.ferramentaAtual === 'Navegacao' ? 'grab' :
                     (this.ferramentaAtual === 'Medicao' ? 'crosshair' : 'default');
 
             if (distMovida > 10) {
@@ -2060,7 +2115,13 @@ window.mapEngine = {
         // pedimos ao Browser para descodificar o PNG numa thread paralela.
         let tempImg, loadedFrame;
         const frameLoadStarted = performance.now();
-        const requestStartedAt = this.lastRequestStart || frameLoadStarted;
+        // Never attribute an unrelated/superseded request to this frame. This
+        // used to inflate the HUD latency after a cancelled raster request.
+        const requestStartedAt = requestIdCamera > 0 &&
+            requestIdCamera === this.activeRequestId &&
+            Number.isFinite(this.lastRequestStart)
+            ? this.lastRequestStart
+            : frameLoadStarted;
         this.carregarImagemFrame(url).then(frame => {
             loadedFrame = frame; tempImg = frame.image;
             return new Promise(resolve => requestAnimationFrame(resolve));
@@ -2107,14 +2168,30 @@ window.mapEngine = {
             // before the browser paints; the visible canvas always stays complete.
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(tempImg, 0, 0);
-            canvas.style.width = visibleWidth > 0 ? `${visibleWidth + padding * 2}px` : '100%';
-            canvas.style.height = visibleHeight > 0 ? `${visibleHeight + padding * 2}px` : '100%';
-            canvas.style.left = `${-padding}px`;
-            canvas.style.top = `${-padding}px`;
-            canvas.style.visibility = 'visible';
-            this.presentedViewport = { width: visibleWidth, height: visibleHeight };
             const viewport = window.dimensoesJanela.obter();
-            if (Math.abs(visibleWidth - viewport.largura) <= 1 && Math.abs(visibleHeight - viewport.altura) <= 1)
+            const requestedWidth = Number.isFinite(visibleWidth) && visibleWidth > 0 ? visibleWidth : 0;
+            const requestedHeight = Number.isFinite(visibleHeight) && visibleHeight > 0 ? visibleHeight : 0;
+            // A frame can arrive while the WebView is still settling its layout.
+            // Do not leave a valid image in a small intrinsic canvas in that case:
+            // present it over the current map surface and let the next resize
+            // request restore the exact server viewport.
+            const dimensionsAreStale = viewport.largura > 1 && viewport.altura > 1 &&
+                (requestedWidth < viewport.largura * 0.75 ||
+                    requestedHeight < viewport.altura * 0.75 ||
+                    requestedWidth > viewport.largura * 1.5 ||
+                    requestedHeight > viewport.altura * 1.5);
+            const displayWidth = dimensionsAreStale ? viewport.largura : requestedWidth;
+            const displayHeight = dimensionsAreStale ? viewport.altura : requestedHeight;
+            const displayPadding = dimensionsAreStale ? 0 : padding;
+            canvas.style.width = displayWidth > 0 ? `${displayWidth + displayPadding * 2}px` : '100%';
+            canvas.style.height = displayHeight > 0 ? `${displayHeight + displayPadding * 2}px` : '100%';
+            canvas.style.left = `${-displayPadding}px`;
+            canvas.style.top = `${-displayPadding}px`;
+            canvas.style.visibility = 'visible';
+            this.presentedViewport = { width: displayWidth, height: displayHeight };
+            if (!dimensionsAreStale &&
+                Math.abs(requestedWidth - viewport.largura) <= 1 &&
+                Math.abs(requestedHeight - viewport.altura) <= 1)
                 this.viewportResizePending = false;
             this.skiaCanvas.style.visibility = 'hidden';
             this.backCanvas = this.skiaCanvas;
@@ -2650,6 +2727,11 @@ window.GeoNexGraphics = {
         return this._localParaImagemAquisicao(point);
     },
 
+    _obterVerticePreviaEdicao: function (feature, index) {
+        if (!feature || index < 0 || index >= feature.vertexCount) return null;
+        return { x: feature.vertices[index * 2], y: feature.vertices[index * 2 + 1] };
+    },
+
     _desenharPreviaEdicaoVetorial: function () {
         const referencia = document.getElementById('overlayCanvas');
         if (!referencia) return;
@@ -2664,75 +2746,97 @@ window.GeoNexGraphics = {
 
         const scaleX = canvas.width / Math.max(1, canvas.clientWidth);
         const scaleY = canvas.height / Math.max(1, canvas.clientHeight);
-        const mapScale = Math.max(0.05, Math.abs(window.mapEngine?.currentScale || 1));
+        const [a, b, c, d, e, f, originX = 0, originY = 0] = this._aquisicao.matriz;
+        const mapScale = Math.max(1e-8, (Math.hypot(a, b) + Math.hypot(c, d)) / 2);
         const targetImage = this._snap || this._mouse;
         const targetLocal = targetImage ? this._pontoImagemParaLocalEdicao(targetImage) : null;
         const drag = this._edicaoPreviewDrag;
         const delta = drag && targetLocal
             ? { x: targetLocal.x - drag.start.x, y: targetLocal.y - drag.start.y }
             : { x: 0, y: 0 };
-        ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+        ctx.setTransform(scaleX * a, scaleY * b, scaleX * c, scaleY * d,
+            scaleX * (e - a * originX - c * originY),
+            scaleY * (f - b * originX - d * originY));
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
 
         for (let featureIndex = 0; featureIndex < preview.features.length; featureIndex++) {
             const feature = preview.features[featureIndex];
-            ctx.beginPath();
-            for (const path of feature.paths) {
-                if (!path.points.length) continue;
-                const first = this._pontoLocalParaImagemEdicao(this._pontoPreviaEdicao(featureIndex, path.points[0], delta));
-                ctx.moveTo(first.x, first.y);
-                for (let i = 1; i < path.points.length; i++) {
-                    const point = this._pontoLocalParaImagemEdicao(this._pontoPreviaEdicao(featureIndex, path.points[i], delta));
-                    ctx.lineTo(point.x, point.y);
-                }
-                if (path.closed) ctx.closePath();
-            }
+            if (!feature.path2D) continue;
+            ctx.save();
+            if (drag?.mode === 'feature' && featureIndex === drag.featureIndex)
+                ctx.translate(delta.x, delta.y);
             if (feature.polygon) {
                 ctx.fillStyle = 'rgba(34,211,184,.16)';
-                ctx.fill('evenodd');
+                ctx.fill(feature.path2D, 'evenodd');
             }
             ctx.strokeStyle = 'rgba(34,211,184,.88)';
             ctx.lineWidth = 2.2 / mapScale;
-            ctx.stroke();
+            ctx.stroke(feature.path2D);
+            ctx.restore();
         }
 
         const primary = preview.features[preview.primaryFeatureIndex];
         if (!primary) return;
         const moving = new Set(preview.selectedVertexIndices || []);
         const activeIndex = Number.isInteger(preview.activeVertexIndex) ? preview.activeVertexIndex : -1;
-        for (let i = 0; i < primary.vertices.length; i++) {
-            const vertex = primary.vertices[i];
-            const moved = drag && drag.mode === 'feature' ||
-                drag && drag.mode === 'vertex' && (moving.has(i) || i === activeIndex);
-            const local = moved ? { x: vertex.x + delta.x, y: vertex.y + delta.y } : vertex;
-            const point = this._pontoLocalParaImagemEdicao(local);
+        if (drag?.mode === 'vertex') {
+            const movingIndices = drag.movingVertices?.[preview.primaryFeatureIndex] || moving;
+            if (movingIndices.size === 0 && activeIndex >= 0) movingIndices.add(activeIndex);
+            ctx.beginPath();
+            for (const index of movingIndices) {
+                const vertex = this._obterVerticePreviaEdicao(primary, index);
+                const neighbourOffset = index * 2;
+                const previousIndex = primary.vertexNeighbours[neighbourOffset];
+                const nextIndex = primary.vertexNeighbours[neighbourOffset + 1];
+                if (!vertex) continue;
+                const targetX = vertex.x + delta.x;
+                const targetY = vertex.y + delta.y;
+                if (previousIndex >= 0) {
+                    const previous = this._obterVerticePreviaEdicao(primary, previousIndex);
+                    ctx.moveTo(previous.x, previous.y);
+                    ctx.lineTo(targetX, targetY);
+                }
+                if (nextIndex >= 0) {
+                    const next = this._obterVerticePreviaEdicao(primary, nextIndex);
+                    ctx.moveTo(targetX, targetY);
+                    ctx.lineTo(next.x, next.y);
+                }
+            }
+            ctx.strokeStyle = 'rgba(255,191,71,.95)';
+            ctx.lineWidth = 3.2 / mapScale;
+            ctx.stroke();
+        }
+
+        const maxHandles = Math.max(500, Math.min(1800, Math.round(canvas.clientWidth * canvas.clientHeight / 700)));
+        const stride = Math.max(1, Math.ceil(primary.vertexCount / maxHandles));
+        const drawHandle = (i) => {
+            if (i < 0 || i >= primary.vertexCount) return;
+            const vertex = this._obterVerticePreviaEdicao(primary, i);
+            const moved = drag?.mode === 'feature' ||
+                drag?.mode === 'vertex' && ((drag.movingVertices?.[preview.primaryFeatureIndex]?.has(i)) || moving.has(i) || i === activeIndex);
+            const x = vertex.x + (moved ? delta.x : 0);
+            const y = vertex.y + (moved ? delta.y : 0);
+            const image = this._pontoLocalParaImagemEdicao({ x, y });
+            if (image.x < -10 || image.y < -10 || image.x > canvas.clientWidth + 10 || image.y > canvas.clientHeight + 10) return;
             const active = i === activeIndex;
             const selected = moving.has(i);
-            const radius = (active || selected ? 6.3 : 4.8) / mapScale;
+            const radius = (active || selected ? 4.3 : 3.2) / mapScale;
             ctx.beginPath();
-            ctx.arc(point.x, point.y, radius + 1.5 / mapScale, 0, Math.PI * 2);
+            ctx.arc(x, y, radius + 1 / mapScale, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(13,26,36,.42)';
             ctx.fill();
             ctx.beginPath();
-            ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
             ctx.fillStyle = active ? 'rgba(255,191,71,.72)' : selected ? 'rgba(34,211,238,.58)' : 'rgba(103,232,196,.48)';
             ctx.fill();
             ctx.lineWidth = 1.4 / mapScale;
             ctx.strokeStyle = 'rgba(235,255,250,.88)';
             ctx.stroke();
-        }
-    },
-
-    _pontoPreviaEdicao: function (featureIndex, point, delta) {
-        const drag = this._edicaoPreviewDrag;
-        if (!drag) return point;
-        if (drag.mode === 'feature' && featureIndex === drag.featureIndex)
-            return { x: point.x + delta.x, y: point.y + delta.y };
-        const moving = drag.movingVertices?.[featureIndex];
-        if (drag.mode === 'vertex' && moving?.has(point.vertexIndex))
-            return { x: point.x + delta.x, y: point.y + delta.y };
-        return point;
+        };
+        for (let i = 0; i < primary.vertexCount; i += stride) drawHandle(i);
+        if (activeIndex >= 0 && activeIndex % stride !== 0) drawHandle(activeIndex);
+        for (const index of moving) if (index % stride !== 0 && index !== activeIndex) drawHandle(index);
     },
 
     _desenharCursorMedicao: function () {
@@ -3499,6 +3603,47 @@ window.GeoNexGraphics = {
 
     definirPreviaEdicaoVetorial: function (preview) {
         this._edicaoPreview = preview && Array.isArray(preview.features) ? preview : null;
+        if (this._edicaoPreview && typeof Path2D === 'function') {
+            for (const feature of this._edicaoPreview.features) {
+                const path2D = new Path2D();
+                const sourceVertices = feature.vertices;
+                const vertexCount = sourceVertices.length;
+                const vertexNeighbours = new Int32Array(vertexCount * 2);
+                vertexNeighbours.fill(-1);
+                for (const path of feature.paths || []) {
+                    const points = path.points || [];
+                    if (points.length === 0) continue;
+                    path2D.moveTo(points[0].x, points[0].y);
+                    for (let i = 1; i < points.length; i++)
+                        path2D.lineTo(points[i].x, points[i].y);
+                    if (path.closed) path2D.closePath();
+
+                    const closesToFirst = path.closed && points.length > 2 &&
+                        points[0].vertexIndex === points[points.length - 1].vertexIndex;
+                    const uniqueCount = closesToFirst ? points.length - 1 : points.length;
+                    for (let i = 0; i < uniqueCount; i++) {
+                        const vertexIndex = points[i].vertexIndex;
+                        if (!Number.isInteger(vertexIndex)) continue;
+                        const previous = i > 0 ? points[i - 1] : path.closed ? points[uniqueCount - 1] : null;
+                        const next = i + 1 < uniqueCount ? points[i + 1] : path.closed ? points[0] : null;
+                        vertexNeighbours[vertexIndex * 2] = previous?.vertexIndex ?? -1;
+                        vertexNeighbours[vertexIndex * 2 + 1] = next?.vertexIndex ?? -1;
+                    }
+                }
+                feature.path2D = path2D;
+                feature.vertexNeighbours = vertexNeighbours;
+                const packedVertices = new Float64Array(vertexCount * 2);
+                for (let i = 0; i < vertexCount; i++) {
+                    packedVertices[i * 2] = sourceVertices[i].x;
+                    packedVertices[i * 2 + 1] = sourceVertices[i].y;
+                }
+                feature.vertexCount = vertexCount;
+                feature.vertices = packedVertices;
+                // The native path replaces the large JS point-object tree after
+                // creation, reducing retained memory for dense features.
+                delete feature.paths;
+            }
+        }
         this._edicaoPreviewDrag = null;
         const referencia = document.getElementById('overlayCanvas');
         if (referencia) this._garantirCamadasMedicao(referencia);
@@ -3516,7 +3661,8 @@ window.GeoNexGraphics = {
         this._edicaoPreview.activeVertexIndex = Number.isInteger(index) ? index : -1;
         const start = Number.isFinite(startX) && Number.isFinite(startY)
             ? { x: startX, y: startY }
-            : this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex].vertices[index];
+            : this._obterVerticePreviaEdicao(
+                this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex], index);
         if (!start) return;
         const moving = Array.isArray(movingVertices) ? movingVertices : this._edicaoPreview.movingVertices || [];
         this._edicaoPreviewDrag = {
@@ -3528,7 +3674,8 @@ window.GeoNexGraphics = {
 
     iniciarReposicionamentoVerticeEdicao: function (index) {
         if (!this._edicaoPreview || !this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex]) return;
-        const vertex = this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex].vertices[index];
+        const vertex = this._obterVerticePreviaEdicao(
+            this._edicaoPreview.features[this._edicaoPreview.primaryFeatureIndex], index);
         if (!vertex) return;
         this._edicaoPreview.activeVertexIndex = index;
         this._edicaoPreview.selectedVertexIndices = [index];
