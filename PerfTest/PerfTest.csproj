@@ -19,6 +19,7 @@
     <GeoNexNativeSource Include="$(GeoNexNativeProjectDir)\GeoNexNative.cpp;$(GeoNexNativeProjectDir)\NativeCpu.cpp;$(GeoNexNativeProjectDir)\NativeCpu.h;$(GeoNexNativeProjectDir)\ParseAvx2.cpp;$(GeoNexNativeBuildScript);$(MSBuildProjectDirectory)\..\GeoNex.Core\GeoEngine.cpp" />
     <Compile Include="..\GeoNex\Services\DebugLogger.cs" Link="ManagedInterop\DebugLogger.cs" />
     <Compile Include="..\GeoNex\Services\NativeMethods.cs" Link="ManagedInterop\NativeMethods.cs" />
+    <Compile Include="..\GeoNex\Services\HardwareGovernor.cs" Link="ManagedInterop\HardwareGovernor.cs" />
     <Compile Include="..\GeoNex\Services\ResourceBudgetPolicy.cs" Link="ManagedInterop\ResourceBudgetPolicy.cs" />
     <Compile Include="..\GeoNex\Services\RasterGeometry.cs" Link="Raster\RasterGeometry.cs" />
     <Compile Include="..\GeoNex\Services\RasterRenderingPolicy.cs" Link="Raster\RasterRenderingPolicy.cs" />

@@ -31,14 +31,26 @@ internal static class CachedPreviewImage
                 int rows = source.Height - Math.Abs(dy), bytes = (source.Width - Math.Abs(dx)) * 4;
                 destination[..(y * target.RowBytes)].Clear();
                 destination[((y + rows) * target.RowBytes)..].Clear();
-                for (int row = 0; row < rows; row++)
+                if (dx == 0 && target.RowBytes == source.RowBytes && target.RowBytes == bytes)
                 {
-                    if ((row & 63) == 0) token.ThrowIfCancellationRequested();
-                    var targetRow = destination.Slice((y + row) * target.RowBytes, target.RowBytes);
-                    targetRow[..(x * 4)].Clear();
-                    original.Slice((y + row - dy) * source.RowBytes + (x - dx) * 4, bytes)
-                        .CopyTo(targetRow.Slice(x * 4, bytes));
-                    targetRow[(x * 4 + bytes)..].Clear();
+                    token.ThrowIfCancellationRequested();
+                    original.Slice((y - dy) * source.RowBytes, rows * bytes)
+                        .CopyTo(destination.Slice(y * target.RowBytes, rows * bytes));
+                }
+                else
+                {
+                    int leftClearBytes = x * 4;
+                    int rightClearOffset = leftClearBytes + bytes;
+                    int srcOffsetX = (x - dx) * 4;
+                    for (int row = 0; row < rows; row++)
+                    {
+                        if ((row & 63) == 0) token.ThrowIfCancellationRequested();
+                        var targetRow = destination.Slice((y + row) * target.RowBytes, target.RowBytes);
+                        if (leftClearBytes > 0) targetRow[..leftClearBytes].Clear();
+                        original.Slice((y + row - dy) * source.RowBytes + srcOffsetX, bytes)
+                            .CopyTo(targetRow.Slice(leftClearBytes, bytes));
+                        if (rightClearOffset < target.RowBytes) targetRow[rightClearOffset..].Clear();
+                    }
                 }
                 if (rental != null)
                 {
@@ -52,12 +64,15 @@ internal static class CachedPreviewImage
             finally { rental?.Dispose(); }
         }
         // Fractional pans, zoom, rotation and other pixel formats retain Skia's
-        // existing sampling, blending and color conversion semantics.
-        using var surface = SKSurface.Create(new SKImageInfo(source.Width, source.Height,
-            SKColorType.Rgba8888, SKAlphaType.Premul)) ?? throw new OutOfMemoryException();
-        surface.Canvas.Clear(SKColors.Transparent);
-        surface.Canvas.SetMatrix(matrix);
-        surface.Canvas.DrawBitmap(source, 0, 0);
-        return surface.Snapshot();
+        // existing sampling, blending and color conversion semantics while reusing
+        // the pooled RasterPixelBuffer to eliminate 8-16 MB per-frame native allocations.
+        var targetInfo = new SKImageInfo(source.Width, source.Height,
+            SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var renderTarget = RasterRenderTarget.Create(targetInfo, buffer);
+        var canvas = renderTarget.Surface.Canvas;
+        canvas.Clear(SKColors.Transparent);
+        canvas.SetMatrix(matrix);
+        canvas.DrawBitmap(source, 0, 0);
+        return renderTarget.Finish();
     }
 }

@@ -9,7 +9,7 @@ public sealed class EncodedFrameCache : IDisposable
     private const long MaximumBytes = 32L * 1024 * 1024;
     private const long MinimumGroupedBytes = 8L * 1024 * 1024;
     private const int HashChunkBytes = 1024 * 1024;
-    private const int MaximumHashWorkers = 4;
+    private const int MaximumHashWorkers = 8;
     private readonly object _gate = new();
     private readonly LeasedResourceRegistry<byte, SKData> _data = new();
     private sealed record Key(int Width, int Height, SKColorType Color, SKAlphaType Alpha,
@@ -106,42 +106,59 @@ public sealed class EncodedFrameCache : IDisposable
         {
             int rowsPerChunk = Math.Max(1, HashChunkBytes / rowBytes);
             int chunks = (pixels.Height - 1) / rowsPerChunk + 1;
-            byte[] digests = new byte[checked(chunks * SHA256.HashSizeInBytes)];
-            nint address = pixels.GetPixels();
-            int stride = pixels.RowBytes;
-            void HashChunk(int chunk)
+            int totalDigestBytes = checked(chunks * SHA256.HashSizeInBytes);
+            byte[] digests = System.Buffers.ArrayPool<byte>.Shared.Rent(totalDigestBytes);
+            try
             {
-                token.ThrowIfCancellationRequested();
-                int first = chunk * rowsPerChunk, rows = Math.Min(rowsPerChunk, pixels.Height - first);
-                Span<byte> destination = digests.AsSpan(chunk * SHA256.HashSizeInBytes, SHA256.HashSizeInBytes);
-                if (stride == rowBytes)
-                    SHA256.HashData(new ReadOnlySpan<byte>((byte*)address + (long)first * stride, checked(rows * rowBytes)), destination);
-                else
+                nint address = pixels.GetPixels();
+                int stride = pixels.RowBytes;
+                void HashChunk(int chunk)
                 {
-                    using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                    for (int y = first; y < first + rows; y++)
+                    token.ThrowIfCancellationRequested();
+                    int first = chunk * rowsPerChunk, rows = Math.Min(rowsPerChunk, pixels.Height - first);
+                    Span<byte> destination = digests.AsSpan(chunk * SHA256.HashSizeInBytes, SHA256.HashSizeInBytes);
+                    if (stride == rowBytes)
+                        SHA256.HashData(new ReadOnlySpan<byte>((byte*)address + (long)first * stride, checked(rows * rowBytes)), destination);
+                    else
                     {
-                        token.ThrowIfCancellationRequested();
-                        hash.AppendData(new ReadOnlySpan<byte>((byte*)address + (long)y * stride, rowBytes));
+                        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                        for (int y = first; y < first + rows; y++)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            hash.AppendData(new ReadOnlySpan<byte>((byte*)address + (long)y * stride, rowBytes));
+                        }
+                        hash.GetHashAndReset(destination);
                     }
-                    hash.GetHashAndReset(destination);
                 }
+                int degree = Math.Clamp(workers, 1, Math.Min(HardwareGovernor.Topology.PerformanceCores, MaximumHashWorkers));
+                if (degree == 1)
+                    for (int chunk = 0; chunk < chunks; chunk++) HashChunk(chunk);
+                else Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = token }, HashChunk);
+                token.ThrowIfCancellationRequested();
+                Span<byte> finalDigest = stackalloc byte[SHA256.HashSizeInBytes];
+                SHA256.HashData(digests.AsSpan(0, totalDigestBytes), finalDigest);
+                return Convert.ToHexString(finalDigest);
             }
-            int degree = Math.Clamp(workers, 1, MaximumHashWorkers);
-            if (degree == 1)
-                for (int chunk = 0; chunk < chunks; chunk++) HashChunk(chunk);
-            else Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = token }, HashChunk);
-            token.ThrowIfCancellationRequested();
-            return Convert.ToHexString(SHA256.HashData(digests));
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(digests);
+            }
         }
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        int strideSingle = pixels.RowBytes;
         nint pointer = pixels.GetPixels();
+        if (strideSingle == rowBytes && (long)rowBytes * pixels.Height <= int.MaxValue)
+        {
+            Span<byte> singleDigest = stackalloc byte[SHA256.HashSizeInBytes];
+            SHA256.HashData(new ReadOnlySpan<byte>((byte*)pointer, checked(rowBytes * pixels.Height)), singleDigest);
+            return Convert.ToHexString(singleDigest);
+        }
+        using var hashSingle = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         for (int y = 0; y < pixels.Height; y++)
         {
             token.ThrowIfCancellationRequested();
-            hash.AppendData(new ReadOnlySpan<byte>((byte*)pointer + (long)y * pixels.RowBytes, rowBytes));
+            hashSingle.AppendData(new ReadOnlySpan<byte>((byte*)pointer + (long)y * strideSingle, rowBytes));
         }
-        return Convert.ToHexString(hash.GetHashAndReset());
+        return Convert.ToHexString(hashSingle.GetHashAndReset());
     }
 
     private void Clear() { _data.Remove(0); _key = null; _payloadId = null; _bytes = 0; }

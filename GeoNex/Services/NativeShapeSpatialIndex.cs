@@ -2,6 +2,8 @@ using System;
 using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using NetTopologySuite.Geometries;
@@ -269,6 +271,7 @@ namespace GeoNex.Services
 
         public CompiledFeature this[int index]
         {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
                 if ((uint)index >= (uint)Count || _indices == null)
@@ -276,6 +279,37 @@ namespace GeoNex.Services
                 return _features[_indices[index]];
             }
             set => throw new NotSupportedException();
+        }
+
+        /// <summary>
+        /// Zero-virtual-dispatch bulk offset extraction for native C++ batch rendering.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void CopyOffsets(int startIndex, Span<long> destination, CancellationToken cancellationToken = default)
+        {
+            int[]? indices = _indices ?? throw new ObjectDisposedException(nameof(NativeFeatureQuery));
+            int count = destination.Length;
+            if ((uint)startIndex > (uint)Count || count > Count - startIndex)
+                throw new ArgumentOutOfRangeException(nameof(startIndex));
+
+            ReadOnlySpan<int> idxSpan = indices.AsSpan(startIndex, count);
+            if (_features is List<CompiledFeature> list)
+            {
+                ReadOnlySpan<CompiledFeature> featSpan = CollectionsMarshal.AsSpan(list);
+                for (int i = 0; i < count; ++i)
+                {
+                    if ((i & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+                    destination[i] = featSpan[idxSpan[i]].DataOffset;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; ++i)
+                {
+                    if ((i & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+                    destination[i] = _features[idxSpan[i]].DataOffset;
+                }
+            }
         }
 
         public IEnumerator<CompiledFeature> GetEnumerator()

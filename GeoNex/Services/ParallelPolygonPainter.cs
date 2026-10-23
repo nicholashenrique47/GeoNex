@@ -225,22 +225,44 @@ internal static class ParallelPolygonPainter
 
     private static unsafe void CopyRegion(SKBitmap source, SKBitmap target, int start, int end, bool vertical)
     {
+        if (end <= start) return;
         byte* sourcePixels = (byte*)source.GetPixels(), targetPixels = (byte*)target.GetPixels();
+        if (!vertical && source.RowBytes == target.RowBytes)
+        {
+            long offset = (long)start * target.RowBytes;
+            long totalBytes = (long)(end - start) * target.RowBytes;
+            Buffer.MemoryCopy(sourcePixels + offset, targetPixels + offset, totalBytes, totalBytes);
+            return;
+        }
         int top = vertical ? 0 : start, bottom = vertical ? target.Height : end;
-        int offset = vertical ? start * 4 : 0, bytes = vertical ? (end - start) * 4 : target.RowBytes;
+        int colOffset = vertical ? start * 4 : 0, bytes = vertical ? (end - start) * 4 : target.RowBytes;
         for (int y = top; y < bottom; y++)
-                Buffer.MemoryCopy(sourcePixels + (long)y * source.RowBytes + offset,
-                targetPixels + (long)y * target.RowBytes + offset, bytes, bytes);
+            Buffer.MemoryCopy(sourcePixels + (long)y * source.RowBytes + colOffset,
+                targetPixels + (long)y * target.RowBytes + colOffset, bytes, bytes);
     }
 
     private static unsafe void ClearRegion(SKBitmap bitmap, int start, int end, bool vertical)
     {
+        if (end <= start) return;
         byte* pixels = (byte*)bitmap.GetPixels();
-        int top = vertical ? 0 : start;
-        int bottom = vertical ? bitmap.Height : end;
-        int offset = vertical ? start * 4 : 0;
-        int bytes = vertical ? (end - start) * 4 : bitmap.RowBytes;
+        if (!vertical)
+        {
+            long offset = (long)start * bitmap.RowBytes;
+            long totalBytes = (long)(end - start) * bitmap.RowBytes;
+            while (totalBytes > 0)
+            {
+                int chunk = (int)Math.Min(totalBytes, int.MaxValue);
+                new Span<byte>(pixels + offset, chunk).Clear();
+                offset += chunk;
+                totalBytes -= chunk;
+            }
+            return;
+        }
+        int top = 0;
+        int bottom = bitmap.Height;
+        int colOffset = start * 4;
+        int bytes = (end - start) * 4;
         for (int y = top; y < bottom; y++)
-            new Span<byte>(pixels + (long)y * bitmap.RowBytes + offset, bytes).Clear();
+            new Span<byte>(pixels + (long)y * bitmap.RowBytes + colOffset, bytes).Clear();
     }
 }

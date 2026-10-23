@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 
 namespace GeoNex.Services;
 
@@ -8,7 +9,7 @@ namespace GeoNex.Services;
 /// </summary>
 public static class ShapefileRenderCatalog
 {
-    public const int MinimumFeatures = 100_000;
+    public const int MinimumFeatures = 50_000;
     public const int MaximumUniqueFeatures = 262_144;
 
     public static unsafe int[]? Build(byte* data, long length, ReadOnlySpan<long> offsets,
@@ -16,8 +17,9 @@ public static class ShapefileRenderCatalog
         int maximumUniqueFeatures = MaximumUniqueFeatures)
     {
         if (data == null || offsets.Length < minimumFeatures) return null;
-        var representatives = new List<int>();
-        var hashes = new Dictionary<ulong, int>();
+        int initialCapacity = Math.Clamp(offsets.Length / 2, 16, Math.Max(16, maximumUniqueFeatures));
+        var representatives = new List<int>(initialCapacity);
+        var hashes = new Dictionary<ulong, int>(initialCapacity);
         for (int i = 0; i < offsets.Length; i++)
         {
             if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
@@ -53,12 +55,15 @@ public static class ShapefileRenderCatalog
         unchecked
         {
             ulong hash = 14695981039346656037UL ^ (ulong)bytes.Length;
-            while (bytes.Length >= 8)
+            ReadOnlySpan<ulong> words = MemoryMarshal.Cast<byte, ulong>(bytes);
+            for (int i = 0; i < words.Length; i++)
             {
-                hash = (hash ^ BinaryPrimitives.ReadUInt64LittleEndian(bytes)) * 1099511628211UL;
-                bytes = bytes[8..];
+                hash = (hash ^ words[i]) * 1099511628211UL;
             }
-            foreach (byte value in bytes) hash = (hash ^ value) * 1099511628211UL;
+            for (int i = words.Length * 8; i < bytes.Length; i++)
+            {
+                hash = (hash ^ bytes[i]) * 1099511628211UL;
+            }
             return hash;
         }
     }

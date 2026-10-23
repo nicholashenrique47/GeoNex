@@ -13,19 +13,16 @@ public static class MapFrameEncoding
     internal static SKData EncodeNavigationPng(SKImage image, int compressionLevel, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (compressionLevel == 1 && PaletteEnabled)
+        using var pixels = image.PeekPixels();
+        if (pixels != null)
         {
-            using var pixels = image.PeekPixels();
-            if (pixels != null)
+            if (compressionLevel == 1 && PaletteEnabled)
             {
                 var indexed = ExactPalettePngEncoder.TryEncode(pixels, VectorRuntimeResources.Current.CacheBytes / 16, token);
                 if (indexed != null) return indexed;
             }
-        }
-        token.ThrowIfCancellationRequested();
-        using (var pixels = image.PeekPixels())
-        {
-            if (pixels != null && IsFullyOpaque(pixels, token))
+            token.ThrowIfCancellationRequested();
+            if (IsFullyOpaque(pixels, token))
             {
                 // RGB PNG decodes to precisely the same RGBA when every alpha
                 // is 255. The view borrows immutable image storage; no pixel copy.
@@ -33,6 +30,8 @@ public static class MapFrameEncoding
                 return opaque.Encode(new SKPngEncoderOptions(SelectFilter(opaque, compressionLevel), compressionLevel))
                     ?? EncodePng(image, 1);
             }
+            return pixels.Encode(new SKPngEncoderOptions(SelectFilter(pixels, compressionLevel), compressionLevel))
+                ?? EncodePng(image, compressionLevel);
         }
         return EncodePng(image, compressionLevel);
     }
@@ -47,6 +46,30 @@ public static class MapFrameEncoding
         if (pixels.AlphaType == SKAlphaType.Opaque) return true;
         var alphaMask = new Vector<uint>(0xff000000u);
         nint address = pixels.GetPixels();
+        if (pixels.RowBytes == (long)pixels.Width * 4)
+        {
+            long totalPixels = (long)pixels.Width * pixels.Height;
+            if (totalPixels <= int.MaxValue)
+            {
+                var all = new ReadOnlySpan<uint>((byte*)address, (int)totalPixels);
+                int idx = 0;
+                int vecStep = Vector<uint>.Count;
+                for (; idx <= all.Length - vecStep * 4; idx += vecStep * 4)
+                {
+                    if ((idx & 65535) == 0) token.ThrowIfCancellationRequested();
+                    var v0 = new Vector<uint>(all.Slice(idx, vecStep));
+                    var v1 = new Vector<uint>(all.Slice(idx + vecStep, vecStep));
+                    var v2 = new Vector<uint>(all.Slice(idx + vecStep * 2, vecStep));
+                    var v3 = new Vector<uint>(all.Slice(idx + vecStep * 3, vecStep));
+                    if (!Vector.EqualsAll(v0 & v1 & v2 & v3 & alphaMask, alphaMask)) return false;
+                }
+                for (; idx <= all.Length - vecStep; idx += vecStep)
+                    if (!Vector.EqualsAll(new Vector<uint>(all.Slice(idx, vecStep)) & alphaMask, alphaMask)) return false;
+                for (; idx < all.Length; idx++)
+                    if ((all[idx] & 0xff000000u) != 0xff000000u) return false;
+                return true;
+            }
+        }
         for (int y = 0; y < pixels.Height; y++)
         {
             token.ThrowIfCancellationRequested();

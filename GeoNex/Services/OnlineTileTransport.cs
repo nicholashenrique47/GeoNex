@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -37,6 +38,7 @@ public sealed class OnlineTileTransport : IDisposable
     private readonly Dictionary<string, string> _xml = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CachedTile> _validatedTiles = new(StringComparer.Ordinal);
     private readonly string _prefix;
+    private readonly string _basePath;
     private bool _disposed;
     private long _downloads, _merged, _hits, _failures;
     private long _validationSkips, _validatedTileBytes, _validatedTileClock;
@@ -51,6 +53,7 @@ public sealed class OnlineTileTransport : IDisposable
         using var socket = new TcpListener(IPAddress.Loopback, 0);
         socket.Start(); int port = ((IPEndPoint)socket.LocalEndpoint).Port; socket.Stop();
         _prefix = $"http://localhost:{port}/{Guid.NewGuid():N}/";
+        _basePath = new Uri(_prefix).AbsolutePath;
         _listener.Prefixes.Add(_prefix);
         _listener.Start();
         _ = Listen();
@@ -140,8 +143,7 @@ public sealed class OnlineTileTransport : IDisposable
         {
             var request = context.Request;
             string path = request.Url!.AbsolutePath;
-            string basePath = new Uri(_prefix).AbsolutePath;
-            string[] parts = path.StartsWith(basePath, StringComparison.Ordinal) ? path[basePath.Length..].Split('/') : Array.Empty<string>();
+            string[] parts = path.StartsWith(_basePath, StringComparison.Ordinal) ? path[_basePath.Length..].Split('/') : Array.Empty<string>();
             if (request.HttpMethod != "GET" || !IPAddress.IsLoopback(request.RemoteEndPoint.Address) || parts.Length != 4 ||
                 !int.TryParse(parts[1], out int z) || z < 0 || z > 22 ||
                 !int.TryParse(parts[2], out int x) || x < 0 || x >= 1 << z ||
@@ -235,14 +237,19 @@ public sealed class OnlineTileTransport : IDisposable
             using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
             bodyTimeout.CancelAfter(TimeSpan.FromSeconds(OnlineBasemapPolicy.RequestTimeoutSeconds));
             await using var input = await response.Content.ReadAsStreamAsync(bodyTimeout.Token).ConfigureAwait(false);
-            using var buffer = new MemoryStream();
-            byte[] chunk = new byte[16384];
-            int n;
-            while ((n = await input.ReadAsync(chunk, bodyTimeout.Token).ConfigureAwait(false)) > 0)
+            using var buffer = new MemoryStream(response.Content.Headers.ContentLength is > 0 and <= MaximumTileBytes
+                ? (int)response.Content.Headers.ContentLength.Value : 16384);
+            byte[] chunk = ArrayPool<byte>.Shared.Rent(16384);
+            try
             {
-                if (buffer.Length + n > MaximumTileBytes) throw new InvalidDataException("Oversized tile.");
-                buffer.Write(chunk, 0, n);
+                int n;
+                while ((n = await input.ReadAsync(chunk, bodyTimeout.Token).ConfigureAwait(false)) > 0)
+                {
+                    if (buffer.Length + n > MaximumTileBytes) throw new InvalidDataException("Oversized tile.");
+                    buffer.Write(chunk, 0, n);
+                }
             }
+            finally { ArrayPool<byte>.Shared.Return(chunk); }
             byte[] bytes = buffer.ToArray();
             string type = ContentType(bytes) ?? throw new InvalidDataException("Invalid tile image.");
             var control = response.Headers.CacheControl;
@@ -347,17 +354,41 @@ public sealed class OnlineTileTransport : IDisposable
         });
     }
 
-    private static string Hash(string value) => Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
-
-    private static string? ContentType(byte[] bytes)
+    private static string Hash(string value)
     {
-        using var data = SKData.CreateCopy(bytes);
-        using var codec = SKCodec.Create(data);
-        if (codec == null || codec.Info.Width != 256 || codec.Info.Height != 256) return null;
-        string? type = codec.EncodedFormat switch { SKEncodedImageFormat.Jpeg => "image/jpeg", SKEncodedImageFormat.Png => "image/png", _ => null };
-        if (type == null) return null;
-        using var decoded = new SKBitmap(new SKImageInfo(256, 256, SKColorType.Rgba8888, SKAlphaType.Premul));
-        return codec.GetPixels(decoded.Info, decoded.GetPixels()) == SKCodecResult.Success ? type : null;
+        int maxBytes = Encoding.UTF8.GetMaxByteCount(value.Length);
+        Span<byte> utf8 = maxBytes <= 512 ? stackalloc byte[maxBytes] : new byte[maxBytes];
+        int written = Encoding.UTF8.GetBytes(value, utf8);
+        Span<byte> digest = stackalloc byte[16];
+        MD5.HashData(utf8[..written], digest);
+        return Convert.ToHexStringLower(digest);
+    }
+
+    [ThreadStatic]
+    private static byte[]? _threadDecodeScratch;
+
+    private static unsafe string? ContentType(byte[] bytes)
+    {
+        fixed (byte* ptr = bytes)
+        {
+            using var data = SKData.Create((IntPtr)ptr, bytes.Length);
+            using var codec = SKCodec.Create(data);
+            if (codec == null || codec.Info.Width != 256 || codec.Info.Height != 256) return null;
+            string? type = codec.EncodedFormat switch
+            {
+                SKEncodedImageFormat.Jpeg => "image/jpeg",
+                SKEncodedImageFormat.Png => "image/png",
+                SKEncodedImageFormat.Webp => "image/webp",
+                _ => null
+            };
+            if (type == null) return null;
+            byte[] scratch = _threadDecodeScratch ??= new byte[256 * 256 * 4];
+            fixed (byte* dstPtr = scratch)
+            {
+                var info = new SKImageInfo(256, 256, SKColorType.Rgba8888, SKAlphaType.Premul);
+                return codec.GetPixels(info, (IntPtr)dstPtr) == SKCodecResult.Success ? type : null;
+            }
+        }
     }
 
     public void Dispose()

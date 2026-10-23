@@ -50,10 +50,21 @@ public static class TransformedRingWriter
 
         void Fill()
         {
-            for (int i = 0; i < count; i++)
+            int i = 0;
+            int unrolledEnd = count - 3;
+            for (; i < unrolledEnd; i += 4)
             {
                 if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
-                buffer[i] = new SKPoint((float)(x[start + i] - offsetX), -(float)(y[start + i] - offsetY));
+                int s = start + i;
+                buffer[i] = new SKPoint((float)(x[s] - offsetX), -(float)(y[s] - offsetY));
+                buffer[i + 1] = new SKPoint((float)(x[s + 1] - offsetX), -(float)(y[s + 1] - offsetY));
+                buffer[i + 2] = new SKPoint((float)(x[s + 2] - offsetX), -(float)(y[s + 2] - offsetY));
+                buffer[i + 3] = new SKPoint((float)(x[s + 3] - offsetX), -(float)(y[s + 3] - offsetY));
+            }
+            for (; i < count; i++)
+            {
+                int s = start + i;
+                buffer[i] = new SKPoint((float)(x[s] - offsetX), -(float)(y[s] - offsetY));
             }
         }
     }

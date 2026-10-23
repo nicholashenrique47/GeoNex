@@ -37,11 +37,21 @@ internal static class ExactPalettePngEncoder
     private static unsafe SKData? Encode(SKPixmap pixels, long remainingBudget, CancellationToken token)
     {
         var indexes = new Dictionary<uint, byte>(MaximumColors);
+        uint lastColor = 0;
+        byte lastIndex = 0;
+        bool hasLast = false;
         bool Index(uint color, out byte index)
         {
-            if (indexes.TryGetValue(color, out index)) return true;
+            if (hasLast && color == lastColor) { index = lastIndex; return true; }
+            if (indexes.TryGetValue(color, out index))
+            {
+                lastColor = color; lastIndex = index; hasLast = true;
+                return true;
+            }
             if (indexes.Count == MaximumColors) return false;
-            index = (byte)indexes.Count; indexes.Add(color, index); return true;
+            index = (byte)indexes.Count; indexes.Add(color, index);
+            lastColor = color; lastIndex = index; hasLast = true;
+            return true;
         }
         // Cheap rejection of frames with many colors before encoding scanlines.
         long probeRuns = 0;
@@ -110,7 +120,9 @@ internal static class ExactPalettePngEncoder
                 for (int x = 0; x < row.Length;)
                 {
                     uint color = row[x];
-                    byte index = indexes[color]; // Every color was checked before compression.
+                    byte index;
+                    if (color == lastColor) index = lastIndex;
+                    else { lastColor = color; index = lastIndex = indexes[color]; }
                     int run = row[x..].IndexOfAnyExcept(color);
                     if (run < 0) run = row.Length - x;
                     scanline.AsSpan(x + 1, run).Fill(index); x += run;

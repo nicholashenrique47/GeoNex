@@ -31,13 +31,27 @@ public sealed class ProjectedPathGeometry
             {
                 token.ThrowIfCancellationRequested();
                 var block = _blocks[ring.Block];
-                for (int i = 0; i < ring.Count; i++)
+                double[] bx = block.X;
+                double[] by = block.Y;
+                int start = ring.Start;
+                int count = ring.Count;
+                int i = 0;
+                int unrolledEnd = count - 3;
+                for (; i < unrolledEnd; i += 4)
                 {
                     if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
-                    points[i] = new SKPoint((float)(block.X[ring.Start + i] - ox),
-                        -(float)(block.Y[ring.Start + i] - oy));
+                    int s = start + i;
+                    points[i] = new SKPoint((float)(bx[s] - ox), -(float)(by[s] - oy));
+                    points[i + 1] = new SKPoint((float)(bx[s + 1] - ox), -(float)(by[s + 1] - oy));
+                    points[i + 2] = new SKPoint((float)(bx[s + 2] - ox), -(float)(by[s + 2] - oy));
+                    points[i + 3] = new SKPoint((float)(bx[s + 3] - ox), -(float)(by[s + 3] - oy));
                 }
-                path.AddPoly(points.AsSpan(0, ring.Count), ring.Closed);
+                for (; i < count; i++)
+                {
+                    int s = start + i;
+                    points[i] = new SKPoint((float)(bx[s] - ox), -(float)(by[s] - oy));
+                }
+                path.AddPoly(points.AsSpan(0, count), ring.Closed);
             }
             token.ThrowIfCancellationRequested();
             return path;

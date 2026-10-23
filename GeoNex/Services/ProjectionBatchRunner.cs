@@ -6,9 +6,9 @@ namespace GeoNex.Services;
 /// <summary>Bounded projection workers; every GDAL transform and scratch buffer has one owner.</summary>
 public static class ProjectionBatchRunner
 {
-    public const int FeaturesPerBatch = 32_768;
+    public const int FeaturesPerBatch = 16_384;
     public const int PointsPerFeature = 5;
-    public const int MinimumParallelFeatures = 131_072;
+    public const int MinimumParallelFeatures = 16_384;
 
     public static int WorkerCount(int features, int requested) => features < MinimumParallelFeatures ? 1 :
         Math.Clamp(requested, 1, Math.Min(16, (int)(((long)features + FeaturesPerBatch - 1) / FeaturesPerBatch)));

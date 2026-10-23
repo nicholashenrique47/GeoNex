@@ -230,7 +230,7 @@ namespace GeoNex.Services
             if (feicoesList.Count == 0 || shp.ShpPointer == null) return true;
 
             int count = feicoesList.Count;
-            const int nativeFeatureBatchSize = 4096;
+            int nativeFeatureBatchSize = HardwareGovernor.OptimalVectorBatchSize;
             long[] offsets = System.Buffers.ArrayPool<long>.Shared.Rent(nativeFeatureBatchSize);
             float[] output = System.Buffers.ArrayPool<float>.Shared.Rent(1_048_576); // 4 MB, cresce apenas se uma feicao exigir
             int gridWidth = Math.Clamp((int)Math.Ceiling(viewport.Width * zoomReal) + 2, 1, 16_384);
@@ -263,6 +263,7 @@ namespace GeoNex.Services
                 int featureCursor = 0;
                 int loadedOffsetCount = 0;
                 int loadedOffsetCursor = 0;
+                bool anyMicroFeaturesEmitted = false;
 
                 while (featureCursor < count)
                 {
@@ -271,47 +272,103 @@ namespace GeoNex.Services
                     {
                         loadedOffsetCount = Math.Min(nativeFeatureBatchSize, count - featureCursor);
                         loadedOffsetCursor = 0;
-                        for (int i = 0; i < loadedOffsetCount; ++i)
+                        if (feicoesList is NativeFeatureQuery nativeQuery)
                         {
-                            if ((i & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
-                            offsets[i] = feicoesList[featureCursor + i].DataOffset;
+                            nativeQuery.CopyOffsets(featureCursor, offsets.AsSpan(0, loadedOffsetCount), cancellationToken);
+                        }
+                        else if (feicoesList is System.Collections.Generic.List<CompiledFeature> concreteList)
+                        {
+                            ReadOnlySpan<CompiledFeature> span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(concreteList).Slice(featureCursor, loadedOffsetCount);
+                            for (int i = 0; i < span.Length; ++i)
+                            {
+                                if ((i & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+                                offsets[i] = span[i].DataOffset;
+                            }
+                        }
+                        else
+                        {
+                            for (int i = 0; i < loadedOffsetCount; ++i)
+                            {
+                                if ((i & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+                                offsets[i] = feicoesList[featureCursor + i].DataOffset;
+                            }
+                        }
+                        // Pilar 2: Prefetch assíncrono via DMA para as páginas do batch atual
+                        if (loadedOffsetCount >= 128)
+                        {
+                            HardwareGovernor.PrefetchShapefileOffsets(
+                                shp.ShpPointer,
+                                shp.FileLength,
+                                new ReadOnlySpan<long>(offsets, 0, loadedOffsetCount));
                         }
                     }
                     int requested = loadedOffsetCount - loadedOffsetCursor;
                     int floatsWritten;
                     int processed;
                     int required;
+                    int emittedMicroFeatures;
 
+                    int nativeWorkers = requested >= 2048 ? Math.Clamp(HardwareGovernor.Topology.PerformanceCores, 1, 8) : 1;
                     fixed (long* pOffsets = &offsets[loadedOffsetCursor])
                     fixed (float* outBuffer = output)
                     fixed (byte* occupancy = microGrid)
                     {
-                        floatsWritten = NativeMethods.ProcessShapeBatchV4(
-                            shp.ShpPointer,
-                            shp.FileLength,
-                            nativeCancellation,
-                            pOffsets,
-                            requested,
-                            outBuffer,
-                            output.Length,
-                            offsetX,
-                            offsetY,
-                            zoomReal,
-                            tolerancePixels,
-                            microLodPixels,
-                            viewport.Left,
-                            viewport.Top,
-                            viewport.Right,
-                            viewport.Bottom,
-                            occupancy,
-                            gridWidth,
-                            gridHeight,
-                            out processed,
-                            out required,
-                            out _,
-                            out _,
-                            out _);
+                        floatsWritten = nativeWorkers > 1
+                            ? NativeMethods.ProcessShapeBatchParallelV4(
+                                shp.ShpPointer,
+                                shp.FileLength,
+                                nativeCancellation,
+                                pOffsets,
+                                requested,
+                                outBuffer,
+                                output.Length,
+                                offsetX,
+                                offsetY,
+                                zoomReal,
+                                tolerancePixels,
+                                microLodPixels,
+                                viewport.Left,
+                                viewport.Top,
+                                viewport.Right,
+                                viewport.Bottom,
+                                occupancy,
+                                gridWidth,
+                                gridHeight,
+                                nativeWorkers,
+                                out processed,
+                                out required,
+                                out _,
+                                out _,
+                                out emittedMicroFeatures)
+                            : NativeMethods.ProcessShapeBatchV4(
+                                shp.ShpPointer,
+                                shp.FileLength,
+                                nativeCancellation,
+                                pOffsets,
+                                requested,
+                                outBuffer,
+                                output.Length,
+                                offsetX,
+                                offsetY,
+                                zoomReal,
+                                tolerancePixels,
+                                microLodPixels,
+                                viewport.Left,
+                                viewport.Top,
+                                viewport.Right,
+                                viewport.Bottom,
+                                occupancy,
+                                gridWidth,
+                                gridHeight,
+                                out processed,
+                                out required,
+                                out _,
+                                out _,
+                                out emittedMicroFeatures);
                     }
+
+                    if (emittedMicroFeatures > 0)
+                        anyMicroFeaturesEmitted = true;
 
                     if (floatsWritten == -1)
                         throw new OperationCanceledException("O processamento vetorial nativo foi cancelado.", cancellationToken);
@@ -370,24 +427,36 @@ namespace GeoNex.Services
                 // Mescla pixels contíguos na horizontal. Mesmo que milhões de lotes
                 // sejam subpixel, o SKPath recebe no máximo O(altura do viewport)
                 // retângulos para uma área totalmente preenchida.
-                float inverseZoom = 1.0f / zoomReal;
-                for (int y = 0; y < gridHeight; ++y)
+                // Pilar 3: Só varremos o microGrid se pelo menos 1 micro-feição tiver sido emitida,
+                // e usamos IndexOfAnyExcept((byte)0) vetorizado (SIMD) para saltar linhas vazias!
+                if (anyMicroFeaturesEmitted)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    int row = y * gridWidth;
-                    int x = 0;
-                    while (x < gridWidth)
+                    float inverseZoom = 1.0f / zoomReal;
+                    ReadOnlySpan<byte> gridSpan = new ReadOnlySpan<byte>(microGrid, 0, gridCellCount);
+                    for (int y = 0; y < gridHeight; ++y)
                     {
-                        while (x < gridWidth && microGrid[row + x] == 0) ++x;
-                        if (x >= gridWidth) break;
-                        int startX = x++;
-                        while (x < gridWidth && microGrid[row + x] != 0) ++x;
+                        cancellationToken.ThrowIfCancellationRequested();
+                        int rowOffset = y * gridWidth;
+                        ReadOnlySpan<byte> rowSpan = gridSpan.Slice(rowOffset, gridWidth);
+                        int firstNonZero = rowSpan.IndexOfAnyExcept((byte)0);
+                        if (firstNonZero < 0) continue;
 
-                        batchPath.AddRect(new SKRect(
-                            viewport.Left + startX * inverseZoom,
-                            viewport.Top + y * inverseZoom,
-                            viewport.Left + x * inverseZoom,
-                            viewport.Top + (y + 1) * inverseZoom));
+                        int x = firstNonZero;
+                        while (x < gridWidth)
+                        {
+                            int nextNonZero = rowSpan.Slice(x).IndexOfAnyExcept((byte)0);
+                            if (nextNonZero < 0) break;
+                            int startX = x + nextNonZero;
+                            x = startX + 1;
+                            int nextZero = rowSpan.Slice(x).IndexOf((byte)0);
+                            x = nextZero < 0 ? gridWidth : x + nextZero;
+
+                            batchPath.AddRect(new SKRect(
+                                viewport.Left + startX * inverseZoom,
+                                viewport.Top + y * inverseZoom,
+                                viewport.Left + x * inverseZoom,
+                                viewport.Top + (y + 1) * inverseZoom));
+                        }
                     }
                 }
 

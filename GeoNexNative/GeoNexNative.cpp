@@ -997,6 +997,148 @@ extern "C" {
         catch (...) { return -3; }
     }
 
+    // Fase 2 (Pilar 3): Processamento Vetorial Multi-Thread Nativo C++ (ProcessShapeBatchParallelV4)
+    // Divide grandes lotes de feicoes visiveis entre workers P-Core em C++, usando buffers
+    // thread-local sem contencao e gravando na mascara de ocupacao microGrid (byte stores sao atomicos).
+    __declspec(dllexport) int ProcessShapeBatchParallelV4(
+        const unsigned char* basePtr, int64_t fileLength, void* cancellation,
+        const int64_t* offsets, int count, float* outBuffer, int maxFloats,
+        double offsetX, double offsetY, float zoomReal, float tolerancePixels,
+        float microLodPixels, float viewportLeft, float viewportTop,
+        float viewportRight, float viewportBottom, unsigned char* microGrid,
+        int microGridWidth, int microGridHeight, int workerCount,
+        int* processedFeatures, int* requiredFloats, int* emittedParts,
+        int* emittedVertices, int* emittedMicroFeatures) noexcept
+    {
+        if (workerCount <= 1 || count < 1024) {
+            return ProcessShapeBatchV4(
+                basePtr, fileLength, cancellation, offsets, count, outBuffer, maxFloats,
+                offsetX, offsetY, zoomReal, tolerancePixels, microLodPixels,
+                viewportLeft, viewportTop, viewportRight, viewportBottom,
+                microGrid, microGridWidth, microGridHeight,
+                processedFeatures, requiredFloats, emittedParts, emittedVertices, emittedMicroFeatures);
+        }
+
+        if (processedFeatures) *processedFeatures = 0;
+        if (requiredFloats) *requiredFloats = 0;
+        if (emittedParts) *emittedParts = 0;
+        if (emittedVertices) *emittedVertices = 0;
+        if (emittedMicroFeatures) *emittedMicroFeatures = 0;
+
+        if (!basePtr || !offsets || !outBuffer || count < 0 || maxFloats <= 0 || fileLength < 100 ||
+            !std::isfinite(offsetX) || !std::isfinite(offsetY) ||
+            !std::isfinite(zoomReal) || zoomReal <= 0 ||
+            !std::isfinite(tolerancePixels) || tolerancePixels < 0 ||
+            !std::isfinite(microLodPixels) || microLodPixels < 0 ||
+            !IsFiniteEnvelope(viewportLeft, viewportTop, viewportRight, viewportBottom) ||
+            (microGrid && (microGridWidth <= 0 || microGridHeight <= 0 ||
+                          int64_t(microGridWidth) * microGridHeight > std::numeric_limits<int>::max())))
+            return -2;
+
+        try {
+            const int threads = std::clamp(workerCount, 2, std::min(count / 512, 16));
+            struct SliceResult {
+                std::vector<float> commands;
+                int first = 0;
+                int count = 0;
+                int processed = 0;
+                int required = 0;
+                int parts = 0;
+                int vertices = 0;
+                int micro = 0;
+                int status = 0;
+            };
+            std::vector<SliceResult> slices(threads);
+            std::vector<std::thread> pool;
+            pool.reserve(threads - 1);
+
+            auto runSlice = [&](int t) {
+                SliceResult& s = slices[t];
+                s.first = static_cast<int>((static_cast<int64_t>(count) * t) / threads);
+                const int end = static_cast<int>((static_cast<int64_t>(count) * (t + 1)) / threads);
+                s.count = end - s.first;
+                if (s.count <= 0) return;
+
+                struct CancellationScope {
+                    const std::atomic<bool>* previous = g_renderCancellation;
+                    explicit CancellationScope(void* current) { g_renderCancellation = static_cast<std::atomic<bool>*>(current); }
+                    ~CancellationScope() { g_renderCancellation = previous; }
+                } scope(cancellation);
+
+                try {
+                    CheckRenderCancellation();
+                    const int sliceCap = std::max(65536, maxFloats / threads + 32768);
+                    s.commands.resize(sliceCap);
+                    int written = ProcessShapeBatchCore(
+                        basePtr, offsets + s.first, s.count,
+                        s.commands.data(), static_cast<int>(s.commands.size()),
+                        offsetX, offsetY, zoomReal, tolerancePixels, microLodPixels,
+                        viewportLeft, viewportTop, viewportRight, viewportBottom,
+                        &s.processed, &s.required, &s.parts, &s.vertices,
+                        microGrid, microGridWidth, microGridHeight, &s.micro, fileLength);
+                    s.commands.resize(std::max(0, written));
+                    s.status = written;
+                }
+                catch (const RenderCancelled&) { s.status = -1; }
+                catch (const InvalidShape&) { s.status = -2; }
+                catch (...) { s.status = -3; }
+            };
+
+            for (int t = 1; t < threads; ++t) pool.emplace_back(runSlice, t);
+            runSlice(0);
+            for (auto& th : pool) th.join();
+
+            for (int t = 0; t < threads; ++t) {
+                if (slices[t].status < 0) return slices[t].status;
+            }
+
+            // Se todas as fatias completaram todas as feicoes e cabem em maxFloats, concatena em memoria!
+            int64_t totalFloatsNeeded = 0;
+            bool allCompleted = true;
+            for (int t = 0; t < threads; ++t) {
+                totalFloatsNeeded += static_cast<int64_t>(slices[t].commands.size());
+                if (slices[t].processed < slices[t].count) allCompleted = false;
+            }
+
+            if (allCompleted && totalFloatsNeeded <= maxFloats) {
+                int outIdx = 0;
+                int totalParts = 0;
+                int totalVerts = 0;
+                int totalMicro = 0;
+                for (int t = 0; t < threads; ++t) {
+                    const int n = static_cast<int>(slices[t].commands.size());
+                    if (n > 0) {
+                        std::memcpy(outBuffer + outIdx, slices[t].commands.data(), static_cast<size_t>(n) * sizeof(float));
+                        outIdx += n;
+                    }
+                    totalParts += slices[t].parts;
+                    totalVerts += slices[t].vertices;
+                    totalMicro += slices[t].micro;
+                }
+                if (processedFeatures) *processedFeatures = count;
+                if (emittedParts) *emittedParts = totalParts;
+                if (emittedVertices) *emittedVertices = totalVerts;
+                if (emittedMicroFeatures) *emittedMicroFeatures = totalMicro;
+                return outIdx;
+            }
+
+            // Fallback seguro se o buffer de saida encher no meio do lote:
+            // reexecuta sequencialmente para preservar o cursor exato processedFeatures.
+            if (microGrid && microGridWidth > 0 && microGridHeight > 0) {
+                std::memset(microGrid, 0, static_cast<size_t>(microGridWidth) * microGridHeight);
+            }
+            return ProcessShapeBatchV4(
+                basePtr, fileLength, cancellation, offsets, count, outBuffer, maxFloats,
+                offsetX, offsetY, zoomReal, tolerancePixels, microLodPixels,
+                viewportLeft, viewportTop, viewportRight, viewportBottom,
+                microGrid, microGridWidth, microGridHeight,
+                processedFeatures, requiredFloats, emittedParts, emittedVertices, emittedMicroFeatures);
+        }
+        catch (...) {
+            return -3;
+        }
+    }
+
     __declspec(dllexport) void* CreateShapeSpatialIndex(
         const unsigned char* basePtr,
         int64_t fileLength,
@@ -1192,9 +1334,18 @@ extern "C" {
 
         const int capacity = std::max(resultCapacity, 0);
         int total = 0;
+        const double* __restrict pMinX = index->minX.data();
+        const double* __restrict pMinY = index->minY.data();
+        const double* __restrict pMaxX = index->maxX.data();
+        const double* __restrict pMaxY = index->maxY.data();
+        const int* __restrict pCellStarts = index->cellStarts.data();
+        const int* __restrict pCellEntries = index->cellEntries.data();
+        const uint32_t* __restrict pFirstCells = index->firstCells.data();
+        const int cols = index->columns;
+
         auto addIfVisible = [&](int feature) {
-            if (index->minX[feature] <= queryMaxX && index->maxX[feature] >= queryMinX &&
-                index->minY[feature] <= queryMaxY && index->maxY[feature] >= queryMinY) {
+            if (pMinX[feature] <= queryMaxX && pMaxX[feature] >= queryMinX &&
+                pMinY[feature] <= queryMaxY && pMaxY[feature] >= queryMinY) {
                 if (results && total < capacity) results[total] = feature;
                 ++total;
             }
@@ -1204,17 +1355,32 @@ extern "C" {
         const int lastX = index->CellX(queryMaxX);
         const int firstY = index->CellY(queryMinY);
         const int lastY = index->CellY(queryMaxY);
-        for (int y = firstY; y <= lastY; ++y) {
-            for (int x = firstX; x <= lastX; ++x) {
-                const int cell = y * index->columns + x;
-                for (int cursor = index->cellStarts[cell]; cursor < index->cellStarts[cell + 1]; ++cursor) {
-                    const int feature = index->cellEntries[cursor];
-                    const uint32_t firstCell = index->firstCells[feature];
-                    const int featureFirstX = static_cast<int>(firstCell & 0xffffu);
-                    const int featureFirstY = static_cast<int>(firstCell >> 16);
-                    if (x == std::max(firstX, featureFirstX) &&
-                        y == std::max(firstY, featureFirstY))
-                        addIfVisible(feature);
+
+        if (firstX == lastX && firstY == lastY) {
+            // Fast-path para zoom profundo (1 celula CSR): zero leitura de firstCells e zero duplicatas possiveis!
+            const int cell = firstY * cols + firstX;
+            const int endCursor = pCellStarts[cell + 1];
+            for (int cursor = pCellStarts[cell]; cursor < endCursor; ++cursor) {
+                addIfVisible(pCellEntries[cursor]);
+            }
+        }
+        else {
+            for (int y = firstY; y <= lastY; ++y) {
+                const int rowOffset = y * cols;
+                const bool isFirstRow = (y == firstY);
+                for (int x = firstX; x <= lastX; ++x) {
+                    const int cell = rowOffset + x;
+                    const int endCursor = pCellStarts[cell + 1];
+                    const bool isFirstCol = (x == firstX);
+                    for (int cursor = pCellStarts[cell]; cursor < endCursor; ++cursor) {
+                        const int feature = pCellEntries[cursor];
+                        const uint32_t firstCell = pFirstCells[feature];
+                        const int featureFirstX = static_cast<int>(firstCell & 0xffffu);
+                        const int featureFirstY = static_cast<int>(firstCell >> 16);
+                        if ((isFirstCol ? (featureFirstX <= firstX) : (featureFirstX == x)) &&
+                            (isFirstRow ? (featureFirstY <= firstY) : (featureFirstY == y)))
+                            addIfVisible(feature);
+                    }
                 }
             }
         }

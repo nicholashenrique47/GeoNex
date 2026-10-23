@@ -1001,8 +1001,12 @@ namespace GeoNex.Services
 
                                                     if (tilePtr != IntPtr.Zero)
                                                     {
+                                                        bool useDirectSkiaFilter = ReferenceEquals(vrtDs, datasetRaster)
+                                                            && RasterDatasetPolicy.SupportsDirectSkiaFilteredRead(datasetRaster);
                                                         using var extraArg = new OSGeo.GDAL.RasterIOExtraArg();
-                                                        extraArg.eResampleAlg = resampleAlg switch
+                                                        extraArg.eResampleAlg = useDirectSkiaFilter
+                                                            ? OSGeo.GDAL.RIOResampleAlg.GRIORA_NearestNeighbour
+                                                            : resampleAlg switch
                                                         {
                                                             "bilinear" => OSGeo.GDAL.RIOResampleAlg.GRIORA_Bilinear,
                                                             "cubic" => OSGeo.GDAL.RIOResampleAlg.GRIORA_Cubic,
@@ -1031,16 +1035,7 @@ namespace GeoNex.Services
 
                                                         if (numBandas == 3)
                                                         {
-                                                            unsafe
-                                                            {
-                                                                byte* pBase = (byte*)tilePtr.ToPointer();
-                                                                for (int y = 0; y < dstH; y++)
-                                                                {
-                                                                    byte* pRow = pBase + (y * dstW * 4);
-                                                                    for (int x = 0; x < dstW; x++)
-                                                                        pRow[x * 4 + 3] = 255;
-                                                                }
-                                                            }
+                                                            HardwareGovernor.FillOpaqueAlphaSimd(tilePtr, dstW, dstH, dstW * 4);
                                                         }
 
                                                         // Draw the source window directly in device pixels. Keeping only
@@ -1164,15 +1159,7 @@ namespace GeoNex.Services
 
                                                 if (numBandas == 3)
                                                 {
-                                                    unsafe
-                                                    {
-                                                        byte* pixels = (byte*)ptr.ToPointer();
-                                                        for (int y = 0; y < warpH; y++)
-                                                        {
-                                                            byte* row = pixels + (y * warpW * 4);
-                                                            for (int x = 0; x < warpW; x++) row[x * 4 + 3] = 255;
-                                                        }
-                                                    }
+                                                    HardwareGovernor.FillOpaqueAlphaSimd(ptr, warpW, warpH, warpW * 4);
                                                 }
 
                                                 if (!hasRotation)
@@ -1696,14 +1683,15 @@ namespace GeoNex.Services
                                     using var categorizedPolygonDrawTrace = trace?.Measure("draw", camadaAtual);
 
                                     polygonSpatialIndex.Query(viewportMundo, categorizedPathQueryBuffer);
+                                    canvas.SetMatrix(matriz);
                                     string? activePolygonCategory = null;
                                     SKPath? polygonFillBatch = null;
+                                    float borderCullSizeCat = isInteracting ? 25f : 10f;
 
                                     void FlushPolygonFillBatch()
                                     {
                                         if (polygonFillBatch == null) return;
                                         cancellationToken.ThrowIfCancellationRequested();
-                                        canvas.SetMatrix(matriz);
                                         pincelDinamicoFill.IsAntialias = suavizar;
                                         canvas.DrawPath(polygonFillBatch, pincelDinamicoFill);
                                         pincelDinamicoFill.IsAntialias = true;
@@ -1718,9 +1706,11 @@ namespace GeoNex.Services
                                         // polígono anterior. O batching continua seguro quando
                                         // a camada não desenha bordas.
                                         bool batchPolygonFills = estiloCamada.BordaTransparente;
-                                        foreach (CategorizedPathChunk chunk in categorizedPathQueryBuffer.Items)
+                                        var items = categorizedPathQueryBuffer.Items;
+                                        for (int cIdx = 0; cIdx < items.Count; ++cIdx)
                                         {
-                                            cancellationToken.ThrowIfCancellationRequested();
+                                            if ((cIdx & 31) == 0) cancellationToken.ThrowIfCancellationRequested();
+                                            CategorizedPathChunk chunk = items[cIdx];
                                             string nomeCategoria = chunk.Category;
                                             if (!string.Equals(activePolygonCategory, nomeCategoria,
                                                     StringComparison.Ordinal))
@@ -1739,7 +1729,6 @@ namespace GeoNex.Services
                                             SKPath polyPathFragmento = chunk.Path;
                                             float larguraNoEcra = chunk.Bounds.Width * zoomReal;
                                             float alturaNoEcra = chunk.Bounds.Height * zoomReal;
-                                            canvas.SetMatrix(matriz);
 
                                             if (!estiloCamada.PreenchimentoTransparente)
                                             {
@@ -1758,8 +1747,6 @@ namespace GeoNex.Services
                                             }
 
                                             // FAST-PATH LOD
-                                            float borderCullSizeCat = isInteracting ? 25f : 10f;
-                                            cancellationToken.ThrowIfCancellationRequested();
                                             if (!estiloCamada.BordaTransparente && larguraNoEcra >= borderCullSizeCat &&
                                                 alturaNoEcra >= borderCullSizeCat)
                                                 canvas.DrawPath(polyPathFragmento, pincelDinamicoBorda);
@@ -1802,10 +1789,13 @@ namespace GeoNex.Services
                                     };
 
                                     lineSpatialIndex.Query(viewportMundo, categorizedPathQueryBuffer);
+                                    canvas.SetMatrix(matriz);
                                     string? activeLineCategory = null;
-                                    foreach (CategorizedPathChunk chunk in categorizedPathQueryBuffer.Items)
+                                    var lineItems = categorizedPathQueryBuffer.Items;
+                                    for (int cIdx = 0; cIdx < lineItems.Count; ++cIdx)
                                     {
-                                        cancellationToken.ThrowIfCancellationRequested();
+                                        if ((cIdx & 31) == 0) cancellationToken.ThrowIfCancellationRequested();
+                                        CategorizedPathChunk chunk = lineItems[cIdx];
                                         string nomeCategoria = chunk.Category;
                                         if (!string.Equals(activeLineCategory, nomeCategoria, StringComparison.Ordinal))
                                         {
@@ -1818,9 +1808,7 @@ namespace GeoNex.Services
                                             activeLineCategory = nomeCategoria;
                                         }
 
-                                        canvas.SetMatrix(matriz);
                                         if (!estiloCamada.BordaTransparente) canvas.DrawPath(chunk.Path, lineOuter);
-                                        cancellationToken.ThrowIfCancellationRequested();
                                         if (!estiloCamada.PreenchimentoTransparente)
                                             canvas.DrawPath(chunk.Path, lineInner);
                                     }
@@ -2181,10 +2169,31 @@ namespace GeoNex.Services
             response.ContentLength64 = data.Size;
 
             long writeStarted = Stopwatch.GetTimestamp();
-            data.SaveTo(response.OutputStream);
+            WriteStreamChunked(response.OutputStream, data.AsSpan());
             response.OutputStream.Close();
             trace?.AddSpan("write", null, writeStarted, Stopwatch.GetTimestamp(), bytes: data.Size);
             _telemetry.CompleteResponse(trace, "ok", data.Size);
+        }
+
+        private static void WriteStreamChunked(Stream output, ReadOnlySpan<byte> payload)
+        {
+            const int chunkSize = 256 * 1024;
+            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(chunkSize);
+            try
+            {
+                int offset = 0;
+                while (offset < payload.Length)
+                {
+                    int count = Math.Min(chunkSize, payload.Length - offset);
+                    payload.Slice(offset, count).CopyTo(buffer);
+                    output.Write(buffer, 0, count);
+                    offset += count;
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         private static double TraceMilliseconds(RenderFrameTraceSnapshot trace, string stage) =>

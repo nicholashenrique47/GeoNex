@@ -74,6 +74,18 @@ namespace GeoNex.Services
             out int emittedMicroFeatures);
 
         [DllImport("GeoNexNative.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern unsafe int ProcessShapeBatchParallelV4(
+            byte* basePtr, long fileLength, nint cancellation,
+            long* offsets, int count, float* outBuffer, int maxFloats,
+            double offsetX, double offsetY, float zoomReal, float tolerancePixels,
+            float microLodPixels, float viewportLeft, float viewportTop,
+            float viewportRight, float viewportBottom, byte* microGrid,
+            int microGridWidth, int microGridHeight, int workerCount,
+            out int processedFeatures, out int requiredFloats,
+            out int emittedParts, out int emittedVertices,
+            out int emittedMicroFeatures);
+
+        [DllImport("GeoNexNative.dll", CallingConvention = CallingConvention.Cdecl)]
         public static extern unsafe void ParseShapefilePartAVX2(
             byte* inBytes, 
             float* outPoints, 

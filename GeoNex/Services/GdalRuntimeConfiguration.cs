@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Threading;
 using OSGeo.GDAL;
 
 namespace GeoNex.Services;
@@ -14,6 +15,8 @@ public static class GdalRuntimeConfiguration
 
     public static GeoNexResourceBudget Apply()
     {
+        if (Volatile.Read(ref _configured)) return Current;
+
         lock (Gate)
         {
             if (_configured) return Current;
@@ -53,10 +56,13 @@ public static class GdalRuntimeConfiguration
                 Environment.SetEnvironmentVariable("ECW_CACHE_MAXMEM", ecwCacheSetting, EnvironmentVariableTarget.Process);
             }
             Gdal.SetConfigOption("ECW_CACHE_MAXMEM", ecwCacheSetting);
+            Gdal.SetConfigOption("GDAL_ECW_CACHE_MAXMEM", ecwCacheSetting);
             Gdal.SetConfigOption("VSI_CACHE", "TRUE");
             Gdal.SetConfigOption("VSI_CACHE_SIZE", checked(Current.VsiCacheMb * Mebibyte).ToString());
             Gdal.SetConfigOption("GDAL_SWATH_SIZE", checked(Current.GdalSwathMb * Mebibyte).ToString());
             Gdal.SetConfigOption("GDAL_MAX_DATASET_POOL_SIZE", Current.GdalDatasetPoolSize.ToString());
+            Gdal.SetConfigOption("GTIFF_DIRECT_IO", "YES");
+            Gdal.SetConfigOption("GTIFF_VIRTUAL_MEM_IO", "IF_ENOUGH_RAM");
             Gdal.SetConfigOption("GDAL_HTTP_MULTIPLEX", "YES");
             Gdal.SetConfigOption("GDAL_HTTP_MERGE_CONSECUTIVE_RANGES", "YES");
             Gdal.SetConfigOption("GDAL_ENABLE_WMS_CACHE", "YES");
@@ -70,7 +76,7 @@ public static class GdalRuntimeConfiguration
             Gdal.SetConfigOption("CPL_CURL_GZIP", "YES");
             Gdal.SetConfigOption("GDAL_HTTP_UNSAFESSL", "NO");
 
-            _configured = true;
+            Volatile.Write(ref _configured, true);
             DebugLogger.Log(
                 $"GDAL budget total_mb={Current.TotalPhysicalMb} available_mb={Current.AvailablePhysicalMb} " +
                 $"cache_mb={Current.GdalCacheMb} vsi_mb={Current.VsiCacheMb} swath_mb={Current.GdalSwathMb} " +
@@ -112,5 +118,5 @@ public static class GdalRuntimeConfiguration
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+    private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx buffer);
 }

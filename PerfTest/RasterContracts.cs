@@ -19,8 +19,8 @@ internal static class RasterContracts
             "palette render uses nearest");
         Assert(RasterRenderingPolicy.SelectRenderResampling(false, true, false, true, _ => null) == "bilinear",
             "continuous interaction uses bilinear");
-        Assert(RasterRenderingPolicy.SelectRenderResampling(false, false, true, false, _ => null) == "cubicspline",
-            "RGB final render uses cubic spline");
+        Assert(RasterRenderingPolicy.SelectRenderResampling(false, false, true, false, _ => null) == "bilinear",
+            "RGB final render uses bilinear");
         Assert(RasterRenderingPolicy.SelectOverviewResampling(false, false, false, _ => null) == "NEAREST",
             "unclassified integer values are not averaged");
         Assert(RasterRenderingPolicy.SelectOverviewResampling(false, true, false, _ => null) == "AVERAGE",

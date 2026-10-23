@@ -13,6 +13,17 @@ namespace geonex {
         const __m256d flipY = _mm256_setr_pd(1.0, -1.0, 1.0, -1.0);
         const auto pointCount = static_cast<std::size_t>(count);
         std::size_t i = 0;
+        // Loop unrolling 2x (4 pontos = 8 doubles = 64 bytes = 1 linha inteira de Cache L1 por iteração)
+        for (; i + 3 < pointCount; i += 4) {
+            const __m256d xy0 = _mm256_loadu_pd(reinterpret_cast<const double*>(input + i * 16));
+            const __m256d xy1 = _mm256_loadu_pd(reinterpret_cast<const double*>(input + (i + 2) * 16));
+            const __m256d local0 = _mm256_mul_pd(_mm256_sub_pd(xy0, offsets), flipY);
+            const __m256d local1 = _mm256_mul_pd(_mm256_sub_pd(xy1, offsets), flipY);
+            const __m128 ps0 = _mm256_cvtpd_ps(local0);
+            const __m128 ps1 = _mm256_cvtpd_ps(local1);
+            const __m256 combined = _mm256_insertf128_ps(_mm256_castps128_ps256(ps0), ps1, 1);
+            _mm256_storeu_ps(output + i * 2, combined);
+        }
         for (; i + 1 < pointCount; i += 2) {
             const __m256d xy = _mm256_loadu_pd(reinterpret_cast<const double*>(input + i * 16));
             const __m256d local = _mm256_mul_pd(_mm256_sub_pd(xy, offsets), flipY);

@@ -10,9 +10,10 @@ internal static class RasterFramePainter
         token.ThrowIfCancellationRequested();
         var canvas = surface.Canvas;
         canvas.ResetMatrix();
+        int maxDefaultWorkers = Math.Clamp(HardwareGovernor.Topology.PerformanceCores, 4, 8);
         int workers = requestedWorkers ?? ((long)canvas.DeviceClipBounds.Width * canvas.DeviceClipBounds.Height >= 1024 * 1024
-            ? Math.Min(4, VectorRuntimeResources.Current.Workers) : 1);
-        workers = Math.Clamp(workers, 1, 4);
+            ? Math.Min(maxDefaultWorkers, VectorRuntimeResources.Current.Workers) : 1);
+        workers = Math.Clamp(workers, 1, 8);
         if (Environment.GetEnvironmentVariable("GEONEX_RASTER_PARALLEL_COMPOSITE") == "0") workers = 1;
         using var pixels = workers > 1 && canvas.IsClipRect ? surface.PeekPixels() : null;
         bitmap.SetImmutable();
@@ -49,9 +50,10 @@ internal static class RasterFramePainter
         token.ThrowIfCancellationRequested();
         var canvas = surface.Canvas;
         canvas.ResetMatrix();
+        int maxDefaultWorkers = Math.Clamp(HardwareGovernor.Topology.PerformanceCores, 4, 8);
         int workers = requestedWorkers ?? ((long)viewport.PhysicalWidth * viewport.PhysicalHeight >= 1024 * 1024
-            ? Math.Min(4, VectorRuntimeResources.Current.Workers) : 1);
-        workers = Math.Clamp(workers, 1, 4);
+            ? Math.Min(maxDefaultWorkers, VectorRuntimeResources.Current.Workers) : 1);
+        workers = Math.Clamp(workers, 1, 8);
         if (Environment.GetEnvironmentVariable("GEONEX_RASTER_PARALLEL_COMPOSITE") == "0") workers = 1;
         using var pixels = workers > 1 && canvas.IsClipRect ? surface.PeekPixels() : null;
         bitmap.SetImmutable();

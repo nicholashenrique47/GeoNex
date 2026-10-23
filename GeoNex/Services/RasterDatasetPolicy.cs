@@ -13,7 +13,9 @@ public static class RasterDatasetPolicy
     private sealed record RenderMetadata(
         int[] RgbaBandMap,
         RasterDatasetSemantics Semantics,
-        double[] GeoTransform);
+        double[] GeoTransform,
+        string DriverShortName,
+        bool HasPyramids);
 
     private static readonly ConditionalWeakTable<Dataset, Lazy<RenderMetadata>> RenderMetadataByDataset = new();
 
@@ -36,6 +38,20 @@ public static class RasterDatasetPolicy
     {
         ArgumentNullException.ThrowIfNull(dataset);
         return GetRenderMetadata(dataset).GeoTransform;
+    }
+
+    internal static bool IsDirectWaveletDataset(Dataset dataset)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        return GetRenderMetadata(dataset).DriverShortName is "ECW" or "JP2ECW";
+    }
+
+    internal static bool SupportsDirectSkiaFilteredRead(Dataset dataset)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        RenderMetadata metadata = GetRenderMetadata(dataset);
+        return metadata.DriverShortName is "ECW" or "JP2ECW"
+            || (metadata.DriverShortName is "GTiff" or "COG" && metadata.HasPyramids && !metadata.Semantics.IsFloatingPoint);
     }
 
     private static RenderMetadata GetRenderMetadata(Dataset dataset) =>
@@ -65,7 +81,15 @@ public static class RasterDatasetPolicy
         RasterDatasetSemantics semantics = InspectSemantics(dataset);
         double[] geoTransform = new double[6];
         dataset.GetGeoTransform(geoTransform);
-        return new RenderMetadata(bandMap, semantics, geoTransform);
+        using Driver? driver = dataset.GetDriver();
+        string driverShortName = driver?.ShortName ?? string.Empty;
+        bool hasPyramids = false;
+        if (dataset.RasterCount > 0)
+        {
+            using Band firstBand = dataset.GetRasterBand(1);
+            hasPyramids = firstBand.GetOverviewCount() > 0;
+        }
+        return new RenderMetadata(bandMap, semantics, geoTransform, driverShortName, hasPyramids);
     }
 
     public static bool SupportsExternalOverviews(Dataset dataset)

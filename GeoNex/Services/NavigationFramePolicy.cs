@@ -85,13 +85,20 @@ public static class NavigationFramePolicy
         SKMatrix toSource = RasterPreviewMatrix(target, target.Viewport.CssWidth, target.Viewport.CssHeight, source);
         float x = (target.Viewport.CssWidth - visibleWidth) / 2f;
         float y = (target.Viewport.CssHeight - visibleHeight) / 2f;
-        SKPoint[] corners = [new(x, y), new(x + visibleWidth, y),
-            new(x + visibleWidth, y + visibleHeight), new(x, y + visibleHeight)];
+        Span<SKPoint> corners = stackalloc SKPoint[4]
+        {
+            new(x, y),
+            new(x + visibleWidth, y),
+            new(x + visibleWidth, y + visibleHeight),
+            new(x, y + visibleHeight)
+        };
+        float maxW = source.Viewport.PhysicalWidth + 0.01f;
+        float maxH = source.Viewport.PhysicalHeight + 0.01f;
         foreach (SKPoint corner in corners)
         {
             SKPoint p = toSource.MapPoint(corner);
             if (!float.IsFinite(p.X) || !float.IsFinite(p.Y) || p.X < -0.01f || p.Y < -0.01f ||
-                p.X > source.Viewport.PhysicalWidth + 0.01f || p.Y > source.Viewport.PhysicalHeight + 0.01f)
+                p.X > maxW || p.Y > maxH)
                 return false;
         }
         return true;

@@ -30,7 +30,14 @@ public static class VectorResourcePolicy
 
         int cpus = Math.Max(1, processors);
         int cpuLimit = Math.Min(16, Math.Max(1, cpus - 1));
-        int workers = Math.Min(cpuLimit, Math.Max(1, cpus / 2));
+        int defaultWorkers = Math.Max(1, cpus / 2);
+        // Hardware Governor: se o processador tem topologia híbrida (P-Cores + E-Cores),
+        // prioriza os P-Cores para evitar que um E-Core mais lento atrase o join do lote.
+        if (cpus == Environment.ProcessorCount && HardwareGovernor.Topology.EfficiencyCores > 0)
+        {
+            defaultWorkers = Math.Clamp(HardwareGovernor.Topology.PerformanceCores, 1, cpuLimit);
+        }
+        int workers = Math.Min(cpuLimit, defaultWorkers);
         if (int.TryParse(environment("GEONEX_INDEX_WORKERS"), out int requested) && requested > 0)
             workers = Math.Min(cpuLimit, requested);
         workers = (int)Math.Min(workers, Math.Max(1, available / (128 * MiB)));
