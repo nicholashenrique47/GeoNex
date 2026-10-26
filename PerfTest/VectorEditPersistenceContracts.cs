@@ -1,9 +1,13 @@
+using System.Diagnostics;
 using GeoNex.Services;
 using NetTopologySuite.Features;
+using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
 using OSGeo.OGR;
 using OSGeo.OSR;
 using System.IO.MemoryMappedFiles;
+using NtsGeometry = NetTopologySuite.Geometries.Geometry;
+using OgrGeometry = OSGeo.OGR.Geometry;
 
 internal static class VectorEditPersistenceContracts
 {
@@ -44,7 +48,7 @@ internal static class VectorEditPersistenceContracts
                 originalCount = sourceLayer.GetFeatureCount(1);
                 using OSGeo.OGR.Feature sample = sourceLayer.GetNextFeature()
                     ?? throw new InvalidDataException("The temporary Shapefile has no feature to use in the write test.");
-                using Geometry sampleGeometry = sample.GetGeometryRef()
+                using OgrGeometry sampleGeometry = sample.GetGeometryRef()
                     ?? throw new InvalidDataException("The sample feature has no geometry.");
                 sampleGeometry.ExportToWkt(out geometryWkt);
             }
@@ -140,11 +144,98 @@ internal static class VectorEditPersistenceContracts
             Require(!VectorEditPersistenceService.IsPersisted(unsaved), "A failed write was marked as persisted.");
 
             Console.WriteLine("PASS vector-edit persistence: write, duplicate guard, and failure state.");
+            VerifyVectorGeometryEditingServiceContracts();
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static void VerifyVectorGeometryEditingServiceContracts()
+    {
+        var factory = new GeometryFactory();
+        var shellCoords = new Coordinate[1001];
+        for (int i = 0; i < 1000; i++)
+        {
+            double angle = 2 * Math.PI * i / 1000.0;
+            shellCoords[i] = new Coordinate(Math.Cos(angle) * 1000.0, Math.Sin(angle) * 1000.0);
+        }
+        shellCoords[1000] = shellCoords[0].Copy();
+        LinearRing shell = factory.CreateLinearRing(shellCoords);
+
+        var holes = new LinearRing[50];
+        for (int h = 0; h < 50; h++)
+        {
+            var hCoords = new Coordinate[201];
+            double cx = (h % 10 - 4.5) * 80.0;
+            double cy = (h / 10 - 2.0) * 80.0;
+            for (int i = 0; i < 200; i++)
+            {
+                double angle = -2 * Math.PI * i / 200.0;
+                hCoords[i] = new Coordinate(cx + Math.Cos(angle) * 15.0, cy + Math.Sin(angle) * 15.0);
+            }
+            hCoords[200] = hCoords[0].Copy();
+            holes[h] = factory.CreateLinearRing(hCoords);
+        }
+        Polygon heavyPolygon = factory.CreatePolygon(shell, holes);
+
+        IReadOnlyList<VectorGeometryEditingService.Vertex> vertices = VectorGeometryEditingService.GetVertices(heavyPolygon);
+        Require(vertices.Count == 11_000, $"Expected 11,000 unique vertices, got {vertices.Count}.");
+
+        var flatIndex = VectorGeometryEditingService.FlatVertexSpatialIndex.TryBuild(vertices);
+        Require(flatIndex != null, "FlatVertexSpatialIndex built for 11,000 vertices.");
+
+        for (int sample = 0; sample < vertices.Count; sample += 317)
+        {
+            var v = vertices[sample];
+            int nearest = flatIndex!.FindNearest(v.X + 0.001, v.Y - 0.001, 0.5);
+            Require(nearest == sample, $"FlatVertexSpatialIndex.FindNearest exact hit at {sample} (got {nearest}).");
+        }
+
+        // Copy-on-Write: editar o anel externo (Sequence 0) preserva exatamente as referências dos 50 anéis internos
+        var movedSingle = (Polygon)VectorGeometryEditingService.MoveVertexPreview(
+            heavyPolygon, new VectorGeometryEditingService.VertexAddress(0, 0), shellCoords[0].X + 1.5, shellCoords[0].Y + 2.5);
+        Require(movedSingle.ExteriorRing.CoordinateSequence.GetX(0) == shellCoords[0].X + 1.5, "Updated vertex 0 X.");
+        Require(movedSingle.ExteriorRing.CoordinateSequence.GetX(1000) == shellCoords[0].X + 1.5, "Updated closing vertex X.");
+        for (int h = 0; h < 50; h++)
+        {
+            Require(ReferenceEquals(movedSingle.GetInteriorRingN(h), heavyPolygon.GetInteriorRingN(h)),
+                $"Interior ring {h} preserved by Copy-on-Write reference sharing.");
+        }
+
+        var deltaMoves = new[]
+        {
+            new VectorGeometryEditingService.VertexAddress(0, 0),
+            new VectorGeometryEditingService.VertexAddress(0, 10)
+        };
+        var movedDelta = (Polygon)VectorGeometryEditingService.MoveVerticesByDeltaPreview(heavyPolygon, deltaMoves, 5.0, -3.0);
+        for (int h = 0; h < 50; h++)
+        {
+            Require(ReferenceEquals(movedDelta.GetInteriorRingN(h), heavyPolygon.GetInteriorRingN(h)),
+                $"Interior ring {h} preserved by MoveVerticesByDeltaPreview Copy-on-Write.");
+        }
+
+        var translated = (Polygon)VectorGeometryEditingService.TranslatePreview(heavyPolygon, 100.0, -200.0);
+        Require(Math.Abs(translated.ExteriorRing.CoordinateSequence.GetX(0) - (shellCoords[0].X + 100.0)) < 1e-9 &&
+                Math.Abs(translated.ExteriorRing.CoordinateSequence.GetY(0) - (shellCoords[0].Y - 200.0)) < 1e-9,
+            "TranslatePreview SIMD matches expected translation.");
+
+        _ = VectorGeometryEditingService.MoveVertexPreview(
+            movedSingle, new VectorGeometryEditingService.VertexAddress(0, 5), shellCoords[5].X + 0.5, shellCoords[5].Y + 0.5);
+        long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+        var sw = Stopwatch.StartNew();
+        const int iterations = 1000;
+        for (int iter = 0; iter < iterations; iter++)
+        {
+            _ = VectorGeometryEditingService.MoveVertexPreview(
+                movedSingle, new VectorGeometryEditingService.VertexAddress(0, 5), shellCoords[5].X + 0.5, shellCoords[5].Y + 0.5);
+        }
+        sw.Stop();
+        long allocAfter = GC.GetAllocatedBytesForCurrentThread();
+        double usPerFrame = sw.Elapsed.TotalMilliseconds * 1000.0 / iterations;
+        long bytesPerFrame = (allocAfter - allocBefore) / iterations;
+        Console.WriteLine($"PASS vector-geometry-editing contracts: 11,000 vertices (50 holes) CoW preview = {usPerFrame:F2} us/frame, alloc = {bytesPerFrame:N0} B/frame.");
     }
 
     private static void VerifyProjectGeometryReprojection(string directory)
@@ -182,7 +273,7 @@ internal static class VectorEditPersistenceContracts
             ?? throw new IOException("Could not reopen the CRS transformation layer.");
         using OSGeo.OGR.Feature savedFeature = verificationLayer.GetNextFeature()
             ?? throw new InvalidDataException("The transformed feature was not written.");
-        using Geometry storedGeometry = savedFeature.GetGeometryRef()
+        using OgrGeometry storedGeometry = savedFeature.GetGeometryRef()
             ?? throw new InvalidDataException("The saved feature has no geometry.");
         Require(Math.Abs(storedGeometry.GetX(0) - utmX) < 0.05 &&
                 Math.Abs(storedGeometry.GetY(0) - utmY) < 0.05,

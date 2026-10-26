@@ -1235,6 +1235,28 @@ namespace GeoNex.Services
 
                             pincelDinamicoFill.Color = corFill;
                             pincelDinamicoBorda.Color = corBorda;
+                            pincelDinamicoFill.BlendMode = estiloCamada.ModoMesclagem switch
+                            {
+                                "Multiply" => SkiaSharp.SKBlendMode.Multiply,
+                                "Screen" => SkiaSharp.SKBlendMode.Screen,
+                                "Overlay" => SkiaSharp.SKBlendMode.Overlay,
+                                "Darken" => SkiaSharp.SKBlendMode.Darken,
+                                _ => SkiaSharp.SKBlendMode.SrcOver
+                            };
+
+                            if (!string.IsNullOrEmpty(estiloCamada.PadraoPreenchimento) && estiloCamada.PadraoPreenchimento != "Solido")
+                            {
+                                SKColor corHach = SKColor.TryParse(estiloCamada.CorHachura, out var ch) ? ch : corBorda;
+                                pincelDinamicoFill.Shader = CartographicPatternFactory.ObterShaderHachura(
+                                    estiloCamada.PadraoPreenchimento,
+                                    corFill,
+                                    corHach,
+                                    estiloCamada.EspacamentoHachura);
+                            }
+                            else
+                            {
+                                pincelDinamicoFill.Shader = null;
+                            }
                             float espessuraCalculadaLinha = estiloCamada.EspessuraLinha / zoomReal;
                             float espessuraCalculadaBorda = estiloCamada.EspessuraBorda / zoomReal;
                             pincelDinamicoBorda.StrokeWidth = espessuraCalculadaBorda;
@@ -1260,6 +1282,17 @@ namespace GeoNex.Services
                             {
                                 pincelDinamicoBorda.PathEffect = null;
                             }
+
+                            using var filtroSombra = estiloCamada.EfeitoSombra
+                                ? SkiaSharp.SKImageFilter.CreateDropShadow(
+                                    2.0f / zoomReal,
+                                    2.0f / zoomReal,
+                                    Math.Max(0.5f, estiloCamada.RaioSombra) / zoomReal,
+                                    Math.Max(0.5f, estiloCamada.RaioSombra) / zoomReal,
+                                    SkiaSharp.SKColor.TryParse(estiloCamada.CorSombra, out var cs) ? cs : new SkiaSharp.SKColor(0, 0, 0, 160))
+                                : null;
+                            pincelDinamicoBorda.ImageFilter = filtroSombra;
+                            pincelDinamicoFill.ImageFilter = filtroSombra;
 
                             pincelDinamicoPonto.Color = corFill;
 
@@ -1489,15 +1522,32 @@ namespace GeoNex.Services
                                             canvas.SetMatrix(precisionOrigin
                                                 ? centeredFrame.LocalToPhysicalMatrix
                                                 : matriz);
-                                            float radius = 4f / zoomReal;
+                                            float radius = (estiloCamada.Tamanho > 0 ? estiloCamada.Tamanho : 4f) / zoomReal;
                                             bool hasBorder = !estiloCamada.BordaTransparente;
                                             ptPaint.IsAntialias = true;
                                             using var ptBorder = new SkiaSharp.SKPaint
                                             {
                                                 Style = SkiaSharp.SKPaintStyle.Stroke,
                                                 Color = pincelDinamicoBorda.Color, IsAntialias = true,
-                                                StrokeWidth = 1f / zoomReal
+                                                StrokeWidth = (estiloCamada.EspessuraBorda > 0 ? estiloCamada.EspessuraBorda : 1f) / zoomReal
                                             };
+
+                                            bool usarTamanhoProp = estiloCamada.SimbologiaProporcional &&
+                                                                  !string.IsNullOrEmpty(estiloCamada.ColunaTamanhoProporcional) &&
+                                                                  shp != null;
+                                            DbfField? dbfFieldProp = null;
+                                            if (usarTamanhoProp && shp != null)
+                                            {
+                                                dbfFieldProp = shp.DbfFields.FirstOrDefault(fld => fld.Name == estiloCamada.ColunaTamanhoProporcional);
+                                                if (dbfFieldProp == null) usarTamanhoProp = false;
+                                            }
+                                            float rMinProp = estiloCamada.TamanhoMinimoProporcional;
+                                            float rMaxProp = estiloCamada.TamanhoMaximoProporcional;
+                                            double vMinProp = estiloCamada.ValorMinimoAtributo;
+                                            double vMaxProp = estiloCamada.ValorMaximoAtributo;
+                                            double vDeltaProp = (vMaxProp > vMinProp) ? (vMaxProp - vMinProp) : 1.0;
+                                            string metodoEscalaProp = estiloCamada.MetodoEscalaProporcional ?? "Linear";
+
                                             using (trace?.Measure("draw", camadaAtual))
                                             {
                                                 foreach (var f in feicoesList)
@@ -1508,8 +1558,34 @@ namespace GeoNex.Services
                                                             (float)(f.CentroidLocalPrecise.X - preciseCurrentCenter.X),
                                                             (float)(f.CentroidLocalPrecise.Y - preciseCurrentCenter.Y))
                                                         : f.CentroidLocal;
-                                                    canvas.DrawCircle(point, radius, ptPaint);
-                                                    if (hasBorder) canvas.DrawCircle(point, radius, ptBorder);
+
+                                                    float featureRadius = radius;
+                                                    if (usarTamanhoProp && dbfFieldProp != null)
+                                                    {
+                                                        string? strVal = shp!.ReadDbfString(f.FID, dbfFieldProp.Offset, dbfFieldProp.Length);
+                                                        if (!string.IsNullOrWhiteSpace(strVal) &&
+                                                            double.TryParse(strVal, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double val))
+                                                        {
+                                                            double t = Math.Clamp((val - vMinProp) / vDeltaProp, 0.0, 1.0);
+                                                            if (metodoEscalaProp == "Flannery")
+                                                                t = Math.Pow(t, 0.57);
+                                                            else if (metodoEscalaProp == "RaizQuadrada")
+                                                                t = Math.Sqrt(t);
+                                                            else if (metodoEscalaProp == "Logaritmica")
+                                                                t = Math.Log(1.0 + t * 9.0) / 2.302585;
+
+                                                            featureRadius = (float)(rMinProp + t * (rMaxProp - rMinProp)) / zoomReal;
+                                                        }
+                                                    }
+
+                                                    CartographicPatternFactory.DesenharMarcador(
+                                                        canvas,
+                                                        point,
+                                                        featureRadius,
+                                                        estiloCamada.FormaMarcador,
+                                                        estiloCamada.RotacaoMarcador,
+                                                        ptPaint,
+                                                        hasBorder ? ptBorder : null);
                                                 }
                                             }
 
@@ -1675,7 +1751,7 @@ namespace GeoNex.Services
                                     }
                                 }
                             }
-                            else if (estiloCamada.TipoSimbologia == "CATEGORIZADA")
+                            else if (estiloCamada.TipoSimbologia == "CATEGORIZADA" || estiloCamada.TipoSimbologia == "GRADUADA")
                             {
                                 if (_mapService.IndiceVetoresCategorizados.TryGetValue(camadaAtual,
                                         out var polygonSpatialIndex))
@@ -1760,7 +1836,7 @@ namespace GeoNex.Services
                             }
 
                             // 5. DESENHA LINHAS (Redes, arruamentos)
-                            if (estiloCamada.TipoSimbologia == "CATEGORIZADA")
+                            if (estiloCamada.TipoSimbologia == "CATEGORIZADA" || estiloCamada.TipoSimbologia == "GRADUADA")
                             {
                                 if (_mapService.IndiceLinhasCategorizadas.TryGetValue(camadaAtual,
                                         out var lineSpatialIndex))
@@ -1872,44 +1948,59 @@ namespace GeoNex.Services
                                     using var labelCandidates = labelIndexLease.Resource.Query(vectorCullEnvelope);
                                     if (labelCandidates.Count > 0)
                                     {
-                                        const float labelCollisionCellSize = 64f;
-                                        static long LabelCellKey(int x, int y) => ((long)x << 32) | (uint)y;
-                                        Dictionary<long, List<SKRect>>? occupiedLabelCells =
-                                            estiloCamada.AntiColisaoRotulos
-                                                ? new Dictionary<long, List<SKRect>>(Math.Min(labelCandidates.Count,
-                                                    4096))
-                                                : null;
-                                        using var fonteTypeface = estiloCamada.RotuloNegrito
-                                            ? SKTypeface.FromFamilyName(null, SKFontStyleWeight.Bold,
-                                                SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)
-                                            : SKTypeface.Default;
+                                        var conflictGrid = new LabelConflictGrid(56f, Math.Min(labelCandidates.Count, 4096));
+                                        var candidatosPool = new List<CandidatoRotulo>(8);
+
+                                        SKFontStyleWeight pesoFonte = estiloCamada.RotuloNegrito ? SKFontStyleWeight.Bold : SKFontStyleWeight.Normal;
+                                        SKFontStyleSlant inclinacaoFonte = estiloCamada.RotuloItalico ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright;
+                                        using var fonteTypeface = SKTypeface.FromFamilyName(
+                                            string.IsNullOrEmpty(estiloCamada.FamiliaFonteRotulo) ? "Segoe UI" : estiloCamada.FamiliaFonteRotulo,
+                                            pesoFonte,
+                                            SKFontStyleWidth.Normal,
+                                            inclinacaoFonte) ?? SKTypeface.Default;
+
+                                        SKColor corTexto = SKColor.TryParse(estiloCamada.CorTextoRotulo, out var ct) ? ct : SKColors.White;
+                                        corTexto = corTexto.WithAlpha((byte)(Math.Clamp(estiloCamada.OpacidadeRotulo, 0f, 1f) * 255));
+
+                                        SKColor corHalo = SKColor.TryParse(estiloCamada.CorHaloRotulo, out var ch) ? ch : SKColors.Black;
+                                        corHalo = corHalo.WithAlpha((byte)(Math.Clamp(estiloCamada.OpacidadeHaloRotulo, 0f, 1f) * 255));
 
                                         using var pincelTexto = new SKPaint
                                         {
                                             Typeface = fonteTypeface,
-                                            TextSize = estiloCamada.TamanhoTextoRotulo * viewport.PixelScale,
+                                            TextSize = Math.Max(6f, estiloCamada.TamanhoTextoRotulo * viewport.PixelScale),
                                             IsAntialias = true,
-                                            Color = SKColor.Parse(estiloCamada.CorTextoRotulo),
+                                            Color = corTexto,
                                             TextAlign = SKTextAlign.Center
                                         };
 
                                         using var pincelHalo = new SKPaint
                                         {
                                             Typeface = fonteTypeface,
-                                            TextSize = estiloCamada.TamanhoTextoRotulo * viewport.PixelScale,
+                                            TextSize = Math.Max(6f, estiloCamada.TamanhoTextoRotulo * viewport.PixelScale),
                                             IsAntialias = true,
-                                            Color = SKColor.Parse(estiloCamada.CorHaloRotulo),
+                                            Color = corHalo,
                                             TextAlign = SKTextAlign.Center,
                                             Style = SKPaintStyle.Stroke,
-                                            StrokeWidth = estiloCamada.TamanhoHaloRotulo * viewport.PixelScale,
+                                            StrokeWidth = Math.Max(0.5f, estiloCamada.TamanhoHaloRotulo * viewport.PixelScale),
                                             StrokeJoin = SKStrokeJoin.Round
                                         };
 
-                                        float ajusteY =
-                                            (pincelTexto.FontMetrics.Descent - pincelTexto.FontMetrics.Ascent) / 2f -
-                                            pincelTexto.FontMetrics.Descent;
+                                        using var pincelChamada = estiloCamada.DesenharLinhaChamada
+                                            ? new SKPaint
+                                            {
+                                                Style = SKPaintStyle.Stroke,
+                                                Color = SKColor.TryParse(estiloCamada.CorLinhaChamada, out var cc) ? cc : new SKColor(148, 163, 184),
+                                                StrokeWidth = Math.Max(1f, estiloCamada.EspessuraLinhaChamada * viewport.PixelScale),
+                                                IsAntialias = true
+                                            }
+                                            : null;
+
                                         SKFontMetrics fontMetrics = pincelTexto.FontMetrics;
+                                        float fontHeight = fontMetrics.Descent - fontMetrics.Ascent;
                                         canvas.SetMatrix(SKMatrix.Identity);
+
+                                        float minFeaturePixels = Math.Max(10f, estiloCamada.TamanhoMinimoFeicaoPixels);
 
                                         foreach (CompiledFeature feature in labelCandidates)
                                         {
@@ -1917,92 +2008,68 @@ namespace GeoNex.Services
                                             float featureWidth = feature.EnvelopeWorld.Width <= 0
                                                 ? 999999f
                                                 : (float)feature.EnvelopeWorld.Width;
-                                            if (featureWidth * zoomReal < 35f) continue;
+                                            if (featureWidth * zoomReal < minFeaturePixels) continue;
 
-                                            SKPoint pontoMonitor = matriz.MapPoint(feature.CentroidLocal);
-                                            if (occupiedLabelCells != null)
-                                            {
-                                                int centerCellX =
-                                                    (int)MathF.Floor(pontoMonitor.X / labelCollisionCellSize);
-                                                int centerCellY =
-                                                    (int)MathF.Floor(pontoMonitor.Y / labelCollisionCellSize);
-                                                if (occupiedLabelCells.TryGetValue(
-                                                        LabelCellKey(centerCellX, centerCellY),
-                                                        out List<SKRect>? nearbyLabels) &&
-                                                    nearbyLabels.Any(label =>
-                                                        label.Contains(pontoMonitor.X, pontoMonitor.Y)))
-                                                    continue;
-                                            }
+                                            SKPoint pontoMundo = (estiloCamada.UsarPoloInacessibilidade && feature.Kind == GeometryKind.Polygon && feature.Path != null)
+                                                ? LabelPlacementEngine.CalcularPoloInacessibilidade(feature.Path, feature.CentroidLocal)
+                                                : feature.CentroidLocal;
 
-                                            string? texto = feature.LabelValue;
+                                            SKPoint pontoMonitor = matriz.MapPoint(pontoMundo);
+
+                                            string? textoBruto = feature.LabelValue;
                                             if (Volatile.Read(ref feature.LabelValueVersion) != labelField.Version)
                                             {
-                                                texto = labelField.UseCategoryValue
+                                                textoBruto = labelField.UseCategoryValue
                                                     ? feature.CategoryValue
                                                     : labelShapefileLease!.Resource.ReadDbfString(
                                                         feature.FID, labelField.Offset, labelField.Length);
-                                                feature.LabelValue = texto;
+                                                feature.LabelValue = textoBruto;
                                                 Volatile.Write(ref feature.LabelValueVersion, labelField.Version);
                                             }
 
-                                            if (string.IsNullOrWhiteSpace(texto)) continue;
+                                            if (string.IsNullOrWhiteSpace(textoBruto)) continue;
+                                            string texto = LabelPlacementEngine.FormatarTexto(textoBruto, estiloCamada.TransformacaoTextoRotulo);
 
-                                            float haloPadding = estiloCamada.TamanhoHaloRotulo > 0
-                                                ? pincelHalo.StrokeWidth / 2f
-                                                : 0;
-                                            float halfTextWidth = pincelTexto.MeasureText(texto) / 2f + haloPadding;
-                                            var labelBounds = new SKRect(
-                                                pontoMonitor.X - halfTextWidth,
-                                                pontoMonitor.Y + ajusteY + fontMetrics.Ascent - haloPadding,
-                                                pontoMonitor.X + halfTextWidth,
-                                                pontoMonitor.Y + ajusteY + fontMetrics.Descent + haloPadding);
+                                            float haloPadding = estiloCamada.TamanhoHaloRotulo > 0 ? (pincelHalo.StrokeWidth / 2f) : 0f;
+                                            float textWidth = pincelTexto.MeasureText(texto) + (haloPadding * 2f);
+                                            float textHeight = fontHeight + (haloPadding * 2f);
 
-                                            if (occupiedLabelCells != null)
+                                            LabelPlacementEngine.GerarCandidatosPonto(
+                                                pontoMonitor,
+                                                textWidth,
+                                                textHeight,
+                                                fontMetrics.Ascent,
+                                                fontMetrics.Descent,
+                                                estiloCamada.Tamanho,
+                                                estiloCamada.ModoPosicionamentoRotulo,
+                                                estiloCamada.DeslocamentoRotuloX,
+                                                estiloCamada.DeslocamentoRotuloY,
+                                                candidatosPool);
+
+                                            if (conflictGrid.TentarAlocarCandidato(texto, candidatosPool, estiloCamada.AntiColisaoRotulos, out RotuloAlocado alocado))
                                             {
-                                                int minCellX =
-                                                    (int)MathF.Floor(labelBounds.Left / labelCollisionCellSize);
-                                                int maxCellX =
-                                                    (int)MathF.Floor(labelBounds.Right / labelCollisionCellSize);
-                                                int minCellY =
-                                                    (int)MathF.Floor(labelBounds.Top / labelCollisionCellSize);
-                                                int maxCellY =
-                                                    (int)MathF.Floor(labelBounds.Bottom / labelCollisionCellSize);
-                                                bool collides = false;
-                                                for (int cellY = minCellY; cellY <= maxCellY && !collides; cellY++)
-                                                for (int cellX = minCellX; cellX <= maxCellX && !collides; cellX++)
+                                                if (pincelChamada != null && alocado.DesenharLinhaChamada)
                                                 {
-                                                    if (!occupiedLabelCells.TryGetValue(LabelCellKey(cellX, cellY),
-                                                            out List<SKRect>? existingLabels)) continue;
-                                                    collides = existingLabels.Any(label =>
-                                                        label.IntersectsWith(labelBounds));
+                                                    canvas.DrawLine(alocado.PontoAncoraFeicao, alocado.PontoOrigemTexto, pincelChamada);
                                                 }
 
-                                                if (collides) continue;
-
-                                                for (int cellY = minCellY; cellY <= maxCellY; cellY++)
-                                                for (int cellX = minCellX; cellX <= maxCellX; cellX++)
+                                                if (estiloCamada.TamanhoHaloRotulo > 0)
                                                 {
-                                                    long cellKey = LabelCellKey(cellX, cellY);
-                                                    if (!occupiedLabelCells.TryGetValue(cellKey,
-                                                            out List<SKRect>? labelsInCell))
-                                                        occupiedLabelCells[cellKey] =
-                                                            labelsInCell = new List<SKRect>(1);
-                                                    labelsInCell.Add(labelBounds);
+                                                    canvas.DrawText(alocado.Texto, alocado.PontoOrigemTexto.X, alocado.PontoOrigemTexto.Y, pincelHalo);
                                                 }
-                                            }
 
-                                            if (estiloCamada.TamanhoHaloRotulo > 0)
-                                            {
-                                                canvas.DrawText(texto, pontoMonitor.X, pontoMonitor.Y + ajusteY,
-                                                    pincelHalo);
+                                                canvas.DrawText(alocado.Texto, alocado.PontoOrigemTexto.X, alocado.PontoOrigemTexto.Y, pincelTexto);
                                             }
-
-                                            canvas.DrawText(texto, pontoMonitor.X, pontoMonitor.Y + ajusteY,
-                                                pincelTexto);
                                         }
                                     }
                                 }
                             }
+
+                            pincelDinamicoFill.Shader = null;
+                            pincelDinamicoFill.BlendMode = SkiaSharp.SKBlendMode.SrcOver;
+                            pincelDinamicoFill.ImageFilter = null;
+                            pincelDinamicoBorda.PathEffect = null;
+                            pincelDinamicoBorda.ImageFilter = null;
                         }
                     } // Fim do loop de camadas
 

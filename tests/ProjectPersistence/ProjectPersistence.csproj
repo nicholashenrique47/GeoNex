@@ -10,11 +10,14 @@
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
     <PackageReference Include="GDAL" Version="3.12.1" />
     <PackageReference Include="GDAL.Native" Version="3.12.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
     <Compile Include="../../GeoNex/Data/GeoNexContext.cs" Link="GeoNexContext.cs" />
     <Compile Include="../../GeoNex/Models/Projeto.cs" Link="Projeto.cs" />
     <Compile Include="../../GeoNex/Models/Camada.cs" Link="Camada.cs" />
     <Compile Include="../../GeoNex/Models/Feicao.cs" Link="Feicao.cs" />
     <Compile Include="../../GeoNex/Models/ProjetoFonteCamada.cs" Link="ProjetoFonteCamada.cs" />
+    <Compile Include="../../GeoNex/Services/ClassificationEngine.cs" Link="ClassificationEngine.cs" />
     <Compile Include="../../GeoNex/Services/EstiloCamada.cs" Link="EstiloCamada.cs" />
     <Compile Include="../../GeoNex/Services/GnxProjectStore.cs" Link="GnxProjectStore.cs" />
     <Compile Include="../../GeoNex/Services/GnxProjectSourceValidator.cs" Link="GnxProjectSourceValidator.cs" />

@@ -46,7 +46,7 @@ public partial class Home
     private int _vectorGeometryEditHistoryCursor;
     private VectorFeatureKey? _selectedVectorFeatureForEdit;
     private IReadOnlyList<VectorGeometryEditingService.Vertex> _selectedVectorVertices = Array.Empty<VectorGeometryEditingService.Vertex>();
-    private STRtree<int>? _selectedVectorVertexSpatialIndex;
+    private VectorGeometryEditingService.FlatVertexSpatialIndex? _selectedVectorVertexSpatialIndex;
     private VectorGeometryEditingService.VertexAddress? _draggedVectorVertex;
     private bool _draggingWholeVectorFeature;
     private SKPoint? _wholeFeatureDragStart;
@@ -95,21 +95,7 @@ public partial class Home
     private void DefinirVerticesSelecionados(IReadOnlyList<VectorGeometryEditingService.Vertex> vertices)
     {
         _selectedVectorVertices = vertices;
-        if (vertices.Count < 256)
-        {
-            _selectedVectorVertexSpatialIndex = null;
-            return;
-        }
-
-        var index = new STRtree<int>();
-        for (int i = 0; i < vertices.Count; i++)
-        {
-            VectorGeometryEditingService.Vertex vertex = vertices[i];
-            if (!double.IsFinite(vertex.X) || !double.IsFinite(vertex.Y)) continue;
-            index.Insert(new Envelope(vertex.X, vertex.X, vertex.Y, vertex.Y), i);
-        }
-        index.Build();
-        _selectedVectorVertexSpatialIndex = index;
+        _selectedVectorVertexSpatialIndex = VectorGeometryEditingService.FlatVertexSpatialIndex.TryBuild(vertices);
     }
 
     private void LimparVerticesSelecionados()
@@ -494,9 +480,7 @@ public partial class Home
             {
                 double worldX = reference.X + MapService.OffsetMundoX;
                 double worldY = MapService.OffsetMundoY - reference.Y;
-                var search = new Envelope(worldX - tolerance, worldX + tolerance,
-                    worldY - tolerance, worldY + tolerance);
-                foreach (int candidate in spatialIndex.Query(search)) ConsiderVertex(candidate);
+                nearest = spatialIndex.FindNearest(worldX, worldY, tolerance);
             }
             else
             {
@@ -2079,9 +2063,7 @@ public partial class Home
         {
             double worldX = point.X + MapService.OffsetMundoX;
             double worldY = MapService.OffsetMundoY - point.Y;
-            var search = new Envelope(worldX - tolerance, worldX + tolerance,
-                worldY - tolerance, worldY + tolerance);
-            foreach (int candidate in spatialIndex.Query(search)) ConsiderVertex(candidate);
+            nearest = spatialIndex.FindNearest(worldX, worldY, tolerance);
         }
         else for (int i = 0; i < _selectedVectorVertices.Count; i++) ConsiderVertex(i);
 

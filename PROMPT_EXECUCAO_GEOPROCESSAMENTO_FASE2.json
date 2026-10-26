@@ -1,0 +1,852 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "prompt_metadata": {
+    "title": "GeoNex Heavy Engineering Execution Blueprint: Advanced Vector Geoprocessing Toolbox (Phase 2)",
+    "description": "Comprehensive, deterministic, step-by-step execution prompt in JSON format to implement the complete QGIS Processing and ArcGIS Pro Advanced Spatial Analyst equivalent into GeoNex (.NET 10 / C# / SkiaSharp / NTS / GDAL).",
+    "target_engine": "GeoNex Desktop GIS Core",
+    "version": "2.0.0-PRO",
+    "standards_parity": [
+      "QGIS 3.34+ LTR Processing Framework (QgsProcessingAlgorithm)",
+      "ArcGIS Pro 3.x Spatial Analyst & Advanced Vector Toolset",
+      "OGC Simple Features Access for SQL (SFA-SQL / ISO 19125)",
+      "OGC DE-9IM (Dimensionally Extended 9-Intersection Model)"
+    ],
+    "execution_mode": "Autonomous High-Performance Engineering",
+    "target_framework": "net10.0-windows10.0.19041.0",
+    "zero_emoji_policy": true,
+    "strict_memory_discipline": "Zero-allocation in rendering loops; STRtree 2D spatial indexing for O(N log M) batch overlays; IPreparedGeometry for repetitive point-in-polygon tests",
+    "total_algorithms_in_catalog": 29,
+    "new_algorithms_in_phase_2": 21
+  },
+  "architectural_mandates": {
+    "core_framework": {
+      "interface_definition": "GeoNex.Services.IGeoprocessingAlgorithm",
+      "registry_service": "GeoNex.Services.ProcessingAlgorithmRegistry (Singleton injected into MauiProgram.cs)",
+      "algorithm_discovery": "Dynamic registration and categorization with in-memory tag and keyword indexing",
+      "parameter_contracts": "GeoNex.Services.ParametroDefinicao with strongly-typed parameter kinds (NumeroReal, NumeroInteiro, Booleano, OpcaoLista, CampoAtributo, Texto, DistanciaMetrica)",
+      "geometry_constraints": "Flags enum TipoGeometriaPermitida (Ponto, Linha, Poligono, Qualquer) for input and overlay layers",
+      "parameter_validation": "Runtime verification of boundary limits, mandatory field selection, and geometric topology invariants"
+    },
+    "threading_and_concurrency": {
+      "execution_thread": "Dedicated background worker (Task.Run) strictly isolated from Blazor Server / Hybrid UI thread",
+      "progress_notification": "System.IProgress<GeoprocessingProgress> with percentage (0.0 to 1.0), processed count, total count, elapsed time, and rate (features/sec)",
+      "cancellation": "System.Threading.CancellationToken checked every batch iteration with cooperative cancellation within 50ms without leaking temp files",
+      "concurrency_guard": "System.Threading.SemaphoreSlim(1, 1) to prevent race conditions during concurrent geoprocessing executions",
+      "ui_synchronization": "Throttled InvokeAsync(StateHasChanged) (maximum 10 UI repaints per second) to prevent Webview message saturation"
+    },
+    "spatial_indexing_and_acceleration": {
+      "spatial_index_type": "Sort-Tile-Recursive 2D Packing Tree (NetTopologySuite.Index.Strtree.STRtree<T>)",
+      "node_capacity": 10,
+      "prepared_geometry": "Mandatory use of NetTopologySuite.Geometries.Prepared.PreparedGeometryFactory.Prepare for repeated point-in-polygon and line intersection tests",
+      "bounding_box_filter": "Mandatory EnvelopeInternal intersection check prior to invoking full geometric predicate (Intersects/Intersection/Difference)",
+      "parallel_processing": "Chunked parallel execution via System.Collections.Concurrent.Partitioner.Create and Parallel.ForEach for feature-by-feature transformations",
+      "zero_allocation": "Pre-allocated Coordinate arrays and Envelope structures on the stack; reusable memory buffers avoiding garbage collection spikes"
+    },
+    "coordinate_reference_systems": {
+      "on_the_fly_reprojection": "Dynamic CoordinateTransformation (OSGeo.OSR) if Layer A and Layer B CRS differ",
+      "metric_preservation": "Geodesic vs Cartesian distance auto-detection; planar metric computation for buffers, distances, and areas; WGS84 angular conversion guard",
+      "projection_file_generation": "ESRI Shapefile .prj generation in compliant OGC/ESRI WKT format",
+      "codepage_handling": "Writing corresponding .cpg file with UTF-8 or CP1252 declaration to prevent character corruption in attribute tables"
+    },
+    "topological_resilience": {
+      "validation_pipeline": "IsValidOp check before executing boolean operations",
+      "auto_repair_level_1": "Buffer(0) repair for self-intersecting rings (bow-tie polygons)",
+      "auto_repair_level_2": "SnapRounding / Micro-grid precision reduction for floating-point arithmetic drift",
+      "auto_repair_level_3": "Polygonizer rebuilding from noded linestrings",
+      "sliver_polygon_filtering": "Automatic elimination of degenerate polygons whose area is below tolerance threshold (1e-7 m2)"
+    },
+    "attribute_engineering": {
+      "dbf_10_character_rule": "Strict truncation of column names exceeding 10 bytes ASCII",
+      "collision_resolution": "Deterministic suffixing (_1, _2, _3) when Layer A and Layer B contain identical field names",
+      "type_preservation": "Exact mapping between NTS AttributesTable and OGR FieldType (OFTInteger, OFTInteger64, OFTReal, OFTString, OFTDate)",
+      "schema_fusion": "Union of source schemas with null-value preservation for unmatched features in outer joins and symmetrical difference"
+    },
+    "batch_execution_engine": {
+      "service_name": "GeoNex.Services.BatchGeoprocessingEngine",
+      "queue_management": "Thread-safe task queue with FIFO ordering and individual cancellation tokens",
+      "folder_multi_processing": "Automated batch processing across multiple Shapefiles in a target directory",
+      "transactional_integrity": "Writing output to temporary files (.tmp.shp) and atomic file rename on successful completion",
+      "fault_tolerance": "Logging corrupted features or layers without halting the entire batch queue execution"
+    },
+    "ui_styling_and_ux": {
+      "emoji_rule": "Zero emojis in all UI code, button labels, logs, menus, modals, and tooltips",
+      "visual_style": "Enterprise Cartographic Desktop (dark slate palette, SVG vector icons, monospace technical metrics, high-density parameter inputs)",
+      "dockable_toolbox": "Retractable right-side panel with fuzzy search as you type, accordion categories, and double-click to launch",
+      "universal_dialog": "Standardized modal dialog with Parameters tab and real-time Monospace Execution Log tab",
+      "keyboard_shortcuts": "Ctrl+Alt+T to toggle Processing Toolbox, Esc to close modal, Enter to execute when valid"
+    }
+  },
+  "algorithm_catalog_specification": {
+    "group_0_foundation_geoprocessing": [
+      {
+        "id": "foundation_clip",
+        "name": "Recortar Camada (Clip)",
+        "category": "Superposição Topológica",
+        "description": "Recorta feições vetoriais de entrada pelos limites externos da camada de máscara.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": true,
+        "overlay_geometry": "Poligono",
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "Clip(A, M) = A cap M"
+      },
+      {
+        "id": "foundation_intersection",
+        "name": "Intersecção Espacial (Intersection)",
+        "category": "Superposição Topológica",
+        "description": "Calcula a porção geométrica comum entre duas camadas e funde seus atributos tabulares.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": true,
+        "overlay_geometry": "Qualquer",
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "Intersect(A, B) = A cap B"
+      },
+      {
+        "id": "foundation_difference",
+        "name": "Diferença Espacial (Erase)",
+        "category": "Superposição Topológica",
+        "description": "Subtrai da camada de entrada as regiões sobrepostas pela camada de corte.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": true,
+        "overlay_geometry": "Poligono",
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "Diff(A, B) = A \\ B"
+      },
+      {
+        "id": "foundation_dissolve",
+        "name": "Dissolver Geometrias (Dissolve)",
+        "category": "Agregação e Fusão",
+        "description": "Une feições adjacentes ou com o mesmo atributo categórico via CascadedPolygonUnion.",
+        "input_geometry": "Linha | Poligono",
+        "requires_overlay": false,
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "Dissolve(A) = cup_{f in A} f.Geometry"
+      },
+      {
+        "id": "foundation_buffer",
+        "name": "Zona de Amortecimento (Buffer)",
+        "category": "Geometrias Construtivas",
+        "description": "Gera polígonos equidistantes em torno de pontos, linhas ou polígonos com controle de pontas e junções.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": false,
+        "output_geometry": "Poligono",
+        "complexity": "O(N * V)",
+        "mathematical_formula": "Buffer(G, d) = {x in R^2 | inf_{y in G} d(x, y) <= d}"
+      },
+      {
+        "id": "foundation_convex_hull",
+        "name": "Envoltória Convexa (Convex Hull)",
+        "category": "Geometrias Construtivas",
+        "description": "Calcula o menor polígono convexo envolvente para cada feição ou globalmente.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": false,
+        "output_geometry": "Poligono",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "ConvexHull(P) = {sum lambda_i p_i | lambda_i >= 0, sum lambda_i = 1}"
+      },
+      {
+        "id": "foundation_centroids",
+        "name": "Extrair Centroides (Centroids)",
+        "category": "Geometrias Construtivas",
+        "description": "Calcula o centro de massa ponderado por área para feições poligonais e lineares.",
+        "input_geometry": "Linha | Poligono",
+        "requires_overlay": false,
+        "output_geometry": "Ponto",
+        "complexity": "O(V)",
+        "mathematical_formula": "C_x = (1 / 6A) sum (x_i + x_{i+1})(x_i y_{i+1} - x_{i+1} y_i)"
+      },
+      {
+        "id": "foundation_polylabel",
+        "name": "Polo de Inacessibilidade (Polylabel)",
+        "category": "Geometrias Construtivas",
+        "description": "Calcula o centro do maior círculo inscrito garantindo que o ponto caia estritamente no interior de polígonos côncavos.",
+        "input_geometry": "Poligono",
+        "requires_overlay": false,
+        "output_geometry": "Ponto",
+        "complexity": "O(V log V)",
+        "mathematical_formula": "max_{p in Polygon} d(p, Boundary)"
+      }
+    ],
+    "group_1_proximity_and_tessellation": [
+      {
+        "id": "proximity_voronoi",
+        "name": "Polígonos de Voronoi (Thiessen)",
+        "category": "Análise de Proximidade e Tesselação",
+        "description": "Gera polígonos de Dirichlet/Thiessen a partir de pontos de entrada com recorte estrito por máscara territorial ou envelope estendido.",
+        "input_geometry": "Ponto",
+        "requires_overlay": false,
+        "overlay_geometry": "Poligono",
+        "parameters": [
+          {
+            "name": "MargemPercentual",
+            "type": "NumeroReal",
+            "default": 0.2,
+            "min": 0.0,
+            "max": 2.0,
+            "description": "Percentual de expansão do envelope caso não haja máscara"
+          },
+          {
+            "name": "CamadaMascara",
+            "type": "CamadaPoligonal",
+            "default": null,
+            "description": "Polígono delimitador de recorte territorial"
+          }
+        ],
+        "output_geometry": "Poligono",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "V(p_i) = {x in R^2 | d(x, p_i) <= d(x, p_j), forall j != i}"
+      },
+      {
+        "id": "proximity_delaunay",
+        "name": "Triangulação de Delaunay (TIN)",
+        "category": "Análise de Proximidade e Tesselação",
+        "description": "Gera rede irregular de triângulos planos conformes (TIN) a partir de coordenadas 2D/3D garantindo a condição da circunferência circunscrita vazia.",
+        "input_geometry": "Ponto",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "Tolerancia",
+            "type": "NumeroReal",
+            "default": 0.0,
+            "min": 0.0,
+            "max": 100.0,
+            "description": "Tolerância para colapso de pontos coincidentes"
+          }
+        ],
+        "output_geometry": "Poligono",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "forall T in DT(P), Circumcircle(T) cap P = emptyset"
+      },
+      {
+        "id": "proximity_clark_evans",
+        "name": "Análise do Vizinho Mais Próximo (Clark-Evans)",
+        "category": "Análise de Proximidade e Tesselação",
+        "description": "Calcula a matriz de distâncias ao vizinho mais próximo, o índice de agregação espacial R de Clark-Evans e o escore Z de significância.",
+        "input_geometry": "Ponto",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "AreaEstudoM2",
+            "type": "NumeroReal",
+            "default": null,
+            "description": "Área total da região de estudo em m² (ou envelope automático)"
+          }
+        ],
+        "output_geometry": "Linha",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "R = r_A / r_E; r_E = 1 / (2 * sqrt(N / A)); Z = (r_A - r_E) / SE"
+      }
+    ],
+    "group_2_advanced_overlay": [
+      {
+        "id": "overlay_sym_difference",
+        "name": "Diferença Simétrica (XOR Espacial)",
+        "category": "Superposição Topológica Avançada",
+        "description": "Retém todas as porções espaciais presentes em A ou em B, mas que não estejam presentes em ambas simultaneamente.",
+        "input_geometry": "Poligono",
+        "requires_overlay": true,
+        "overlay_geometry": "Poligono",
+        "output_geometry": "Poligono",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "A xor B = (A \\ B) cup (B \\ A) = (A cup B) \\ (A cap B)"
+      },
+      {
+        "id": "overlay_full_union",
+        "name": "União Topológica Plena (Full Topology Union)",
+        "category": "Superposição Topológica Avançada",
+        "description": "Particiona todas as geometrias das camadas A e B em todos os pontos de contato gerando cobertura plana contígua com fusão total de atributos.",
+        "input_geometry": "Poligono",
+        "requires_overlay": true,
+        "overlay_geometry": "Poligono",
+        "output_geometry": "Poligono",
+        "complexity": "O((N + M) log (N + M))",
+        "mathematical_formula": "Partition(A, B) = {P_1, ..., P_m}, cup P_k = A cup B, P_i cap P_j = emptyset"
+      },
+      {
+        "id": "overlay_spatial_update",
+        "name": "Atualização Espacial de Camadas (Patch)",
+        "category": "Superposição Topológica Avançada",
+        "description": "Aplica a camada de sobreposição B como um remendo prioritário sobre a camada base A, recortando e substituindo o trecho coincidente.",
+        "input_geometry": "Poligono",
+        "requires_overlay": true,
+        "overlay_geometry": "Poligono",
+        "output_geometry": "Poligono",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "Update(A, B) = (A \\ B) cup B"
+      }
+    ],
+    "group_3_cartographic_generalization": [
+      {
+        "id": "generalization_douglas_peucker",
+        "name": "Simplificação Douglas-Peucker Topológica",
+        "category": "Generalização Cartográfica",
+        "description": "Reduz o número de nós de linhas e polígonos mantendo anéis fechados e prevenindo auto-intersecções via TopologyPreservingSimplifier.",
+        "input_geometry": "Linha | Poligono",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "ToleranciaMetros",
+            "type": "DistanciaMetrica",
+            "default": 5.0,
+            "min": 0.001,
+            "max": 10000.0,
+            "description": "Tolerância métrica de desvio perpendicular"
+          }
+        ],
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "d_max <= epsilon"
+      },
+      {
+        "id": "generalization_visvalingam_whyatt",
+        "name": "Simplificação por Área Efetiva (Visvalingam-Whyatt)",
+        "category": "Generalização Cartográfica",
+        "description": "Generaliza geometrias avaliando a área triangular formada por 3 vértices consecutivos com fila de prioridade Min-Heap.",
+        "input_geometry": "Linha | Poligono",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "AreaMinimaM2",
+            "type": "NumeroReal",
+            "default": 25.0,
+            "min": 0.01,
+            "max": 1000000.0,
+            "description": "Área triangular efetiva mínima em metros quadrados"
+          }
+        ],
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "Area(v_i) = 0.5 * |x_{i-1}(y_i - y_{i+1}) + x_i(y_{i+1} - y_{i-1}) + x_{i+1}(y_{i-1} - y_i)|"
+      },
+      {
+        "id": "generalization_chaikin",
+        "name": "Suavização Cartográfica de Chaikin",
+        "category": "Generalização Cartográfica",
+        "description": "Gera curvas contínuas (aproximação B-spline) cortando cantos nas proporções 1/4 e 3/4 de cada segmento de reta.",
+        "input_geometry": "Linha | Poligono",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "Iteracoes",
+            "type": "NumeroInteiro",
+            "default": 2,
+            "min": 1,
+            "max": 5,
+            "description": "Número de iterações de corte de cantos"
+          }
+        ],
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N * 2^iter)",
+        "mathematical_formula": "Q_i = 0.75 * P_i + 0.25 * P_{i+1}; R_i = 0.25 * P_i + 0.75 * P_{i+1}"
+      }
+    ],
+    "group_4_decomposition_and_conversion": [
+      {
+        "id": "conversion_explode_multipart",
+        "name": "Decompor Multipartes para Partes Simples",
+        "category": "Decomposição e Conversão",
+        "description": "Explode geometrias multipartes (MultiPolygon, MultiLineString, MultiPoint) em feições individuais mantendo atributos, ORIG_FID e PART_IDX.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": false,
+        "output_geometry": "PartesSimples",
+        "complexity": "O(N)",
+        "mathematical_formula": "GeometryCollection.UnpackSingleparts"
+      },
+      {
+        "id": "conversion_combine_singlepart",
+        "name": "Agrupar Partes Simples em Multipartes",
+        "category": "Decomposição e Conversão",
+        "description": "Agrupa múltiplas feições isoladas em geometrias multipartes com base em um campo chave de agrupamento.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "CampoChave",
+            "type": "CampoAtributo",
+            "description": "Campo DBF utilizado para agrupar as feições"
+          }
+        ],
+        "output_geometry": "Multipartes",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "GroupBy(attr).BuildGeometry"
+      },
+      {
+        "id": "conversion_polygon_to_lines",
+        "name": "Polígonos para Linhas de Borda",
+        "category": "Decomposição e Conversão",
+        "description": "Extrai o anel exterior e os anéis interiores de polígonos convertendo-os em feições lineares com atributos RING_TYPE e RING_IDX.",
+        "input_geometry": "Poligono",
+        "requires_overlay": false,
+        "output_geometry": "Linha",
+        "complexity": "O(N)",
+        "mathematical_formula": "ExteriorRing cup InteriorRings"
+      },
+      {
+        "id": "conversion_line_polygonizer",
+        "name": "Poligonização de Linhas (Polygonizer)",
+        "category": "Decomposição e Conversão",
+        "description": "Monta um grafo planar topológico a partir de linhas conectadas e extrai todas as faces poligonais fechadas.",
+        "input_geometry": "Linha",
+        "requires_overlay": false,
+        "output_geometry": "Poligono",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "Polygonizer.Add(UnaryUnionOp(lines)).GetPolygons()"
+      },
+      {
+        "id": "conversion_extract_vertices",
+        "name": "Extração Analítica de Vértices",
+        "category": "Decomposição e Conversão",
+        "description": "Extrai todos os nós de linhas e polígonos calculando o azimute cartesiano (0-360°) e a distância percorrida acumulada.",
+        "input_geometry": "Linha | Poligono",
+        "requires_overlay": false,
+        "output_geometry": "Ponto",
+        "complexity": "O(V)",
+        "mathematical_formula": "theta = atan2(Delta X, Delta Y) * 180 / pi; M_dist = sum |P_{i} - P_{i-1}|"
+      }
+    ],
+    "group_5_linear_segmentation": [
+      {
+        "id": "segmentation_split_intersections",
+        "name": "Quebrar Linhas em Intersecções",
+        "category": "Segmentação Linear e Partição",
+        "description": "Insere nós topológicos e segmenta linhas em todos os pontos em que se cruzam ou tocam.",
+        "input_geometry": "Linha",
+        "requires_overlay": false,
+        "output_geometry": "Linha",
+        "complexity": "O(N log N)",
+        "mathematical_formula": "LinearComponentExtracter.GetLines(UnaryUnionOp(lines))"
+      },
+      {
+        "id": "segmentation_line_chaining",
+        "name": "Quebrar Linhas por Comprimento (Estaqueamento)",
+        "category": "Segmentação Linear e Partição",
+        "description": "Subdivide linhas em estacas métricas uniformes de comprimento pré-determinado com atributos de estaca inicial e final.",
+        "input_geometry": "Linha",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "DistanciaEstacaMetros",
+            "type": "DistanciaMetrica",
+            "default": 20.0,
+            "min": 0.1,
+            "max": 100000.0,
+            "description": "Comprimento de cada estaca em metros"
+          }
+        ],
+        "output_geometry": "Linha",
+        "complexity": "O(N * (Length / Step))",
+        "mathematical_formula": "LengthIndexedLine.ExtractLine(start, end)"
+      },
+      {
+        "id": "segmentation_split_polygons",
+        "name": "Partição de Polígonos por Linhas de Corte",
+        "category": "Segmentação Linear e Partição",
+        "description": "Subdivide uma camada de polígonos utilizando feições lineares de corte como lâminas topológicas.",
+        "input_geometry": "Poligono",
+        "requires_overlay": true,
+        "overlay_geometry": "Linha",
+        "output_geometry": "Poligono",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "Polygonizer.Add(Polygon.Boundary cup CuttingLines)"
+      }
+    ],
+    "group_6_spatial_grids_and_sampling": [
+      {
+        "id": "grid_cartesian",
+        "name": "Grade Regular Cartesiana (Retangular/Quadrada)",
+        "category": "Malhas Espaciais e Amostragem",
+        "description": "Gera uma malha ortogonal contígua de células poligonais a partir de uma extensão delimitadora e espaçamentos deltaX e deltaY.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "LarguraMetros",
+            "type": "DistanciaMetrica",
+            "default": 100.0,
+            "min": 0.1,
+            "max": 1000000.0,
+            "description": "Largura da célula em metros (Delta X)"
+          },
+          {
+            "name": "AlturaMetros",
+            "type": "DistanciaMetrica",
+            "default": 100.0,
+            "min": 0.1,
+            "max": 1000000.0,
+            "description": "Altura da célula em metros (Delta Y)"
+          }
+        ],
+        "output_geometry": "Poligono",
+        "complexity": "O((Width / DeltaX) * (Height / DeltaY))",
+        "mathematical_formula": "C_{i,j} = [X_min + i*DeltaX, X_min + (i+1)*DeltaX] x [Y_min + j*DeltaY, Y_min + (j+1)*DeltaY]"
+      },
+      {
+        "id": "grid_hexagonal_binning",
+        "name": "Grade Hexagonal Tesselada (Hexbins)",
+        "category": "Malhas Espaciais e Amostragem",
+        "description": "Gera malha contígua de hexágonos regulares de raio R com deslocamento alternado de linha ideal para mapeamento de densidade.",
+        "input_geometry": "Qualquer",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "RaioMetros",
+            "type": "DistanciaMetrica",
+            "default": 100.0,
+            "min": 0.1,
+            "max": 1000000.0,
+            "description": "Raio do hexágono (centro ao vértice) em metros"
+          }
+        ],
+        "output_geometry": "Poligono",
+        "complexity": "O((Width / W) * (Height / H_step))",
+        "mathematical_formula": "W = sqrt(3)*R; H = 2*R; DeltaY = 1.5*R; Shift = W/2"
+      },
+      {
+        "id": "sampling_poisson_disk",
+        "name": "Amostragem Aleatória Poisson Disk",
+        "category": "Malhas Espaciais e Amostragem",
+        "description": "Gera pontos pseudoaleatórios no interior de polígonos garantindo uma distância euclidiana mínima entre qualquer par de pontos.",
+        "input_geometry": "Poligono",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "DistanciaMinimaMetros",
+            "type": "DistanciaMetrica",
+            "default": 50.0,
+            "min": 0.1,
+            "max": 100000.0,
+            "description": "Distância mínima de exclusão entre pontos em metros"
+          },
+          {
+            "name": "MaxPontosPorPoligono",
+            "type": "NumeroInteiro",
+            "default": 500,
+            "min": 1,
+            "max": 50000,
+            "description": "Limite máximo de amostras por polígono"
+          }
+        ],
+        "output_geometry": "Ponto",
+        "complexity": "O(N)",
+        "mathematical_formula": "forall p_i, p_j in Samples, d(p_i, p_j) >= r_min"
+      },
+      {
+        "id": "sampling_regular_point_grid",
+        "name": "Amostragem em Grade Regular de Pontos",
+        "category": "Malhas Espaciais e Amostragem",
+        "description": "Gera uma matriz uniforme de pontos interiores amostrais espaçados em passos deltaX e deltaY contidos nos polígonos de entrada.",
+        "input_geometry": "Poligono",
+        "requires_overlay": false,
+        "parameters": [
+          {
+            "name": "EspacamentoMetros",
+            "type": "DistanciaMetrica",
+            "default": 50.0,
+            "min": 0.1,
+            "max": 100000.0,
+            "description": "Espaçamento uniforme da grade pontual em metros"
+          }
+        ],
+        "output_geometry": "Ponto",
+        "complexity": "O(N * (Area / Step^2))",
+        "mathematical_formula": "p_{i,j} = (X_min + i*Step, Y_min + j*Step) in Polygon"
+      }
+    ],
+    "group_7_zonal_statistics": [
+      {
+        "id": "zonal_count_points",
+        "name": "Contagem e Soma de Pontos em Polígonos",
+        "category": "Estatísticas Zonais e Agregação",
+        "description": "Calcula a contagem de pontos e estatísticas de atributos numéricos (Soma, Média) para cada polígono de zona via IPreparedGeometry.",
+        "input_geometry": "Poligono",
+        "requires_overlay": true,
+        "overlay_geometry": "Ponto",
+        "parameters": [
+          {
+            "name": "CampoValorSomar",
+            "type": "CampoAtributo",
+            "default": null,
+            "description": "Campo numérico opcional da camada de pontos para agregação (Soma/Média)"
+          }
+        ],
+        "output_geometry": "Poligono",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "Count_k = sum_{p in P} I(p in Z_k); Sum_k = sum_{p in Z_k} attr(p)"
+      },
+      {
+        "id": "zonal_line_density",
+        "name": "Densidade e Comprimento de Linhas em Polígonos",
+        "category": "Estatísticas Zonais e Agregação",
+        "description": "Calcula a extensão métrica total de linhas que cruzam cada polígono de zona e determina a densidade linear em km/km².",
+        "input_geometry": "Poligono",
+        "requires_overlay": true,
+        "overlay_geometry": "Linha",
+        "output_geometry": "Poligono",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "Length_k = sum Length(Line_i cap Z_k); Density_k = (Length_k / 1000) / (Area(Z_k) / 1000000)"
+      },
+      {
+        "id": "zonal_spatial_join",
+        "name": "Junção Espacial Avançada (Spatial Join)",
+        "category": "Estatísticas Zonais e Agregação",
+        "description": "Funde atributos tabulares entre camadas com base em predicados topológicos estritos (Intersects, Contains, Within, Touches, Crosses, WithinDistance).",
+        "input_geometry": "Qualquer",
+        "requires_overlay": true,
+        "overlay_geometry": "Qualquer",
+        "parameters": [
+          {
+            "name": "PredicadoTopologico",
+            "type": "OpcaoLista",
+            "default": "Intersects",
+            "opcoes": [
+              "Intersects",
+              "Contains",
+              "Within",
+              "Touches",
+              "Crosses",
+              "WithinDistance"
+            ],
+            "description": "Predicado espacial OGC testado"
+          },
+          {
+            "name": "DistanciaToleranciaMetros",
+            "type": "DistanciaMetrica",
+            "default": 0.0,
+            "description": "Distância de busca métrica quando o predicado for WithinDistance"
+          }
+        ],
+        "output_geometry": "MesmaEntrada",
+        "complexity": "O(N log M)",
+        "mathematical_formula": "DE-9IM Pattern Matcher / PreparedGeometry Predicates"
+      }
+    ]
+  },
+  "csharp_service_contracts": {
+    "ProximityTessellationAlgorithms": [
+      "public static List<FeicaoGeoprocessamento> ExecutarVoronoi(IReadOnlyList<FeicaoGeoprocessamento> pontos, Geometry? mascaraLimite, double margemPercentual, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarTriangulacaoDelaunay(IReadOnlyList<FeicaoGeoprocessamento> pontos, double tolerancia, CancellationToken ct)",
+      "public static (List<FeicaoGeoprocessamento> Linhas, string RelatorioEstatistico) ExecutarVizinhoMaisProximo(IReadOnlyList<FeicaoGeoprocessamento> pontos, double? areaEstudoM2, CancellationToken ct)"
+    ],
+    "AdvancedOverlayAlgorithms": [
+      "public static List<FeicaoGeoprocessamento> ExecutarDiferencaSimetrica(IReadOnlyList<FeicaoGeoprocessamento> camadaA, IReadOnlyList<FeicaoGeoprocessamento> camadaB, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarUniaoPlena(IReadOnlyList<FeicaoGeoprocessamento> camadaA, IReadOnlyList<FeicaoGeoprocessamento> camadaB, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarAtualizacaoCamadas(IReadOnlyList<FeicaoGeoprocessamento> camadaBaseA, IReadOnlyList<FeicaoGeoprocessamento> camadaAtualizacaoB, CancellationToken ct)"
+    ],
+    "CartographicGeneralizationAlgorithms": [
+      "public static List<FeicaoGeoprocessamento> ExecutarSimplificacaoDouglasPeucker(IReadOnlyList<FeicaoGeoprocessamento> feicoes, double toleranciaMetros, CancellationToken ct)",
+      "public static Coordinate[] SimplificarVisvalingam(Coordinate[] coords, double areaMinimaM2)",
+      "public static Coordinate[] SuavizarChaikin(Coordinate[] pts, int iteracoes)"
+    ],
+    "GeometricConversionAlgorithms": [
+      "public static List<FeicaoGeoprocessamento> ExecutarExplodirMultipartes(IReadOnlyList<FeicaoGeoprocessamento> feicoes, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarAgruparPorAtributo(IReadOnlyList<FeicaoGeoprocessamento> feicoes, string campoChave, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarPoligonosParaLinhas(IReadOnlyList<FeicaoGeoprocessamento> poligonos, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarPoligonizacaoLinhas(IReadOnlyList<FeicaoGeoprocessamento> linhas, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarExtrairVertices(IReadOnlyList<FeicaoGeoprocessamento> feicoes, CancellationToken ct)"
+    ],
+    "LinearSegmentationAlgorithms": [
+      "public static List<FeicaoGeoprocessamento> ExecutarQuebraLinhasInterseccoes(IReadOnlyList<FeicaoGeoprocessamento> linhas, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarEstaqueamentoLinhas(IReadOnlyList<FeicaoGeoprocessamento> linhas, double distanciaEstacaM, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarParticaoPoligonosPorLinhas(IReadOnlyList<FeicaoGeoprocessamento> poligonos, IReadOnlyList<FeicaoGeoprocessamento> linhasCorte, CancellationToken ct)"
+    ],
+    "SpatialGridSamplingAlgorithms": [
+      "public static List<FeicaoGeoprocessamento> ExecutarGradeCartesiana(Envelope extensao, double larguraM, double alturaM, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarGradeHexagonal(Envelope extensao, double raioR, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarAmostragemPoissonDisk(Geometry poligono, double distanciaMinimaM, int maxPontos, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarAmostragemRegularPontos(Geometry poligono, double espacamentoM, CancellationToken ct)"
+    ],
+    "ZonalStatisticsAlgorithms": [
+      "public static List<FeicaoGeoprocessamento> ExecutarContagemPontosPoligono(IReadOnlyList<FeicaoGeoprocessamento> zonas, IReadOnlyList<FeicaoGeoprocessamento> pontos, string? campoValorSomar, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarDensidadeLinearPoligonos(IReadOnlyList<FeicaoGeoprocessamento> zonas, IReadOnlyList<FeicaoGeoprocessamento> linhas, CancellationToken ct)",
+      "public static List<FeicaoGeoprocessamento> ExecutarSpatialJoinAvancado(IReadOnlyList<FeicaoGeoprocessamento> camadaAlvo, IReadOnlyList<FeicaoGeoprocessamento> camadaJuncao, string predicadoTopologico, CancellationToken ct)"
+    ]
+  },
+  "implementation_stages_plan": [
+    {
+      "stage_id": "STAGE-1-CORE-FRAMEWORK-AND-PROXIMITY",
+      "name": "Estrutura Base de Algoritmos & Operadores de Proximidade",
+      "target_files": [
+        "GeoNex/Services/IGeoprocessingAlgorithm.cs",
+        "GeoNex/Services/ProcessingAlgorithmRegistry.cs",
+        "GeoNex/Services/ProximityTessellationAlgorithms.cs"
+      ],
+      "actions": [
+        "Declarar IGeoprocessingAlgorithm, ParametroDefinicao, TipoParametro, TipoGeometriaPermitida",
+        "Implementar ProcessingAlgorithmRegistry com métodos Registrar, ObterPorId, ObterCategorias e Buscar",
+        "Implementar ProximityTessellationAlgorithms.ExecutarVoronoi com recorte por máscara e herança de atributos DBF",
+        "Implementar ProximityTessellationAlgorithms.ExecutarTriangulacaoDelaunay com métricas de triângulo (AREA_M2, PERIM_M, MAX_EDGE)",
+        "Implementar ProximityTessellationAlgorithms.ExecutarVizinhoMaisProximo calculando R de Clark-Evans, escore Z e linhas de conexão",
+        "Registrar serviços de proximidade no catálogo central"
+      ]
+    },
+    {
+      "stage_id": "STAGE-2-ADVANCED-OVERLAY-AND-GENERALIZATION",
+      "name": "Superposição Topológica Avançada & Generalização Cartográfica",
+      "target_files": [
+        "GeoNex/Services/AdvancedOverlayAlgorithms.cs",
+        "GeoNex/Services/CartographicGeneralizationAlgorithms.cs"
+      ],
+      "actions": [
+        "Implementar AdvancedOverlayAlgorithms.ExecutarDiferencaSimetrica via A\\B + B\\A com STRtree",
+        "Implementar AdvancedOverlayAlgorithms.ExecutarUniaoPlena via noding planar de arestas e poligonização de faces",
+        "Implementar AdvancedOverlayAlgorithms.ExecutarAtualizacaoCamadas com substituição prioritária de remendo",
+        "Implementar CartographicGeneralizationAlgorithms.ExecutarSimplificacaoDouglasPeucker com TopologyPreservingSimplifier",
+        "Implementar CartographicGeneralizationAlgorithms.ExecutarSimplificacaoVisvalingam com área triangular efetiva",
+        "Implementar CartographicGeneralizationAlgorithms.ExecutarSuavizacaoChaikin com corte quadrático 1/4 e 3/4",
+        "Registrar algoritmos de superposição e generalização no catálogo central"
+      ]
+    },
+    {
+      "stage_id": "STAGE-3-DECOMPOSITION-AND-SEGMENTATION",
+      "name": "Decomposição, Conversão e Segmentação Linear",
+      "target_files": [
+        "GeoNex/Services/GeometricConversionAlgorithms.cs",
+        "GeoNex/Services/LinearSegmentationAlgorithms.cs"
+      ],
+      "actions": [
+        "Implementar GeometricConversionAlgorithms.ExecutarExplodirMultipartes preservando integridade de atributos",
+        "Implementar GeometricConversionAlgorithms.ExecutarAgruparPorAtributo com BuildGeometry e chave de agrupamento",
+        "Implementar GeometricConversionAlgorithms.ExecutarPoligonosParaLinhas extraindo casca externa e ilhas internas",
+        "Implementar GeometricConversionAlgorithms.ExecutarPoligonizacaoLinhas via Polygonizer de NTS",
+        "Implementar GeometricConversionAlgorithms.ExecutarExtrairVertices calculando azimute e distância acumulada",
+        "Implementar LinearSegmentationAlgorithms.ExecutarQuebraLinhasInterseccoes com inserção de nós topológicos",
+        "Implementar LinearSegmentationAlgorithms.ExecutarEstaqueamentoLinhas via LengthIndexedLine",
+        "Implementar LinearSegmentationAlgorithms.ExecutarParticaoPoligonosPorLinhas com lâminas cortantes",
+        "Registrar algoritmos de conversão e segmentação no catálogo central"
+      ]
+    },
+    {
+      "stage_id": "STAGE-4-GRIDS-SAMPLING-AND-ZONAL-STATISTICS",
+      "name": "Malhas Espaciais, Amostragem e Estatísticas Zonais",
+      "target_files": [
+        "GeoNex/Services/SpatialGridSamplingAlgorithms.cs",
+        "GeoNex/Services/ZonalStatisticsAlgorithms.cs"
+      ],
+      "actions": [
+        "Implementar SpatialGridSamplingAlgorithms.ExecutarGradeCartesiana com geração matricial de retângulos",
+        "Implementar SpatialGridSamplingAlgorithms.ExecutarGradeHexagonal com deslocamento staggered W/2",
+        "Implementar SpatialGridSamplingAlgorithms.ExecutarAmostragemPoissonDisk via Bridson acelerado por grade",
+        "Implementar SpatialGridSamplingAlgorithms.ExecutarAmostragemRegularPontos",
+        "Implementar ZonalStatisticsAlgorithms.ExecutarContagemPontosPoligono com IPreparedGeometry e agregações",
+        "Implementar ZonalStatisticsAlgorithms.ExecutarDensidadeLinearPoligonos calculando km/km²",
+        "Implementar ZonalStatisticsAlgorithms.ExecutarSpatialJoinAvancado com predicados DE-9IM completos",
+        "Registrar algoritmos de malhas e estatísticas zonais no catálogo central"
+      ]
+    },
+    {
+      "stage_id": "STAGE-5-UI-TOOLBOX-BATCH-ENGINE-AND-TESTS",
+      "name": "Interface Gráfica Enterprise, Fila em Lote e Suíte de Testes",
+      "target_files": [
+        "GeoNex/Services/BatchGeoprocessingEngine.cs",
+        "GeoNex/Components/Pages/Home.ProcessingToolbox.razor",
+        "GeoNex/Components/Pages/Home.razor",
+        "tests/GeoprocessingCore/Program.cs"
+      ],
+      "actions": [
+        "Implementar BatchGeoprocessingEngine com fila FIFO assíncrona, tolerância a falhas e gravação atômica",
+        "Criar componente Home.ProcessingToolbox.razor com busca em tempo real, árvore hierárquica e zero emojis",
+        "Integrar atalho global Ctrl+Alt+T para recolhimento da Toolbox em Home.razor",
+        "Criar diálogo universal de parâmetros com validação dinâmica e aba de log monoespaçado",
+        "Expandir tests/GeoprocessingCore/Program.cs com 8 módulos de testes de regressão cobrindo todos os novos operadores",
+        "Validar compilação limpa de GeoNex.csproj em modo Release e 100% de asserções nos testes"
+      ]
+    }
+  ],
+  "test_suite_verification_matrix": [
+    {
+      "test_module": "TEST-1-VORONOI-DELAUNAY-DUALITY",
+      "algorithm": "Voronoi e Delaunay TIN",
+      "input": "Nuvem de 20 pontos aleatórios contidos em envelope 1000x1000m",
+      "assertions": [
+        "Diagrama de Voronoi gera exatamente 20 células poligonais ou correspondente ao número de sítios internos",
+        "A triangulação de Delaunay obedece à relação de Euler para grafos planares (V - E + F = 2)",
+        "Nenhum ponto gerador está contido no círculo circunscrito de qualquer triângulo gerado",
+        "Todas as áreas de triângulos são estritamente positivas (Area > 0)"
+      ]
+    },
+    {
+      "test_module": "TEST-2-CLARK-EVANS-NEAREST-NEIGHBOR",
+      "algorithm": "Nearest Neighbor & Clark-Evans R",
+      "input": "Grade homogênea 10x10 vs 3 aglomerados densos de 30 pontos",
+      "assertions": [
+        "Grade homogênea produz índice Clark-Evans R > 1.8 (dispersão uniforme)",
+        "Aglomerados densos produzem índice Clark-Evans R < 0.6 (padrão agrupado / cluster)",
+        "Distância ao vizinho mais próximo é estritamente maior que zero para pontos não-coincidentes"
+      ]
+    },
+    {
+      "test_module": "TEST-3-SYMMETRICAL-DIFFERENCE-XOR",
+      "algorithm": "Diferença Simétrica",
+      "input": "Dois quadrados sobrepostos de 10x10 metros com intersecção de 5x10 metros",
+      "assertions": [
+        "Área da intersecção é exatamente 50 m²",
+        "Área total da diferença simétrica resultante é estritamente igual a 100 m² (100 + 100 - 2 * 50)",
+        "Esquemas de atributos fundidos não apresentam colisões de nomes de coluna DBF"
+      ]
+    },
+    {
+      "test_module": "TEST-4-GENERALIZATION-ALGORITHMS",
+      "algorithm": "Douglas-Peucker, Visvalingam e Chaikin",
+      "input": "Polilinha senoidal de 300 vértices e ângulo reto de 3 vértices",
+      "assertions": [
+        "Douglas-Peucker com tolerância 10m reduz nós em mais de 60% sem quebrar fechamento de anéis",
+        "Visvalingam com área mínima 50m² remove apenas vértices de menor saliência",
+        "Chaikin com 1 iteração em 3 nós gera exatamente 4 vértices nas posições 1/4 e 3/4"
+      ]
+    },
+    {
+      "test_module": "TEST-5-DECOMPOSITION-AND-CONVERSION",
+      "algorithm": "Explode, Combine, Polygon to Lines e Vertices",
+      "input": "MultiPolígono composto por 4 ilhas e polígono com 2 furos",
+      "assertions": [
+        "Explode gera exatamente 4 feições de polígono simples com PART_IDX de 1 a 4",
+        "Polígono com 2 furos gera 3 linhas (1 anel exterior e 2 anéis interiores identificados)",
+        "Extração de vértices calcula azimute de 90° para segmentos estritamente orientados a Leste"
+      ]
+    },
+    {
+      "test_module": "TEST-6-LINEAR-SEGMENTATION",
+      "algorithm": "Split at Intersections e Line Chaining",
+      "input": "Cruzamento em cruz de 2 linhas perpendiculares de 100m cada",
+      "assertions": [
+        "Quebra em intersecção resulta em exatamente 4 segmentos de 50 metros",
+        "Estaqueamento de linha de 105m com estacas de 20m gera 5 segmentos de 20m e 1 segmento residual de 5m"
+      ]
+    },
+    {
+      "test_module": "TEST-7-SPATIAL-GRIDS",
+      "algorithm": "Cartesian Grid e Hexagonal Binning",
+      "input": "Envelope de 1000x1000m com passo de 100m e hexágonos de raio 50m",
+      "assertions": [
+        "Grade cartesiana 100x100m gera exatamente 100 células de 10.000 m² cada",
+        "Grade hexagonal gera hexágonos regulares contíguos com área milimétrica A = (3 * sqrt(3) / 2) * R²",
+        "Amostragem Poisson Disk gera pontos com distância mútua sempre >= distância mínima exigida"
+      ]
+    },
+    {
+      "test_module": "TEST-8-ZONAL-STATISTICS-AND-SPATIAL-JOIN",
+      "algorithm": "Count Points in Polygons e Spatial Join",
+      "input": "4 quadrantes poligonais e 400 pontos uniformemente distribuídos (100 por quadrante)",
+      "assertions": [
+        "Cada quadrante contabiliza exatamente 100 pontos sem duplicação",
+        "Soma de densidade linear calcula corretamente a taxa km/km²",
+        "Spatial Join associa atributos da feição coincidente com 100% de correspondência"
+      ]
+    }
+  ],
+  "rigorous_acceptance_criteria": [
+    "1. Catálogo Completo: Todos os 29 algoritmos devem estar registrados no ProcessingAlgorithmRegistry e funcionais.",
+    "2. Thread-Safety: 100% dos cálculos executados assincronamente fora do loop de renderização da UI (Task.Run).",
+    "3. Tolerância Topológica: 100% das geometrias de saída devem ser validadas como topologicamente válidas (geometry.IsValid == true).",
+    "4. Persistência OGR: Arquivos .shp, .shx, .dbf, .prj (WKT compatível) e .cpg (UTF-8) gravados atomicamente.",
+    "5. Rigor Visual: Zero emojis em toda a interface da toolbox, botões, árvores de categorias, diálogos e logs.",
+    "6. Suíte de Testes: 100% dos testes unitários e de regressão em tests/GeoprocessingCore devem passar com sucesso.",
+    "7. Compilação Limpa: O projeto GeoNex.csproj deve compilar em modo Release com zero erros.",
+    "8. Desempenho: O processamento de cruzamento espacial de 10.000 feições deve executar em menos de 3 segundos graças ao STRtree e IPreparedGeometry.",
+    "9. Desacoplamento da UI: O cancelamento via CancellationToken deve interromper qualquer algoritmo em menos de 50ms.",
+    "10. Interoperabilidade: Os Shapefiles gerados devem abrir perfeitamente no QGIS 3.34 e ArcGIS Pro 3.x sem perda de projeção ou truncamento incorreto de atributos."
+  ]
+}

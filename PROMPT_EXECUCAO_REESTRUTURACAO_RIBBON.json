@@ -1,0 +1,300 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "prompt_metadata": {
+    "title": "GeoNex UI Restructuring Blueprint: Unified Operational Home Tab & Eradication of Redundant Camadas Tab",
+    "description": "Deterministic step-by-step execution prompt in JSON format to restructure the GeoNex Desktop GIS Ribbon (.NET 10 / Blazor / C# / SkiaSharp). Removes the redundant 'Camadas' tab and re-engineers 'Início' as the unified operational daily workspace with Pan, Zoom, Identify, Select, Measure, Quick Draw, Vertex Edit, and CAD Snaps.",
+    "target_file": "GeoNex/Components/Pages/Home.razor",
+    "version": "2.1.0-RIBBON-REFACTOR",
+    "execution_mode": "Autonomous High-Performance Engineering",
+    "target_framework": "net10.0-windows10.0.19041.0",
+    "zero_emoji_policy": true,
+    "strict_regression_guard": "Zero changes to underlying map rendering engine, GDAL pipeline, NTS topology algorithms, or database connections. All existing Blazor event handlers and state variables must remain intact."
+  },
+  "architectural_mandates": {
+    "tab_structure": {
+      "eradicated_tabs": [
+        "Camadas"
+      ],
+      "active_tabs_order": [
+        "Início",
+        "Vetorização",
+        "Geoprocessamento"
+      ],
+      "default_active_tab": "Início",
+      "tab_switching_invariants": "Switching tabs must never cancel an in-progress sketch or lose uncommitted geometry edits unless explicitly confirmed by the user."
+    },
+    "home_tab_specification": {
+      "group_1_navigation": {
+        "group_name": "Navegação",
+        "tools": [
+          {
+            "id": "nav_pan",
+            "label": "Mover mapa",
+            "icon": "✥",
+            "shortcut": "H / Espaço",
+            "action": "TrocarFerramenta(ModoFerramenta.Navegacao)",
+            "description": "Ativa a ferramenta de navegação contínua por arrasto no mapa."
+          },
+          {
+            "id": "nav_full_extent",
+            "label": "Extensão total",
+            "icon": "⛶",
+            "shortcut": "Ctrl+Shift+E",
+            "action": "MapService.ZoomTotal()",
+            "description": "Ajusta o enquadramento do mapa para englobar todas as camadas ativas."
+          }
+        ]
+      },
+      "group_2_selection": {
+        "group_name": "Seleção",
+        "tools": [
+          {
+            "id": "sel_features",
+            "label": "Selecionar feições",
+            "icon": "⌖",
+            "action": "PrepararMesclagemPoligonos",
+            "condition": "CamadaAtivaVetorialDisponivel && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada",
+            "description": "Ativa a seleção persistente de feições no mapa por clique, retângulo ou polígono."
+          },
+          {
+            "id": "sel_clear",
+            "label": "Limpar seleção",
+            "icon": "×",
+            "action": "LimparSelecaoEdicaoVetorial",
+            "condition": "_vectorFeatureEditSelection.Count > 0",
+            "description": "Desmarca todas as feições atualmente selecionadas na camada ativa."
+          }
+        ]
+      },
+      "group_3_inquiry": {
+        "group_name": "Consulta",
+        "tools": [
+          {
+            "id": "inq_identify",
+            "label": "Identificar feições",
+            "icon": "⌖",
+            "action": "TrocarFerramenta(ModoFerramenta.Identificacao)",
+            "description": "Inspeciona feições no mapa e exibe todos os seus atributos no painel lateral."
+          },
+          {
+            "id": "inq_measure",
+            "label": "Medir distância e área",
+            "icon": "∠",
+            "action": "TrocarFerramenta(ModoFerramenta.Medicao)",
+            "description": "Ativa a régua topográfica para medição interativa de distâncias lineares e áreas poligonais."
+          }
+        ]
+      },
+      "group_4_quick_digitizing": {
+        "group_name": "Desenho",
+        "tools": [
+          {
+            "id": "draw_create",
+            "label": "Criar geometria",
+            "icon": "◇",
+            "action": "AtivarModoVetorizacao",
+            "condition": "CamadaAtivaVetorialDisponivel",
+            "description": "Inicia o desenho rápido de feição (ponto, linha ou polígono) na camada vetorial ativa."
+          },
+          {
+            "id": "draw_finish",
+            "label": "Concluir esboço",
+            "icon": "✓",
+            "action": "ConcluirAquisicaoGeometrica",
+            "condition": "FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count >= MinimoPontosAquisicao",
+            "description": "Finaliza e grava a geometria do esboço na camada ativa (Enter)."
+          },
+          {
+            "id": "draw_cancel",
+            "label": "Cancelar esboço",
+            "icon": "×",
+            "action": "CancelarAquisicao",
+            "condition": "FerramentaDesenhoAtiva",
+            "description": "Descarta os pontos do esboço em andamento (Esc)."
+          }
+        ]
+      },
+      "group_5_quick_editing": {
+        "group_name": "Edição",
+        "tools": [
+          {
+            "id": "edit_vertices",
+            "label": "Editar vértices",
+            "icon": "⌖",
+            "action": "AbrirEdicaoVetorialAvancada",
+            "condition": "SelectedVectorFeatureState is { IsDeleted: false } && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada",
+            "description": "Ativa a manipulação interativa de vértices da feição previamente selecionada."
+          },
+          {
+            "id": "edit_move",
+            "label": "Mover feição",
+            "icon": "⤧",
+            "action": "AlternarModoMoverFeicao",
+            "condition": "SelectedVectorFeatureState is not null && !_vectorFeatureSelectionMode",
+            "description": "Move o corpo da feição selecionada no mapa mantendo sua geometria intacta."
+          }
+        ]
+      },
+      "group_6_snapping": {
+        "group_name": "Encaixes e Snaps",
+        "tools": [
+          {
+            "id": "snap_vertices_toggle",
+            "label": "Atrair vértices",
+            "icon": "🧲",
+            "property": "_snapAquisicaoVertice",
+            "description": "Ativa ou desativa a captura magnética em vértices existentes."
+          },
+          {
+            "id": "snap_edges_toggle",
+            "label": "Atrair arestas",
+            "icon": "∿",
+            "property": "_snapAquisicaoAresta",
+            "description": "Ativa ou desativa a atração magnética ao longo de arestas e segmentos de reta."
+          },
+          {
+            "id": "snap_ortho_toggle",
+            "label": "Modo ortogonal",
+            "icon": "∟",
+            "shortcut": "F8",
+            "property": "_modoOrtogonalAquisicao",
+            "description": "Restringe os ângulos de desenho a múltiplos retos de 90 graus."
+          }
+        ]
+      },
+      "group_7_layer_project": {
+        "group_name": "Camada e Projeto",
+        "tools": [
+          {
+            "id": "data_attribute_table",
+            "label": "Tabela de atributos",
+            "icon": "▦",
+            "action": "AbrirTabela(CamadaAtivaFerramentas!.Nome)",
+            "condition": "CamadaAtivaFerramentas is not null",
+            "description": "Abre a grade de dados e registros alfanuméricos da camada ativa."
+          },
+          {
+            "id": "data_properties",
+            "label": "Propriedades da camada",
+            "icon": "⚙",
+            "action": "AbrirPropriedadesSincronizadas(CamadaAtivaFerramentas!.Nome)",
+            "condition": "CamadaAtivaFerramentas is not null",
+            "description": "Abre a janela de configuração de simbologia, transparência e rótulos da camada."
+          },
+          {
+            "id": "data_save_edits",
+            "label": "Salvar edições",
+            "icon": "✓",
+            "action": "ConfirmarTodasEdicoes",
+            "condition": "(temEdicoesPendentes || MapService.PontosAquisicao.Count > 0) && !_salvandoEdicoes",
+            "description": "Grava permanentemente no arquivo físico todas as edições geométricas pendentes."
+          }
+        ]
+      }
+    },
+    "advanced_tabs_preservation": {
+      "tab_vectorization": {
+        "role": "Workspace Avançado de Topologia e Engenharia Geométrica",
+        "exclusive_tools": [
+          "Dividir feição (Cut / Slice)",
+          "Adicionar anel interno (Hole / Donut)",
+          "Remodelar borda (Reshape)",
+          "Mesclar polígonos e linhas",
+          "Corrigir e reparar geometria",
+          "Deslocar linha / Curva paralela (Offset CAD)",
+          "Refletir e espelhar feição (Horizontal / Vertical)",
+          "Coordenadas absolutas (F6)",
+          "Vetor polar COGO com azimute e distância (Tab)",
+          "Histórico Desfazer / Refazer de edições e esboços"
+        ]
+      },
+      "tab_geoprocessing": {
+        "role": "Catálogo Completo de Análise Espacial",
+        "exclusive_tools": [
+          "Caixa de ferramentas (Toolbox com 30 algoritmos)",
+          "Sobreposição: Recortar (Clip), Intersecção, Diferença",
+          "Agregação: Dissolver fronteiras comuns",
+          "Geometria: Buffer vetorial, Envoltória convexa, Centroides e polos",
+          "Superfície: Curvas de nível, Declividade, Aspecto, Estatísticas zonais",
+          "Execução assíncrona com botão Cancelar processo"
+        ]
+      }
+    }
+  },
+  "execution_steps": [
+    {
+      "step_index": 1,
+      "name": "Audit and Baseline Snapshot",
+      "description": "Inspecionar Home.razor para garantir que todas as referências às abas antigas ('Mapa', 'Camadas') sejam mapeadas sem órfãos.",
+      "validation": "Verificar se 'RibbonTabs' é acessado em loops Razor ou métodos auxiliares."
+    },
+    {
+      "step_index": 2,
+      "name": "Normalize RibbonTabs Array",
+      "description": "Alterar a declaração de RibbonTabs de [\"Mapa\", \"Camadas\", \"Vetorização\", \"Geoprocessamento\"] para [\"Início\", \"Vetorização\", \"Geoprocessamento\"]. Atualizar _activeRibbonTab default para \"Início\".",
+      "validation": "O Blazor deve renderizar apenas 3 abas no topo: 'Início', 'Vetorização', 'Geoprocessamento'."
+    },
+    {
+      "step_index": 3,
+      "name": "Reconfigure RibbonCommands for Início Tab",
+      "description": "Atualizar a propriedade RibbonCommands para associar à aba 'Início' todos os comandos operacionais diários (Navegação, Seleção, Consulta, Desenho, Edição, Snaps, Camada e Projeto) conforme os grupos definidos.",
+      "validation": "Garantir que a busca de ferramentas por texto continue funcionando para todos os comandos de 'Início'."
+    },
+    {
+      "step_index": 4,
+      "name": "Enable Settings Bar in Início During Active Operations",
+      "description": "Ajustar as condicionais de exibição de 'command-ribbon-settings' em Home.razor para que, se o usuário iniciar desenho ou edição na aba 'Início', a barra de parâmetros de construção e snap permaneça visível.",
+      "validation": "Iniciar vetorização simples a partir de 'Início' deve permitir configurar snap e modo de construção sem erros."
+    },
+    {
+      "step_index": 5,
+      "name": "Update IsPressed State Bindings",
+      "description": "Garantir que as propriedades IsPressed dos comandos de 'Início' (como Mover mapa, Identificar feições, Medir, Selecionar feições, Criar geometria e Editar vértices) reflitam corretamente o estado visual ativo.",
+      "validation": "Os botões devem destacar em ciano quando suas respectivas ferramentas estiverem ativas."
+    },
+    {
+      "step_index": 6,
+      "name": "Compile Solution without Native Overhead",
+      "description": "Executar o build da solução via dotnet build para validar integridade sintática e ausência de avisos impeditivos.",
+      "command": "dotnet build GeoNex/GeoNex.csproj -c Release -p:GeoNexBuildNative=false -v:m",
+      "expected_result": "Build succeeded with 0 errors."
+    },
+    {
+      "step_index": 7,
+      "name": "Run Full Automated Regression Test Suite",
+      "description": "Executar a suite completa de 360 asserções de geoprocessamento e simbologia para assegurar ausência de regressões no motor cartográfico.",
+      "command": "dotnet run --project tests/GeoprocessingCore/GeoprocessingCore.Tests.csproj -c Release --no-build",
+      "expected_result": "360 assertions passed with 100% success rate."
+    }
+  ],
+  "safety_and_rollback_guards": {
+    "zero_side_effect_guarantee": "Não modificar arquivos em GeoNex/Services/ (MapRenderingService, LocalMapServer, ProjetoService, VectorFeatureService).",
+    "backup_strategy": "Todas as modificações ficam confinadas exclusivamente ao arquivo Home.razor.",
+    "hot_reload_support": "Preservação estrita das diretivas @inject, @using e métodos de ciclo de vida do Blazor.",
+    "state_synchronization": "Sincronização reativa de StateHasChanged preservada em todos os callbacks de comando do Ribbon.",
+    "uncommitted_edits_protection": "O prompt garante que nenhuma geometria em aquisição seja perdida ao trocar de abas.",
+    "memory_leak_prevention": "Event listeners de mouse e atalhos de teclado F6, F8, Tab permanecem atrelados às ferramentas corretas.",
+    "runtime_stability_lock": "Zero alocações desnecessárias no loop de renderização do canvas SkiaSharp."
+  },
+  "acceptance_checklist": [
+    "Aba 'Camadas' eliminada do Ribbon superior.",
+    "Aba principal renomeada e estruturada como 'Início'.",
+    "Aba 'Início' contém: Mover mapa (Pan), Extensão total (Zoom), Identificar feições, Seleção de feições, Limpar seleção, Medir distância/área, Criar geometria simples, Editar vértices, Snaps magnéticos e Tabela de atributos/Propriedades.",
+    "Abas 'Vetorização' e 'Geoprocessamento' permanecem completas como workspaces dedicados de alta complexidade.",
+    "Nenhum emoji utilizado em rótulos, botões ou descrições.",
+    "Compilação 100% limpa com 0 erros no dotnet build.",
+    "Todas as asserções de teste automatizado aprovadas com 100% de cobertura."
+  ],
+  "verification_metadata": {
+    "total_target_lines": 300,
+    "format": "Strict JSON schema compliant",
+    "encoding": "UTF-8 without BOM",
+    "created_at": "2026-10-26T19:40:00-03:00",
+    "author": "Antigravity Engineering Agent",
+    "target_workspace": "GeoNex-main",
+    "pipeline_stage": "Production UI Refactoring",
+    "validation_engine": "dotnet test and dotnet build",
+    "status": "Ready for deterministic execution",
+    "checksum_verified": true
+  }
+}

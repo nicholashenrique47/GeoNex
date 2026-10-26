@@ -64,6 +64,7 @@
     <Compile Include="..\GeoNex\Services\ExportPublicationTransaction.cs" Link="Export\ExportPublicationTransaction.cs" />
     <Compile Include="..\GeoNex\Services\ExportService.cs" Link="Export\ExportService.cs" />
     <Compile Include="..\GeoNex\Services\VectorEditPersistenceService.cs" Link="Vector\VectorEditPersistenceService.cs" />
+    <Compile Include="..\GeoNex\Services\VectorGeometryEditingService.cs" Link="Vector\VectorGeometryEditingService.cs" />
     <None Include="$(GeoNexNativeBinary)" Link="GeoNexNative.dll" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Baselines\engine-baseline.v1.json" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="SkiaSharp" Version="3.119.2" />

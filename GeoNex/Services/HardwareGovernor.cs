@@ -2,6 +2,8 @@ using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace GeoNex.Services;
 
@@ -28,8 +30,8 @@ public static unsafe class HardwareGovernor
     private static HardwareTopology ProbeTopology()
     {
         int logical = Math.Max(1, Environment.ProcessorCount);
-        bool avx2 = System.Runtime.Intrinsics.X86.Avx2.IsSupported;
-        bool avx512 = System.Runtime.Intrinsics.X86.Avx512F.IsSupported;
+        bool avx2 = Avx2.IsSupported;
+        bool avx512 = Avx512F.IsSupported;
 
         int physical = Math.Max(1, logical / 2);
         int pCores = physical;
@@ -74,7 +76,23 @@ public static unsafe class HardwareGovernor
     }
 
     /// <summary>
-    /// Preenche o canal Alpha (0xFF000000) em um buffer RGBA8888 usando instruções SIMD (Vector256/Vector)
+    /// Retorna a altura ideal de faixa (strip height) para leitura RasterIO por thread,
+    /// dimensionada para manter o conjunto de trabalho de cada P-Core dentro de ~50% do Cache L2.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int GetOptimalRasterStripHeight(int dstWidth)
+    {
+        if (dstWidth <= 0) return 128;
+        int rowBytes = dstWidth * 4;
+        int targetBytes = Math.Max(128 * 1024, Topology.L2CacheBytesPerCore / 2);
+        int rows = targetBytes / Math.Max(4, rowBytes);
+        // Alinha em múltiplos de 32 linhas entre 64 e 256 (ótimo para blocos 256x256 de GeoTIFF/ECW)
+        int aligned = (rows + 15) & ~15;
+        return Math.Clamp(aligned, 64, 256);
+    }
+
+    /// <summary>
+    /// Preenche o canal Alpha (0xFF000000) em um buffer RGBA8888 usando instruções SIMD (AVX-512 / AVX2 4x unrolled / Vector)
     /// eliminando o loop escalar lento pixel a pixel após ReadRaster de 3 bandas.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -89,39 +107,84 @@ public static unsafe class HardwareGovernor
             long totalPixels = (long)width * height;
             if (totalPixels <= int.MaxValue)
             {
-                FillAlphaSpan(new Span<uint>(basePtr, (int)totalPixels));
+                FillAlphaPointer((uint*)basePtr, (int)totalPixels);
                 return;
             }
         }
 
         for (int y = 0; y < height; y++)
         {
-            FillAlphaSpan(new Span<uint>(basePtr + (long)y * stride, width));
+            FillAlphaPointer((uint*)(basePtr + (long)y * stride), width);
         }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static void FillAlphaSpan(Span<uint> pixels)
+    private static void FillAlphaPointer(uint* ptr, int length)
     {
         const uint alphaMask = 0xFF000000u;
         int i = 0;
-        int vecCount = Vector<uint>.Count;
-        if (Vector.IsHardwareAccelerated && pixels.Length >= vecCount)
+
+        if (Avx512F.IsSupported && length >= 64)
+        {
+            Vector512<uint> mask512 = Vector512.Create(alphaMask);
+            int limit64 = length - 64;
+            for (; i <= limit64; i += 64)
+            {
+                Vector512<uint> v0 = Avx512F.LoadVector512(ptr + i);
+                Vector512<uint> v1 = Avx512F.LoadVector512(ptr + i + 16);
+                Vector512<uint> v2 = Avx512F.LoadVector512(ptr + i + 32);
+                Vector512<uint> v3 = Avx512F.LoadVector512(ptr + i + 48);
+                Avx512F.Store(ptr + i, Avx512F.Or(v0, mask512));
+                Avx512F.Store(ptr + i + 16, Avx512F.Or(v1, mask512));
+                Avx512F.Store(ptr + i + 32, Avx512F.Or(v2, mask512));
+                Avx512F.Store(ptr + i + 48, Avx512F.Or(v3, mask512));
+            }
+            int limit16 = length - 16;
+            for (; i <= limit16; i += 16)
+            {
+                Vector512<uint> v = Avx512F.LoadVector512(ptr + i);
+                Avx512F.Store(ptr + i, Avx512F.Or(v, mask512));
+            }
+        }
+        else if (Avx2.IsSupported && length >= 32)
+        {
+            Vector256<uint> mask256 = Vector256.Create(alphaMask);
+            int limit32 = length - 32;
+            // 4x unrolled (32 pixels = 128 bytes = 2 cache lines por iteração)
+            for (; i <= limit32; i += 32)
+            {
+                Vector256<uint> v0 = Avx.LoadVector256(ptr + i);
+                Vector256<uint> v1 = Avx.LoadVector256(ptr + i + 8);
+                Vector256<uint> v2 = Avx.LoadVector256(ptr + i + 16);
+                Vector256<uint> v3 = Avx.LoadVector256(ptr + i + 24);
+                Avx.Store(ptr + i, Avx2.Or(v0, mask256));
+                Avx.Store(ptr + i + 8, Avx2.Or(v1, mask256));
+                Avx.Store(ptr + i + 16, Avx2.Or(v2, mask256));
+                Avx.Store(ptr + i + 24, Avx2.Or(v3, mask256));
+            }
+            int limit8 = length - 8;
+            for (; i <= limit8; i += 8)
+            {
+                Vector256<uint> v = Avx.LoadVector256(ptr + i);
+                Avx.Store(ptr + i, Avx2.Or(v, mask256));
+            }
+        }
+        else if (Vector.IsHardwareAccelerated && length >= Vector<uint>.Count)
         {
             var maskVec = new Vector<uint>(alphaMask);
-            int limit = pixels.Length - vecCount;
-            ref uint start = ref MemoryMarshal.GetReference(pixels);
+            int vecCount = Vector<uint>.Count;
+            int limit = length - vecCount;
             for (; i <= limit; i += vecCount)
             {
-                ref uint current = ref Unsafe.Add(ref start, i);
+                ref uint current = ref *(ptr + i);
                 var v = Vector.LoadUnsafe(ref current);
                 (v | maskVec).StoreUnsafe(ref current);
             }
         }
 
-        for (; i < pixels.Length; i++)
+        for (; i < length; i++)
         {
-            pixels[i] |= alphaMask;
+            ptr[i] |= alphaMask;
         }
     }
 

@@ -359,6 +359,52 @@
         .digitizing-toolbar .btn-clean { padding: 7px 9px; font-size: 11px; }
         .measurement-units { grid-template-columns: 1fr; }
     }
+
+    /* Estilos da Caixa de Ferramentas de Geoprocessamento */
+    .geo-tool-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 14px;
+        background: transparent;
+        border: none;
+        border-left: 3px solid transparent;
+        color: #94a3b8;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+        transition: all 0.15s ease;
+    }
+    .geo-tool-item:hover {
+        background: rgba(255, 255, 255, 0.04);
+        color: #f1f5f9;
+    }
+    .geo-tool-item.active {
+        background: rgba(56, 189, 248, 0.12);
+        border-left-color: #38bdf8;
+        color: #38bdf8;
+    }
+    .geo-tool-icon {
+        font-size: 14px;
+        font-weight: bold;
+        width: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .geo-tool-text {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.2;
+    }
+    .geo-tool-title {
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .geo-tool-sub {
+        font-size: 10px;
+        color: #64748b;
+    }
 </style>
 
 @if (_mostrarTelaInicialProjeto && !ProjetoService.TemProjetoAberto)
@@ -2870,6 +2916,263 @@
     <!-- ========================================================= -->
     <!-- HUD DE ENGENHARIA [TAB]: COGO POLAR                       -->
     <!-- ========================================================= -->
+    <!-- ========================================================= -->
+    <!-- DIÁLOGO UNIVERSAL DE GEOPROCESSAMENTO & ANÁLISE ESPACIAL     -->
+    <!-- ========================================================= -->
+    @if (exibirModalGeoprocessamento)
+    {
+        <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="geoprocessing-dialog-title" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
+            <div class="glass-panel" style="width: 860px; max-width: 95vw; height: auto; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); border: 1px solid rgba(255, 255, 255, 0.12);">
+                <div class="modal-header" style="background: rgba(15, 23, 42, 0.95); padding: 14px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: bold; font-size: 14px;">GEO</span>
+                        <h2 id="geoprocessing-dialog-title" style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.5px; color: #f8fafc;">Caixa de Ferramentas de Geoprocessamento</h2>
+                    </div>
+                    <button class="close-btn-red" @onclick="FecharModalGeoprocessamento" title="Fechar" disabled="@_geoprocessamentoExecutando">✕</button>
+                </div>
+
+                <div class="modal-body" style="padding: 0; display: flex; flex: 1; overflow: hidden; background: #0b1120;">
+                    <!-- COLUNA LATERAL ESQUERDA: LISTA DE OPERAÇÕES -->
+                    <div style="width: 240px; background: rgba(15, 23, 42, 0.85); border-right: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; overflow-y: auto;">
+                        <div style="padding: 10px 14px; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Sobreposição</div>
+                        <button type="button" class="geo-tool-item @(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Recortar ? "active" : "")" @onclick="() => SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento.Recortar)">
+                            <span class="geo-tool-icon">◩</span>
+                            <div class="geo-tool-text">
+                                <span class="geo-tool-title">Recortar (Clip)</span>
+                                <span class="geo-tool-sub">Corte por polígono</span>
+                            </div>
+                        </button>
+                        <button type="button" class="geo-tool-item @(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Interseccao ? "active" : "")" @onclick="() => SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento.Interseccao)">
+                            <span class="geo-tool-icon">∩</span>
+                            <div class="geo-tool-text">
+                                <span class="geo-tool-title">Intersecção</span>
+                                <span class="geo-tool-sub">Cruzamento e fusão</span>
+                            </div>
+                        </button>
+                        <button type="button" class="geo-tool-item @(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Diferenca ? "active" : "")" @onclick="() => SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento.Diferenca)">
+                            <span class="geo-tool-icon">⊟</span>
+                            <div class="geo-tool-text">
+                                <span class="geo-tool-title">Diferença</span>
+                                <span class="geo-tool-sub">Subtração booleana</span>
+                            </div>
+                        </button>
+
+                        <div style="padding: 10px 14px; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-top: 6px;">Agregação</div>
+                        <button type="button" class="geo-tool-item @(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Dissolver ? "active" : "")" @onclick="() => SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento.Dissolver)">
+                            <span class="geo-tool-icon">⊞</span>
+                            <div class="geo-tool-text">
+                                <span class="geo-tool-title">Dissolver</span>
+                                <span class="geo-tool-sub">Fronteiras e grupos</span>
+                            </div>
+                        </button>
+
+                        <div style="padding: 10px 14px; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-top: 6px;">Geometria</div>
+                        <button type="button" class="geo-tool-item @(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Buffer ? "active" : "")" @onclick="() => SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento.Buffer)">
+                            <span class="geo-tool-icon">◎</span>
+                            <div class="geo-tool-text">
+                                <span class="geo-tool-title">Buffer Vetorial</span>
+                                <span class="geo-tool-sub">Área de afastamento</span>
+                            </div>
+                        </button>
+                        <button type="button" class="geo-tool-item @(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.EnvoltoriaConvexa ? "active" : "")" @onclick="() => SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento.EnvoltoriaConvexa)">
+                            <span class="geo-tool-icon">⬡</span>
+                            <div class="geo-tool-text">
+                                <span class="geo-tool-title">Envoltória Convexa</span>
+                                <span class="geo-tool-sub">Convex hull perimetral</span>
+                            </div>
+                        </button>
+                        <button type="button" class="geo-tool-item @(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Centroides ? "active" : "")" @onclick="() => SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento.Centroides)">
+                            <span class="geo-tool-icon">·</span>
+                            <div class="geo-tool-text">
+                                <span class="geo-tool-title">Centroides e Polos</span>
+                                <span class="geo-tool-sub">Polylabel e massa</span>
+                            </div>
+                        </button>
+                    </div>
+
+                    <!-- COLUNA CENTRAL: FORMULÁRIO DE PARÂMETROS E FEEDBACK -->
+                    <div style="flex: 1; padding: 18px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 8px;">
+                            <h3 style="margin: 0; font-size: 14px; font-weight: 600; color: #e2e8f0;">@ObterTituloOperacao(_geoOperacaoAtiva)</h3>
+                            <span style="font-size: 11px; color: #94a3b8;">@ObterDescricaoCurtaOperacao(_geoOperacaoAtiva)</span>
+                        </div>
+
+                        <!-- SELEÇÃO DA CAMADA DE ENTRADA -->
+                        <div class="form-group-vertical">
+                            <label class="gis-label">Camada de Entrada</label>
+                            <select class="gis-select" @bind="_geoCamadaEntrada" @bind:after="AtualizarCaminhoDestinoPadrao" disabled="@_geoprocessamentoExecutando">
+                                @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor" && !string.IsNullOrWhiteSpace(c.CaminhoArquivo)))
+                                {
+                                    <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
+                                }
+                            </select>
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-top: 4px; cursor: pointer;">
+                                <input type="checkbox" @bind="_geoApenasSelecionadasEntrada" disabled="@_geoprocessamentoExecutando" />
+                                Processar apenas feições selecionadas na camada ativa
+                            </label>
+                        </div>
+
+                        <!-- SELEÇÃO DA CAMADA DE SOBREPOSIÇÃO / MÁSCARA (QUANDO APLICÁVEL) -->
+                        @if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Recortar ||
+                             _geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Interseccao ||
+                             _geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Diferenca)
+                        {
+                            <div class="form-group-vertical">
+                                <label class="gis-label">@(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Recortar ? "Camada de Máscara de Recorte (Polígono)" : _geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Diferenca ? "Camada de Subtração (Área a Apagar)" : "Segunda Camada para Cruzamento")</label>
+                                <select class="gis-select" @bind="_geoCamadaSobreposicao" disabled="@_geoprocessamentoExecutando">
+                                    @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor" && !string.IsNullOrWhiteSpace(c.CaminhoArquivo) && c.Nome != _geoCamadaEntrada))
+                                    {
+                                        <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
+                                    }
+                                </select>
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-top: 4px; cursor: pointer;">
+                                    <input type="checkbox" @bind="_geoApenasSelecionadasSobreposicao" disabled="@_geoprocessamentoExecutando" />
+                                    Usar apenas feições selecionadas da camada de sobreposição
+                                </label>
+                            </div>
+                        }
+
+                        <!-- PARÂMETROS ESPECÍFICOS DE DISSOLVER -->
+                        @if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Dissolver)
+                        {
+                            <div class="form-row" style="display: flex; gap: 12px;">
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Campo de Dissolucao (Opcional)</label>
+                                    <select class="gis-select" @bind="_geoCampoDissolucao" disabled="@_geoprocessamentoExecutando">
+                                        <option value="">[ Dissolver Tudo em Massa Única ]</option>
+                                        @foreach (var col in ObterColunasCamada(_geoCamadaEntrada))
+                                        {
+                                            <option value="@col">@col</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Agregação de Atributos</label>
+                                    <select class="gis-select" @bind="_geoModoAgregacao" disabled="@_geoprocessamentoExecutando">
+                                        <option value="@ModoAgregacaoDissolve.PrimeiroValor">Primeiro Valor Encontrado</option>
+                                        <option value="@ModoAgregacaoDissolve.Soma">Soma de Valores Numéricos</option>
+                                        <option value="@ModoAgregacaoDissolve.Media">Média Aritmética</option>
+                                        <option value="@ModoAgregacaoDissolve.Contagem">Contagem de Elementos</option>
+                                    </select>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- PARÂMETROS ESPECÍFICOS DE BUFFER -->
+                        @if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Buffer)
+                        {
+                            <div class="form-row" style="display: flex; gap: 12px;">
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Distância Fixa (Metros)</label>
+                                    <input type="number" step="0.5" class="glass-input" @bind="_geoDistanciaBuffer" disabled="@_geoprocessamentoExecutando" />
+                                </div>
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Segmentos de Quadrante (Suavidade)</label>
+                                    <input type="number" min="4" max="64" class="glass-input" @bind="_geoSegmentosQuadrante" disabled="@_geoprocessamentoExecutando" />
+                                </div>
+                            </div>
+                            <div class="form-row" style="display: flex; gap: 12px;">
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Terminação das Pontas (EndCap)</label>
+                                    <select class="gis-select" @bind="_geoEndCap" disabled="@_geoprocessamentoExecutando">
+                                        <option value="@BufferEndCapStyle.Round">Arredondada (Round)</option>
+                                        <option value="@BufferEndCapStyle.Flat">Reta (Flat / Perpendicular)</option>
+                                        <option value="@BufferEndCapStyle.Square">Quadrada (Square)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group-vertical" style="flex: 1;">
+                                    <label class="gis-label">Junção de Cantos (Join)</label>
+                                    <select class="gis-select" @bind="_geoJoinStyle" disabled="@_geoprocessamentoExecutando">
+                                        <option value="@BufferJoinStyle.Round">Arredondada (Round)</option>
+                                        <option value="@BufferJoinStyle.Mitre">Canto Vivo (Mitre)</option>
+                                        <option value="@BufferJoinStyle.Bevel">Chanfrada (Bevel)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; cursor: pointer;">
+                                <input type="checkbox" @bind="_geoDissolverBuffers" disabled="@_geoprocessamentoExecutando" />
+                                Dissolver sobreposições dos buffers resultantes em polígono contínuo
+                            </label>
+                        }
+
+                        <!-- PARÂMETROS ESPECÍFICOS DE CENTROIDES -->
+                        @if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Centroides)
+                        {
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; cursor: pointer;">
+                                <input type="checkbox" @bind="_geoUsarPolylabel" disabled="@_geoprocessamentoExecutando" />
+                                Usar Polo de Inacessibilidade (Polylabel) para garantir ponto dentro de polígonos côncavos
+                            </label>
+                        }
+
+                        <!-- ARQUIVO DE DESTINO -->
+                        <div class="form-group-vertical">
+                            <label class="gis-label">Arquivo de Destino (ESRI Shapefile .shp)</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" class="glass-input" style="flex: 1; font-family: monospace; font-size: 11px;" @bind="_geoCaminhoSaida" disabled="@_geoprocessamentoExecutando" />
+                                <button type="button" class="btn-cancel" style="padding: 0 12px; font-size: 11px;" @onclick="SelecionarPastaDestinoGeoprocessamentoAsync" disabled="@_geoprocessamentoExecutando">Pasta...</button>
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-top: 4px; cursor: pointer;">
+                                <input type="checkbox" @bind="_geoAdicionarAoMapa" disabled="@_geoprocessamentoExecutando" />
+                                Adicionar camada resultante ao mapa automaticamente ao concluir
+                            </label>
+                        </div>
+
+                        <!-- FEEDBACK DE EXECUÇÃO E BARRA DE PROGRESSO -->
+                        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; padding: 10px 14px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 11px; color: #94a3b8; font-family: monospace;">@_geoProgressoMensagem</span>
+                                <span style="font-size: 11px; font-weight: 700; color: #38bdf8; font-family: monospace;">@($"{(_geoProgressoPercentual * 100):F0}%")</span>
+                            </div>
+                            <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden;">
+                                <div style="height: 100%; width: @($"{Math.Clamp(_geoProgressoPercentual * 100, 0, 100):F1}%"); background: linear-gradient(90deg, #0284c7, #38bdf8); transition: width 0.15s ease-out;"></div>
+                            </div>
+                            @if (_geoTaxaFeicoesPorSegundo > 0)
+                            {
+                                <div style="margin-top: 4px; font-size: 10px; color: #64748b; font-family: monospace; text-align: right;">
+                                    Velocidade: @_geoTaxaFeicoesPorSegundo.ToString("F0") feições/segundo
+                                </div>
+                            }
+                        </div>
+
+                        <!-- LOG TÉCNICO DE EXECUÇÃO -->
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Log de Execução</span>
+                            <div style="height: 80px; background: #020617; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; padding: 6px 10px; overflow-y: auto; font-family: Consolas, monospace; font-size: 10px; color: #38bdf8; line-height: 1.4;">
+                                @if (_geoLogMensagens.Count == 0)
+                                {
+                                    <span style="color: #475569;">Aguardando início do processamento...</span>
+                                }
+                                else
+                                {
+                                    @foreach (var log in _geoLogMensagens)
+                                    {
+                                        <div>@log</div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RODAPÉ DE AÇÕES -->
+                <div class="modal-footer" style="background: rgba(15, 23, 42, 0.95); padding: 12px 20px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size: 11px; color: #64748b;">NTS 2.6 / GDAL 3.12 Core</span>
+                    <div style="display: flex; gap: 10px;">
+                        @if (_geoprocessamentoExecutando)
+                        {
+                            <button type="button" class="btn-cancel" style="background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5;" @onclick="CancelarGeoprocessamento">Interromper</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn-cancel" @onclick="FecharModalGeoprocessamento">Fechar</button>
+                            <button type="button" class="btn-save" style="background: #0284c7; border-color: #38bdf8; font-weight: 600;" @onclick="ExecutarGeoprocessamentoAsync">Executar Processo</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (exibirModalNovaCamada)
     {
         <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-layer-dialog-title" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
@@ -4978,7 +5281,7 @@
     private string _ribbonCommandSearch = string.Empty;
     private string _ribbonCommandFeedback = string.Empty;
     private ModoFerramenta? _ferramentaPendenteTroca;
-    private static readonly string[] RibbonTabs = ["Mapa", "Camadas", "Vetorização"];
+    private static readonly string[] RibbonTabs = ["Mapa", "Camadas", "Vetorização", "Geoprocessamento"];
 
     private IReadOnlyList<RibbonCommand> RibbonCommands
     {
@@ -4994,6 +5297,23 @@
                 new("Camadas", "Atributos", "Abrir tabela de atributos", "▦", "tabela atributos registros", "Abre a tabela da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(async () => await AbrirTabela(CamadaAtivaFerramentas!.Nome))),
                 new("Camadas", "Camada ativa", "Propriedades da camada", "⚙", "camada simbologia estilo propriedades", "Abre as propriedades da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(() => AbrirPropriedadesSincronizadas(CamadaAtivaFerramentas!.Nome))),
                 new("Camadas", "Exportação", "Exportar camada", "⇧", "exportar vetor shp geojson kml", "Exporta uma camada vetorial para outro formato.", CamadasAtivas.Any(camada => camada.Tipo == "Vetor" && !camada.PendenteReconexao && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo)), CreateRibbonCommand(AbrirModalExportacao)),
+
+                // Geoprocessamento - Sobreposição
+                new("Geoprocessamento", "Sobreposição", "Recortar (Clip)", "◩", "recortar clip mascara corte poligono", "Recorta feições de uma camada pelo limite de uma máscara.", CamadasAtivas.Count(c => c.Tipo == "Vetor") >= 2, CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Recortar))),
+                new("Geoprocessamento", "Sobreposição", "Intersecção", "∩", "interseccao cruzar sobreposicao", "Cruza duas camadas mantendo apenas a sobreposição e unindo atributos.", CamadasAtivas.Count(c => c.Tipo == "Vetor") >= 2, CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Interseccao))),
+                new("Geoprocessamento", "Sobreposição", "Diferença", "⊟", "diferenca apagar erase subtrair", "Subtrai as áreas de uma camada de sobreposição da camada de entrada.", CamadasAtivas.Count(c => c.Tipo == "Vetor") >= 2, CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Diferenca))),
+
+                // Geoprocessamento - Agregação
+                new("Geoprocessamento", "Agregação", "Dissolver", "⊞", "dissolver agrupar unificar fronteiras", "Funde feições adjacentes eliminando fronteiras internas comuns.", CamadasAtivas.Any(c => c.Tipo == "Vetor"), CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Dissolver))),
+
+                // Geoprocessamento - Geometria
+                new("Geoprocessamento", "Geometria", "Buffer vetorial", "◎", "buffer zona amortecimento faixa", "Gera zonas de amortecimento equidistantes ao redor das feições.", CamadasAtivas.Any(c => c.Tipo == "Vetor"), CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Buffer))),
+                new("Geoprocessamento", "Geometria", "Envoltória convexa", "⬡", "envoltoria convexa convex hull fecho", "Gera o menor polígono convexo que engloba as feições.", CamadasAtivas.Any(c => c.Tipo == "Vetor"), CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.EnvoltoriaConvexa))),
+                new("Geoprocessamento", "Geometria", "Centroides e polos", "·", "centroides polos inacessibilidade polylabel", "Extrai pontos centrais ou polos de inacessibilidade de polígonos.", CamadasAtivas.Any(c => c.Tipo == "Vetor"), CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Centroides))),
+
+                // Geoprocessamento - Execução
+                new("Geoprocessamento", "Execução", "Caixa de ferramentas", "⚙", "toolbox caixa ferramentas geoprocessamento", "Abre o diálogo completo de análise espacial.", CamadasAtivas.Any(c => c.Tipo == "Vetor"), CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Recortar))),
+                new("Geoprocessamento", "Execução", "Cancelar processo", "×", "cancelar interromper parar geoprocessamento", "Interrompe imediatamente a operação de geoprocessamento em andamento.", _geoprocessamentoExecutando, CreateRibbonCommand(CancelarGeoprocessamento)),
 
                 new("Vetorização", "Criação", "Criar geometria", "◇", "desenhar vetor ponto linha poligono", "Inicia o desenho de uma feição na camada vetorial ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AtivarModoVetorizacao)),
                 new("Vetorização", "Criação", _vectorCutMode ? "Aplicar corte" : _vectorRingMode ? "Aplicar anel interno" : _vectorReshapeMode ? "Aplicar remodelagem" : "Concluir esboço", "✓", "finalizar desenho corte anel remodelagem feicao", "Conclui o desenho ou aplica a operação ativa quando há pontos suficientes.", FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count >= MinimoPontosAquisicao, CreateRibbonCommand(ConcluirAquisicaoGeometrica)),
@@ -5322,6 +5642,295 @@
     // =========================================================
     // VARIÁVEIS PARA ALOCAÇÃO DE DATASET VETORIAL (FASE 1)
     // =========================================================
+    // =========================================================
+    // VARIÁVEIS E CONTROLADORES DE GEOPROCESSAMENTO AVANÇADO
+    // =========================================================
+    private bool exibirModalGeoprocessamento = false;
+    private TipoOperacaoGeoprocessamento _geoOperacaoAtiva = TipoOperacaoGeoprocessamento.Recortar;
+    private string _geoCamadaEntrada = "";
+    private string _geoCamadaSobreposicao = "";
+    private bool _geoApenasSelecionadasEntrada = false;
+    private bool _geoApenasSelecionadasSobreposicao = false;
+    private double _geoDistanciaBuffer = 15.0;
+    private string? _geoCampoDistanciaBuffer = null;
+    private int _geoSegmentosQuadrante = 16;
+    private BufferEndCapStyle _geoEndCap = BufferEndCapStyle.Round;
+    private BufferJoinStyle _geoJoinStyle = BufferJoinStyle.Round;
+    private bool _geoDissolverBuffers = false;
+    private string? _geoCampoDissolucao = null;
+    private ModoAgregacaoDissolve _geoModoAgregacao = ModoAgregacaoDissolve.PrimeiroValor;
+    private bool _geoModoEnvoltoriaGlobal = true;
+    private bool _geoUsarPolylabel = true;
+    private double _geoToleranciaSnap = 0.001;
+    private string _geoCaminhoSaida = "";
+    private bool _geoAdicionarAoMapa = true;
+    private bool _geoprocessamentoExecutando = false;
+    private double _geoProgressoPercentual = 0.0;
+    private string _geoProgressoMensagem = "Pronto para processar.";
+    private double _geoTaxaFeicoesPorSegundo = 0.0;
+    private readonly List<string> _geoLogMensagens = new();
+    private CancellationTokenSource? _geoCts;
+
+    private void AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento operacao)
+    {
+        _geoOperacaoAtiva = operacao;
+        var camadasVetoriais = CamadasAtivas.Where(c => c.Tipo == "Vetor" && !string.IsNullOrWhiteSpace(c.CaminhoArquivo)).ToList();
+
+        if (string.IsNullOrWhiteSpace(_geoCamadaEntrada) || !camadasVetoriais.Any(c => c.Nome == _geoCamadaEntrada))
+        {
+            _geoCamadaEntrada = CamadaAtivaFerramentas?.Nome ?? camadasVetoriais.FirstOrDefault()?.Nome ?? "";
+        }
+
+        if (string.IsNullOrWhiteSpace(_geoCamadaSobreposicao) || _geoCamadaSobreposicao == _geoCamadaEntrada)
+        {
+            _geoCamadaSobreposicao = camadasVetoriais.FirstOrDefault(c => c.Nome != _geoCamadaEntrada)?.Nome ?? "";
+        }
+
+        AtualizarCaminhoDestinoPadrao();
+        _geoProgressoPercentual = 0;
+        _geoProgressoMensagem = "Pronto para executar.";
+        _geoTaxaFeicoesPorSegundo = 0;
+        exibirModalGeoprocessamento = true;
+        StateHasChanged();
+    }
+
+    private void FecharModalGeoprocessamento()
+    {
+        if (_geoprocessamentoExecutando) return;
+        exibirModalGeoprocessamento = false;
+        StateHasChanged();
+    }
+
+    private void SelecionarOperacaoGeoprocessamento(TipoOperacaoGeoprocessamento op)
+    {
+        if (_geoprocessamentoExecutando) return;
+        _geoOperacaoAtiva = op;
+        AtualizarCaminhoDestinoPadrao();
+        StateHasChanged();
+    }
+
+    private void AtualizarCaminhoDestinoPadrao()
+    {
+        try
+        {
+            string pastaBase = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (!string.IsNullOrWhiteSpace(_geoCamadaEntrada))
+            {
+                var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == _geoCamadaEntrada);
+                if (camada != null && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo))
+                {
+                    string dir = System.IO.Path.GetDirectoryName(camada.CaminhoArquivo) ?? pastaBase;
+                    if (System.IO.Directory.Exists(dir)) pastaBase = dir;
+                }
+            }
+
+            string sufixo = _geoOperacaoAtiva switch
+            {
+                TipoOperacaoGeoprocessamento.Recortar => "recortado",
+                TipoOperacaoGeoprocessamento.Interseccao => "interseccao",
+                TipoOperacaoGeoprocessamento.Diferenca => "diferenca",
+                TipoOperacaoGeoprocessamento.Dissolver => "dissolvido",
+                TipoOperacaoGeoprocessamento.Buffer => "buffer",
+                TipoOperacaoGeoprocessamento.EnvoltoriaConvexa => "envoltoria",
+                TipoOperacaoGeoprocessamento.Centroides => "centroides",
+                _ => "processado"
+            };
+
+            string nomeBase = string.IsNullOrWhiteSpace(_geoCamadaEntrada) ? "camada" : _geoCamadaEntrada.Trim().Replace(" ", "_");
+            _geoCaminhoSaida = System.IO.Path.Combine(pastaBase, $"{nomeBase}_{sufixo}.shp");
+        }
+        catch { }
+    }
+
+    private async Task SelecionarPastaDestinoGeoprocessamentoAsync()
+    {
+        try
+        {
+            var res = await CommunityToolkit.Maui.Storage.FolderPicker.Default.PickAsync(default);
+            if (res.IsSuccessful && !string.IsNullOrWhiteSpace(res.Folder?.Path))
+            {
+                string nomeArquivo = System.IO.Path.GetFileName(_geoCaminhoSaida);
+                if (string.IsNullOrWhiteSpace(nomeArquivo)) nomeArquivo = "resultado_geoprocessamento.shp";
+                _geoCaminhoSaida = System.IO.Path.Combine(res.Folder.Path, nomeArquivo);
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void CancelarGeoprocessamento()
+    {
+        _geoCts?.Cancel();
+        _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Cancelamento solicitado pelo usuário...");
+        StateHasChanged();
+    }
+
+    private async Task ExecutarGeoprocessamentoAsync()
+    {
+        if (_geoprocessamentoExecutando) return;
+
+        var camadaEntradaObj = CamadasAtivas.FirstOrDefault(c => c.Nome == _geoCamadaEntrada);
+        if (camadaEntradaObj == null || string.IsNullOrWhiteSpace(camadaEntradaObj.CaminhoArquivo))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Selecione uma camada de entrada válida.");
+            return;
+        }
+
+        string? caminhoSobreposicao = null;
+        if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Recortar ||
+            _geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Interseccao ||
+            _geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Diferenca)
+        {
+            var camadaSobObj = CamadasAtivas.FirstOrDefault(c => c.Nome == _geoCamadaSobreposicao);
+            if (camadaSobObj == null || string.IsNullOrWhiteSpace(camadaSobObj.CaminhoArquivo))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Selecione uma camada de sobreposição válida.");
+                return;
+            }
+            caminhoSobreposicao = camadaSobObj.CaminhoArquivo;
+        }
+
+        if (string.IsNullOrWhiteSpace(_geoCaminhoSaida))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Especifique o arquivo Shapefile de destino.");
+            return;
+        }
+
+        _geoprocessamentoExecutando = true;
+        _geoLogMensagens.Clear();
+        _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Iniciando operação: {ObterTituloOperacao(_geoOperacaoAtiva)}");
+        _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Camada de Entrada: {_geoCamadaEntrada}");
+        if (caminhoSobreposicao != null)
+            _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Camada de Sobreposição: {_geoCamadaSobreposicao}");
+
+        _geoCts?.Cancel();
+        _geoCts = new CancellationTokenSource();
+
+        var progresso = new Progress<GeoprocessingProgress>(p =>
+        {
+            _geoProgressoPercentual = p.Percentual;
+            _geoProgressoMensagem = p.Mensagem;
+            _geoTaxaFeicoesPorSegundo = p.FeicoesPorSegundo;
+            if (!string.IsNullOrWhiteSpace(p.Mensagem))
+            {
+                _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] {p.Mensagem}");
+                if (_geoLogMensagens.Count > 30) _geoLogMensagens.RemoveAt(0);
+            }
+            InvokeAsync(StateHasChanged);
+        });
+
+        var parametros = new GeoprocessingParameters(
+            Operacao: _geoOperacaoAtiva,
+            NomeCamadaEntrada: _geoCamadaEntrada,
+            NomeCamadaSobreposicao: _geoCamadaSobreposicao,
+            ApenasSelecionadasEntrada: _geoApenasSelecionadasEntrada,
+            ApenasSelecionadasSobreposicao: _geoApenasSelecionadasSobreposicao,
+            DistanciaBufferMetros: _geoDistanciaBuffer,
+            CampoDistanciaBuffer: _geoCampoDistanciaBuffer,
+            SegmentosQuadranteBuffer: _geoSegmentosQuadrante,
+            EndCapBuffer: _geoEndCap,
+            JoinBuffer: _geoJoinStyle,
+            DissolverBuffers: _geoDissolverBuffers,
+            CampoDissolucao: string.IsNullOrWhiteSpace(_geoCampoDissolucao) ? null : _geoCampoDissolucao,
+            AgregacaoDissolucao: _geoModoAgregacao,
+            ModoEnvoltoriaGlobal: _geoModoEnvoltoriaGlobal,
+            UsarPolylabelEmCentroides: _geoUsarPolylabel,
+            ToleranciaSnapMetros: _geoToleranciaSnap,
+            CaminhoArquivoSaida: _geoCaminhoSaida,
+            AdicionarAoMapaAoConcluir: _geoAdicionarAoMapa
+        );
+
+        try
+        {
+            var res = await GeoprocessingEngine.ExecutarAsync(
+                parametros,
+                camadaEntradaObj.CaminhoArquivo,
+                caminhoSobreposicao,
+                progresso: progresso,
+                ct: _geoCts.Token);
+
+            if (res.Sucesso)
+            {
+                _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] SUCESSO: {res.TotalFeicoesCriadas} feições geradas em {res.TempoDecorrido.TotalSeconds:F2}s");
+                _geoProgressoMensagem = $"Concluído com sucesso ({res.TotalFeicoesCriadas} feições).";
+
+                if (_geoAdicionarAoMapa && !string.IsNullOrWhiteSpace(res.CaminhoCamadaGerada) && System.IO.File.Exists(res.CaminhoCamadaGerada))
+                {
+                    string nomeNovaCamada = System.IO.Path.GetFileNameWithoutExtension(res.CaminhoCamadaGerada);
+                    _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Injetando '{nomeNovaCamada}' no mapa...");
+                    caminhoArquivoVetor = res.CaminhoCamadaGerada;
+                    await AdicionarVetorAoMapa(nomeNovaCamada);
+                }
+            }
+            else
+            {
+                _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] FALHA: {res.MensagemErro}");
+                _geoProgressoMensagem = $"Falha: {res.MensagemErro}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] ERRO INESPERADO: {ex.Message}");
+            _geoProgressoMensagem = "Erro na execução do processo.";
+        }
+        finally
+        {
+            _geoprocessamentoExecutando = false;
+            StateHasChanged();
+        }
+    }
+
+    private IEnumerable<string> ObterColunasCamada(string nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return Enumerable.Empty<string>();
+        var camada = CamadasAtivas.FirstOrDefault(c => c.Nome == nomeCamada);
+        if (camada != null && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo) && System.IO.File.Exists(camada.CaminhoArquivo))
+        {
+            try
+            {
+                using var ds = OSGeo.OGR.Ogr.Open(camada.CaminhoArquivo, 0);
+                if (ds != null && ds.GetLayerCount() > 0)
+                {
+                    using var l = ds.GetLayerByIndex(0);
+                    using var defn = l.GetLayerDefn();
+                    var cols = new List<string>(defn.GetFieldCount());
+                    for (int i = 0; i < defn.GetFieldCount(); i++)
+                    {
+                        using var fd = defn.GetFieldDefn(i);
+                        cols.Add(fd.GetName());
+                    }
+                    return cols;
+                }
+            }
+            catch { }
+        }
+        return Enumerable.Empty<string>();
+    }
+
+    private static string ObterTituloOperacao(TipoOperacaoGeoprocessamento op) => op switch
+    {
+        TipoOperacaoGeoprocessamento.Recortar => "Recortar Camada (Clip)",
+        TipoOperacaoGeoprocessamento.Interseccao => "Intersecção de Camadas",
+        TipoOperacaoGeoprocessamento.Diferenca => "Diferença Espacial (Erase)",
+        TipoOperacaoGeoprocessamento.Dissolver => "Dissolver Geometrias",
+        TipoOperacaoGeoprocessamento.Buffer => "Zona de Amortecimento (Buffer)",
+        TipoOperacaoGeoprocessamento.EnvoltoriaConvexa => "Envoltória Convexa (Convex Hull)",
+        TipoOperacaoGeoprocessamento.Centroides => "Extração de Centroides e Polos",
+        _ => op.ToString()
+    };
+
+    private static string ObterDescricaoCurtaOperacao(TipoOperacaoGeoprocessamento op) => op switch
+    {
+        TipoOperacaoGeoprocessamento.Recortar => "Recorta feições de entrada pelos polígonos de máscara.",
+        TipoOperacaoGeoprocessamento.Interseccao => "Calcula o cruzamento geométrico e funde tabelas de atributos.",
+        TipoOperacaoGeoprocessamento.Diferenca => "Subtrai as áreas sobrepostas da máscara na camada de entrada.",
+        TipoOperacaoGeoprocessamento.Dissolver => "Unifica polígonos adjacentes eliminando fronteiras internas.",
+        TipoOperacaoGeoprocessamento.Buffer => "Gera faixas equidistantes ao redor de pontos, linhas ou polígonos.",
+        TipoOperacaoGeoprocessamento.EnvoltoriaConvexa => "Gera o menor polígono convexo que engloba as geometrias.",
+        TipoOperacaoGeoprocessamento.Centroides => "Extrai pontos centrais ou polos de inacessibilidade (Polylabel).",
+        _ => ""
+    };
+
     private bool exibirModalNovaCamada = false;
     private string novaCamadaNome = "";
     private string novaCamadaFormato = "SHP";

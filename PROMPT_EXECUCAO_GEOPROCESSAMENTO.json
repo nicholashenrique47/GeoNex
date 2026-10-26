@@ -1,0 +1,956 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "prompt_metadata": {
+    "title": "GeoNex Heavy Engineering Execution Blueprint: Advanced Vector Geoprocessing & Spatial Analysis Engine",
+    "description": "Comprehensive, deterministic, step-by-step execution prompt in JSON format to implement the complete QGIS Processing and ArcGIS Pro Analysis Toolbox equivalent into GeoNex (.NET 10 / C# / SkiaSharp / NTS / GDAL).",
+    "target_engine": "GeoNex Desktop GIS Core",
+    "standards_parity": [
+      "QGIS 3.34+ LTR Processing Framework (QgsProcessingAlgorithm)",
+      "ArcGIS Pro 3.x Analysis & Geoprocessing Toolbox (Overlay, Proximity, Aggregation)",
+      "OGC Simple Features Access for SQL (SFA-SQL / ISO 19125)",
+      "OGC DE-9IM Dimensional Extended 9-Intersection Model"
+    ],
+    "execution_mode": "Autonomous High-Performance Engineering",
+    "target_framework": "net10.0-windows10.0.19041.0",
+    "zero_emoji_policy": true,
+    "strict_memory_discipline": "Zero-allocation in rendering loops; STRtree 2D spatial indexing for O(N log M) batch overlays"
+  },
+  "architectural_mandates": {
+    "threading_and_concurrency": {
+      "execution_thread": "Dedicated background worker (Task.Run) decoupled from Blazor Server/Hybrid UI thread",
+      "progress_notification": "System.IProgress<GeoprocessingProgress> with percentage (0.0 to 1.0), processed count, total count, elapsed time, and rate (features/sec)",
+      "cancellation": "System.Threading.CancellationToken checked every batch iteration; cooperative termination within 50ms without leaking temp files",
+      "semaphore_guard": "System.Threading.SemaphoreSlim(1, 1) to prevent race conditions during concurrent geoprocessing executions",
+      "ui_synchronization": "InvokeAsync(StateHasChanged) throttling (maximum 10 UI repaints per second) to prevent Webview message saturation"
+    },
+    "spatial_indexing": {
+      "algorithm": "Sort-Tile-Recursive 2D Packing Tree (NetTopologySuite.Index.Strtree.STRtree<T>)",
+      "node_capacity": 10,
+      "bounding_box_filter": "Mandatory EnvelopeInternal intersection check prior to invoking full geometric predicate (Intersects/Intersection/Difference)",
+      "mask_preprocessing": "Pre-unification of multi-polygon masks using NetTopologySuite.Operation.Union.CascadedPolygonUnion",
+      "fast_path_containment": "If input feature bounding box is fully contained within mask polygon and mask.Contains(feature) is true, bypass geometric cutting"
+    },
+    "coordinate_reference_systems": {
+      "on_the_fly_reprojection": "Dynamic CoordinateTransformation (OSGeo.OSR) if Layer A and Layer B CRS differ",
+      "metric_preservation": "Geodesic vs Cartesian distance auto-detection; planar UTM metric computation for buffers; WGS84 angular conversion guard",
+      "projection_file_generation": "ESRI Shapefile .prj generation in compliant OGC/ESRI WKT format",
+      "datum_transformation_grids": "Support for NTv2 or proj datum shift when transforming between SAD69, Córrego Alegre, SIRGAS2000, and WGS84"
+    },
+    "topological_resilience": {
+      "validation_pipeline": "IsValidOp check before executing boolean operations",
+      "auto_repair_level_1": "Buffer(0) repair for self-intersecting rings (bow-tie polygons)",
+      "auto_repair_level_2": "SnapRounding / Micro-grid precision reduction for floating-point arithmetic drift",
+      "auto_repair_level_3": "Polygonizer rebuilding from noded linestrings",
+      "sliver_polygon_filtering": "Automatic elimination of degenerate polygons whose area is below tolerance threshold (1e-7 m²)"
+    },
+    "attribute_engineering": {
+      "dbf_10_character_rule": "Strict truncation of column names exceeding 10 bytes ASCII",
+      "collision_resolution": "Deterministic suffixing (_1, _2, _3) when Layer A and Layer B contain identical field names",
+      "type_preservation": "Exact mapping between NTS AttributesTable and OGR FieldType (OFTInteger, OFTInteger64, OFTReal, OFTString, OFTDate)",
+      "codepage_handling": "Writing corresponding .cpg file with UTF-8 or CP1252 declaration to prevent character corruption"
+    },
+    "ui_styling_and_ux": {
+      "emoji_rule": "Zero emojis in all UI code, button labels, logs, menus, and modals",
+      "visual_style": "Enterprise Cartographic Desktop (dark slate palette, SVG vector icons, monospace technical metrics, high-density parameter inputs)",
+      "real_time_canvas_update": "Automatic injection of output layer into active project layers with immediate SkiaSharp layer dispatch",
+      "keyboard_shortcuts": "Esc to cancel modal, Enter to execute when parameters are valid"
+    }
+  },
+  "phase_execution_pipeline": [
+    {
+      "phase_number": 1,
+      "phase_name": "Data Contracts & Core Spatial Overlay Algorithms",
+      "objective": "Define all data transfer objects, progress models, parameters records, and implement Clip, Intersection, and Difference algorithms.",
+      "deliverables": [
+        "GeoNex/Services/GeoprocessingTypes.cs",
+        "GeoNex/Services/VectorOverlayAlgorithms.cs"
+      ],
+      "tasks": [
+        {
+          "task_id": "T1.1",
+          "action": "Create GeoprocessingTypes.cs",
+          "file": "GeoNex/Services/GeoprocessingTypes.cs",
+          "specifications": [
+            "Define enum TipoOperacaoGeoprocessamento (Recortar, Interseccao, Diferenca, Dissolver, Buffer, EnvoltoriaConvexa, Centroides, UniaoEspacial)",
+            "Define enum BufferEndCapStyle (Round, Flat, Square)",
+            "Define enum BufferJoinStyle (Round, Mitre, Bevel)",
+            "Define enum ModoAgregacaoDissolve (PrimeiroValor, Soma, Media, Contagem)",
+            "Define sealed record GeoprocessingParameters with complete configuration properties",
+            "Define readonly record struct GeoprocessingProgress(double Percentual, string Mensagem, int FeicoesProcessadas, int TotalFeicoes, double FeicoesPorSegundo)",
+            "Define sealed record GeoprocessingResult(bool Sucesso, int TotalFeicoesCriadas, string? CaminhoCamadaGerada, string? MensagemErro, TimeSpan TempoDecorrido)"
+          ],
+          "csharp_contract": {
+            "namespace": "GeoNex.Services",
+            "required_types": [
+              "public enum TipoOperacaoGeoprocessamento",
+              "public enum BufferEndCapStyle",
+              "public enum BufferJoinStyle",
+              "public enum ModoAgregacaoDissolve",
+              "public sealed record GeoprocessingParameters",
+              "public readonly record struct GeoprocessingProgress",
+              "public sealed record GeoprocessingResult"
+            ]
+          }
+        },
+        {
+          "task_id": "T1.2",
+          "action": "Create VectorOverlayAlgorithms.cs",
+          "file": "GeoNex/Services/VectorOverlayAlgorithms.cs",
+          "specifications": [
+            "Implement ExecutarRecorte (Clip): BBox filter via envelope, CascadedPolygonUnion for mask, fast containment check, NTS Intersection with dimension preservation",
+            "Implement ExecutarInterseccao (Intersection): Dual STRtree indexing, envelope queries, NTS Intersection, DBF schema merger with name deduplication",
+            "Implement ExecutarDiferenca (Difference): Cascaded mask union, BBox exclusion, NTS Difference with sliver cleanup and multi-polygon extraction"
+          ],
+          "csharp_contract": {
+            "namespace": "GeoNex.Services",
+            "class_name": "VectorOverlayAlgorithms",
+            "methods": [
+              "public static List<Feature> ExecutarRecorte(IReadOnlyList<Feature> feicoesEntrada, Geometry mascaraUnificada, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)",
+              "public static List<Feature> ExecutarInterseccao(IReadOnlyList<Feature> feicoesA, IReadOnlyList<Feature> feicoesB, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)",
+              "public static List<Feature> ExecutarDiferenca(IReadOnlyList<Feature> feicoesEntrada, Geometry mascaraSubtracao, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "phase_number": 2,
+      "phase_name": "Aggregation, Proximity & Geometrical Derivation Algorithms",
+      "objective": "Implement Dissolve with categorical grouping and attribute summaries, Multi-segmented Buffer, Convex Hull, and Centroids / Polylabel extraction.",
+      "deliverables": [
+        "GeoNex/Services/VectorAggregationAlgorithms.cs",
+        "GeoNex/Services/VectorGeometryAlgorithms.cs"
+      ],
+      "tasks": [
+        {
+          "task_id": "T2.1",
+          "action": "Create VectorAggregationAlgorithms.cs",
+          "file": "GeoNex/Services/VectorAggregationAlgorithms.cs",
+          "specifications": [
+            "Implement ExecutarDissolucao (Dissolve): GroupBy attribute key or Dissolve All; CascadedPolygonUnion for adjacent polygons; Attribute aggregation (First, Sum, Mean, Count)",
+            "Implement ExecutarMesclagemCamadas (Layer Merge): Schema unification and multi-layer feature combining"
+          ],
+          "csharp_contract": {
+            "namespace": "GeoNex.Services",
+            "class_name": "VectorAggregationAlgorithms",
+            "methods": [
+              "public static List<Feature> ExecutarDissolucao(IReadOnlyList<Feature> feicoes, string? campoAgrupamento, ModoAgregacaoDissolve modoAgregacao, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)",
+              "public static List<Feature> ExecutarMesclagemCamadas(IReadOnlyList<IReadOnlyList<Feature>> camadasFeicoes, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)"
+            ]
+          }
+        },
+        {
+          "task_id": "T2.2",
+          "action": "Create VectorGeometryAlgorithms.cs",
+          "file": "GeoNex/Services/VectorGeometryAlgorithms.cs",
+          "specifications": [
+            "Implement ExecutarBuffer: BufferParameters with configurable QuadrantSegments (4 to 64), EndCapStyle (Round/Flat/Square), JoinStyle (Mitre/Round/Bevel); Optional buffer dissolving",
+            "Implement ExecutarEnvoltoriaConvexa (Convex Hull): Global layer convex hull or per-feature / categorical hull using NTS ConvexHull",
+            "Implement ExecutarCentroides: Mass center computation (Centroid) and Polylabel interior point fallback for concave polygons via LabelPlacementEngine"
+          ],
+          "csharp_contract": {
+            "namespace": "GeoNex.Services",
+            "class_name": "VectorGeometryAlgorithms",
+            "methods": [
+              "public static List<Feature> ExecutarBuffer(IReadOnlyList<Feature> feicoes, double distancia, string? campoDistancia, int segmentosQuadrante, BufferEndCapStyle endCap, BufferJoinStyle joinStyle, bool dissolver, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)",
+              "public static List<Feature> ExecutarEnvoltoriaConvexa(IReadOnlyList<Feature> feicoes, bool global, string? campoAgrupamento, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)",
+              "public static List<Feature> ExecutarCentroides(IReadOnlyList<Feature> feicoes, bool usarPolylabel, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "phase_number": 3,
+      "phase_name": "Async Geoprocessing Engine & OGR Shapefile Persistence",
+      "objective": "Build the central async orchestrator GeoprocessingEngine with multithreading, progress reporting, cancellation, on-the-fly reprojection, and atomic Shapefile writing.",
+      "deliverables": [
+        "GeoNex/Services/GeoprocessingEngine.cs"
+      ],
+      "tasks": [
+        {
+          "task_id": "T3.1",
+          "action": "Create GeoprocessingEngine.cs",
+          "file": "GeoNex/Services/GeoprocessingEngine.cs",
+          "specifications": [
+            "Thread-safe singleton with SemaphoreSlim to control concurrent execution",
+            "Public method Task<GeoprocessingResult> ExecutarAsync(GeoprocessingParameters parametros, IProgress<GeoprocessingProgress>? progresso, CancellationToken ct)",
+            "Automatic feature extraction from memory or disk (via FastShapeReader or GDAL/OGR Layer)",
+            "On-The-Fly CRS alignment using OSGeo.OSR.CoordinateTransformation",
+            "Topology sanitization pipeline with Buffer(0) fallbacks",
+            "Atomic Shapefile writing with .shp, .shx, .dbf, and .prj generation via GDAL OGR Driver",
+            "Automatic registration into active project layers collection (CamadasAtivas) with immediate SkiaSharp map repaint trigger"
+          ],
+          "csharp_contract": {
+            "namespace": "GeoNex.Services",
+            "class_name": "GeoprocessingEngine",
+            "methods": [
+              "public static Task<GeoprocessingResult> ExecutarAsync(GeoprocessingParameters parametros, IProgress<GeoprocessingProgress>? progresso = null, CancellationToken ct = default)",
+              "public static void SalvarShapefile(string caminhoShp, IReadOnlyList<Feature> feicoes, SpatialReference srs)",
+              "public static Geometry RepararGeometriaSeInvalida(Geometry geom)",
+              "public static SpatialReference ObterSpatialReference(string? crsWktOuEpsg)"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "phase_number": 4,
+      "phase_name": "Enterprise Cartographic UI (Ribbon & Universal Geoprocessing Modal)",
+      "objective": "Add 'Geoprocessamento' ribbon tab and construct the professional parameters dialog with live progress, feature rate, and technical execution log.",
+      "deliverables": [
+        "GeoNex/Components/Pages/Home.razor",
+        "GeoNex/Components/Pages/Home.razor.css"
+      ],
+      "tasks": [
+        {
+          "task_id": "T4.1",
+          "action": "Add Geoprocessamento Ribbon Tab in Home.razor",
+          "file": "GeoNex/Components/Pages/Home.razor",
+          "specifications": [
+            "Update RibbonTabs array: ['Mapa', 'Camadas', 'Vetorização', 'Geoprocessamento']",
+            "Add RibbonCommands for Geoprocessamento with SVG vector icons: Recortar, Intersecção, Diferença, União Espacial, Dissolver, Buffer, Envoltória Convexa, Centroides, Histórico/Logs",
+            "Hook click handlers to open Geoprocessing modal pre-selecting the respective tool"
+          ]
+        },
+        {
+          "task_id": "T4.2",
+          "action": "Implement Universal Geoprocessing Modal in Home.razor",
+          "file": "GeoNex/Components/Pages/Home.razor",
+          "specifications": [
+            "Construct modal container with left-hand tool selector list and right-hand technical parameter sheet",
+            "Input layer and overlay layer drop-down selectors populated dynamically from CamadasAtivas",
+            "Checkboxes for 'Processar apenas feições selecionadas'",
+            "Numerical inputs for buffer distance, quadrant segments, tolerance, and dissolve field selector",
+            "File picker destination input for output Shapefile path",
+            "Real-time visual progress bar with percentage, features/sec velocity, and remaining time calculation",
+            "Technical execution log console with timestamps, CRS alerts, and topological warning reports",
+            "Action buttons: [Executar Processo], [Cancelar], [Fechar]",
+            "Strict zero-emoji compliance across all markup and feedback messages"
+          ]
+        }
+      ]
+    },
+    {
+      "phase_number": 5,
+      "phase_name": "Automated Test Suite (GeoprocessingCore) & Quality Gate",
+      "objective": "Build automated test project tests/GeoprocessingCore, validate all 8 algorithms with hundreds of mathematical assertions, execute regression tests, and ensure 0 compilation errors.",
+      "deliverables": [
+        "tests/GeoprocessingCore/GeoprocessingCore.csproj",
+        "tests/GeoprocessingCore/Program.cs"
+      ],
+      "tasks": [
+        {
+          "task_id": "T5.1",
+          "action": "Create GeoprocessingCore Test Project",
+          "file": "tests/GeoprocessingCore/GeoprocessingCore.csproj",
+          "specifications": [
+            "Link NTS, GDAL, SkiaSharp, and GeoNex geoprocessing source files",
+            "Target net10.0 with implicit usings and nullable enable"
+          ]
+        },
+        {
+          "task_id": "T5.2",
+          "action": "Implement Test Suite in tests/GeoprocessingCore/Program.cs",
+          "file": "tests/GeoprocessingCore/Program.cs",
+          "specifications": [
+            "Module 1: Clip Algorithm (Polygons, Lines, Points against concave mask)",
+            "Module 2: Intersection Algorithm (Overlapping geometries with DBF schema merge and duplicate column resolution)",
+            "Module 3: Difference Algorithm (Subtraction producing MultiPolygons and holes)",
+            "Module 4: Dissolve Algorithm (Dissolve All and Dissolve by categorical attribute with count/sum aggregations)",
+            "Module 5: Buffer Engine (Fixed distance, smooth arcing with 16 quadrant segments, EndCap/Join styles, and buffer dissolve)",
+            "Module 6: Convex Hull (Irregular polygons and point clouds)",
+            "Module 7: Centroids & Polylabel (Mass center and interior point clearance in concave horseshoe polygons)",
+            "Module 8: Stress & Performance Benchmark (20,000 features processed with STRtree under 800ms)",
+            "Assert 100% pass rate across all modules"
+          ]
+        },
+        {
+          "task_id": "T5.3",
+          "action": "Execute Regression Verification & Release Build",
+          "specifications": [
+            "Run tests/GeoprocessingCore",
+            "Run tests/SymbologyCore",
+            "Run tests/DigitizingCore",
+            "Run tests/PrintScale",
+            "Run tests/VectorRenderIndex",
+            "Run tests/ProjectPersistence",
+            "Execute dotnet build GeoNex/GeoNex.csproj -c Release -p:GeoNexBuildNative=false -v:q and verify 0 Errors"
+          ]
+        }
+      ]
+    }
+  ],
+  "detailed_algorithm_specifications": {
+    "clip_algorithm": {
+      "name": "Recortar (Vector Clip)",
+      "mathematical_definition": "G'_i = G_i ∩ (⋃_{j=1}^m G_{mask,j})",
+      "spatial_predicate": "Intersection with topological dimension guard: dim(G'_i) == dim(G_i)",
+      "time_complexity": "O(N log M + K) with STRtree 2D pre-indexing",
+      "input_requirements": "Input layer: Points, Lines, Polygons; Mask layer: Polygon or MultiPolygon",
+      "schema_behavior": "Input layer attributes copied 100% intact; mask attributes discarded",
+      "edge_cases": [
+        "Feature completely outside mask envelope: immediate O(1) drop",
+        "Feature completely inside mask envelope and mask.Contains(feature): immediate O(1) pass-through",
+        "Feature partially intersecting mask: exact NTS Intersection computation",
+        "Line tangent to polygon boundary: dimension guard prevents point-like artifacts"
+      ],
+      "verification_assertions": [
+        "Assert(clipped.Area <= input.Area, 'Clipped geometry area must be less than or equal to input')",
+        "Assert(mask.Contains(clipped) || mask.Intersects(clipped), 'Clipped geometry must reside within mask boundary')",
+        "Assert(clippedFeature.Attributes.Count == inputFeature.Attributes.Count, 'Attributes must be preserved')"
+      ]
+    },
+    "intersection_algorithm": {
+      "name": "Intersecção (Vector Intersection)",
+      "mathematical_definition": "G_{ab} = G_a ∩ G_b for all (a, b) where a ∈ A, b ∈ B and G_a.Intersects(G_b)",
+      "spatial_predicate": "DE-9IM Intersects(G_a, G_b) with dim(G_ab) == min(dim(G_a), dim(G_b))",
+      "time_complexity": "O(N log M + K) utilizing STRtree spatial index on layer B",
+      "input_requirements": "Two vector layers of matching or compatible geometry types",
+      "schema_behavior": "Merged schema containing all columns of Layer A and Layer B; column collisions renamed with _1, _2 suffixes",
+      "edge_cases": [
+        "Identical column names in A and B (e.g., 'NAME'): B column renamed to 'NAME_1'",
+        "Column name reaching 10-char limit ('POPULATION'): truncated to 'POPULAT_1'",
+        "Non-overlapping bounding boxes: skipped instantly in STRtree query"
+      ],
+      "verification_assertions": [
+        "Assert(intersected.Area <= Math.Min(geomA.Area, geomB.Area), 'Intersection area cannot exceed either input')",
+        "Assert(mergedAttrs.Exists('COLUNA_1'), 'Column collision must produce indexed suffix')"
+      ]
+    },
+    "difference_algorithm": {
+      "name": "Diferença Espacial (Vector Difference / Erase)",
+      "mathematical_definition": "G'_a = G_a \\ (⋃_{b ∈ B} G_b)",
+      "spatial_predicate": "NTS Difference between feature geometry and unified erase mask",
+      "time_complexity": "O(N log M + K)",
+      "input_requirements": "Input layer: Polygons or Lines; Erase layer: Polygons",
+      "schema_behavior": "Input layer schema preserved 100%; Erase layer attributes discarded",
+      "edge_cases": [
+        "Erase mask splitting a polygon in two: converted automatically to MultiPolygon",
+        "Erase mask entirely covering feature: feature completely suppressed",
+        "Erase mask touching boundary only: boundary tangency lines discarded by dimension extractor"
+      ],
+      "verification_assertions": [
+        "Assert(diffArea < inputArea, 'Difference must subtract overlapping area')",
+        "Assert(!diffGeom.Intersects(eraseGeom.Interior), 'Difference geometry cannot intersect interior of erase mask')"
+      ]
+    },
+    "dissolve_algorithm": {
+      "name": "Dissolver Geometrias (Vector Dissolve)",
+      "mathematical_definition": "G'_k = ⋃_{i ∈ Group_k} G_i",
+      "spatial_predicate": "CascadedPolygonUnion for optimal O(N log N) tree-based polygonal union",
+      "time_complexity": "O(N log N)",
+      "input_requirements": "Input layer: Polygons or Lines",
+      "schema_behavior": "Dissolve All outputs summary schema; Dissolve by Attribute preserves group key plus aggregations",
+      "edge_cases": [
+        "Dissolve All: single unified geometry with total count attribute",
+        "Dissolve by Attribute: dictionary partition by field value before cascading union",
+        "Disjoint polygons with same attribute: emitted as valid MultiPolygon",
+        "Null or empty field values: grouped safely into '<NULO>' partition"
+      ],
+      "verification_assertions": [
+        "Assert(dissolvedCount == distinctCategories, 'Output feature count must match category count')",
+        "Assert(dissolvedArea ≈ sumInputArea, 'Total area must be preserved after internal boundary elimination')"
+      ]
+    },
+    "buffer_algorithm": {
+      "name": "Zona de Amortecimento em Lote (Layer Buffer Engine)",
+      "mathematical_definition": "B(G, d) = { p ∈ R^2 | inf_{q ∈ G} ||p - q|| <= d }",
+      "spatial_predicate": "NTS BufferOp with BufferParameters",
+      "time_complexity": "O(N) per feature, O(N log N) if dissolve enabled",
+      "input_requirements": "Input layer: Points, Lines, Polygons; Distance: Metric (meters) or field-driven",
+      "schema_behavior": "All input attributes preserved; new columns 'BUF_DIST' added",
+      "edge_cases": [
+        "Negative buffer on polygon: shrinking polygon with ring elimination if d exceeds inradius",
+        "High quadrant segments (32): smooth circular arcs without angular facets",
+        "EndCapStyle Flat on line: clean perpendicular end cuts",
+        "Buffer dissolve enabled: all intersecting buffer rings merged via CascadedPolygonUnion"
+      ],
+      "verification_assertions": [
+        "Assert(Math.Abs(pointBuffer.Area - Math.PI * 100) < 5.0, 'Point buffer area must approach π * r²')",
+        "Assert(bufferedPolygon.Contains(originalPolygon), 'Positive buffer must contain original geometry')"
+      ]
+    },
+    "convex_hull_algorithm": {
+      "name": "Envoltória Convexa (Convex Hull)",
+      "mathematical_definition": "CH(S) = { ∑ α_i p_i | p_i ∈ S, α_i >= 0, ∑ α_i = 1 }",
+      "spatial_predicate": "NTS ConvexHull using Monotone Chain / Graham Scan algorithm",
+      "time_complexity": "O(N log N) per geometry or layer",
+      "input_requirements": "Input layer: Points, Lines, Polygons",
+      "schema_behavior": "Global mode creates 1 feature with count; Feature mode preserves original attributes",
+      "edge_cases": [
+        "Collinear points: generates LineString instead of degenerate polygon",
+        "Single point input: returns Point",
+        "Two points: returns LineString",
+        "Three or more non-collinear points: returns valid Polygon"
+      ],
+      "verification_assertions": [
+        "Assert(hull.Contains(inputGeometry) || hull.Covers(inputGeometry), 'Convex hull must cover all input vertices')",
+        "Assert(hull.Area >= inputGeometry.Area, 'Convex hull area must be >= input geometry area')"
+      ]
+    },
+    "centroid_algorithm": {
+      "name": "Centroides & Polylabel (Centroids & Inaccessible Poles)",
+      "mathematical_definition": "C_mass = (1 / 6A) ∑ (x_i + x_{i+1})(x_i y_{i+1} - x_{i+1} y_i); Polylabel = argmax_{p ∈ P} min_{e ∈ ∂P} dist(p, e)",
+      "spatial_predicate": "NTS Centroid with Polylabel interior clearance guarantee for concave geometries",
+      "time_complexity": "O(1) for Centroid; O(K log S) for Polylabel QuadTree sampling",
+      "input_requirements": "Input layer: Polygons or MultiPolygons",
+      "schema_behavior": "Output layer: Point geometry with 100% of original polygon attributes copied",
+      "edge_cases": [
+        "Convex polygon: Centroid is inside, fast-path used directly",
+        "Concave polygon (horseshoe / C-shape): Centroid falls outside; Polylabel shifts point inside",
+        "MultiPolygon: Centroid placed on largest sub-polygon; Polylabel finds deepest inscribed circle"
+      ],
+      "verification_assertions": [
+        "Assert(concavePolygon.Contains(polylabelPoint), 'Polylabel must be strictly inside concave geometry')",
+        "Assert(pointFeature.Attributes['ID'] == polygonFeature.Attributes['ID'], 'Attributes must be copied intact')"
+      ]
+    },
+    "spatial_join_algorithm": {
+      "name": "União Espacial (Spatial Join)",
+      "mathematical_definition": "Join(A, B) where Predicate(A.Geometry, B.Geometry) is True",
+      "spatial_predicate": "Intersects, Contains, Within, Touches",
+      "time_complexity": "O(N log M + K) using STRtree on Layer B",
+      "input_requirements": "Target layer A and Join layer B of any geometry type",
+      "schema_behavior": "One-to-One with summary (COUNT_B, SUM_*, AVG_*) or One-to-Many duplication",
+      "edge_cases": [
+        "Zero intersecting features in B: attributes of B populated with NULL/defaults",
+        "Multiple intersecting features in B: aggregated into COUNT and statistical summaries"
+      ],
+      "verification_assertions": [
+        "Assert(joinedFeature.Attributes.Exists('COUNT_B'), 'Summary must contain joined count')",
+        "Assert(joinedFeature.Attributes['COUNT_B'] >= 0, 'Count must be non-negative')"
+      ]
+    }
+  },
+  "technical_error_and_exception_handling": {
+    "error_codes": [
+      {
+        "code": "GNX_GEO_ERR_001",
+        "name": "EmptyInputLayerException",
+        "description": "A camada de entrada selecionada não contém feições válidas para processamento.",
+        "remedy": "Verifique a fonte de dados e se há feições não corrompidas no arquivo Shapefile."
+      },
+      {
+        "code": "GNX_GEO_ERR_002",
+        "name": "IncompatibleGeometryTypeException",
+        "description": "A operação requer um tipo específico de geometria (ex: máscara de corte deve ser Polígono).",
+        "remedy": "Converta a camada de máscara para polígonos ou utilize uma camada compatível."
+      },
+      {
+        "code": "GNX_GEO_ERR_003",
+        "name": "CoordinateTransformationException",
+        "description": "Falha na reprojeção matemática entre os sistemas de referência espacial (CRS).",
+        "remedy": "Verifique a definição WKT/PROJ das camadas de entrada e sobreposição."
+      },
+      {
+        "code": "GNX_GEO_ERR_004",
+        "name": "TopologySelfIntersectionException",
+        "description": "Geometria de entrada possui auto-interseções que falharam após 3 níveis de reparo.",
+        "remedy": "Aplique a ferramenta Corrigir Geometria previamente na camada."
+      },
+      {
+        "code": "GNX_GEO_ERR_005",
+        "name": "ShapefileWritePermissionException",
+        "description": "Não foi possível criar ou gravar o arquivo Shapefile no diretório de destino especificado.",
+        "remedy": "Verifique as permissões de gravação no disco ou se o arquivo já está aberto em outro processo."
+      },
+      {
+        "code": "GNX_GEO_ERR_006",
+        "name": "ProcessCancelledByUserException",
+        "description": "O processamento foi interrompido cooperativamente por solicitação do usuário.",
+        "remedy": "Nenhuma ação necessária; arquivos temporários incompletos são excluídos automaticamente."
+      }
+    ]
+  },
+  "ui_component_blueprint": {
+    "ribbon_tab": {
+      "tab_name": "Geoprocessamento",
+      "ribbon_groups": [
+        {
+          "group_name": "Sobreposição",
+          "commands": [
+            {
+              "label": "Recortar",
+              "id": "recortar_camada",
+              "icon_svg": "M4 4h16v16H4z M9 9h6v6H9z",
+              "tooltip": "Recorta feições de uma camada pelo limite de uma máscara."
+            },
+            {
+              "label": "Intersecção",
+              "id": "interseccao_camadas",
+              "icon_svg": "M6 6a6 6 0 0 1 10 0 6 6 0 0 1 0 10 6 6 0 0 1-10 0z",
+              "tooltip": "Cruza duas camadas mantendo apenas a sobreposição e unindo atributos."
+            },
+            {
+              "label": "Diferença",
+              "id": "diferenca_camadas",
+              "icon_svg": "M4 4h12v12H4z M10 10h6v6h-6z",
+              "tooltip": "Subtrai as áreas de uma camada de sobreposição da camada de entrada."
+            },
+            {
+              "label": "União Espacial",
+              "id": "uniao_espacial",
+              "icon_svg": "M3 3h10v10H3z M11 11h10v10H11z",
+              "tooltip": "Transfere atributos entre camadas com base na relação espacial."
+            }
+          ]
+        },
+        {
+          "group_name": "Agregação",
+          "commands": [
+            {
+              "label": "Dissolver",
+              "id": "dissolver_camada",
+              "icon_svg": "M4 4h8v8H4z M12 4h8v8h-8z M4 12h16v8H4z",
+              "tooltip": "Funde feições adjacentes eliminando fronteiras internas."
+            },
+            {
+              "label": "Mesclar Camadas",
+              "id": "mesclar_camadas",
+              "icon_svg": "M5 5h14v14H5z",
+              "tooltip": "Combina múltiplas camadas com mesmo tipo de geometria em uma só."
+            }
+          ]
+        },
+        {
+          "group_name": "Geometria",
+          "commands": [
+            {
+              "label": "Buffer Vetorial",
+              "id": "buffer_camada",
+              "icon_svg": "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 6a4 4 0 1 1-4 4 4 4 0 0 1 4-4z",
+              "tooltip": "Gera zonas de amortecimento equidistantes ao redor das feições."
+            },
+            {
+              "label": "Envoltória Convexa",
+              "id": "envoltoria_convexa",
+              "icon_svg": "M12 2l8 6-3 12H7L4 8z",
+              "tooltip": "Gera o menor polígono convexo que engloba as feições."
+            },
+            {
+              "label": "Centroides & Polos",
+              "id": "extrair_centroides",
+              "icon_svg": "M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0",
+              "tooltip": "Extrai pontos centrais ou polos de inacessibilidade de polígonos."
+            }
+          ]
+        },
+        {
+          "group_name": "Execução",
+          "commands": [
+            {
+              "label": "Histórico / Logs",
+              "id": "historico_logs",
+              "icon_svg": "M4 4h16v4H4z M4 10h16v10H4z",
+              "tooltip": "Exibe o log detalhado e histórico de processos espaciais executados."
+            },
+            {
+              "label": "Cancelar Processo",
+              "id": "cancelar_processo",
+              "icon_svg": "M6 18L18 6M6 6l12 12",
+              "tooltip": "Interrompe imediatamente o geoprocessamento em segundo plano."
+            }
+          ]
+        }
+      ]
+    },
+    "modal_dialog_layout": {
+      "title": "Caixa de Ferramentas de Geoprocessamento",
+      "theme": "Enterprise Dark Slate (#0f172a / #1e293b / #334155 / #38bdf8)",
+      "panels": {
+        "left_sidebar": "Lista vertical das 8 operações agrupadas por Sobreposição, Agregação e Geometria",
+        "center_parameters": [
+          "Dropdown Camada de Entrada (com contagem de feições e tipo de geometria)",
+          "Checkbox 'Processar apenas feições selecionadas'",
+          "Dropdown Camada de Sobreposição / Máscara (quando aplicável)",
+          "Dropdown Campo de Agrupamento / Dissolução (quando aplicável)",
+          "Campos numéricos: Distância do Buffer, Segmentos de Quadrante, Tolerância de Snap",
+          "Caminho do arquivo de destino (Shapefile .shp) com botão Procurar (...)",
+          "Checkbox 'Adicionar camada gerada ao mapa automaticamente'"
+        ],
+        "bottom_feedback": {
+          "progress_bar": "Barra horizontal estilizada (0% a 100%)",
+          "metrics_label": "Percentual, feições concluídas / total, taxa de processamento (feições/seg) e tempo estimado",
+          "technical_log_console": "Console preto com texto monospace verde/ciano (#22c55e / #38bdf8) com rolagem automática e timestamps"
+        },
+        "footer_actions": [
+          "Botão [ Ajuda Técnica ]",
+          "Botão [ Fechar ]",
+          "Botão [ Cancelar ] (ativo durante execução)",
+          "Botão [ Executar Processo ] (primário destacado)"
+        ]
+      }
+    }
+  },
+  "automated_test_plan": {
+    "test_project_path": "tests/GeoprocessingCore/GeoprocessingCore.csproj",
+    "target_framework": "net10.0",
+    "test_modules": [
+      {
+        "module_id": 1,
+        "module_name": "Testes de Recorte (Clip)",
+        "test_cases": [
+          "Recortar polígono retangular por máscara circular (área reduzida, limites contidos)",
+          "Recortar polígono por máscara côncava em ferradura (área fragmentada preservada)",
+          "Recortar linha transversal por máscara quadrada (dois nós terminais na borda)",
+          "Recortar nuvem de pontos (pontos externos descartados, internos mantidos com atributos intactos)"
+        ]
+      },
+      {
+        "module_id": 2,
+        "module_name": "Testes de Intersecção (Intersection)",
+        "test_cases": [
+          "Cruzamento de dois polígonos sobrepostos (área igual a A ∩ B)",
+          "Fusão de esquemas de atributos DBF sem colisões",
+          "Resolução de colisão de nomes de colunas idênticas (sufixo _1 aplicado)",
+          "Descarte imediato de pares sem sobreposição via STRtree"
+        ]
+      },
+      {
+        "module_id": 3,
+        "module_name": "Testes de Diferença (Difference)",
+        "test_cases": [
+          "Subtração de polígono interno (gera polígono com furo/anel interno)",
+          "Subtração cortando polígono ao meio (gera MultiPolygon válido)",
+          "Subtração total (gera geometria vazia que é filtrada)",
+          "Descarte de sliver lines tangentes"
+        ]
+      },
+      {
+        "module_id": 4,
+        "module_name": "Testes de Dissolução (Dissolve)",
+        "test_cases": [
+          "Dissolver Tudo (4 retângulos adjacentes unidos em 1 polígono perimetral único)",
+          "Dissolver por Categoria (6 feições com 2 categorias resultam em exatamente 2 feições)",
+          "Agregação de soma numérica e contagem de feições"
+        ]
+      },
+      {
+        "module_id": 5,
+        "module_name": "Testes de Buffer Vetorial",
+        "test_cases": [
+          "Buffer de ponto com distância 10 (área próxima a π * 10^2)",
+          "Buffer de linha com ponta Flat (área retangular d * L)",
+          "Buffer de linha com ponta Round (semicírculos nas pontas)",
+          "Buffer com opção Dissolver ativa (união contínua de círculos adjacentes)"
+        ]
+      },
+      {
+        "module_id": 6,
+        "module_name": "Testes de Envoltória Convexa (Convex Hull)",
+        "test_cases": [
+          "Envoltória convexa de polígono em forma de 'L' ou estrela (área convexa >= área original)",
+          "Envoltória convexa de nuvem de 50 pontos aleatórios (todos os pontos dentro do polígono)"
+        ]
+      },
+      {
+        "module_id": 7,
+        "module_name": "Testes de Centroides & Polylabel",
+        "test_cases": [
+          "Centroide de retângulo (coordenada exata no centro MidX, MidY)",
+          "Polylabel em polígono côncavo em ferradura (ponto gerado estritamente no interior)",
+          "Preservação integral dos atributos do polígono na feição pontual gerada"
+        ]
+      },
+      {
+        "module_id": 8,
+        "module_name": "Benchmark de Estresse e Desempenho",
+        "test_cases": [
+          "Indexação STRtree e recorte de 20.000 feições sintéticas contra máscara em < 800ms",
+          "Validação de vazamento de memória (zero heap reallocation acumulada)"
+        ]
+      }
+    ]
+  },
+  "acceptance_criteria_and_quality_gates": {
+    "gate_1_compilation": "dotnet build GeoNex/GeoNex.csproj -c Release -p:GeoNexBuildNative=false completes with exactly 0 Errors",
+    "gate_2_automated_tests": "All tests in tests/GeoprocessingCore/ pass with 100% success rate",
+    "gate_3_regression_tests": "All existing test suites (SymbologyCore, DigitizingCore, PrintScale, VectorRenderIndex, ProjectPersistence) continue passing with 100% success",
+    "gate_4_topological_integrity": "100% of geometries output by geoprocessing operations are valid (geometry.IsValid == true)",
+    "gate_5_ui_cleanliness": "Zero emojis in all geoprocessing UI elements, buttons, and logs; pure enterprise desktop aesthetic",
+    "gate_6_async_stability": "Background operations can be aborted via cancellation token within 100ms without freezing the UI or leaving unmanaged file locks"
+  },
+  "execution_cli_commands": {
+    "step_1_create_types": "Create GeoNex/Services/GeoprocessingTypes.cs",
+    "step_2_create_overlay": "Create GeoNex/Services/VectorOverlayAlgorithms.cs",
+    "step_3_create_aggregation": "Create GeoNex/Services/VectorAggregationAlgorithms.cs",
+    "step_4_create_geometry": "Create GeoNex/Services/VectorGeometryAlgorithms.cs",
+    "step_5_create_engine": "Create GeoNex/Services/GeoprocessingEngine.cs",
+    "step_6_update_ui": "Update GeoNex/Components/Pages/Home.razor with Geoprocessamento ribbon tab and modal",
+    "step_7_build_and_run_tests": "dotnet run --project tests/GeoprocessingCore/GeoprocessingCore.csproj",
+    "step_8_run_regression": "dotnet run --project tests/SymbologyCore/SymbologyCore.csproj; dotnet run --project tests/DigitizingCore/DigitizingCore.csproj; dotnet run --project tests/PrintScale/PrintScale.csproj",
+    "step_9_final_release_build": "dotnet build GeoNex/GeoNex.csproj -c Release -p:GeoNexBuildNative=false -v:m"
+  },
+  "parameter_matrix": [
+    {
+      "operation": "Recortar (Clip)",
+      "input_layer_types": [
+        "Point",
+        "MultiPoint",
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "overlay_layer_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "parameters": [
+        {
+          "name": "CamadaEntrada",
+          "type": "string",
+          "required": true,
+          "description": "Nome da camada a ser recortada."
+        },
+        {
+          "name": "CamadaMascara",
+          "type": "string",
+          "required": true,
+          "description": "Nome da camada poligonal delimitadora de corte."
+        },
+        {
+          "name": "ApenasSelecionadasEntrada",
+          "type": "bool",
+          "default": false,
+          "description": "Recorta apenas feições selecionadas."
+        },
+        {
+          "name": "ApenasSelecionadasMascara",
+          "type": "bool",
+          "default": false,
+          "description": "Usa apenas polígonos selecionados da máscara."
+        },
+        {
+          "name": "CaminhoArquivoSaida",
+          "type": "string",
+          "required": true,
+          "description": "Caminho absoluto do Shapefile .shp de destino."
+        },
+        {
+          "name": "AdicionarAoMapa",
+          "type": "bool",
+          "default": true,
+          "description": "Injeta a camada resultante no mapa ao concluir."
+        }
+      ]
+    },
+    {
+      "operation": "Intersecção (Intersection)",
+      "input_layer_types": [
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "overlay_layer_types": [
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "parameters": [
+        {
+          "name": "CamadaA",
+          "type": "string",
+          "required": true,
+          "description": "Primeira camada vetorial para cruzamento."
+        },
+        {
+          "name": "CamadaB",
+          "type": "string",
+          "required": true,
+          "description": "Segunda camada vetorial para cruzamento."
+        },
+        {
+          "name": "ToleranciaSnap",
+          "type": "double",
+          "default": 0.001,
+          "description": "Tolerância métrica de snap entre vértices."
+        },
+        {
+          "name": "CaminhoArquivoSaida",
+          "type": "string",
+          "required": true,
+          "description": "Caminho absoluto do Shapefile .shp de destino."
+        }
+      ]
+    },
+    {
+      "operation": "Diferença (Difference / Erase)",
+      "input_layer_types": [
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "overlay_layer_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "parameters": [
+        {
+          "name": "CamadaEntrada",
+          "type": "string",
+          "required": true,
+          "description": "Camada base da qual as áreas serão subtraídas."
+        },
+        {
+          "name": "CamadaSubtracao",
+          "type": "string",
+          "required": true,
+          "description": "Camada cujas áreas serão removidas da entrada."
+        },
+        {
+          "name": "CaminhoArquivoSaida",
+          "type": "string",
+          "required": true,
+          "description": "Caminho absoluto do Shapefile .shp de destino."
+        }
+      ]
+    },
+    {
+      "operation": "Dissolver (Dissolve)",
+      "input_layer_types": [
+        "Polygon",
+        "MultiPolygon",
+        "LineString",
+        "MultiLineString"
+      ],
+      "overlay_layer_types": [],
+      "parameters": [
+        {
+          "name": "CamadaEntrada",
+          "type": "string",
+          "required": true,
+          "description": "Camada a ter suas fronteiras internas fundidas."
+        },
+        {
+          "name": "CampoDissolucao",
+          "type": "string",
+          "nullable": true,
+          "description": "Campo para agrupamento categórico. Se nulo, dissolve tudo."
+        },
+        {
+          "name": "ModoAgregacao",
+          "type": "enum",
+          "default": "PrimeiroValor",
+          "description": "Forma de calcular colunas numéricas agregadas."
+        }
+      ]
+    },
+    {
+      "operation": "Buffer Vetorial",
+      "input_layer_types": [
+        "Point",
+        "MultiPoint",
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "overlay_layer_types": [],
+      "parameters": [
+        {
+          "name": "CamadaEntrada",
+          "type": "string",
+          "required": true,
+          "description": "Camada a receber zona de amortecimento."
+        },
+        {
+          "name": "DistanciaMetros",
+          "type": "double",
+          "default": 10.0,
+          "description": "Raio de afastamento em metros."
+        },
+        {
+          "name": "CampoDistancia",
+          "type": "string",
+          "nullable": true,
+          "description": "Campo numérico para buffer variável por feição."
+        },
+        {
+          "name": "SegmentosQuadrante",
+          "type": "int",
+          "default": 16,
+          "description": "Suavidade das curvas circulares (4 a 64)."
+        },
+        {
+          "name": "EndCapStyle",
+          "type": "enum",
+          "default": "Round",
+          "description": "Estilo da terminação das pontas: Round, Flat, Square."
+        },
+        {
+          "name": "JoinStyle",
+          "type": "enum",
+          "default": "Round",
+          "description": "Estilo dos cantos de junção: Round, Mitre, Bevel."
+        },
+        {
+          "name": "DissolverBuffers",
+          "type": "bool",
+          "default": false,
+          "description": "Funde buffers sobrepostos em massa única."
+        }
+      ]
+    },
+    {
+      "operation": "Envoltória Convexa (Convex Hull)",
+      "input_layer_types": [
+        "Point",
+        "MultiPoint",
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "overlay_layer_types": [],
+      "parameters": [
+        {
+          "name": "CamadaEntrada",
+          "type": "string",
+          "required": true,
+          "description": "Camada da qual a envoltória será calculada."
+        },
+        {
+          "name": "ModoGlobal",
+          "type": "bool",
+          "default": true,
+          "description": "Gera 1 envoltória única para toda a camada."
+        },
+        {
+          "name": "CampoAgrupamento",
+          "type": "string",
+          "nullable": true,
+          "description": "Gera 1 envoltória para cada categoria única."
+        }
+      ]
+    },
+    {
+      "operation": "Centroides & Polos",
+      "input_layer_types": [
+        "Polygon",
+        "MultiPolygon",
+        "LineString",
+        "MultiLineString"
+      ],
+      "overlay_layer_types": [],
+      "parameters": [
+        {
+          "name": "CamadaEntrada",
+          "type": "string",
+          "required": true,
+          "description": "Camada poligonal ou linear de origem."
+        },
+        {
+          "name": "UsarPolylabel",
+          "type": "bool",
+          "default": true,
+          "description": "Garante ponto interior para polígonos côncavos."
+        }
+      ]
+    }
+  ]
+}

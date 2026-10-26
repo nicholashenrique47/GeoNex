@@ -78,17 +78,13 @@ public static class OnlineRasterFrameReader
         try
         {
             using var canvas = new SKCanvas(output);
-            canvas.Clear(SKColors.Transparent);
             if (px0 >= 0 && py0 >= 0 && px1 <= source.RasterXSize && py1 <= source.RasterYSize)
             {
                 // One resampling, exact physical-pixel grid. The float window
                 // retains fractional native pixels even in deep overzoom.
                 int ix = (int)Math.Floor(px0), iw = (int)Math.Ceiling(px1) - ix;
                 bool directRgb = writeRgbDirect && source.RasterCount == 3;
-                // RGB has no alpha to premultiply. GDAL can write the final RGBA
-                // rows directly, preserving opaque alpha and avoiding one bitmap
-                // allocation + Skia copy per strip. RGBA retains its conversion.
-                if (directRgb) output.Erase(SKColors.Black);
+                if (!directRgb) canvas.Clear(SKColors.Transparent);
                 int[] rgbBands = { 1, 2, 3 };
                 using var extra = new RasterIOExtraArg
                 {
@@ -110,6 +106,8 @@ public static class OnlineRasterFrameReader
                         CPLErr result = source.ReadRaster(ix, iy, iw, ih, destination, width, rows,
                             DataType.GDT_Byte, 3, rgbBands, 4, output.RowBytes, 1, extra);
                         if (result != CPLErr.CE_None) throw new IOException($"Online RasterIO failed: {Gdal.GetLastErrorMsg()}");
+                        // Preenche o canal Alpha da faixa recém-lida diretamente no Cache L2 usando AVX-512/AVX2
+                        HardwareGovernor.FillOpaqueAlphaSimd(destination, width, rows, output.RowBytes);
                         token.ThrowIfCancellationRequested();
                         continue;
                     }
@@ -120,6 +118,7 @@ public static class OnlineRasterFrameReader
                 token.ThrowIfCancellationRequested();
                 return output;
             }
+            canvas.Clear(SKColors.Transparent);
             if (x1 > x0 && y1 > y0)
             {
                 int x = (int)Math.Floor(x0), y = (int)Math.Floor(y0);
@@ -173,7 +172,6 @@ public static class OnlineRasterFrameReader
         var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
         try
         {
-            bitmap.Erase(SKColors.Black); // RGB tiles retain opaque alpha; RGBA overwrites it.
             int[] bandMap = RasterDatasetPolicy.GetCachedRgbaBandMap(source);
             int bands = bandMap.Length;
             if (bands < 3) throw new InvalidDataException("Online imagery must provide RGB/RGBA bands.");
@@ -185,9 +183,14 @@ public static class OnlineRasterFrameReader
                 extra.dfYOff = sourceY.Value; extra.dfYSize = sourceHeight;
             }
             token.ThrowIfCancellationRequested();
-            CPLErr result = source.ReadRaster(x, y, w, h, bitmap.GetPixels(), width, height, DataType.GDT_Byte,
+            IntPtr pixels = bitmap.GetPixels();
+            CPLErr result = source.ReadRaster(x, y, w, h, pixels, width, height, DataType.GDT_Byte,
                 bands, bandMap, 4, bitmap.RowBytes, 1, extra);
             if (result != CPLErr.CE_None) throw new IOException($"Online RasterIO failed: {Gdal.GetLastErrorMsg()}");
+            if (bands == 3)
+            {
+                HardwareGovernor.FillOpaqueAlphaSimd(pixels, width, height, bitmap.RowBytes);
+            }
             token.ThrowIfCancellationRequested();
             return bitmap;
         }

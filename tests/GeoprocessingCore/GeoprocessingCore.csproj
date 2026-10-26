@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../GeoNex/Services/GeoprocessingTypes.cs" Link="GeoprocessingTypes.cs" />
+    <Compile Include="../../GeoNex/Services/VectorOverlayAlgorithms.cs" Link="VectorOverlayAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/VectorAggregationAlgorithms.cs" Link="VectorAggregationAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/VectorGeometryAlgorithms.cs" Link="VectorGeometryAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/GeoprocessingEngine.cs" Link="GeoprocessingEngine.cs" />
+    <Compile Include="../../GeoNex/Services/LabelPlacementEngine.cs" Link="LabelPlacementEngine.cs" />
+    <Compile Include="../../GeoNex/Services/SrsFactory.cs" Link="SrsFactory.cs" />
+    <Compile Include="../../GeoNex/Services/IGeoprocessingAlgorithm.cs" Link="IGeoprocessingAlgorithm.cs" />
+    <Compile Include="../../GeoNex/Services/ProcessingAlgorithmRegistry.cs" Link="ProcessingAlgorithmRegistry.cs" />
+    <Compile Include="../../GeoNex/Services/ProximityTessellationAlgorithms.cs" Link="ProximityTessellationAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/AdvancedOverlayAlgorithms.cs" Link="AdvancedOverlayAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/CartographicGeneralizationAlgorithms.cs" Link="CartographicGeneralizationAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/GeometricConversionAlgorithms.cs" Link="GeometricConversionAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/LinearSegmentationAlgorithms.cs" Link="LinearSegmentationAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/SpatialGridSamplingAlgorithms.cs" Link="SpatialGridSamplingAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/ZonalStatisticsAlgorithms.cs" Link="ZonalStatisticsAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/BatchGeoprocessingEngine.cs" Link="BatchGeoprocessingEngine.cs" />
+    <Compile Include="../../GeoNex/Services/ProcessingCatalogBootstrapper.cs" Link="ProcessingCatalogBootstrapper.cs" />
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
+    <PackageReference Include="NetTopologySuite.Features" Version="2.0.0" />
+    <PackageReference Include="GDAL" Version="3.12.1" />
+    <PackageReference Include="GDAL.Native" Version="3.12.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+  </ItemGroup>
+</Project>

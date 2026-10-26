@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -36,7 +37,7 @@ public sealed class OnlineTileTransport : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly Dictionary<string, Source> _sources = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _xml = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, CachedTile> _validatedTiles = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CachedTile> _validatedTiles = new(StringComparer.Ordinal);
     private readonly string _prefix;
     private readonly string _basePath;
     private bool _disposed;
@@ -143,16 +144,37 @@ public sealed class OnlineTileTransport : IDisposable
         {
             var request = context.Request;
             string path = request.Url!.AbsolutePath;
-            string[] parts = path.StartsWith(_basePath, StringComparison.Ordinal) ? path[_basePath.Length..].Split('/') : Array.Empty<string>();
-            if (request.HttpMethod != "GET" || !IPAddress.IsLoopback(request.RemoteEndPoint.Address) || parts.Length != 4 ||
-                !int.TryParse(parts[1], out int z) || z < 0 || z > 22 ||
-                !int.TryParse(parts[2], out int x) || x < 0 || x >= 1 << z ||
-                !int.TryParse(parts[3], out int y) || y < 0 || y >= 1 << z)
+            if (request.HttpMethod != "GET" || !IPAddress.IsLoopback(request.RemoteEndPoint.Address) ||
+                !path.StartsWith(_basePath, StringComparison.Ordinal))
             { context.Response.StatusCode = 404; return; }
+
+            ReadOnlySpan<char> tail = path.AsSpan(_basePath.Length);
+            int s0 = tail.IndexOf('/');
+            if (s0 <= 0) { context.Response.StatusCode = 404; return; }
+            ReadOnlySpan<char> sourceIdSpan = tail[..s0];
+            ReadOnlySpan<char> rem1 = tail[(s0 + 1)..];
+            int s1 = rem1.IndexOf('/');
+            if (s1 <= 0) { context.Response.StatusCode = 404; return; }
+            ReadOnlySpan<char> zSpan = rem1[..s1];
+            ReadOnlySpan<char> rem2 = rem1[(s1 + 1)..];
+            int s2 = rem2.IndexOf('/');
+            if (s2 <= 0) { context.Response.StatusCode = 404; return; }
+            ReadOnlySpan<char> xSpan = rem2[..s2];
+            ReadOnlySpan<char> ySpan = rem2[(s2 + 1)..];
+            if (ySpan.IsEmpty || ySpan.IndexOf('/') >= 0 ||
+                !int.TryParse(zSpan, NumberStyles.None, CultureInfo.InvariantCulture, out int z) || z < 0 || z > 22 ||
+                !int.TryParse(xSpan, NumberStyles.None, CultureInfo.InvariantCulture, out int x) || x < 0 || x >= 1 << z ||
+                !int.TryParse(ySpan, NumberStyles.None, CultureInfo.InvariantCulture, out int y) || y < 0 || y >= 1 << z)
+            { context.Response.StatusCode = 404; return; }
+
+            string sourceKey = sourceIdSpan.ToString();
             Source? source;
-            lock (_gate) _sources.TryGetValue(parts[0], out source);
+            lock (_gate) _sources.TryGetValue(sourceKey, out source);
             if (source == null) { context.Response.StatusCode = 404; return; }
-            string url = source.Template.Replace("${z}", parts[1]).Replace("${x}", parts[2]).Replace("${y}", parts[3]);
+            string url = source.Template
+                .Replace("${z}", zSpan.ToString())
+                .Replace("${x}", xSpan.ToString())
+                .Replace("${y}", ySpan.ToString());
             Tile tile = await Get(source, url).ConfigureAwait(false);
             context.Response.StatusCode = tile.Status;
             context.Response.ContentType = tile.ContentType;
@@ -202,27 +224,76 @@ public sealed class OnlineTileTransport : IDisposable
         finally { lock (_gate) source.Flights.Remove(url); }
     }
 
+    private static string BuildCacheFilePath(string baseCachePath, int depth, string hash)
+    {
+        if (depth <= 0) return Path.Combine(baseCachePath, hash);
+        var sb = new ValueStringBuilder(stackalloc char[256]);
+        sb.Append(baseCachePath);
+        char sep = Path.DirectorySeparatorChar;
+        if (baseCachePath.Length > 0 && baseCachePath[^1] != sep && baseCachePath[^1] != Path.AltDirectorySeparatorChar)
+            sb.Append(sep);
+        for (int i = 0; i < depth; i++)
+        {
+            sb.Append(hash[i]);
+            sb.Append(sep);
+        }
+        sb.Append(hash);
+        return sb.ToString();
+    }
+
+    private ref struct ValueStringBuilder
+    {
+        private Span<char> _buffer;
+        private int _pos;
+        public ValueStringBuilder(Span<char> initialBuffer) { _buffer = initialBuffer; _pos = 0; }
+        public void Append(char c)
+        {
+            if (_pos < _buffer.Length) _buffer[_pos++] = c;
+        }
+        public void Append(ReadOnlySpan<char> s)
+        {
+            if (_pos + s.Length <= _buffer.Length)
+            {
+                s.CopyTo(_buffer[_pos..]);
+                _pos += s.Length;
+            }
+        }
+        public override string ToString() => new(_buffer[.._pos]);
+    }
+
     private async Task<Tile> Fetch(Source source, string url)
     {
-        string hash = Hash(url), path = source.CachePath;
-        for (int i = 0; i < source.Depth; i++) path = Path.Combine(path, hash[i].ToString());
-        path = Path.Combine(path, hash);
+        string hash = Hash(url);
+        string path = BuildCacheFilePath(source.CachePath, source.Depth, hash);
         if (TryGetValidatedTile(path, source.Expiry, out Tile? validated))
         {
             Interlocked.Increment(ref _hits);
             Interlocked.Increment(ref _validationSkips);
-            return validated;
+            return validated!;
         }
         try
         {
             var info = new FileInfo(path);
-            if (info.Exists && info.Length <= MaximumTileBytes && DateTime.UtcNow - info.LastWriteTimeUtc < TimeSpan.FromSeconds(source.Expiry))
+            if (info.Exists && info.Length is > 0 and <= MaximumTileBytes && DateTime.UtcNow - info.LastWriteTimeUtc < TimeSpan.FromSeconds(source.Expiry))
             {
-                byte[] cached = await File.ReadAllBytesAsync(path, _stop.Token).ConfigureAwait(false);
+                byte[] cached = new byte[(int)info.Length];
+                using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    int offset = 0;
+                    while (offset < cached.Length)
+                    {
+                        int n = await RandomAccess.ReadAsync(handle, cached.AsMemory(offset), offset, _stop.Token).ConfigureAwait(false);
+                        if (n <= 0) break;
+                        offset += n;
+                    }
+                }
                 string? type = ContentType(cached);
-                if (type != null) RememberValidatedTile(path, info, cached, type);
                 if (type != null)
-                { Interlocked.Increment(ref _hits); return new Tile(200, cached, type); }
+                {
+                    RememberValidatedTile(path, info.LastWriteTimeUtc.Ticks, cached, type);
+                    Interlocked.Increment(ref _hits);
+                    return new Tile(200, cached, type);
+                }
             }
         }
         catch (IOException) { } // Concurrent cache eviction: download normally.
@@ -237,20 +308,32 @@ public sealed class OnlineTileTransport : IDisposable
             using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
             bodyTimeout.CancelAfter(TimeSpan.FromSeconds(OnlineBasemapPolicy.RequestTimeoutSeconds));
             await using var input = await response.Content.ReadAsStreamAsync(bodyTimeout.Token).ConfigureAwait(false);
-            using var buffer = new MemoryStream(response.Content.Headers.ContentLength is > 0 and <= MaximumTileBytes
-                ? (int)response.Content.Headers.ContentLength.Value : 16384);
-            byte[] chunk = ArrayPool<byte>.Shared.Rent(16384);
+            int initialRent = response.Content.Headers.ContentLength is > 0 and <= MaximumTileBytes
+                ? (int)response.Content.Headers.ContentLength.Value : 32768;
+            byte[] rented = ArrayPool<byte>.Shared.Rent(initialRent);
+            int totalRead = 0;
+            byte[] bytes;
             try
             {
                 int n;
-                while ((n = await input.ReadAsync(chunk, bodyTimeout.Token).ConfigureAwait(false)) > 0)
+                while ((n = await input.ReadAsync(rented.AsMemory(totalRead, rented.Length - totalRead), bodyTimeout.Token).ConfigureAwait(false)) > 0)
                 {
-                    if (buffer.Length + n > MaximumTileBytes) throw new InvalidDataException("Oversized tile.");
-                    buffer.Write(chunk, 0, n);
+                    totalRead += n;
+                    if (totalRead > MaximumTileBytes) throw new InvalidDataException("Oversized tile.");
+                    if (totalRead == rented.Length)
+                    {
+                        int nextSize = Math.Min(MaximumTileBytes + 1, rented.Length * 2);
+                        byte[] grown = ArrayPool<byte>.Shared.Rent(nextSize);
+                        Buffer.BlockCopy(rented, 0, grown, 0, totalRead);
+                        ArrayPool<byte>.Shared.Return(rented);
+                        rented = grown;
+                    }
                 }
+                bytes = new byte[totalRead];
+                Buffer.BlockCopy(rented, 0, bytes, 0, totalRead);
             }
-            finally { ArrayPool<byte>.Shared.Return(chunk); }
-            byte[] bytes = buffer.ToArray();
+            finally { ArrayPool<byte>.Shared.Return(rented); }
+
             string type = ContentType(bytes) ?? throw new InvalidDataException("Invalid tile image.");
             var control = response.Headers.CacheControl;
             double age = response.Headers.Age?.TotalSeconds ?? 0;
@@ -260,8 +343,9 @@ public sealed class OnlineTileTransport : IDisposable
             double ttl = Math.Min(source.Expiry, lifetime - age);
             if (control?.NoStore != true && control?.NoCache != true && ttl > 0)
             {
-                if (await Save(source, path, bytes, ttl).ConfigureAwait(false))
-                    RememberValidatedTile(path, new FileInfo(path), bytes, type);
+                long mtimeTicks = DateTime.UtcNow.AddSeconds(ttl - source.Expiry).Ticks;
+                if (await Save(source, path, bytes, mtimeTicks).ConfigureAwait(false))
+                    RememberValidatedTile(path, mtimeTicks, bytes, type);
             }
             return new Tile(200, bytes, type);
         }
@@ -270,54 +354,65 @@ public sealed class OnlineTileTransport : IDisposable
 
     private bool TryGetValidatedTile(string path, int expirySeconds, out Tile? tile)
     {
-        lock (_gate)
+        if (_validatedTiles.TryGetValue(path, out var cached))
         {
-            if (_validatedTiles.TryGetValue(path, out var cached))
+            if (DateTime.UtcNow.Ticks - cached.LastWriteUtcTicks < TimeSpan.FromSeconds(expirySeconds).Ticks)
             {
-                if (DateTime.UtcNow.Ticks - cached.LastWriteUtcTicks < TimeSpan.FromSeconds(expirySeconds).Ticks)
-                {
-                    _validatedTiles[path] = cached with { LastAccess = ++_validatedTileClock };
-                    tile = new Tile(200, cached.Bytes, cached.ContentType);
-                    return true;
-                }
-                _validatedTiles.Remove(path);
-                _validatedTileBytes -= cached.Bytes.LongLength;
+                long tick = Interlocked.Increment(ref _validatedTileClock);
+                _validatedTiles[path] = cached with { LastAccess = tick };
+                tile = new Tile(200, cached.Bytes, cached.ContentType);
+                return true;
             }
+            if (_validatedTiles.TryRemove(path, out var removed))
+                Interlocked.Add(ref _validatedTileBytes, -removed.Bytes.LongLength);
         }
         tile = null;
         return false;
     }
 
-    private void RememberValidatedTile(string path, FileInfo info, byte[] bytes, string contentType)
+    private void RememberValidatedTile(string path, long lastWriteUtcTicks, byte[] bytes, string contentType)
     {
-        info.Refresh();
-        if (!info.Exists || info.Length != bytes.LongLength || bytes.LongLength > MaximumValidatedTileBytes) return;
+        if (bytes.Length == 0 || bytes.LongLength > MaximumValidatedTileBytes) return;
         lock (_gate)
         {
             if (_disposed) return;
-            if (_validatedTiles.Remove(path, out var replaced)) _validatedTileBytes -= replaced.Bytes.LongLength;
+            if (_validatedTiles.TryRemove(path, out var replaced))
+                Interlocked.Add(ref _validatedTileBytes, -replaced.Bytes.LongLength);
             while (_validatedTiles.Count >= MaximumValidatedTiles ||
-                   _validatedTileBytes + bytes.LongLength > MaximumValidatedTileBytes)
+                   Interlocked.Read(ref _validatedTileBytes) + bytes.LongLength > MaximumValidatedTileBytes)
             {
-                string oldestPath = _validatedTiles.MinBy(pair => pair.Value.LastAccess).Key;
-                _validatedTileBytes -= _validatedTiles[oldestPath].Bytes.LongLength;
-                _validatedTiles.Remove(oldestPath);
+                string? oldestPath = null;
+                long oldestAccess = long.MaxValue;
+                foreach (var pair in _validatedTiles)
+                {
+                    if (pair.Value.LastAccess < oldestAccess)
+                    {
+                        oldestAccess = pair.Value.LastAccess;
+                        oldestPath = pair.Key;
+                    }
+                }
+                if (oldestPath == null) break;
+                if (_validatedTiles.TryRemove(oldestPath, out var evicted))
+                    Interlocked.Add(ref _validatedTileBytes, -evicted.Bytes.LongLength);
             }
-            _validatedTiles[path] = new CachedTile(bytes, info.LastWriteTimeUtc.Ticks,
-                contentType, ++_validatedTileClock);
-            _validatedTileBytes += bytes.LongLength;
+            long tick = Interlocked.Increment(ref _validatedTileClock);
+            _validatedTiles[path] = new CachedTile(bytes, lastWriteUtcTicks, contentType, tick);
+            Interlocked.Add(ref _validatedTileBytes, bytes.LongLength);
         }
     }
 
-    private async Task<bool> Save(Source source, string path, byte[] bytes, double ttl)
+    private async Task<bool> Save(Source source, string path, byte[] bytes, long mtimeUtcTicks)
     {
-        string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        string temporary = string.Concat(path, ".", Guid.NewGuid().ToString("N"), ".tmp");
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await File.WriteAllBytesAsync(temporary, bytes, _stop.Token).ConfigureAwait(false);
+            using (var handle = File.OpenHandle(temporary, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.Asynchronous, bytes.Length))
+            {
+                await RandomAccess.WriteAsync(handle, bytes, 0, _stop.Token).ConfigureAwait(false);
+            }
             // GDAL uses mtime + Expires. Preserve a shorter server TTL in that format.
-            File.SetLastWriteTimeUtc(temporary, DateTime.UtcNow.AddSeconds(ttl - source.Expiry));
+            File.SetLastWriteTimeUtc(temporary, new DateTime(mtimeUtcTicks, DateTimeKind.Utc));
             File.Move(temporary, path, overwrite: true);
             Interlocked.Add(ref source.WrittenBytes, bytes.Length);
             ScheduleTrim(source, force: false);
@@ -396,6 +491,6 @@ public sealed class OnlineTileTransport : IDisposable
         lock (_gate) { if (_disposed) return; _disposed = true; }
         _stop.Cancel(); _listener.Close();
         foreach (var source in _sources.Values) source.Dispose();
-        lock (_gate) { _validatedTiles.Clear(); _validatedTileBytes = 0; }
+        lock (_gate) { _validatedTiles.Clear(); Interlocked.Exchange(ref _validatedTileBytes, 0); }
     }
 }

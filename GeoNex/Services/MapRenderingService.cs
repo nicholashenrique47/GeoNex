@@ -353,6 +353,80 @@ namespace GeoNex.Services
             }
         }
 
+        private unsafe void ConstruirIndicesCategorizados(string nomeCamada, MemoryMappedShapefile? shp, List<CompiledFeature> feicoes)
+        {
+            var dicCategoriasPoly = new Dictionary<string, List<SKPath>>();
+            var dicCategoriasLine = new Dictionary<string, List<SKPath>>();
+
+            var currentPolyChunk = new Dictionary<string, SKPath>();
+            var currentLineChunk = new Dictionary<string, SKPath>();
+            var chunkCounter = new Dictionary<string, int>();
+
+            const int CHUNK_SIZE = 200;
+
+            foreach (var feicao in feicoes)
+            {
+                var path = feicao.GetPath(shp, OffsetMundoX, OffsetMundoY);
+                if (path == null) continue;
+
+                string valorCategoria = string.IsNullOrEmpty(feicao.CategoryValue) ? "OUTROS" : feicao.CategoryValue;
+
+                if (!dicCategoriasPoly.TryGetValue(valorCategoria, out _))
+                {
+                    dicCategoriasPoly[valorCategoria] = new List<SKPath>();
+                    currentPolyChunk[valorCategoria] = new SKPath { FillType = SKPathFillType.EvenOdd };
+                    chunkCounter[valorCategoria] = 0;
+                }
+
+                if (!dicCategoriasLine.TryGetValue(valorCategoria, out _))
+                {
+                    dicCategoriasLine[valorCategoria] = new List<SKPath>();
+                    currentLineChunk[valorCategoria] = new SKPath();
+                }
+
+                if (chunkCounter[valorCategoria] >= CHUNK_SIZE)
+                {
+                    if (!currentPolyChunk[valorCategoria].IsEmpty) dicCategoriasPoly[valorCategoria].Add(currentPolyChunk[valorCategoria]);
+                    if (!currentLineChunk[valorCategoria].IsEmpty) dicCategoriasLine[valorCategoria].Add(currentLineChunk[valorCategoria]);
+                    currentPolyChunk[valorCategoria] = new SKPath { FillType = SKPathFillType.EvenOdd };
+                    currentLineChunk[valorCategoria] = new SKPath();
+                    chunkCounter[valorCategoria] = 0;
+                }
+
+                chunkCounter[valorCategoria]++;
+
+                if (feicao.Kind == GeometryKind.Polygon)
+                {
+                    currentPolyChunk[valorCategoria].AddPath(path);
+                }
+                else if (feicao.Kind == GeometryKind.Line)
+                {
+                    currentLineChunk[valorCategoria].AddPath(path);
+                }
+            }
+
+            foreach (var cat in currentPolyChunk.Keys)
+            {
+                if (!currentPolyChunk[cat].IsEmpty) dicCategoriasPoly[cat].Add(currentPolyChunk[cat]);
+                if (!currentLineChunk[cat].IsEmpty) dicCategoriasLine[cat].Add(currentLineChunk[cat]);
+            }
+
+            // Index chunk bounds once at style compilation so each frame visits
+            // only categorized chunks intersecting the current map extent.
+            var polygonSpatialIndex = new CategorizedPathSpatialIndex(dicCategoriasPoly);
+            var lineSpatialIndex = new CategorizedPathSpatialIndex(dicCategoriasLine);
+
+            if (VetoresCategorizados.TryGetValue(nomeCamada, out var oldPolygons))
+                foreach (SKPath path in oldPolygons.Values.SelectMany(paths => paths)) path.Dispose();
+            if (LinhasCategorizadas.TryGetValue(nomeCamada, out var oldLines))
+                foreach (SKPath path in oldLines.Values.SelectMany(paths => paths)) path.Dispose();
+
+            VetoresCategorizados[nomeCamada] = dicCategoriasPoly;
+            LinhasCategorizadas[nomeCamada] = dicCategoriasLine;
+            IndiceVetoresCategorizados[nomeCamada] = polygonSpatialIndex;
+            IndiceLinhasCategorizadas[nomeCamada] = lineSpatialIndex;
+        }
+
         public unsafe void CompilarCategorias(string nomeCamada, string colunaSimbologia)
         {
             try
@@ -380,82 +454,199 @@ namespace GeoNex.Services
                         }
                     }
                 }
-                
-                var dicCategoriasPoly = new Dictionary<string, List<SKPath>>();
-                var dicCategoriasLine = new Dictionary<string, List<SKPath>>();
 
-                var currentPolyChunk = new Dictionary<string, SKPath>();
-                var currentLineChunk = new Dictionary<string, SKPath>();
-                var chunkCounter = new Dictionary<string, int>();
-
-                const int CHUNK_SIZE = 200;
-
-                foreach (var feicao in feicoes)
-                {
-                    var path = feicao.GetPath(shp, OffsetMundoX, OffsetMundoY);
-                    if (path == null) continue;
-
-                    string valorCategoria = string.IsNullOrEmpty(feicao.CategoryValue) ? "OUTROS" : feicao.CategoryValue;
-
-                    if (!dicCategoriasPoly.TryGetValue(valorCategoria, out _))
-                    {
-                        dicCategoriasPoly[valorCategoria] = new List<SKPath>();
-                        currentPolyChunk[valorCategoria] = new SKPath { FillType = SKPathFillType.EvenOdd };
-                        chunkCounter[valorCategoria] = 0;
-                    }
-                    
-                    if (!dicCategoriasLine.TryGetValue(valorCategoria, out _))
-                    {
-                        dicCategoriasLine[valorCategoria] = new List<SKPath>();
-                        currentLineChunk[valorCategoria] = new SKPath();
-                    }
-
-                    if (chunkCounter[valorCategoria] >= CHUNK_SIZE)
-                    {
-                        if (!currentPolyChunk[valorCategoria].IsEmpty) dicCategoriasPoly[valorCategoria].Add(currentPolyChunk[valorCategoria]);
-                        if (!currentLineChunk[valorCategoria].IsEmpty) dicCategoriasLine[valorCategoria].Add(currentLineChunk[valorCategoria]);
-                        currentPolyChunk[valorCategoria] = new SKPath { FillType = SKPathFillType.EvenOdd };
-                        currentLineChunk[valorCategoria] = new SKPath();
-                        chunkCounter[valorCategoria] = 0;
-                    }
-                    
-                    chunkCounter[valorCategoria]++;
-
-                    if (feicao.Kind == GeometryKind.Polygon)
-                    {
-                        currentPolyChunk[valorCategoria].AddPath(path);
-                    }
-                    else if (feicao.Kind == GeometryKind.Line)
-                    {
-                        currentLineChunk[valorCategoria].AddPath(path);
-                    }
-                }
-
-                foreach (var cat in currentPolyChunk.Keys)
-                {
-                    if (!currentPolyChunk[cat].IsEmpty) dicCategoriasPoly[cat].Add(currentPolyChunk[cat]);
-                    if (!currentLineChunk[cat].IsEmpty) dicCategoriasLine[cat].Add(currentLineChunk[cat]);
-                }
-
-                // Index chunk bounds once at style compilation so each frame visits
-                // only categorized chunks intersecting the current map extent.
-                var polygonSpatialIndex = new CategorizedPathSpatialIndex(dicCategoriasPoly);
-                var lineSpatialIndex = new CategorizedPathSpatialIndex(dicCategoriasLine);
-
-                if (VetoresCategorizados.TryGetValue(nomeCamada, out var oldPolygons))
-                    foreach (SKPath path in oldPolygons.Values.SelectMany(paths => paths)) path.Dispose();
-                if (LinhasCategorizadas.TryGetValue(nomeCamada, out var oldLines))
-                    foreach (SKPath path in oldLines.Values.SelectMany(paths => paths)) path.Dispose();
-                
-                VetoresCategorizados[nomeCamada] = dicCategoriasPoly;
-                LinhasCategorizadas[nomeCamada] = dicCategoriasLine;
-                IndiceVetoresCategorizados[nomeCamada] = polygonSpatialIndex;
-                IndiceLinhasCategorizadas[nomeCamada] = lineSpatialIndex;
+                ConstruirIndicesCategorizados(nomeCamada, shp, feicoes);
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine("CompilarCategorias Error: " + ex.ToString());
             }
+        }
+
+        public unsafe Dictionary<string, int> ObterValoresDistintosColuna(string nomeCamada, string coluna)
+        {
+            var distinct = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(coluna)) return distinct;
+            if (!FeaturesPorCamada.TryGetValue(nomeCamada, out var feicoes)) return distinct;
+
+            using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(nomeCamada);
+            MemoryMappedShapefile? shp = shapefileLease?.Resource;
+            if (shp == null || !System.IO.File.Exists(shp.DbfPath)) return distinct;
+
+            var dbfField = shp.DbfFields.FirstOrDefault(f => f.Name == coluna);
+            if (dbfField == null) return distinct;
+
+            byte* dbfPtr = shp.DbfPointerDirect;
+            if (dbfPtr == null) return distinct;
+
+            for (int i = 0; i < feicoes.Count; i++)
+            {
+                var f = feicoes[i];
+                long dbfRecOffset = shp.DbfHeaderBytes + (f.FID * shp.DbfRecordBytes);
+                byte* strStart = dbfPtr + dbfRecOffset + dbfField.Offset;
+                string? strVal = GeoHelpers.ReadDbfString(strStart, dbfField.Length, GeoHelpers.Iso8859)?.Trim();
+                if (string.IsNullOrEmpty(strVal)) strVal = "(Vazio)";
+
+                if (distinct.TryGetValue(strVal, out int count))
+                    distinct[strVal] = count + 1;
+                else
+                    distinct[strVal] = 1;
+            }
+
+            return distinct;
+        }
+
+        public unsafe List<double> ObterValoresNumericosColuna(string nomeCamada, string coluna)
+        {
+            var valores = new List<double>();
+            if (string.IsNullOrEmpty(coluna)) return valores;
+            if (!FeaturesPorCamada.TryGetValue(nomeCamada, out var feicoes)) return valores;
+
+            using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(nomeCamada);
+            MemoryMappedShapefile? shp = shapefileLease?.Resource;
+            if (shp == null || !System.IO.File.Exists(shp.DbfPath)) return valores;
+
+            var dbfField = shp.DbfFields.FirstOrDefault(f => f.Name == coluna);
+            if (dbfField == null) return valores;
+
+            byte* dbfPtr = shp.DbfPointerDirect;
+            if (dbfPtr == null) return valores;
+
+            valores.Capacity = feicoes.Count;
+            for (int i = 0; i < feicoes.Count; i++)
+            {
+                var f = feicoes[i];
+                long dbfRecOffset = shp.DbfHeaderBytes + (f.FID * shp.DbfRecordBytes);
+                byte* strStart = dbfPtr + dbfRecOffset + dbfField.Offset;
+                string? strVal = GeoHelpers.ReadDbfString(strStart, dbfField.Length, GeoHelpers.Iso8859);
+                if (string.IsNullOrWhiteSpace(strVal)) continue;
+
+                if (double.TryParse(strVal, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands, System.Globalization.CultureInfo.InvariantCulture, out double numVal))
+                {
+                    if (double.IsFinite(numVal)) valores.Add(numVal);
+                }
+                else if (double.TryParse(strVal, System.Globalization.NumberStyles.Float, new System.Globalization.CultureInfo("pt-BR"), out double numValPt))
+                {
+                    if (double.IsFinite(numValPt)) valores.Add(numValPt);
+                }
+            }
+
+            return valores;
+        }
+
+        public unsafe List<FaixaGraduada> CompilarGraduado(
+            string nomeCamada,
+            string colunaSimbologia,
+            int numClasses,
+            MetodoClassificacao metodo,
+            string rampa,
+            bool inverter,
+            List<FaixaGraduada>? faixasManuais = null)
+        {
+            var faixasResultado = new List<FaixaGraduada>();
+            try
+            {
+                if (!FeaturesPorCamada.TryGetValue(nomeCamada, out var feicoes)) return faixasResultado;
+                using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(nomeCamada);
+                MemoryMappedShapefile? shp = shapefileLease?.Resource;
+                if (shp == null || string.IsNullOrEmpty(colunaSimbologia)) return faixasResultado;
+
+                var dbfField = shp.DbfFields.FirstOrDefault(f => f.Name == colunaSimbologia);
+                if (dbfField == null) return faixasResultado;
+
+                byte* dbfPtr = shp.DbfPointerDirect;
+                if (dbfPtr == null) return faixasResultado;
+
+                var valoresFeatures = new double[feicoes.Count];
+                var valoresValidos = new List<double>(feicoes.Count);
+
+                for (int i = 0; i < feicoes.Count; i++)
+                {
+                    var f = feicoes[i];
+                    long dbfRecOffset = shp.DbfHeaderBytes + (f.FID * shp.DbfRecordBytes);
+                    byte* strStart = dbfPtr + dbfRecOffset + dbfField.Offset;
+                    string? strVal = GeoHelpers.ReadDbfString(strStart, dbfField.Length, GeoHelpers.Iso8859);
+
+                    double parsedVal = double.NaN;
+                    if (!string.IsNullOrWhiteSpace(strVal))
+                    {
+                        if (double.TryParse(strVal, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands, System.Globalization.CultureInfo.InvariantCulture, out double numVal))
+                            parsedVal = numVal;
+                        else if (double.TryParse(strVal, System.Globalization.NumberStyles.Float, new System.Globalization.CultureInfo("pt-BR"), out double numValPt))
+                            parsedVal = numValPt;
+                    }
+
+                    valoresFeatures[i] = parsedVal;
+                    if (double.IsFinite(parsedVal))
+                        valoresValidos.Add(parsedVal);
+                }
+
+                List<FaixaGraduada> faixas;
+                if (faixasManuais != null && faixasManuais.Count > 0)
+                {
+                    faixas = faixasManuais;
+                }
+                else
+                {
+                    var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(valoresValidos);
+                    faixas = ClassificationEngine.Classificar(span, numClasses, metodo, rampa, inverter);
+                }
+                faixasResultado = faixas;
+
+                var estilo = EstilosPorCamada.GetOrAdd(nomeCamada, _ => new EstiloCamada());
+                estilo.TipoSimbologia = "GRADUADA";
+                estilo.ColunaSimbologia = colunaSimbologia;
+                estilo.NumeroClasses = numClasses;
+                estilo.MetodoClassificacao = metodo;
+                estilo.RampaCores = rampa;
+                estilo.InverterRampa = inverter;
+                estilo.FaixasGraduadas = faixas;
+                estilo.CoresCategorizadas.Clear();
+
+                foreach (var fx in faixas)
+                {
+                    estilo.CoresCategorizadas[fx.RotuloLegenda] = fx.CorHex;
+                }
+                estilo.CoresCategorizadas["OUTROS"] = "#808080";
+
+                for (int i = 0; i < feicoes.Count; i++)
+                {
+                    var f = feicoes[i];
+                    double val = valoresFeatures[i];
+                    string categoriaAlocada = "OUTROS";
+
+                    if (double.IsFinite(val) && faixas.Count > 0)
+                    {
+                        for (int k = 0; k < faixas.Count; k++)
+                        {
+                            var fx = faixas[k];
+                            bool match = (k == 0)
+                                ? (val >= fx.Minimo && val <= fx.Maximo)
+                                : (val > fx.Minimo && val <= fx.Maximo);
+
+                            if (!match && k == faixas.Count - 1 && Math.Abs(val - fx.Maximo) <= 1e-7)
+                                match = true;
+
+                            if (match)
+                            {
+                                categoriaAlocada = fx.RotuloLegenda;
+                                break;
+                            }
+                        }
+                    }
+
+                    f.CategoryValue = categoriaAlocada;
+                }
+
+                ConstruirIndicesCategorizados(nomeCamada, shp, feicoes);
+                RequestRedraw();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("CompilarGraduado Error: " + ex.ToString());
+            }
+
+            return faixasResultado;
         }
 
         public void AtualizarBufferEdicao(List<SkiaSharp.SKPath> buffer)
