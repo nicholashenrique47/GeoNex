@@ -30,7 +30,7 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: transparent !important; /* <-- A parede caiu aqui */
+            background-color: transparent !important;
             color: #cccccc;
             font-family: 'Segoe UI', sans-serif;
             letter-spacing: 2px;
@@ -66,26 +66,48 @@
         </div>
     </div>
 
-    <div id="blazor-error-ui" style="display: none; background: #c62828; color: white; position: fixed; bottom: 0; width: 100%; padding: 10px; z-index: 9999;">
-        Falha crítica no sistema. O aplicativo precisa ser reiniciado.
-        <a href="" class="reload" style="color: #fff; text-decoration: underline; margin-left: 15px;">Reiniciar Recurso</a>
-        <a class="dismiss" style="float: right; cursor: pointer; margin-right: 15px;">X</a>
+    <div id="blazor-error-ui" style="display: none; background: #c62828; color: white; position: fixed; bottom: 0; width: 100%; padding: 12px 18px; z-index: 9999; box-shadow: 0 -4px 16px rgba(0,0,0,0.5);">
+        <div style="font-weight: bold; font-size: 13px;">
+            Falha no sistema.
+            <a href="" class="reload" style="color: #38bdf8; text-decoration: underline; margin-left: 15px; font-weight: normal;">Reiniciar Recurso</a>
+            <a class="dismiss" style="float: right; cursor: pointer; margin-right: 15px;">✕</a>
+        </div>
+        <div id="blazor-error-detail" style="font-size: 11px; font-family: monospace; white-space: pre-wrap; margin-top: 6px; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 4px; display: none;"></div>
     </div>
+
+    <script>
+        window.addEventListener('error', function(event) {
+            var detail = document.getElementById('blazor-error-detail');
+            if (detail) {
+                detail.style.display = 'block';
+                detail.innerText = (event.message || event.type) + (event.filename ? ('\n' + event.filename + ':' + event.lineno) : '');
+            }
+        });
+        var originalConsoleError = console.error;
+        console.error = function() {
+            originalConsoleError.apply(console, arguments);
+            var detail = document.getElementById('blazor-error-detail');
+            if (detail) {
+                detail.style.display = 'block';
+                var msg = Array.prototype.slice.call(arguments).map(function(item) {
+                    return typeof item === 'object' ? JSON.stringify(item) : String(item);
+                }).join(' ');
+                detail.innerText = (detail.innerText ? detail.innerText + '\n' : '') + msg;
+            }
+        };
+    </script>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
     <script>
         var scriptMapa = document.createElement('script');
-        // Gera um carimbo de tempo em milissegundos para forçar o bypass do cache
         scriptMapa.src = 'js/mapa.js?t=' + new Date().getTime();
         document.body.appendChild(scriptMapa);
-        // Carrega também o script do compositor
         var scriptComposer = document.createElement('script');
         scriptComposer.src = 'js/composer_v2.js?t=' + new Date().getTime();
         document.body.appendChild(scriptComposer);
     </script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-    
 </body>
 </html>

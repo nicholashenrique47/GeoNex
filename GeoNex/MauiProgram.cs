@@ -1,12 +1,17 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Maui.LifecycleEvents;
 using CommunityToolkit.Maui;
+using SkiaSharp.Views.Maui.Controls.Hosting;
 using GeoNex.Services;
 using GeoNex.Services.Topografia;
 using GeoNex.Services.Topografia.Export;
 using GeoNex.Services.Topografia.Import;
 using GeoNex.Services.Topografia.Validation;
 using GeoNex.Services.Licensing;
+
+#if WINDOWS
+using GeoNex.Platforms.Windows;
+#endif
 
 namespace GeoNex;
 
@@ -15,10 +20,13 @@ public static class MauiProgram
     public static MauiApp CreateMauiApp()
     {
         System.IO.File.AppendAllText("debug_boot.txt", "1. CreateMauiApp Start\n");
+        GdalRuntimeBootstrap.Configure();
+
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
             .UseMauiCommunityToolkit()
+            .UseSkiaSharp()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");

@@ -1,6 +1,29 @@
-﻿<Router AppAssembly="typeof(MauiProgram).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+﻿<Router AppAssembly="typeof(MauiProgram).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        <ErrorBoundary>
+            <ChildContent>
+                <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+                <FocusOnNavigate RouteData="routeData" Selector="h1" />
+            </ChildContent>
+            <ErrorContent Context="ex">
+                <div style="position: fixed; inset: 0; z-index: 99999; background: #0f172a; color: #f8fafc; padding: 30px; font-family: 'Segoe UI', monospace; overflow: auto;">
+                    <div style="background: #dc2626; color: #fff; padding: 12px 18px; border-radius: 6px; font-weight: bold; font-size: 16px; margin-bottom: 16px;">
+                        GeoNex: Falha no Carregamento de Componente
+                    </div>
+                    <h3 style="color: #fca5a5; margin: 0 0 10px 0; font-size: 15px;">@ex.GetType().Name: @ex.Message</h3>
+                    <pre style="background: #1e293b; padding: 15px; border-radius: 6px; color: #cbd5e1; white-space: pre-wrap; font-size: 12px; border: 1px solid #334155; max-height: 50vh; overflow-y: auto;">@ex.ToString()</pre>
+                    <button onclick="location.reload()" style="margin-top: 16px; padding: 10px 20px; background: #38bdf8; color: #0f172a; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;">
+                        Reiniciar Interface
+                    </button>
+                    @{
+                        try
+                        {
+                            System.IO.File.WriteAllText("debug_blazor_last_error.txt", ex.ToString());
+                        }
+                        catch { }
+                    }
+                </div>
+            </ErrorContent>
+        </ErrorBoundary>
     </Found>
 </Router>
