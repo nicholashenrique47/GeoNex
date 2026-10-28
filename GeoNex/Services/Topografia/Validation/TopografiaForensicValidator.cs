@@ -127,7 +127,57 @@ public sealed class TopografiaForensicValidator
             }
         }
 
+        // 7. Validar Auto-Interseção Vetorial de Alinhamentos (Polígono em Laço / Bowtie)
+        if (imovel.Segmentos.Count >= 4)
+        {
+            for (int i = 0; i < imovel.Segmentos.Count; i++)
+            {
+                var s1 = imovel.Segmentos[i];
+                var p1 = (s1.De.EsteUtm, s1.De.NorteUtm);
+                var p2 = (s1.Para.EsteUtm, s1.Para.NorteUtm);
+
+                for (int j = i + 2; j < imovel.Segmentos.Count; j++)
+                {
+                    // Não cruzar primeiro e último segmento no fechamento normal do anel
+                    if (i == 0 && j == imovel.Segmentos.Count - 1) continue;
+
+                    var s2 = imovel.Segmentos[j];
+                    var p3 = (s2.De.EsteUtm, s2.De.NorteUtm);
+                    var p4 = (s2.Para.EsteUtm, s2.Para.NorteUtm);
+
+                    if (SegmentosSeCruzam(p1, p2, p3, p4))
+                    {
+                        resultados.Add(new AuditoriaTopograficaItem
+                        {
+                            Codigo = "SIGEF_ERR_007",
+                            Gravidade = "ERRO_CRITICO",
+                            Mensagem = $"Auto-interseção detectada entre os alinhamentos {s1.De.Codigo}->{s1.Para.Codigo} e {s2.De.Codigo}->{s2.Para.Codigo}. Polígono em laço/auto-cruzamento será rejeitado pelo SIGEF.",
+                            CoordX = (p1.Item1 + p2.Item1) / 2.0,
+                            CoordY = (p1.Item2 + p2.Item2) / 2.0
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
         imovel.Diagnosticos = resultados;
         return resultados;
+    }
+
+    private static bool SegmentosSeCruzam((double X, double Y) a, (double X, double Y) b, (double X, double Y) c, (double X, double Y) d)
+    {
+        static double Ccw((double X, double Y) p1, (double X, double Y) p2, (double X, double Y) p3)
+        {
+            return (p2.X - p1.X) * (p3.Y - p1.Y) - (p2.Y - p1.Y) * (p3.X - p1.X);
+        }
+
+        double ccw1 = Ccw(a, b, c);
+        double ccw2 = Ccw(a, b, d);
+        double ccw3 = Ccw(c, d, a);
+        double ccw4 = Ccw(c, d, b);
+
+        return ((ccw1 > 1e-7 && ccw2 < -1e-7) || (ccw1 < -1e-7 && ccw2 > 1e-7)) &&
+               ((ccw3 > 1e-7 && ccw4 < -1e-7) || (ccw3 < -1e-7 && ccw4 > 1e-7));
     }
 }
