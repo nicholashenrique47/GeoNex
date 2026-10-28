@@ -1,0 +1,809 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "prompt_metadata": {
+    "title": "GeoNex Heavy Engineering Execution Blueprint: Topografia, Certificacao SIGEF/INCRA e Plataforma SaaS",
+    "description": "Blueprint e prompt deterministico de execucao em formato JSON estruturado para guiar a implantacao integral do modulo de Topografia, Certificacao SIGEF/INCRA, Memorial Descritivo Juridico e Motor de Licenciamento SaaS Hibrido (.NET 10 / C# / SkiaSharp / NTS / OpenXML).",
+    "target_engine": "GeoNex Desktop GIS Core (.NET 10)",
+    "target_framework": "net10.0-windows10.0.19041.0",
+    "zero_emoji_policy": true,
+    "strict_standards_parity": [
+      "INCRA 3a Edicao - Norma Tecnica para Georreferenciamento de Imoveis Rurais (NTGIR)",
+      "INCRA Manual Tecnico de Posicionamento e Geodesia",
+      "INCRA Manual Tecnico de Limites e Confrontacoes",
+      "ABNT NBR 13.133:2021 - Execucao de Levantamento Topografico",
+      "CNJ - Codigo Nacional de Normas da Corregedoria Geral de Justica (Registro de Imoveis)",
+      "OASIS OpenDocument Spreadsheet v1.2 (ISO/IEC 26300:2006)",
+      "ECMA-376 OpenXML File Formats (.docx)"
+    ],
+    "hardware_acceleration": {
+      "simd_avx2": true,
+      "zero_allocation_loops": true,
+      "spatial_index_acceleration": "Sort-Tile-Recursive 2D R-Tree (NetTopologySuite.Index.Strtree.STRtree)"
+    }
+  },
+  "architectural_and_normative_mandates": {
+    "geodetic_coordinate_system": {
+      "datum": "SIRGAS 2000 (Sistema de Referencia Geocentrico para as Americas)",
+      "ellipsoid": "GRS80 (Geodetic Reference System 1980)",
+      "semi_major_axis_a": 6378137.0,
+      "flattening_f": "1.0 / 298.257222101",
+      "first_eccentricity_squared_e2": 0.0066943800229,
+      "second_eccentricity_squared_eprime2": "e2 / (1.0 - e2)",
+      "utm_central_scale_factor_k0": 0.9996,
+      "utm_false_easting": 500000.0,
+      "utm_false_northing_south": 10000000.0,
+      "supported_utm_zones": [18, 19, 20, 21, 22, 23, 24, 25]
+    },
+    "incra_positioning_methods": [
+      {
+        "code": "PG1",
+        "description": "Posicionamento Relativo Estático ou Estático Rápido",
+        "typical_application": "Marcos implantados M e bases de apoio",
+        "expected_precision_m": 0.05
+      },
+      {
+        "code": "PG2",
+        "description": "Posicionamento Cinemático em Tempo Real (RTK convencional ou em rede NTRIP)",
+        "typical_application": "Pontos de divisa ocupados P e marcos artificiais",
+        "expected_precision_m": 0.10
+      },
+      {
+        "code": "PG3",
+        "description": "Posicionamento por Ponto Preciso (PPP pós-processado IBGE)",
+        "typical_application": "Vértices de apoio primário e vértices remotos",
+        "expected_precision_m": 0.10
+      },
+      {
+        "code": "PG4",
+        "description": "Sensoriamento Remoto / Restituição Fotogramétrica com VANT / Drone",
+        "typical_application": "Vértices virtuais V de acidentes naturais e curvas de nível",
+        "expected_precision_m": 0.50
+      },
+      {
+        "code": "PG5",
+        "description": "Topografia Clássica (Estação Total com irradiação / poligonação)",
+        "typical_application": "Trechos sob mata fechada ou áreas urbanas densas",
+        "expected_precision_m": 0.05
+      },
+      {
+        "code": "PG6",
+        "description": "Posicionamento Cinemático Pós-Processado (PPK)",
+        "typical_application": "Levantamentos aerofotogramétricos e rastreio móvel",
+        "expected_precision_m": 0.15
+      },
+      {
+        "code": "PG7",
+        "description": "Digitalização Cartográfica de Plantas Oficiais e Imagens Orbitais",
+        "typical_application": "Vértices de difícil acesso e limites jurídicos consolidados",
+        "expected_precision_m": 3.00
+      }
+    ],
+    "incra_vertex_codification": {
+      "format_pattern": "^[A-Z0-9]{3}-[MPV]-[0-9]{4}$",
+      "description": "Prefixo de 3 caracteres alfanumericos do credenciado, tipo de vertice (M, P ou V), e sequencial numerico de 4 digitos",
+      "vertex_types": {
+        "M": {
+          "description": "Marco fisico artificial implantado (concreto, ferro ou marco de apoio)",
+          "maximum_horizontal_sigma_meters": 0.5,
+          "maximum_vertical_sigma_meters": 1.0,
+          "recommended_method": "PG1 (Posicionamento Relativo Estatico)"
+        },
+        "P": {
+          "description": "Ponto medido ocupado no terreno sem implantacao de marco fisico",
+          "maximum_horizontal_sigma_meters": 0.5,
+          "maximum_vertical_sigma_meters": 1.0,
+          "recommended_method": "PG2 (RTK / Network RTK / Pos-Processado)"
+        },
+        "V": {
+          "description": "Vertice virtual (acidente natural, curva de rio, eixo de via ou linha ideal)",
+          "maximum_horizontal_sigma_meters": 3.0,
+          "maximum_water_body_sigma_meters": 7.5,
+          "recommended_method": "PG4 / Levantamento Fotogrametrico ou Sensoriamento"
+        }
+      }
+    },
+    "incra_boundary_types": {
+      "LA": {
+        "code": "LA",
+        "description": "Limite Artificial",
+        "allowed_subtypes": [
+          "Cerca de arame farpado",
+          "Cerca de arame liso",
+          "Muro de alvenaria",
+          "Muro de concreto",
+          "Vala",
+          "Linha seca ideal",
+          "Faixa de dominio de rodovia federal",
+          "Faixa de dominio de rodovia estadual",
+          "Faixa de servidao de linha de transmissao",
+          "Eixo de ferrovia"
+        ]
+      },
+      "LN": {
+        "code": "LN",
+        "description": "Limite Natural",
+        "allowed_subtypes": [
+          "Margem direita de curso d'agua",
+          "Margem esquerda de curso d'agua",
+          "Talvegue de curso d'agua",
+          "Crista de encosta / Espigao",
+          "Linha de cumeada",
+          "Borda de chapada",
+          "Espelho d'agua de represa / lago"
+        ]
+      },
+      "LV": {
+        "code": "LV",
+        "description": "Limite Virtual",
+        "allowed_subtypes": [
+          "Projecao astronomica",
+          "Paralelo ou meridiano",
+          "Linha geodesica ideal entre marcos",
+          "Linha de limite interestadual ou intermunicipal"
+        ]
+      }
+    }
+  },
+  "domain_model_specification": {
+    "namespace": "GeoNex.Topografia.Domain",
+    "entities": [
+      {
+        "class_name": "VerticeTopografico",
+        "description": "Representa cada vertice medido que delimita o perimetro do imovel rural",
+        "fields": [
+          { "name": "Indice", "type": "int", "description": "Ordem sequencial no poligono (1 a N)" },
+          { "name": "Codigo", "type": "string", "description": "Identificador INCRA (ex: ABC-M-0001)" },
+          { "name": "Tipo", "type": "TipoVertice", "description": "Enum: M, P, V" },
+          { "name": "EsteUtm", "type": "double", "description": "Coordenada E projetada UTM SIRGAS 2000 em metros" },
+          { "name": "NorteUtm", "type": "double", "description": "Coordenada N projetada UTM SIRGAS 2000 em metros" },
+          { "name": "AltitudeOrtometrica", "type": "double", "description": "Altitude em metros acima do geoide (MAPGEO)" },
+          { "name": "LatitudeDecimal", "type": "double", "description": "Latitude elipsoidal em graus decimais (SIRGAS 2000)" },
+          { "name": "LongitudeDecimal", "type": "double", "description": "Longitude elipsoidal em graus decimais (SIRGAS 2000)" },
+          { "name": "LatitudeGms", "type": "string", "description": "Formato sexagesimal SIGEF: -22 14 05,123" },
+          { "name": "LongitudeGms", "type": "string", "description": "Formato sexagesimal SIGEF: -47 25 12,345" },
+          { "name": "SigmaX", "type": "double", "default": 0.05, "description": "Desvio padrao horizontal X em metros" },
+          { "name": "SigmaY", "type": "double", "default": 0.05, "description": "Desvio padrao horizontal Y em metros" },
+          { "name": "SigmaZ", "type": "double", "default": 0.08, "description": "Desvio padrao vertical Z em metros" },
+          { "name": "MetodoPosicionamento", "type": "string", "default": "PG1", "description": "Codigo do metodo (PG1, PG2, etc.)" }
+        ]
+      },
+      {
+        "class_name": "SegmentoPerimetro",
+        "description": "Representa o alinhamento de divisa entre dois vertices consecutivos",
+        "fields": [
+          { "name": "Ordem", "type": "int", "description": "Indice do segmento no anel perimetral" },
+          { "name": "De", "type": "VerticeTopografico", "description": "Vertice de partida da visada" },
+          { "name": "Para", "type": "VerticeTopografico", "description": "Vertice de chegada da visada" },
+          { "name": "AzimutePlanoGraus", "type": "double", "description": "Azimute de quadrícula plano em graus decimais (0 a 360)" },
+          { "name": "AzimuteGeodesicoGraus", "type": "double", "description": "Azimute com correcao de convergencia meridiana" },
+          { "name": "AzimuteFormatadoGms", "type": "string", "description": "Formato para memorial: 125°34'12\"" },
+          { "name": "DistanciaPlanaMetros", "type": "double", "description": "Distancia euclidiana no plano UTM em metros" },
+          { "name": "DistanciaGeodesicaMetros", "type": "double", "description": "Distancia reduzida ao elipsoide (fator de escala k)" },
+          { "name": "TipoLimite", "type": "TipoLimite", "description": "Enum: LA, LN, LV" },
+          { "name": "DescricaoLimite", "type": "string", "default": "Cerca de arame", "description": "Descricao textual do elemento material" },
+          { "name": "NomeConfrontante", "type": "string", "description": "Nome da propriedade vizinha ou confinante" },
+          { "name": "ProprietarioConfrontante", "type": "string", "description": "Nome do proprietario do imovel vizinho" },
+          { "name": "MatriculaConfrontante", "type": "string", "description": "Numero da matricula do imovel no Cartorio de Registro" },
+          { "name": "CnsCartorioConfrontante", "type": "string", "description": "Codigo Nacional de Serventia do cartorio de registro" }
+        ]
+      },
+      {
+        "class_name": "ImovelCertificacaoSigef",
+        "description": "Entidade agregadora com todas as informacoes juridicas e cartograficas da gleba",
+        "fields": [
+          { "name": "Id", "type": "Guid", "description": "Identificador unico universal da certificacao" },
+          { "name": "Denominacao", "type": "string", "description": "Nome do imovel rural (ex: Fazenda Primavera)" },
+          { "name": "CodigoIncra", "type": "string", "description": "Codigo CCIR / SNCR do imovel" },
+          { "name": "Matricula", "type": "string", "description": "Numero da matricula imobiliaria" },
+          { "name": "LivroCartorio", "type": "string", "default": "2", "description": "Livro de Registro Geral" },
+          { "name": "FolhaCartorio", "type": "string", "description": "Folha do livro no cartorio" },
+          { "name": "Comarca", "type": "string", "description": "Comarca judiciaria" },
+          { "name": "Municipio", "type": "string", "description": "Municipio de localizacao" },
+          { "name": "Uf", "type": "string", "description": "Unidade Federativa (sigla com 2 caracteres)" },
+          { "name": "ProprietarioNome", "type": "string", "description": "Nome completo ou Razao Social do titular" },
+          { "name": "ProprietarioCpfCnpj", "type": "string", "description": "Documento de identificacao do titular" },
+          { "name": "CredenciadoNome", "type": "string", "description": "Nome do responsavel tecnico habilitado" },
+          { "name": "CredenciadoCodigoIncra", "type": "string", "description": "Codigo oficial de 3 letras do credenciado INCRA" },
+          { "name": "CredenciadoCreaCau", "type": "string", "description": "Registro profissional no conselho de classe" },
+          { "name": "NumeroArtTrt", "type": "string", "description": "Numero da Anotacao de Responsabilidade Tecnica" },
+          { "name": "FusoUtm", "type": "int", "description": "Fuso UTM de referencia (18 a 25)" },
+          { "name": "HemisferioSul", "type": "bool", "default": true, "description": "Indicador de hemisferio" },
+          { "name": "AreaHectares", "type": "double", "description": "Area calculada no elipsoide expressa em hectares (4 decimais)" },
+          { "name": "AreaMetrosQuadrados", "type": "double", "description": "Area calculada expressa em metros quadrados" },
+          { "name": "PerimetroMetros", "type": "double", "description": "Perimetro total do poligono em metros lineares" },
+          { "name": "Vertices", "type": "List<VerticeTopografico>", "description": "Lista ordenada de vertices do perimetro" },
+          { "name": "Segmentos", "type": "List<SegmentoPerimetro>", "description": "Lista de alinhamentos e confrontacoes" }
+        ]
+      }
+    ]
+  },
+  "geodesic_and_cartographic_engine": {
+    "service_class": "TopografiaProcessingService",
+    "namespace": "GeoNex.Services.Topografia",
+    "transformation_algorithms": {
+      "polygon_clockwising": {
+        "description": "Garantir orientacao estritamente horaria do anel perimetral conforme exigencia expressa da NTGIR",
+        "implementation_logic": "NetTopologySuite.Algorithm.Orientation.IsCCW(coords) ? Array.Reverse(coords) : coords"
+      },
+      "utm_to_geodetic_conversion": {
+        "description": "Serie analitica reversa de Redfearn e Coticchia-Surace sobre o elipsoide GRS80",
+        "accuracy_tolerance_meters": 0.0001,
+        "input_parameters": ["double este", "double norte", "int fuso", "bool hemisferioSul"],
+        "output_parameters": ["out double latDecimal", "out double lonDecimal"],
+        "formula_steps": [
+          "Calcular x = este - 500000.0",
+          "Calcular y = hemisferioSul ? norte - 10000000.0 : norte",
+          "Calcular arco de meridiano m = y / k0",
+          "Calcular latitude da pegada mu e coeficientes e1, j1, j2, j3",
+          "Calcular latitude da pegada fp = mu + j1*sin(2mu) + j2*sin(4mu) + j3*sin(6mu)",
+          "Calcular raios de curvatura n1 e r1 no elipsoide",
+          "Calcular latDecimal = fp - (n1*tan(fp)/r1) * (d^2/2 - (5 + 3t1 + 10c1 - 4c1^2 - 9ePrime2)*d^4/24 + ...)",
+          "Calcular lonDecimal = meridianoCentral + (d - (1 + 2t1 + c1)*d^3/6 + ...)/cos(fp)"
+        ]
+      },
+      "meridian_convergence_computation": {
+        "formula": "gamma = atan(tan(lon - lon0) * sin(lat))",
+        "unit": "radianos convertidos para graus decimais",
+        "application": "Correcao entre Azimute Plano de Quadricula e Azimute Geodesico"
+      },
+      "scale_factor_k_computation": {
+        "formula": "k = k0 * (1 + ((este - 500000)^2) / (2 * R^2))",
+        "application": "Reducao das distancias no plano para o elipsoide de referencia SIRGAS 2000"
+      },
+      "sexagesimal_formatting_sigef": {
+        "pattern": "[sinal][graus:00] [minutos:00] [segundos:00.000]",
+        "example_latitude": "-22 14 05,123",
+        "example_longitude": "-47 25 12,345",
+        "decimal_separator": "virgula",
+        "token_separator": "espaco simples"
+      },
+      "dms_formatting_memorial": {
+        "pattern": "[graus:00]°[minutos:00]'[segundos:00.0]\"",
+        "example": "125°34'12.4\"",
+        "decimal_places_seconds": 1
+      }
+    }
+  },
+  "spatial_confrontation_detection_engine": {
+    "service_class": "SpatialConfrontationService",
+    "namespace": "GeoNex.Services.Topografia",
+    "detection_pipeline": {
+      "step_1_linear_buffering": {
+        "description": "Gerar geometria de envoltorio ao redor de cada segmento perimetral",
+        "buffer_radius_meters": 0.5,
+        "end_cap_style": "Flat",
+        "purpose": "Capturar arestas coincidentes de imoveis vizinhos sem falso positivo em vertices angulosos"
+      },
+      "step_2_rtree_bounding_query": {
+        "description": "Consultar a arvore espacial R-Tree (STRtree ou NativeShapeSpatialIndex) das camadas carregadas",
+        "query_geometry": "bufferLinha.EnvelopeInternal",
+        "expected_complexity": "O(log N) para N feicoes vizinhas"
+      },
+      "step_3_linear_overlap_measurement": {
+        "description": "Calcular a extensao do contato linear entre a aresta da gleba e o perimetro do vizinho",
+        "intersection_operation": "linhaSegmento.Intersection(poligonoVizinho.Boundary)",
+        "acceptance_threshold": "intersecao.Length >= (linhaSegmento.Length * 0.70)",
+        "rationale": "Garantir que apenas vizinhos com contato real na maior parte do alinhamento sejam associados"
+      },
+      "step_4_attribute_harvesting": {
+        "description": "Extrair dados cadastrais dos atributos da camada vetorial vizinha",
+        "target_attribute_keys": [
+          ["IMOVEL", "NOME", "DENOMINA", "NOME_IMOVE", "GLEBA"],
+          ["PROPRIETAR", "TITULAR", "DONO", "POSSEIRO"],
+          ["MATRICULA", "MATR", "REGISTRO", "TRANSCRICA"],
+          ["CNS", "CARTORIO", "COMARCA"]
+        ],
+        "fallback_label": "A DEFINIR / PESQUISA CARTORIAL"
+      }
+    }
+  },
+  "sigef_ods_spreadsheet_generator": {
+    "service_class": "SigefOdsExportService",
+    "namespace": "GeoNex.Services.Topografia.Export",
+    "file_structure": {
+      "mime_type": "application/vnd.oasis.opendocument.spreadsheet",
+      "compression": "System.IO.Compression.ZipArchive (Deflate, sem compressao no mimetype)",
+      "contained_files": [
+        "mimetype",
+        "META-INF/manifest.xml",
+        "content.xml",
+        "styles.xml",
+        "meta.xml"
+      ]
+    },
+    "xml_templates": {
+      "manifest_xml_template": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\">\n  <manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.2\" manifest:media-type=\"application/vnd.oasis.opendocument.spreadsheet\"/>\n  <manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>\n  <manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>\n  <manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>\n</manifest:manifest>",
+      "content_xml_header_template": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" office:version=\"1.2\">\n  <office:body>\n    <office:spreadsheet>"
+    },
+    "sheet_identification_table": {
+      "sheet_name": "Identificação",
+      "cell_mappings": {
+        "B2": "CodigoCredenciado",
+        "B3": "NomeCredenciado",
+        "B4": "NumeroArtTrt",
+        "B6": "DenominacaoImovel",
+        "B7": "MunicipioUf",
+        "B8": "SistemaReferencia (SIRGAS2000)",
+        "B9": "FusoUtm"
+      }
+    },
+    "sheet_perimeter_table": {
+      "sheet_name": "Perímetro",
+      "starting_row": 2,
+      "columns": [
+        { "index": "A", "header": "Vértice", "property": "De.Codigo" },
+        { "index": "B", "header": "Longitude", "property": "De.LongitudeGms" },
+        { "index": "C", "header": "Latitude", "property": "De.LatitudeGms" },
+        { "index": "D", "header": "Altitude (m)", "property": "De.AltitudeOrtometrica", "format": "0.00" },
+        { "index": "E", "header": "Sigma Longitude (m)", "property": "De.SigmaX", "format": "0.00" },
+        { "index": "F", "header": "Sigma Latitude (m)", "property": "De.SigmaY", "format": "0.00" },
+        { "index": "G", "header": "Sigma Altitude (m)", "property": "De.SigmaZ", "format": "0.00" },
+        { "index": "H", "header": "Método", "property": "De.MetodoPosicionamento" },
+        { "index": "I", "header": "Tipo Limite", "property": "TipoLimite" },
+        { "index": "J", "header": "Descrição Limite", "property": "DescricaoLimite" },
+        { "index": "K", "header": "Vértice Destino", "property": "Para.Codigo" },
+        { "index": "L", "header": "Confrontante", "property": "NomeConfrontante" },
+        { "index": "M", "header": "Matrícula/CNS", "property": "MatriculaConfrontante" }
+      ]
+    },
+    "validation_rules_ods": {
+      "allow_empty_cells": false,
+      "comma_as_decimal": true,
+      "no_formula_injection": true,
+      "xml_entity_encoding": "Seguir estritamente &amp;, &lt;, &gt;, &quot;, &apos; em textos de confrontantes"
+    }
+  },
+  "legal_memorial_descritivo_generator": {
+    "service_class": "MemorialDescritivoExportService",
+    "namespace": "GeoNex.Services.Topografia.Export",
+    "document_formats": ["DOCX (Word OpenXML nativo)", "PDF (SkiaSharp / HarfBuzz text layout)"],
+    "cartorial_styling": {
+      "font_family": "Arial",
+      "font_size_pt": 12,
+      "line_spacing": 1.5,
+      "margin_top_cm": 3.0,
+      "margin_left_cm": 3.0,
+      "margin_bottom_cm": 2.0,
+      "margin_right_cm": 2.0,
+      "text_alignment": "Justified"
+    },
+    "template_sections": [
+      {
+        "section_id": "header",
+        "title": "MEMORIAL DESCRITIVO GEORREFERENCIADO",
+        "metadata_fields": [
+          "IMÓVEL: {Denominacao}",
+          "PROPRIETÁRIO: {ProprietarioNome} - CPF/CNPJ: {ProprietarioCpfCnpj}",
+          "MUNICÍPIO: {Municipio} - {Uf} | COMARCA: {Comarca}",
+          "ÁREA: {AreaHectares:N4} ha ({AreaMetrosQuadrados:N2} m²)",
+          "PERÍMETRO: {PerimetroMetros:N2} m",
+          "SISTEMA GEODÉSICO DE REFERÊNCIA: SIRGAS 2000",
+          "PROJEÇÃO: UTM - FUSO {FusoUtm}S - MERIDIANO CENTRAL {MeridianoCentral}° WGr"
+        ]
+      },
+      {
+        "section_id": "body_perimeter_description",
+        "introductory_paragraph": "Inicia-se a descrição do perímetro no vértice {VerticeInicial.Codigo}, de coordenadas Planas no Sistema UTM (SIRGAS 2000) Este (E) = {VerticeInicial.EsteUtm:N2}m e Norte (N) = {VerticeInicial.NorteUtm:N2}m, cravado junto à divisa com {SegmentoInicial.NomeConfrontante};",
+        "segment_paragraph_template": "deste, segue confrontando com {Segmento.NomeConfrontante} ({Segmento.MatriculaConfrontante}), com os seguintes azimutes e distâncias: até o vértice {Para.Codigo}, com azimute de {Segmento.AzimuteFormatadoGms} e distância de {Segmento.DistanciaPlanaMetros:N2}m;",
+        "closing_paragraph": "até o vértice {VerticeInicial.Codigo}, ponto inicial desta descrição perimétrica, encerrando uma área de {AreaHectares:N4} hectares ({AreaMetrosQuadrados:N2} m²) e um perímetro de {PerimetroMetros:N2} metros."
+      },
+      {
+        "section_id": "cartographic_coordinates_table",
+        "columns": ["Vértice", "Coordenada E (m)", "Coordenada N (m)", "Altitude (m)", "Azimute", "Distância (m)", "Confrontante"]
+      },
+      {
+        "section_id": "technical_responsability_footer",
+        "content": [
+          "Local e Data: {Municipio}-{Uf}, {DataAtual:dd 'de' MMMM 'de' yyyy}",
+          "____________________________________________________",
+          "{CredenciadoNome}",
+          "Responsável Técnico - {CredenciadoCreaCau}",
+          "Código INCRA: {CredenciadoCodigoIncra} | ART/TRT: {NumeroArtTrt}"
+        ]
+      }
+    ]
+  },
+  "forensic_audit_and_topology_validator": {
+    "service_class": "TopografiaForensicValidator",
+    "namespace": "GeoNex.Services.Topografia.Validation",
+    "validation_rules": [
+      {
+        "code": "SIGEF_ERR_001",
+        "severity": "CRITICAL",
+        "rule_name": "Validar Orientacao Horaria",
+        "failure_condition": "Poligono desenhado em sentido anti-horario",
+        "auto_repair_action": "Inverter a ordem da lista de coordenadas preservando os dados geometricos"
+      },
+      {
+        "code": "SIGEF_ERR_002",
+        "severity": "CRITICAL",
+        "rule_name": "Validar Auto-Intersecoes (Laços de Poligono)",
+        "failure_condition": "!geometria.IsValid",
+        "auto_repair_action": "Identificar coordenada da intersecao, destacar no mapa com circulo vermelho e impedir exportacao"
+      },
+      {
+        "code": "SIGEF_ERR_003",
+        "severity": "CRITICAL",
+        "rule_name": "Validar Duplicidade de Vertices (Spikes)",
+        "failure_condition": "Distancia euclidiana entre vertices consecutivos < 0.05 metros",
+        "auto_repair_action": "Remover vertice redundante mantendo o marco de maior precisao cadastrada"
+      },
+      {
+        "code": "SIGEF_ERR_004",
+        "severity": "HIGH",
+        "rule_name": "Validar Sigmas Posicionais Maximos",
+        "failure_condition": "(vertice.Tipo == 'M' || vertice.Tipo == 'P') && (vertice.SigmaX > 0.50 || vertice.SigmaY > 0.50)",
+        "auto_repair_action": "Alerta em amarelo na tabela para readequacao do desvio padrao"
+      },
+      {
+        "code": "SIGEF_ERR_005",
+        "severity": "MEDIUM",
+        "rule_name": "Validar Mascara de Codigo do Credenciado",
+        "failure_condition": "!Regex.IsMatch(codigo, '^[A-Z0-9]{3}-[MPV]-[0-9]{4}$')",
+        "auto_repair_action": "Mascara automatica no campo de texto"
+      },
+      {
+        "code": "SIGEF_ERR_006",
+        "severity": "HIGH",
+        "rule_name": "Validar Confrontantes Nulos ou Vazios",
+        "failure_condition": "string.IsNullOrWhiteSpace(segmento.NomeConfrontante) || segmento.NomeConfrontante.Contains('A DEFINIR')",
+        "auto_repair_action": "Destacar linha em amarelo na tabela de revisao do usuario"
+      },
+      {
+        "code": "SIGEF_ERR_007",
+        "severity": "CRITICAL",
+        "rule_name": "Validar Fechamento Geometrico Perimetral",
+        "failure_condition": "Ultimo segmento nao conecta rigorosamente ao primeiro vertice",
+        "auto_repair_action": "Fechar o poligono conectando a coordenada final a coordenada inicial"
+      },
+      {
+        "code": "SIGEF_ERR_008",
+        "severity": "HIGH",
+        "rule_name": "Validar Fuso UTM em Relacao a Longitude",
+        "failure_condition": "Meridiano central do fuso difere em mais de 3.5 graus da longitude media da gleba",
+        "auto_repair_action": "Sugerir fuso UTM correto compativel com as coordenadas geograficas"
+      }
+    ]
+  },
+  "user_interface_and_ribbon_integration": {
+    "ribbon_tab_definition": {
+      "tab_name": "Topografia & SIGEF",
+      "ribbon_position": "Entre 'Vetorizacao' e 'Geoprocessamento'",
+      "array_in_home_razor": "['Início', 'Vetorização', 'Topografia & SIGEF', 'Geoprocessamento']"
+    },
+    "ribbon_command_groups": [
+      {
+        "group_name": "Certificação INCRA",
+        "commands": [
+          {
+            "id": "cmd_gerar_pecas_sigef",
+            "label": "Gerar Peças Técnicas",
+            "icon": "✦",
+            "description": "Calcula azimutes, confrontantes e abre o assistente oficial de emissao ODS/DOCX",
+            "action": "AbrirModalCertificacaoSigefAsync"
+          },
+          {
+            "id": "cmd_auditoria_sigef",
+            "label": "Auditoria Forense",
+            "icon": "✓",
+            "description": "Executa varredura de consistencia topologica e legal antes do envio ao SIGEF",
+            "action": "ExecutarAuditoriaForenseAsync"
+          }
+        ]
+      },
+      {
+        "group_name": "Vértices & Geodésia",
+        "commands": [
+          {
+            "id": "cmd_numerar_vertices",
+            "label": "Numerar Vértices",
+            "icon": "⌖",
+            "description": "Atribui codigos sequenciais horarios (M-0001, M-0002...) aos vertices da gleba",
+            "action": "NumerarVerticesHorarioAsync"
+          },
+          {
+            "id": "cmd_quadro_coordenadas",
+            "label": "Quadro Geodésico",
+            "icon": "📐",
+            "description": "Exibe tabela com coordenadas planas UTM e geograficas SIRGAS 2000",
+            "action": "AbrirQuadroCoordenadasAsync"
+          }
+        ]
+      },
+      {
+        "group_name": "Confrontações",
+        "commands": [
+          {
+            "id": "cmd_detectar_confrontantes",
+            "label": "Detectar Vizinhos",
+            "icon": "☷",
+            "description": "Usa R-Tree espacial para identificar automaticamente os confrontantes das divisas",
+            "action": "DetectarVizinhosEspaciaisAsync"
+          },
+          {
+            "id": "cmd_editar_tabela_cartorio",
+            "label": "Tabela de Cartório",
+            "icon": "✎",
+            "description": "Grid interativo para preenchimento de matriculas e proprietarios confinantes",
+            "action": "AbrirTabelaCartorioAsync"
+          }
+        ]
+      },
+      {
+        "group_name": "Exportação Pro",
+        "commands": [
+          {
+            "id": "cmd_exportar_ods",
+            "label": "Planilha ODS SIGEF",
+            "icon": "⤓",
+            "description": "Exporta diretamente a planilha oficial no modelo da 3a Edicao do INCRA",
+            "action": "ExportarPlanilhaOdsAsync"
+          },
+          {
+            "id": "cmd_exportar_docx",
+            "label": "Memorial DOCX",
+            "icon": "⎙",
+            "description": "Gera o memorial descritivo juridico formatado para averbacao cartorial",
+            "action": "ExportarMemorialDocxAsync"
+          }
+        ]
+      },
+      {
+        "group_name": "SaaS / Conta",
+        "commands": [
+          {
+            "id": "cmd_status_licenca",
+            "label": "Minha Licença",
+            "icon": "★",
+            "description": "Exibe o status da assinatura Pro ou saldo de creditos avulsos",
+            "action": "AbrirModalLicencaAsync"
+          },
+          {
+            "id": "cmd_ativar_chave",
+            "label": "Ativar Chave / PIX",
+            "icon": "🔑",
+            "description": "Ativa nova chave de licenca ou compra de creditos imediatos via PIX",
+            "action": "AbrirModalCheckoutAsync"
+          }
+        ]
+      }
+    ],
+    "modal_dialogs": {
+      "modal_certificacao_sigef": {
+        "title": "Assistente de Certificação e Peças Técnicas SIGEF/INCRA",
+        "tabs": [
+          "1. Dados do Imóvel e Credenciado",
+          "2. Tabela de Vértices & Azimutes",
+          "3. Confrontantes & Matrículas",
+          "4. Pré-visualização do Memorial",
+          "5. Auditoria de Inconsistências"
+        ],
+        "footer_actions": [
+          "Validar Topologia SIGEF",
+          "Exportar ODS Oficial",
+          "Exportar Memorial DOCX",
+          "Baixar Pacote Completo (.ZIP)"
+        ]
+      }
+    }
+  },
+  "saas_licensing_and_pix_gateway": {
+    "architecture_model": "Offline-First Cryptographic Licensing with Cloud Billing Sync",
+    "service_class": "LicenseValidationService",
+    "namespace": "GeoNex.Services.Licensing",
+    "cryptography_spec": {
+      "algorithm": "RSA-2048 with SHA-256 (RSAPKCS1SignatureDeformatter)",
+      "public_key_storage": "Embutida como recurso compilado estatico dentro do GeoNex.dll",
+      "private_key_storage": "Isolada com seguranca estrita no servidor web de emissao de licencas",
+      "license_token_schema": {
+        "license_id": "UUID",
+        "customer_email": "string",
+        "plan_type": "Enum (PRO_MENSAL, PRO_ANUAL, ENTERPRISE, CREDITO_AVULSO)",
+        "hardware_fingerprint": "SHA256(CPU_ID + MOTHERBOARD_SERIAL)",
+        "issued_at": "ISO 8601 Timestamp",
+        "expires_at": "ISO 8601 Timestamp",
+        "remaining_credits": "int (se aplicavel a plano avulso)",
+        "signature_base64": "RSA_SHA256_Signature"
+      }
+    },
+    "pix_instant_payment_flow": {
+      "provider_api": "Asaas / Mercado Pago Open API",
+      "endpoint_post_charge": "/api/v3/payments",
+      "payload": {
+        "billingType": "PIX",
+        "value": 39.9,
+        "description": "Emissao Avulsa GeoNex SIGEF - Gleba Rural",
+        "dueDate": "DataAtual + 24 horas"
+      },
+      "webhook_callback": {
+        "event": "PAYMENT_RECEIVED",
+        "action": "Liberar token de download e registrar emissao no banco de dados local"
+      },
+      "local_polling_fallback": {
+        "frequency_seconds": 2,
+        "timeout_minutes": 10,
+        "ui_indicator": "QR Code animado com barra de progresso e botao de copiar codigo Copia-e-Cola"
+      }
+    }
+  },
+  "local_database_and_persistence_schema": {
+    "database_type": "SQLite (Microsoft.EntityFrameworkCore.Sqlite)",
+    "database_file": "%AppData%/GeoNex/topografia_saas.db",
+    "tables": [
+      {
+        "table_name": "CertificacoesEmitidas",
+        "columns": [
+          "Id TEXT PRIMARY KEY",
+          "DataEmissao DATETIME NOT NULL",
+          "Denominacao TEXT NOT NULL",
+          "MunicipioUf TEXT NOT NULL",
+          "ProprietarioNome TEXT",
+          "AreaHectares REAL NOT NULL",
+          "PerimetroMetros REAL NOT NULL",
+          "HashArquivoOds TEXT NOT NULL",
+          "HashArquivoDocx TEXT NOT NULL",
+          "NumeroTransacaoPix TEXT"
+        ]
+      },
+      {
+        "table_name": "CredenciadosLocais",
+        "columns": [
+          "CodigoIncra TEXT PRIMARY KEY",
+          "NomeCredenciado TEXT NOT NULL",
+          "CreaCau TEXT NOT NULL",
+          "Telefone TEXT",
+          "Email TEXT",
+          "UltimaArtUtilizada TEXT"
+        ]
+      },
+      {
+        "table_name": "LicencaLocal",
+        "columns": [
+          "ChaveAtivacao TEXT PRIMARY KEY",
+          "TokenJwtAssinado TEXT NOT NULL",
+          "DataExpiracao DATETIME NOT NULL",
+          "CreditosRestantes INTEGER NOT NULL"
+        ]
+      }
+    ]
+  },
+  "sprint_by_sprint_execution_blueprint": {
+    "sprint_1_foundation": {
+      "sprint_goal": "Criar as entidades de dominio topo-espaciais e o motor de calculo geodesico e transformacao cartografica rigorosa",
+      "tasks": [
+        {
+          "task_id": "T1.1",
+          "file": "GeoNex/Topografia/Domain/TopografiaModels.cs",
+          "action": "Criar DTOs VerticeTopografico, SegmentoPerimetro, ImovelCertificacaoSigef e enums TipoVertice, TipoLimite"
+        },
+        {
+          "task_id": "T1.2",
+          "file": "GeoNex/Services/Topografia/TopografiaProcessingService.cs",
+          "action": "Implementar algoritmo de conversao Redfearn UTM para Geodesica elipsoidal SIRGAS 2000 e formatador sexagesimal"
+        },
+        {
+          "task_id": "T1.3",
+          "file": "GeoNex/Services/Topografia/TopografiaProcessingService.cs",
+          "action": "Implementar ordenacao horaria obrigatoria e calculo de azimutes planos/geodesicos e distancias de reducao"
+        },
+        {
+          "task_id": "T1.4",
+          "file": "tests/GeoNex.Tests/TopografiaProcessingTests.cs",
+          "action": "Criar testes unitarios validando calculo de azimute e conversao com dados de marcos do IBGE (precisao < 0.001m)"
+        }
+      ]
+    },
+    "sprint_2_exporters": {
+      "sprint_goal": "Construir geradores puros de Planilha ODS oficial do INCRA 3a Edicao e Memorial Descritivo formatado em DOCX",
+      "tasks": [
+        {
+          "task_id": "T2.1",
+          "file": "GeoNex/Services/Topografia/Export/SigefOdsExportService.cs",
+          "action": "Implementar gerador de pacote ZIP ODS com content.xml estruturado segundo o template da 3a Edicao do INCRA"
+        },
+        {
+          "task_id": "T2.2",
+          "file": "GeoNex/Services/Topografia/Export/MemorialDescritivoExportService.cs",
+          "action": "Implementar gerador de arquivo DOCX com tabelas, cabeçalhos, quebras por confrontante e rodape de ART"
+        },
+        {
+          "task_id": "T2.3",
+          "file": "GeoNex/Services/Topografia/Export/ZipPackageService.cs",
+          "action": "Implementar empacotador de saida gerando arquivo ZIP unico contendo .ods, .docx e relatorio de fechamento"
+        }
+      ]
+    },
+    "sprint_3_confrontation_and_audit": {
+      "sprint_goal": "Integrar motor de varredura espacial R-Tree para preenchimento de confrontantes e validador forense",
+      "tasks": [
+        {
+          "task_id": "T3.1",
+          "file": "GeoNex/Services/Topografia/SpatialConfrontationService.cs",
+          "action": "Implementar buffer linear de 50cm e consulta STRtree/NativeShapeSpatialIndex para associar vizinhos confinantes"
+        },
+        {
+          "task_id": "T3.2",
+          "file": "GeoNex/Services/Topografia/Validation/TopografiaForensicValidator.cs",
+          "action": "Construir checklist preventivo contra os erros mais frequentes de rejeicao no validador do SIGEF"
+        }
+      ]
+    },
+    "sprint_4_user_interface": {
+      "sprint_goal": "Implementar a aba 'Topografia & SIGEF' no Ribbon e as telas modais de edicao interativa e preview",
+      "tasks": [
+        {
+          "task_id": "T4.1",
+          "file": "GeoNex/Components/Pages/Home.razor",
+          "action": "Registrar a 4a aba RibbonTabs = ['Início', 'Vetorização', 'Topografia & SIGEF', 'Geoprocessamento'] e comandos"
+        },
+        {
+          "task_id": "T4.2",
+          "file": "GeoNex/Components/Pages/Home.Topografia.cs",
+          "action": "Criar classe partial para encapsular o estado, fluxo de selecao do poligono e acionamento dos servicos"
+        },
+        {
+          "task_id": "T4.3",
+          "file": "GeoNex/Components/Topografia/ModalCertificacaoSigef.razor",
+          "action": "Construir componente Blazor interativo com tabs, tabela editavel de confrontantes e live preview do memorial"
+        }
+      ]
+    },
+    "sprint_5_saas_and_release": {
+      "sprint_goal": "Integrar servico de licencas criptografadas RSA, fluxo de pagamento PIX e homologar com arquivos reais",
+      "tasks": [
+        {
+          "task_id": "T5.1",
+          "file": "GeoNex/Services/Licensing/LicenseValidationService.cs",
+          "action": "Implementar verificador de assinatura digital RSA-2048 offline com cache de chave publica"
+        },
+        {
+          "task_id": "T5.2",
+          "file": "GeoNex/Components/Topografia/ModalCheckoutPix.razor",
+          "action": "Criar modal com QR Code dinamico e verificador de status de pagamento via polling leve"
+        },
+        {
+          "task_id": "T5.3",
+          "file": "docs/MANUAL_TOPOGRAFIA_SIGEF_GEONEX.md",
+          "action": "Redigir documentacao operacional para agrimensores e engenheiros credenciados"
+        }
+      ]
+    }
+  },
+  "testing_and_official_homologation_protocol": {
+    "test_cases": [
+      {
+        "id": "TC_01",
+        "name": "Gleba Retangular 4 Vertices Fuso 23S",
+        "target": "Validar fechamento angular 360 graus, area exata e formatação ODS",
+        "expected_result": "Erro de fechamento linear = 0.000m; planilha ODS gerada com 4 linhas de perimetro validas"
+      },
+      {
+        "id": "TC_02",
+        "name": "Imovel Curvilineo Rio Acima 180 Vertices",
+        "target": "Validar classificacao mista de marcos M e vertices V com precisao diferenciada",
+        "expected_result": "Vertices de rio codificados como V com sigma compativel (3.0m) e limite LN 'Margem de rio'"
+      },
+      {
+        "id": "TC_03",
+        "name": "Poligono Anti-Horario Forcado",
+        "target": "Validar deteccao e reversao automatica de orientacao",
+        "expected_result": "Inversao sem interrupcao do usuario; primeiro segmento mantem sentido horario estrito"
+      },
+      {
+        "id": "TC_04",
+        "name": "Submissao no Validador Oficial SIGEF",
+        "target": "Fazer upload do arquivo .ods gerado no validador web oficial do INCRA",
+        "expected_result": "Retorno 'Planilha sem inconsistências. Estrutura topológica aceita com sucesso.'"
+      }
+    ]
+  },
+  "blazor_ui_markup_specification": {
+    "modal_certificacao_sigef_markup": "<div class=\"modal-backdrop-dark\"><div class=\"modal-container-sigef\"><header class=\"modal-header\"><h3>Certificação SIGEF & Memorial Descritivo</h3><button class=\"btn-close\" @onclick=\"FecharModal\">×</button></header><nav class=\"modal-tabs\"><button class=\"tab-item @(_abaAtiva == 1 ? \"active\" : \"\")\" @onclick=\"() => _abaAtiva = 1\">1. Imóvel & Credenciado</button><button class=\"tab-item @(_abaAtiva == 2 ? \"active\" : \"\")\" @onclick=\"() => _abaAtiva = 2\">2. Vértices & Coordenadas</button><button class=\"tab-item @(_abaAtiva == 3 ? \"active\" : \"\")\" @onclick=\"() => _abaAtiva = 3\">3. Confrontações</button><button class=\"tab-item @(_abaAtiva == 4 ? \"active\" : \"\")\" @onclick=\"() => _abaAtiva = 4\">4. Memorial Jurídico</button><button class=\"tab-item @(_abaAtiva == 5 ? \"active\" : \"\")\" @onclick=\"() => _abaAtiva = 5\">5. Auditoria</button></nav><div class=\"modal-body-content\">@if (_abaAtiva == 1) { <div class=\"form-grid\"><label>Nome do Imóvel<input @bind=\"_imovel.Denominacao\" /></label><label>Proprietário<input @bind=\"_imovel.ProprietarioNome\" /></label><label>CPF / CNPJ<input @bind=\"_imovel.ProprietarioCpfCnpj\" /></label><label>Município<input @bind=\"_imovel.Municipio\" /></label><label>UF<input @bind=\"_imovel.Uf\" /></label><label>Código Credenciado<input @bind=\"_imovel.CredenciadoCodigoIncra\" maxlength=\"3\" /></label><label>ART / TRT<input @bind=\"_imovel.NumeroArtTrt\" /></label></div> } else if (_abaAtiva == 2) { <div class=\"table-scroll\"><table class=\"gis-table\"><thead><tr><th>Vértice</th><th>E (m)</th><th>N (m)</th><th>Altitude</th><th>Latitude</th><th>Longitude</th><th>Método</th></tr></thead><tbody>@foreach (var v in _imovel.Vertices) { <tr><td>@v.Codigo</td><td>@v.EsteUtm.ToString(\"N2\")</td><td>@v.NorteUtm.ToString(\"N2\")</td><td>@v.AltitudeOrtometrica.ToString(\"N2\")</td><td>@v.LatitudeGms</td><td>@v.LongitudeGms</td><td>@v.MetodoPosicionamento</td></tr> }</tbody></table></div> } else if (_abaAtiva == 3) { <div class=\"table-scroll\"><table class=\"gis-table\"><thead><tr><th>Segmento</th><th>Azimute</th><th>Distância</th><th>Limite</th><th>Confrontante</th><th>Matrícula</th></tr></thead><tbody>@foreach (var s in _imovel.Segmentos) { <tr><td>@s.De.Codigo -> @s.Para.Codigo</td><td>@s.AzimuteFormatadoGms</td><td>@s.DistanciaPlanaMetros.ToString(\"N2\")m</td><td><select @bind=\"s.TipoLimite\"><option value=\"@TipoLimite.LA\">LA</option><option value=\"@TipoLimite.LN\">LN</option><option value=\"@TipoLimite.LV\">LV</option></select></td><td><input @bind=\"s.NomeConfrontante\" /></td><td><input @bind=\"s.MatriculaConfrontante\" /></td></tr> }</tbody></table></div> } else if (_abaAtiva == 4) { <div class=\"memorial-preview\"><pre>@_textoMemorialVisualizacao</pre></div> } else if (_abaAtiva == 5) { <div class=\"audit-panel\">@foreach (var erro in _errosAuditoria) { <div class=\"audit-item @erro.Gravidade.ToLower()\"><span>@erro.Codigo</span><p>@erro.Mensagem</p></div> }</div> }</div><footer class=\"modal-footer\"><button class=\"btn-secondary\" @onclick=\"ValidarTopologiaAsync\">Validar SIGEF</button><button class=\"btn-primary\" @onclick=\"ExportarOdsAsync\">Exportar ODS</button><button class=\"btn-primary\" @onclick=\"ExportarDocxAsync\">Exportar Memorial DOCX</button><button class=\"btn-success\" @onclick=\"BaixarPacoteZipAsync\">Baixar Pacote Completo (.ZIP)</button></footer></div></div>"
+  },
+  "code_generation_stubs_and_skeletons": {
+    "csharp_domain_models": "namespace GeoNex.Topografia.Domain;\n\npublic enum TipoVertice { M, P, V }\npublic enum TipoLimite { LA, LN, LV }\n\npublic sealed class VerticeTopografico {\n    public int Indice { get; set; }\n    public string Codigo { get; set; } = string.Empty;\n    public TipoVertice Tipo { get; set; } = TipoVertice.M;\n    public double EsteUtm { get; set; }\n    public double NorteUtm { get; set; }\n    public double AltitudeOrtometrica { get; set; }\n    public double LatitudeDecimal { get; set; }\n    public double LongitudeDecimal { get; set; }\n    public string LatitudeGms { get; set; } = string.Empty;\n    public string LongitudeGms { get; set; } = string.Empty;\n    public double SigmaX { get; set; } = 0.05;\n    public double SigmaY { get; set; } = 0.05;\n    public double SigmaZ { get; set; } = 0.08;\n    public string MetodoPosicionamento { get; set; } = \"PG1\";\n}\n\npublic sealed class SegmentoPerimetro {\n    public int Ordem { get; set; }\n    public VerticeTopografico De { get; set; } = null!;\n    public VerticeTopografico Para { get; set; } = null!;\n    public double AzimutePlanoGraus { get; set; }\n    public double AzimuteGeodesicoGraus { get; set; }\n    public string AzimuteFormatadoGms { get; set; } = string.Empty;\n    public double DistanciaPlanaMetros { get; set; }\n    public double DistanciaGeodesicaMetros { get; set; }\n    public TipoLimite TipoLimite { get; set; } = TipoLimite.LA;\n    public string DescricaoLimite { get; set; } = \"Cerca\";\n    public string NomeConfrontante { get; set; } = string.Empty;\n    public string MatriculaConfrontante { get; set; } = string.Empty;\n    public string CnsCartorioConfrontante { get; set; } = string.Empty;\n}\n\npublic sealed class ImovelCertificacaoSigef {\n    public Guid Id { get; set; } = Guid.NewGuid();\n    public string Denominacao { get; set; } = string.Empty;\n    public string CodigoIncra { get; set; } = string.Empty;\n    public string Matricula { get; set; } = string.Empty;\n    public string Comarca { get; set; } = string.Empty;\n    public string Municipio { get; set; } = string.Empty;\n    public string Uf { get; set; } = \"SP\";\n    public string ProprietarioNome { get; set; } = string.Empty;\n    public string ProprietarioCpfCnpj { get; set; } = string.Empty;\n    public string CredenciadoNome { get; set; } = string.Empty;\n    public string CredenciadoCodigoIncra { get; set; } = string.Empty;\n    public string CredenciadoCreaCau { get; set; } = string.Empty;\n    public string NumeroArtTrt { get; set; } = string.Empty;\n    public int FusoUtm { get; set; } = 23;\n    public bool HemisferioSul { get; set; } = true;\n    public double AreaHectares { get; set; }\n    public double AreaMetrosQuadrados { get; set; }\n    public double PerimetroMetros { get; set; }\n    public List<VerticeTopografico> Vertices { get; set; } = new();\n    public List<SegmentoPerimetro> Segmentos { get; set; } = new();\n}",
+    "csharp_processing_service": "namespace GeoNex.Services.Topografia;\n\nusing NetTopologySuite.Geometries;\nusing GeoNex.Topografia.Domain;\n\npublic sealed class TopografiaProcessingService {\n    public ImovelCertificacaoSigef ProcessarPoligonoParaSigef(Geometry geom, string codCredenciado, int fusoUtm, string nome, string titular) {\n        if (geom is not Polygon && geom is not MultiPolygon)\n            throw new ArgumentException(\"A geometria deve ser um poligono fechado.\");\n        var poly = geom is MultiPolygon mp ? (Polygon)mp.Geometries[0] : (Polygon)geom;\n        var coords = poly.ExteriorRing.Coordinates;\n        if (NetTopologySuite.Algorithm.Orientation.IsCCW(coords)) Array.Reverse(coords);\n        var imovel = new ImovelCertificacaoSigef {\n            Denominacao = nome,\n            ProprietarioNome = titular,\n            CredenciadoCodigoIncra = codCredenciado,\n            FusoUtm = fusoUtm,\n            AreaHectares = Math.Abs(poly.Area) / 10000.0,\n            AreaMetrosQuadrados = Math.Abs(poly.Area),\n            PerimetroMetros = poly.ExteriorRing.Length\n        };\n        int total = coords.Length - 1;\n        for (int i = 0; i < total; i++) {\n            var c = coords[i];\n            var v = new VerticeTopografico {\n                Indice = i + 1,\n                Codigo = $\"{codCredenciado}-M-{(i + 1):D4}\",\n                Tipo = TipoVertice.M,\n                EsteUtm = c.X,\n                NorteUtm = c.Y,\n                AltitudeOrtometrica = double.IsNaN(c.Z) ? 0.0 : c.Z\n            };\n            ConverterUtmParaGeodesica(c.X, c.Y, fusoUtm, true, out double lat, out double lon);\n            v.LatitudeDecimal = lat;\n            v.LongitudeDecimal = lon;\n            v.LatitudeGms = FormatarParaPadraoIncra(lat, true);\n            v.LongitudeGms = FormatarParaPadraoIncra(lon, false);\n            imovel.Vertices.Add(v);\n        }\n        for (int i = 0; i < total; i++) {\n            var v1 = imovel.Vertices[i];\n            var v2 = imovel.Vertices[(i + 1) % total];\n            double dX = v2.EsteUtm - v1.EsteUtm;\n            double dY = v2.NorteUtm - v1.NorteUtm;\n            double dist = Math.Sqrt(dX * dX + dY * dY);\n            double azimuteRad = Math.Atan2(dX, dY);\n            if (azimuteRad < 0) azimuteRad += 2 * Math.PI;\n            double azimuteGraus = azimuteRad * (180.0 / Math.PI);\n            imovel.Segmentos.Add(new SegmentoPerimetro {\n                Ordem = i + 1,\n                De = v1,\n                Para = v2,\n                DistanciaPlanaMetros = dist,\n                DistanciaGeodesicaMetros = dist,\n                AzimutePlanoGraus = azimuteGraus,\n                AzimuteFormatadoGms = FormatarDmsMemorial(azimuteGraus),\n                TipoLimite = TipoLimite.LA,\n                DescricaoLimite = \"Cerca\",\n                NomeConfrontante = \"A DEFINIR\"\n            });\n        }\n        return imovel;\n    }\n    public static void ConverterUtmParaGeodesica(double este, double norte, int fuso, bool hemisferioSul, out double lat, out double lon) {\n        // Serie analitica de Redfearn e Coticchia-Surace GRS80/SIRGAS2000\n        const double a = 6378137.0;\n        const double e2 = 0.00669438002290;\n        const double k0 = 0.9996;\n        double ePrime2 = e2 / (1.0 - e2);\n        double x = este - 500000.0;\n        double y = hemisferioSul ? norte - 10000000.0 : norte;\n        double m = y / k0;\n        double e1 = (1.0 - Math.Sqrt(1.0 - e2)) / (1.0 + Math.Sqrt(1.0 - e2));\n        double mu = m / (a * (1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * Math.Pow(e2, 3) / 256.0));\n        double j1 = 3.0 * e1 / 2.0 - 27.0 * Math.Pow(e1, 3) / 32.0;\n        double j2 = 21.0 * e1 * e1 / 16.0 - 55.0 * Math.Pow(e1, 4) / 32.0;\n        double j3 = 151.0 * Math.Pow(e1, 3) / 96.0;\n        double fp = mu + j1 * Math.Sin(2 * mu) + j2 * Math.Sin(4 * mu) + j3 * Math.Sin(6 * mu);\n        double sinFp = Math.Sin(fp);\n        double cosFp = Math.Cos(fp);\n        double tanFp = Math.Tan(fp);\n        double c1 = ePrime2 * cosFp * cosFp;\n        double t1 = tanFp * tanFp;\n        double n1 = a / Math.Sqrt(1.0 - e2 * sinFp * sinFp);\n        double r1 = a * (1.0 - e2) / Math.Pow(1.0 - e2 * sinFp * sinFp, 1.5);\n        double d = x / (n1 * k0);\n        double latRad = fp - (n1 * tanFp / r1) * (d * d / 2.0 - (5.0 + 3.0 * t1 + 10.0 * c1 - 4.0 * c1 * c1 - 9.0 * ePrime2) * Math.Pow(d, 4) / 24.0);\n        lat = latRad * (180.0 / Math.PI);\n        double lonRad = (d - (1.0 + 2.0 * t1 + c1) * Math.Pow(d, 3) / 6.0) / cosFp;\n        double centralMeridian = (fuso * 6 - 183) * (Math.PI / 180.0);\n        lon = (centralMeridian + lonRad) * (180.0 / Math.PI);\n    }\n    public static string FormatarParaPadraoIncra(double val, bool isLat) {\n        char sinal = val < 0 ? '-' : '+';\n        double abs = Math.Abs(val);\n        int g = (int)Math.Floor(abs);\n        double rm = (abs - g) * 60.0;\n        int m = (int)Math.Floor(rm);\n        double s = (rm - m) * 60.0;\n        return $\"{sinal}{g:00} {m:00} {s:00.000}\".Replace('.', ',');\n    }\n    public static string FormatarDmsMemorial(double ang) {\n        double norm = (ang % 360.0 + 360.0) % 360.0;\n        int g = (int)Math.Floor(norm);\n        double rm = (norm - g) * 60.0;\n        int m = (int)Math.Floor(rm);\n        double s = (rm - m) * 60.0;\n        return $\"{g:00}°{m:00}'{s:00.0}\\\"\";\n    }\n}",
+    "csharp_ods_exporter": "namespace GeoNex.Services.Topografia.Export;\n\nusing System.IO.Compression;\nusing System.Text;\nusing GeoNex.Topografia.Domain;\n\npublic sealed class SigefOdsExportService {\n    public byte[] ExportarPlanilhaOds(ImovelCertificacaoSigef imovel) {\n        using var ms = new MemoryStream();\n        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, true)) {\n            var mimeEntry = archive.CreateEntry(\"mimetype\", CompressionLevel.NoCompression);\n            using (var writer = new StreamWriter(mimeEntry.Open(), Encoding.ASCII)) {\n                writer.Write(\"application/vnd.oasis.opendocument.spreadsheet\");\n            }\n            var manifestEntry = archive.CreateEntry(\"META-INF/manifest.xml\", CompressionLevel.Optimal);\n            using (var writer = new StreamWriter(manifestEntry.Open(), Encoding.UTF8)) {\n                writer.Write(\"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?><manifest:manifest xmlns:manifest=\\\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\\\" manifest:version=\\\"1.2\\\"><manifest:file-entry manifest:full-path=\\\"/\\\" manifest:version=\\\"1.2\\\" manifest:media-type=\\\"application/vnd.oasis.opendocument.spreadsheet\\\"/><manifest:file-entry manifest:full-path=\\\"content.xml\\\" manifest:media-type=\\\"text/xml\\\"/></manifest:manifest>\");\n            }\n            var contentEntry = archive.CreateEntry(\"content.xml\", CompressionLevel.Optimal);\n            using (var writer = new StreamWriter(contentEntry.Open(), Encoding.UTF8)) {\n                var sb = new StringBuilder();\n                sb.Append(\"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?><office:document-content xmlns:office=\\\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\\\" xmlns:table=\\\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\\\" xmlns:text=\\\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\\\" office:version=\\\"1.2\\\"><office:body><office:spreadsheet>\");\n                sb.Append(\"<table:table table:name=\\\"Perímetro\\\">\");\n                sb.Append(\"<table:table-row><table:table-cell office:value-type=\\\"string\\\"><text:p>Vértice</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Longitude</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Latitude</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Altitude (m)</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Sigma Longitude (m)</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Sigma Latitude (m)</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Sigma Altitude (m)</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Método</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Tipo Limite</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Descrição Limite</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Vértice Destino</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Confrontante</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>Matrícula/CNS</text:p></table:table-cell></table:table-row>\");\n                foreach (var seg in imovel.Segmentos) {\n                    sb.Append($\"<table:table-row><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.De.Codigo}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.De.LongitudeGms}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.De.LatitudeGms}</text:p></table:table-cell><table:table-cell office:value-type=\\\"float\\\" office:value=\\\"{seg.De.AltitudeOrtometrica}\\\"><text:p>{seg.De.AltitudeOrtometrica:F2}</text:p></table:table-cell><table:table-cell office:value-type=\\\"float\\\" office:value=\\\"{seg.De.SigmaX}\\\"><text:p>{seg.De.SigmaX:F2}</text:p></table:table-cell><table:table-cell office:value-type=\\\"float\\\" office:value=\\\"{seg.De.SigmaY}\\\"><text:p>{seg.De.SigmaY:F2}</text:p></table:table-cell><table:table-cell office:value-type=\\\"float\\\" office:value=\\\"{seg.De.SigmaZ}\\\"><text:p>{seg.De.SigmaZ:F2}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.De.MetodoPosicionamento}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.TipoLimite}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.DescricaoLimite}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.Para.Codigo}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.NomeConfrontante}</text:p></table:table-cell><table:table-cell office:value-type=\\\"string\\\"><text:p>{seg.MatriculaConfrontante}</text:p></table:table-cell></table:table-row>\");\n                }\n                sb.Append(\"</table:table></office:spreadsheet></office:body></office:document-content>\");\n                writer.Write(sb.ToString());\n            }\n        }\n        return ms.ToArray();\n    }\n}",
+    "csharp_memorial_exporter": "namespace GeoNex.Services.Topografia.Export;\n\nusing System.Text;\nusing GeoNex.Topografia.Domain;\n\npublic sealed class MemorialDescritivoExportService {\n    public string GerarTextoMemorialCorrido(ImovelCertificacaoSigef imovel) {\n        var sb = new StringBuilder();\n        sb.AppendLine(\"MEMORIAL DESCRITIVO GEORREFERENCIADO\");\n        sb.AppendLine($\"IMÓVEL: {imovel.Denominacao}\");\n        sb.AppendLine($\"PROPRIETÁRIO: {imovel.ProprietarioNome} - CPF/CNPJ: {imovel.ProprietarioCpfCnpj}\");\n        sb.AppendLine($\"MUNICÍPIO: {imovel.Municipio} - {imovel.Uf} | COMARCA: {imovel.Comarca}\");\n        sb.AppendLine($\"ÁREA: {imovel.AreaHectares:N4} ha ({imovel.AreaMetrosQuadrados:N2} m²) | PERÍMETRO: {imovel.PerimetroMetros:N2} m\");\n        sb.AppendLine($\"SISTEMA GEODÉSICO: SIRGAS 2000 | FUSO: {imovel.FusoUtm}S\");\n        sb.AppendLine();\n        sb.AppendLine(\"DESCRIÇÃO DO PERÍMETRO:\");\n        if (imovel.Segmentos.Count > 0) {\n            var seg0 = imovel.Segmentos[0];\n            sb.Append($\"Inicia-se a descrição deste perímetro no vértice {seg0.De.Codigo}, de coordenadas UTM N: {seg0.De.NorteUtm:N2}m e E: {seg0.De.EsteUtm:N2}m, cravado na divisa com {seg0.NomeConfrontante}; \");\n            for (int i = 0; i < imovel.Segmentos.Count; i++) {\n                var s = imovel.Segmentos[i];\n                sb.Append($\"deste, segue confrontando com {s.NomeConfrontante} com azimute de {s.AzimuteFormatadoGms} e distância de {s.DistanciaPlanaMetros:N2}m até o vértice {s.Para.Codigo}; \");\n            }\n            sb.AppendLine($\"ponto inicial desta descrição, encerrando uma área de {imovel.AreaHectares:N4} hectares e um perímetro de {imovel.PerimetroMetros:N2} metros.\");\n        }\n        return sb.ToString();\n    }\n}"
+  }
+}
