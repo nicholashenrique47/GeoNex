@@ -26,6 +26,7 @@ public partial class Home
     private bool _mostrarModalLicenca = false;
     private int _abaAtivaModalSigef = 1; // 1: Imóvel, 2: Vértices, 3: Confrontantes, 4: Memorial, 5: Auditoria
     private ImovelCertificacaoSigef? _imovelSigefAtivo;
+    private Geometry? _geometriaAlvoOriginal;
     private string _textoMemorialVisualizacao = string.Empty;
     private string _mensagemFeedbackTopo = string.Empty;
     private bool _feedbackTopoErro = false;
@@ -57,13 +58,16 @@ public partial class Home
                 geomAlvo = CriarGlebaDemonstracao();
             }
 
-            // 2. Processar a geometria
+            _geometriaAlvoOriginal = geomAlvo;
+
+            // 2. Processar a geometria com auto-detecção de coordenadas, fuso e SIRGAS 2000
             _imovelSigefAtivo = TopoProcessingService.ProcessarPoligonoParaSigef(
                 geomAlvo,
                 codigoCredenciado: "ABC",
                 fusoUtm: 23,
                 denominacao: "Fazenda Santa Maria",
-                titular: "João da Silva Sauro"
+                titular: "João da Silva Sauro",
+                datumOrigem: TipoDatum.Sirgas2000
             );
 
             // 3. Detectar confrontantes espaciais se houver outras camadas vetoriais abertas
@@ -82,6 +86,56 @@ public partial class Home
         catch (Exception ex)
         {
             ExibirAlertaTopografia($"Erro ao inicializar certificação SIGEF: {ex.Message}", true);
+        }
+    }
+
+    private async Task RecalcularGeodesiaImovelAsync()
+    {
+        if (_geometriaAlvoOriginal is null || _imovelSigefAtivo is null) return;
+
+        try
+        {
+            var denominacao = _imovelSigefAtivo.Denominacao;
+            var titular = _imovelSigefAtivo.ProprietarioNome;
+            var rt = _imovelSigefAtivo.CredenciadoNome;
+            var crea = _imovelSigefAtivo.CredenciadoCreaCau;
+            var art = _imovelSigefAtivo.NumeroArtTrt;
+            var matricula = _imovelSigefAtivo.Matricula;
+            var comarca = _imovelSigefAtivo.Comarca;
+            var municipio = _imovelSigefAtivo.Municipio;
+            var uf = _imovelSigefAtivo.Uf;
+            var codIncra = _imovelSigefAtivo.CodigoIncra;
+            var fuso = _imovelSigefAtivo.FusoUtm;
+            var datum = _imovelSigefAtivo.DatumOrigem;
+
+            _imovelSigefAtivo = TopoProcessingService.ProcessarPoligonoParaSigef(
+                _geometriaAlvoOriginal,
+                _imovelSigefAtivo.CredenciadoCodigoIncra,
+                fusoUtm: fuso,
+                denominacao: denominacao,
+                titular: titular,
+                datumOrigem: datum
+            );
+
+            _imovelSigefAtivo.CredenciadoNome = rt;
+            _imovelSigefAtivo.CredenciadoCreaCau = crea;
+            _imovelSigefAtivo.NumeroArtTrt = art;
+            _imovelSigefAtivo.Matricula = matricula;
+            _imovelSigefAtivo.Comarca = comarca;
+            _imovelSigefAtivo.Municipio = municipio;
+            _imovelSigefAtivo.Uf = uf;
+            _imovelSigefAtivo.CodigoIncra = codIncra;
+
+            DetectarVizinhosNasCamadasAbertas();
+            ForensicValidator.ExecutarAuditoria(_imovelSigefAtivo);
+            AtualizarPreviewMemorial();
+
+            ExibirAlertaTopografia($"Geodésia recalculada com sucesso: Fuso {fuso}S · Datum {datum}.", false);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            ExibirAlertaTopografia($"Erro ao recalcular geodésia: {ex.Message}", true);
         }
     }
 

@@ -17,6 +17,20 @@ public enum TipoLimite
     LV  // Limite Virtual (projeção astronômica, linha imaginária)
 }
 
+public enum TipoDatum
+{
+    Sirgas2000,    // SIRGAS 2000 (GRS80) - Padrão Obrigatório INCRA / SIGEF
+    Sad69,         // SAD69 (IAG-GRS67) - Histórico Brasileiro
+    CorregoAlegre, // Córrego Alegre (Hayford / Internacional 1924)
+    Wgs84          // WGS 84 (GPS Nativo)
+}
+
+public enum TipoSistemaCoordenadas
+{
+    ProjetadaUtm,
+    GeograficaDecimal
+}
+
 public sealed class VerticeTopografico
 {
     public int Indice { get; set; }
@@ -81,6 +95,8 @@ public sealed class ImovelCertificacaoSigef
     public string CredenciadoCreaCau { get; set; } = string.Empty;
     public string NumeroArtTrt { get; set; } = string.Empty;
 
+    public TipoDatum DatumOrigem { get; set; } = TipoDatum.Sirgas2000;
+    public TipoSistemaCoordenadas SistemaOrigem { get; set; } = TipoSistemaCoordenadas.ProjetadaUtm;
     public int FusoUtm { get; set; } = 23;
     public bool HemisferioSul { get; set; } = true;
     public double AreaHectares { get; set; }
@@ -90,4 +106,13 @@ public sealed class ImovelCertificacaoSigef
     public List<VerticeTopografico> Vertices { get; set; } = new();
     public List<SegmentoPerimetro> Segmentos { get; set; } = new();
     public List<AuditoriaTopograficaItem> Diagnosticos { get; set; } = new();
+
+    public string NomeDatumExibicao => DatumOrigem switch
+    {
+        TipoDatum.Sirgas2000 => "SIRGAS 2000 (GRS80) - Padrão Oficial INCRA",
+        TipoDatum.Sad69 => "SAD69 (Transformado p/ SIRGAS 2000 via IBGE)",
+        TipoDatum.CorregoAlegre => "Córrego Alegre (Transformado p/ SIRGAS 2000)",
+        TipoDatum.Wgs84 => "WGS 84 (Compatível com SIRGAS 2000)",
+        _ => "SIRGAS 2000"
+    };
 }
