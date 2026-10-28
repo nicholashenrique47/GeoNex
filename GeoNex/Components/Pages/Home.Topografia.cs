@@ -10,6 +10,7 @@ using NetTopologySuite.Geometries;
 using GeoNex.Topografia.Domain;
 using GeoNex.Services.Topografia;
 using GeoNex.Services.Topografia.Export;
+using GeoNex.Services.Topografia.Import;
 using GeoNex.Services.Topografia.Validation;
 using GeoNex.Services.Licensing;
 
@@ -21,16 +22,22 @@ public partial class Home
     [Inject] private SpatialConfrontationService ConfrontationService { get; set; } = null!;
     [Inject] private TopografiaForensicValidator ForensicValidator { get; set; } = null!;
     [Inject] private LicenseValidationService LicenseService { get; set; } = null!;
+    [Inject] private TopografiaDxfExportService DxfExportService { get; set; } = null!;
+    [Inject] private TopografiaPranchaPdfService PranchaPdfService { get; set; } = null!;
+    [Inject] private TopografiaFieldDataImporter FieldImporter { get; set; } = null!;
+    [Inject] private IncraSobreposicaoAuditorService SobreposicaoAuditor { get; set; } = null!;
 
     private bool _mostrarModalCertificacaoSigef = false;
     private bool _mostrarModalLicenca = false;
-    private int _abaAtivaModalSigef = 1; // 1: Imóvel, 2: Vértices, 3: Confrontantes, 4: Memorial, 5: Auditoria
+    private int _abaAtivaModalSigef = 1; // 1: Imóvel, 2: Vértices, 3: Confrontantes, 4: Memorial, 5: Auditoria, 6: Sobreposição, 7: Exportação
     private ImovelCertificacaoSigef? _imovelSigefAtivo;
     private Geometry? _geometriaAlvoOriginal;
     private string _textoMemorialVisualizacao = string.Empty;
     private string _mensagemFeedbackTopo = string.Empty;
     private bool _feedbackTopoErro = false;
     private string _chaveLicencaInput = string.Empty;
+    private bool _consultandoWfs = false;
+    private List<ConflitoSobreposicaoItem> _conflitosDetectados = new();
 
     private async Task AbrirModalCertificacaoSigefAsync()
     {
@@ -327,6 +334,113 @@ public partial class Home
         }
     }
 
+    private async Task ExportarDxfCadastralAsync()
+    {
+        if (_imovelSigefAtivo is null)
+        {
+            await AbrirModalCertificacaoSigefAsync();
+        }
+
+        if (_imovelSigefAtivo is null) return;
+
+        try
+        {
+            if (!LicenseService.ConsumirCreditoOuValidarAssinatura())
+            {
+                _mostrarModalLicenca = true;
+                return;
+            }
+
+            byte[] bytesDxf = DxfExportService.GerarDxfCadastral(_imovelSigefAtivo, 200.0);
+            string nomeArquivo = $"{SanitizarNomeArquivo(_imovelSigefAtivo.Denominacao)}_CAD_R12.dxf";
+            string pastaDestino = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string caminhoCompleto = Path.Combine(pastaDestino, nomeArquivo);
+
+            await File.WriteAllBytesAsync(caminhoCompleto, bytesDxf);
+            ExibirAlertaTopografia($"Arquivo CAD/DXF multicamadas gerado com sucesso em:\n{caminhoCompleto}", false);
+        }
+        catch (Exception ex)
+        {
+            ExibirAlertaTopografia($"Falha ao exportar DXF: {ex.Message}", true);
+        }
+    }
+
+    private async Task ExportarPranchaPdfAsync()
+    {
+        if (_imovelSigefAtivo is null)
+        {
+            await AbrirModalCertificacaoSigefAsync();
+        }
+
+        if (_imovelSigefAtivo is null) return;
+
+        try
+        {
+            if (!LicenseService.ConsumirCreditoOuValidarAssinatura())
+            {
+                _mostrarModalLicenca = true;
+                return;
+            }
+
+            byte[] bytesPdf = PranchaPdfService.GerarPlantaTopograficaPdf(_imovelSigefAtivo);
+            string nomeArquivo = $"Planta_Topografica_{SanitizarNomeArquivo(_imovelSigefAtivo.Denominacao)}_A3.pdf";
+            string pastaDestino = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string caminhoCompleto = Path.Combine(pastaDestino, nomeArquivo);
+
+            await File.WriteAllBytesAsync(caminhoCompleto, bytesPdf);
+            ExibirAlertaTopografia($"Prancha Topográfica A3 (PDF) com carimbo gerada com sucesso em:\n{caminhoCompleto}", false);
+        }
+        catch (Exception ex)
+        {
+            ExibirAlertaTopografia($"Falha ao exportar Prancha PDF: {ex.Message}", true);
+        }
+    }
+
+    private async Task VerificarSobreposicaoAcervoIncraAsync()
+    {
+        if (_imovelSigefAtivo is null)
+        {
+            await AbrirModalCertificacaoSigefAsync();
+        }
+
+        if (_imovelSigefAtivo is null || _geometriaAlvoOriginal is null) return;
+
+        try
+        {
+            _consultandoWfs = true;
+            await InvokeAsync(StateHasChanged);
+
+            var progresso = new Progress<string>(msg =>
+            {
+                ExibirAlertaTopografia(msg, false);
+            });
+
+            _conflitosDetectados = await SobreposicaoAuditor.VerificarSobreposicaoIncraAsync(_geometriaAlvoOriginal, progresso);
+            _imovelSigefAtivo.ConflitosSobreposicao = _conflitosDetectados;
+
+            _abaAtivaModalSigef = 6;
+            _mostrarModalCertificacaoSigef = true;
+
+            if (_conflitosDetectados.Count == 0)
+            {
+                ExibirAlertaTopografia("Acervo Fundiário INCRA: Nenhuma sobreposição com parcelas vizinhas certificadas detectada. Gleba livre de conflitos!", false);
+            }
+            else
+            {
+                ExibirAlertaTopografia($"Atenção: Detectadas {_conflitosDetectados.Count} sobreposição(ões) com parcelas do SIGEF!", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ExibirAlertaTopografia($"Falha ao consultar WFS INCRA: {ex.Message}", true);
+        }
+        finally
+        {
+            _consultandoWfs = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task BaixarPacoteZipAsync()
     {
         if (_imovelSigefAtivo is null) return;
@@ -341,6 +455,8 @@ public partial class Home
 
             byte[] bytesOds = SigefOdsService.ExportarPlanilhaOds(_imovelSigefAtivo);
             byte[] bytesDocx = MemorialService.GerarArquivoDocx(_imovelSigefAtivo);
+            byte[] bytesDxf = DxfExportService.GerarDxfCadastral(_imovelSigefAtivo, 200.0);
+            byte[] bytesPdf = PranchaPdfService.GerarPlantaTopograficaPdf(_imovelSigefAtivo);
             string memorialTexto = MemorialService.GerarTextoMemorialCorrido(_imovelSigefAtivo);
 
             using var zipMs = new MemoryStream();
@@ -351,6 +467,12 @@ public partial class Home
 
                 var docxEntry = archive.CreateEntry($"Memorial_Descritivo_{SanitizarNomeArquivo(_imovelSigefAtivo.Denominacao)}.docx");
                 using (var s = docxEntry.Open()) s.Write(bytesDocx, 0, bytesDocx.Length);
+
+                var dxfEntry = archive.CreateEntry($"{SanitizarNomeArquivo(_imovelSigefAtivo.Denominacao)}_CAD_R12.dxf");
+                using (var s = dxfEntry.Open()) s.Write(bytesDxf, 0, bytesDxf.Length);
+
+                var pdfEntry = archive.CreateEntry($"Planta_Topografica_{SanitizarNomeArquivo(_imovelSigefAtivo.Denominacao)}_A3.pdf");
+                using (var s = pdfEntry.Open()) s.Write(bytesPdf, 0, bytesPdf.Length);
 
                 var txtEntry = archive.CreateEntry("Memorial_Descritivo_Texto.txt");
                 using (var sw = new StreamWriter(txtEntry.Open(), System.Text.Encoding.UTF8)) sw.Write(memorialTexto);

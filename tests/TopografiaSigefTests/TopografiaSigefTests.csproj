@@ -8,12 +8,22 @@
 
   <ItemGroup>
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
+    <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="3.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+
     <Compile Include="../../GeoNex/Topografia/Domain/TopografiaModels.cs" Link="TopografiaModels.cs" />
+    <Compile Include="../../GeoNex/Topografia/Domain/TopografiaNormativeCatalog.cs" Link="TopografiaNormativeCatalog.cs" />
     <Compile Include="../../GeoNex/Services/Topografia/TopografiaProcessingService.cs" Link="TopografiaProcessingService.cs" />
     <Compile Include="../../GeoNex/Services/Topografia/Export/SigefOdsExportService.cs" Link="SigefOdsExportService.cs" />
     <Compile Include="../../GeoNex/Services/Topografia/Export/MemorialDescritivoExportService.cs" Link="MemorialDescritivoExportService.cs" />
+    <Compile Include="../../GeoNex/Services/Topografia/Export/TopografiaDxfExportService.cs" Link="TopografiaDxfExportService.cs" />
+    <Compile Include="../../GeoNex/Services/Topografia/Export/TopografiaPranchaPdfService.cs" Link="TopografiaPranchaPdfService.cs" />
+    <Compile Include="../../GeoNex/Services/Topografia/Import/TopografiaFieldDataImporter.cs" Link="TopografiaFieldDataImporter.cs" />
     <Compile Include="../../GeoNex/Services/Topografia/SpatialConfrontationService.cs" Link="SpatialConfrontationService.cs" />
     <Compile Include="../../GeoNex/Services/Topografia/Validation/TopografiaForensicValidator.cs" Link="TopografiaForensicValidator.cs" />
+    <Compile Include="../../GeoNex/Services/Topografia/Validation/IncraSobreposicaoAuditorService.cs" Link="IncraSobreposicaoAuditorService.cs" />
     <Compile Include="../../GeoNex/Services/Licensing/LicenseValidationService.cs" Link="LicenseValidationService.cs" />
   </ItemGroup>
 </Project>

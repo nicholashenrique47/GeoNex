@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using NetTopologySuite.Geometries;
 
 public enum TipoVertice
 {
@@ -76,6 +77,17 @@ public sealed class AuditoriaTopograficaItem
     public double? CoordY { get; set; }
 }
 
+public sealed class ConflitoSobreposicaoItem
+{
+    public string CodigoImovelVizinho { get; set; } = string.Empty;
+    public string NomeImovelVizinho { get; set; } = string.Empty;
+    public string DetentorNome { get; set; } = string.Empty;
+    public double AreaSobreposicaoMetrosQuadrados { get; set; }
+    public double AreaSobreposicaoHectares => AreaSobreposicaoMetrosQuadrados / 10000.0;
+    public bool PossuiConflitoCritico => AreaSobreposicaoMetrosQuadrados >= 1.0;
+    public Geometry PoligonoConflito { get; set; } = null!;
+}
+
 public sealed class ImovelCertificacaoSigef
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -106,6 +118,7 @@ public sealed class ImovelCertificacaoSigef
     public List<VerticeTopografico> Vertices { get; set; } = new();
     public List<SegmentoPerimetro> Segmentos { get; set; } = new();
     public List<AuditoriaTopograficaItem> Diagnosticos { get; set; } = new();
+    public List<ConflitoSobreposicaoItem> ConflitosSobreposicao { get; set; } = new();
 
     public string NomeDatumExibicao => DatumOrigem switch
     {
