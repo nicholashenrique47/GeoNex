@@ -1,0 +1,1033 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "prompt_metadata": {
+    "title": "GeoNex Heavy Engineering Execution Blueprint: Topografia Avancada, CAD/DXF, Cartografia Impressa ABNT, Dados de Campo e Auditoria de Sobreposicao INCRA",
+    "version": "2.0.0-PRO",
+    "description": "Blueprint e prompt deterministico de execucao em formato JSON estruturado para guiar a implantacao integral dos 5 modulos avancados de agrimensura profissional no GeoNex Desktop GIS (.NET 10 / C# 14 / Blazor Hybrid / NetTopologySuite / SkiaSharp / OpenXML / OGC WFS).",
+    "target_engine": "GeoNex Desktop GIS Core (.NET 10)",
+    "target_framework": "net10.0-windows10.0.19041.0",
+    "zero_emoji_policy": true,
+    "strict_standards_parity": [
+      "INCRA 3a Edicao - Norma Tecnica para Georreferenciamento de Imoveis Rurais (NTGIR)",
+      "INCRA Manual Tecnico de Posicionamento e Geodesia",
+      "INCRA Manual Tecnico de Limites e Confrontacoes",
+      "ABNT NBR 13.133:2021 - Execucao de Levantamento Topografico",
+      "ABNT NBR 14.166:2022 - Rede de Referencia Cadastral Municipal",
+      "Autodesk AutoCAD R12/2000 Drawing Exchange Format (ASCII DXF)",
+      "OGC Web Feature Service 2.0.0 (WFS 2.0.0 Interface Standard)",
+      "OASIS OpenDocument Spreadsheet v1.2 (ISO/IEC 26300:2006)",
+      "ECMA-376 OpenXML File Formats (.docx)"
+    ],
+    "hardware_acceleration": {
+      "simd_avx2": true,
+      "zero_allocation_loops": true,
+      "spatial_index_acceleration": "Sort-Tile-Recursive 2D R-Tree (NetTopologySuite.Index.Strtree.STRtree)"
+    }
+  },
+  "system_architecture_overview": {
+    "subsystems": [
+      {
+        "id": "MOD_01",
+        "name": "CAD/DXF Topographic Engine",
+        "purpose": "Geracao nativa de arquivos DXF ASCII R12/2000 multicamadas para AutoCAD e Civil 3D com blocos de marcos, cotas tangentes e malha UTM.",
+        "target_namespace": "GeoNex.Services.Topografia.Export.Dxf",
+        "primary_class": "TopografiaDxfExportService",
+        "architecture_tier": "Export Services"
+      },
+      {
+        "id": "MOD_02",
+        "name": "ABNT Cartographic Sheet PDF Engine",
+        "purpose": "Renderizacao vetorial de pranchas e plantas topograficas A1/A2/A3/A4 com carimbo cartorario, tabela de vertices, rosa dos ventos e escala grafica dinamica.",
+        "target_namespace": "GeoNex.Services.Topografia.Export.Pdf",
+        "primary_class": "TopografiaPranchaPdfService",
+        "architecture_tier": "Vector Drawing Engine"
+      },
+      {
+        "id": "MOD_03",
+        "name": "Universal Field Data Importer",
+        "purpose": "Ingestao adaptativa de arquivos brutos de Estacoes Totais e Receptores GNSS (CSV, TXT, GSI, GTS, NMEA) com reconstrucao automatica de poligono.",
+        "target_namespace": "GeoNex.Services.Topografia.Import",
+        "primary_class": "TopografiaFieldDataImporter",
+        "architecture_tier": "Data Ingestion Pipeline"
+      },
+      {
+        "id": "MOD_04",
+        "name": "INCRA 3rd Edition Normative Catalog",
+        "purpose": "Catalogo parametrizado de metodos de posicionamento (PG1 a PV2), limites legais (LA, LN, LV) e matriz de tolerancias de desvio padrao sigma.",
+        "target_namespace": "GeoNex.Topografia.Domain",
+        "primary_class": "TopografiaNormativeCatalog",
+        "architecture_tier": "Domain & Validation"
+      },
+      {
+        "id": "MOD_05",
+        "name": "INCRA Land Tenure Overlap Auditor",
+        "purpose": "Cliente OGC WFS 2.0.0 consultando o Acervo Fundiario do INCRA via INDE para deteccao preventiva de sobreposicao fundiaria em tempo real.",
+        "target_namespace": "GeoNex.Services.Topografia.Validation",
+        "primary_class": "IncraSobreposicaoAuditorService",
+        "architecture_tier": "Spatial Intelligence & Cloud Integration"
+      }
+    ]
+  },
+  "module_1_cad_dxf_export_engine": {
+    "specification": {
+      "format": "AutoCAD R12 ASCII DXF",
+      "header_version_code": "AC1009",
+      "unit_code": 6,
+      "unit_description": "Metros",
+      "zero_external_dependencies": true,
+      "stream_encoding": "ISO-8859-1 (Latin1)"
+    },
+    "layer_definitions": [
+      {
+        "layer_name": "01_PERIMETRO",
+        "color_aci": 1,
+        "color_name": "Vermelho",
+        "line_type": "CONTINUOUS",
+        "line_weight_mm": 0.5,
+        "entity_type": "POLYLINE / VERTEX / SEQEND",
+        "description": "Polilinha fechada que delimita rigorosamente o perimetro legal certificado da gleba."
+      },
+      {
+        "layer_name": "02_MARCOS_SIMBOLO",
+        "color_aci": 4,
+        "color_name": "Ciano",
+        "line_type": "CONTINUOUS",
+        "line_weight_mm": 0.25,
+        "entity_type": "INSERT (Bloco SIMBOLO_MARCO)",
+        "description": "Circulo concentrico de 1.5m de raio com cruzeta de 5m de extensao em cada vertice."
+      },
+      {
+        "layer_name": "03_VERTICES_TEXTO",
+        "color_aci": 7,
+        "color_name": "Branco/Preto",
+        "line_type": "CONTINUOUS",
+        "line_weight_mm": 0.18,
+        "entity_type": "TEXT",
+        "description": "Codigo identificador alfanumerico do vertice no padrao INCRA (ex: ABC-M-0001) com altura de 2.5m."
+      },
+      {
+        "layer_name": "04_AZIMUTES_DISTANCIAS",
+        "color_aci": 3,
+        "color_name": "Verde",
+        "line_type": "CONTINUOUS",
+        "line_weight_mm": 0.18,
+        "entity_type": "TEXT",
+        "description": "Rotulo alinhado ao segmento com azimute formatado em graus, minutos e segundos e distancia linear."
+      },
+      {
+        "layer_name": "05_CONFRONTANTES",
+        "color_aci": 2,
+        "color_name": "Amarelo",
+        "line_type": "CONTINUOUS",
+        "line_weight_mm": 0.25,
+        "entity_type": "TEXT",
+        "description": "Nome da propriedade vizinha ou estrada confinante posicionado externamente ao alinhamento com offset de 8m."
+      },
+      {
+        "layer_name": "06_MALHA_UTM",
+        "color_aci": 8,
+        "color_name": "Cinza Escuro",
+        "line_type": "CONTINUOUS",
+        "line_weight_mm": 0.09,
+        "entity_type": "LINE e TEXT",
+        "description": "Cruzetas ortogonais no espacamento configurado (100m, 200m ou 500m) e anotacoes de coordenadas Este e Norte."
+      },
+      {
+        "layer_name": "07_TABELA_VERTICES",
+        "color_aci": 7,
+        "color_name": "Branco",
+        "line_type": "CONTINUOUS",
+        "line_weight_mm": 0.18,
+        "entity_type": "LINE e TEXT",
+        "description": "Grade tabular vetorial desenhada ao lado do poligono com coordenadas, azimutes e confrontantes."
+      }
+    ],
+    "mathematical_algorithms": {
+      "tangent_text_rotation": {
+        "formula_raw_angle": "angRad = atan2(Norte2 - Norte1, Este2 - Este1)",
+        "formula_degrees": "angGraus = angRad * 180.0 / PI",
+        "abnt_readability_rule": "if (angGraus > 90.0 || angGraus <= -90.0) angGraus += 180.0; if (angGraus >= 360.0) angGraus -= 360.0;",
+        "rationale": "Garante que o texto nunca fique de cabeca para baixo na impressao ou visualizacao CAD."
+      },
+      "perpendicular_offset": {
+        "unit_normal_vector": "normEste = -sin(angRad), normNorte = cos(angRad)",
+        "midpoint_coordinates": "midEste = (Este1 + Este2) / 2.0, midNorte = (Norte1 + Norte2) / 2.0",
+        "metric_label_position": "txtEste = midEste + normEste * 3.0, txtNorte = midNorte + normNorte * 3.0",
+        "confrontant_label_position": "confEste = midEste + normEste * 8.0, confNorte = midNorte + normNorte * 8.0"
+      },
+      "utm_crosshair_grid": {
+        "crosshair_size_ratio": 0.05,
+        "horizontal_bar": "LINE de (X - tam, Y) ate (X + tam, Y)",
+        "vertical_bar": "LINE de (X, Y - tam) ate (X, Y + tam)",
+        "annotation_text": "E:{X:F0} N:{Y:F0} com deslocamento de +1m"
+      }
+    }
+  },
+  "module_2_abnt_cartographic_sheet_pdf_engine": {
+    "specification": {
+      "drawing_library": "SkiaSharp (SKDocument.CreatePdf / SKCanvas)",
+      "supported_sheet_formats": [
+        "A4 (210x297mm)",
+        "A3 (420x297mm)",
+        "A2 (594x420mm)",
+        "A1 (841x594mm)"
+      ],
+      "standard_dpi": 72,
+      "points_per_millimeter": 2.83464567,
+      "margin_left_mm": 25.0,
+      "margin_other_mm": 10.0
+    },
+    "sheet_layout_regions": {
+      "region_1_viewport_map": {
+        "name": "Area da Planta da Gleba",
+        "description": "Area principal de desenho vetorial do poligono com preenchimento leve, borda vermelha e simbolos de marco.",
+        "rendering_elements": [
+          "Poligono perimetral fechado (SKPaint com cor #DC3545, espessura 1.8pt)",
+          "Preenchimento semitransparente (SKColor #DC3545 com alpha 25)",
+          "Marcadores pontuais azuis nos vertices (#0000FF, raio 2.5pt)",
+          "Rotulos dos codigos de vertices em negrito 7pt",
+          "Anotacao das confrontacoes nas divisas"
+        ]
+      },
+      "region_2_cartographic_title_block": {
+        "name": "Carimbo e Selo ABNT",
+        "dimensions_mm": "175mm x 90mm",
+        "position": "Canto inferior direito da folha",
+        "fields": [
+          "Titulo: PLANTA TOPOGRAFICA CADASTRAL - GEORREFERENCIAMENTO",
+          "Subtitulo: SISTEMA DE GESTAO FUNDIARIA (SIGEF / INCRA)",
+          "Denominacao do Imovel e Matricula",
+          "Nome do Proprietario e CPF/CNPJ",
+          "Municipio, UF e Comarca",
+          "Area total em Hectares (4 casas decimais) e Metros Quadrados",
+          "Perimetro total em Metros lineares (2 casas decimais)",
+          "Responsavel Tecnico, Conselho Profissional (CREA/CAU) e ART/TRT",
+          "Codigo Credenciado INCRA",
+          "Datum SIRGAS 2000 e Fuso UTM"
+        ]
+      },
+      "region_3_coordinate_table": {
+        "name": "Quadro de Coordenadas dos Vertices",
+        "dimensions_mm": "175mm de largura x altura variavel",
+        "position": "Acima do selo no lado direito",
+        "columns": [
+          {
+            "name": "Vertice",
+            "width_pt": 44,
+            "align": "Left"
+          },
+          {
+            "name": "Este (m)",
+            "width_pt": 60,
+            "align": "Right"
+          },
+          {
+            "name": "Norte (m)",
+            "width_pt": 60,
+            "align": "Right"
+          },
+          {
+            "name": "Altitude (m)",
+            "width_pt": 40,
+            "align": "Right"
+          }
+        ],
+        "overflow_handling": "Exibe ate a capacidade maxima da folha e emite indicacao de continuacao no memorial anexo."
+      },
+      "region_4_north_arrow_and_scale": {
+        "name": "Rosa dos Ventos e Escala Grafica",
+        "elements": [
+          {
+            "type": "Rosa dos Ventos",
+            "indicators": [
+              "NQ - Norte da Quadricula (90 graus vertical)",
+              "NV - Norte Verdadeiro com convergencia meridiana gamma",
+              "Declaracao da Declinacao Magnetica"
+            ]
+          },
+          {
+            "type": "Escala Grafica",
+            "structure": "Barra alternada preta e branca com segmentos de 0, 100m, 200m e 400m calculados em funcao da escala numerica.",
+            "numeric_scale_series": [
+              250,
+              500,
+              750,
+              1000,
+              1250,
+              1500,
+              2000,
+              2500,
+              5000,
+              7500,
+              10000,
+              15000,
+              20000,
+              25000,
+              50000
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "module_3_field_data_universal_importer": {
+    "supported_input_formats": [
+      {
+        "format_name": "CSV/TXT Delimitado Generico",
+        "extensions": [
+          ".csv",
+          ".txt",
+          ".dat",
+          ".xyz"
+        ],
+        "separators": [
+          ";",
+          ",",
+          "\\t",
+          "multiplos espacos"
+        ]
+      },
+      {
+        "format_name": "NMEA-0183 GNSS Sentences",
+        "sentences": [
+          "$GPGGA",
+          "$GNGGA",
+          "$GPGLL",
+          "$GPRMC"
+        ]
+      },
+      {
+        "format_name": "Leica Geosystems Instruments",
+        "format_code": "GSI-8 / GSI-16"
+      },
+      {
+        "format_name": "Topcon Total Station",
+        "format_code": "GTS-7 / FC-5000 Coordinate File"
+      },
+      {
+        "format_name": "Trimble Navigation",
+        "format_code": "JobXML / Survey Data Collector CSV"
+      }
+    ],
+    "header_heuristic_mapping": {
+      "name_identifiers": [
+        "PONTO",
+        "NOME",
+        "NAME",
+        "ID",
+        "CODIGO",
+        "VERTICE",
+        "POINT"
+      ],
+      "easting_identifiers": [
+        "ESTE",
+        "EAST",
+        "EASTING",
+        "X",
+        "LONGITUDE",
+        "LON"
+      ],
+      "northing_identifiers": [
+        "NORTE",
+        "NORTH",
+        "NORTHING",
+        "Y",
+        "LATITUDE",
+        "LAT"
+      ],
+      "altitude_identifiers": [
+        "COTA",
+        "Z",
+        "ALTITUDE",
+        "ELEVATION",
+        "ALT",
+        "ELEV"
+      ],
+      "method_identifiers": [
+        "METODO",
+        "METHOD",
+        "TIPO_POS",
+        "POS",
+        "TECHNIQUE"
+      ],
+      "sigma_identifiers": [
+        "SIGMA",
+        "PRECISAO",
+        "ACCURACY",
+        "STD",
+        "STDDEV",
+        "S_X"
+      ],
+      "confrontant_identifiers": [
+        "CONFRONTANTE",
+        "VIZINHO",
+        "CONFRONTA",
+        "BORDER"
+      ]
+    },
+    "topological_polygon_assembly": {
+      "vertex_ordering_pipeline": [
+        "1. Parser ingestando lista de coordenadas brutas (Point Coordinates).",
+        "2. Remocao automatica de duplicidades consecutivas menores que 0.05m.",
+        "3. Verificacao de fechamento: se o primeiro e ultimo ponto diferem, adiciona vertice de fechamento.",
+        "4. Deteccao de orientacao horaria via formula de Shoelace / NTS Orientation.IsCCW.",
+        "5. Se anti-horario, inverte a ordem dos pontos para garantir conformidade estrita com o INCRA.",
+        "6. Criacao do anel LinearRing e encapsulamento em Polygon."
+      ]
+    }
+  },
+  "module_4_incra_3rd_edition_normative_catalog": {
+    "positioning_methods_matrix": [
+      {
+        "code": "PG1",
+        "official_name": "Posicionamento Relativo Estático GNSS",
+        "description": "Rastreio com receptores de dupla frequencia com linhas de base pos-processadas com efemerides precisas.",
+        "max_horizontal_sigma_m": 0.5,
+        "max_vertical_sigma_m": 1.0,
+        "allows_physical_monument_m": true,
+        "allows_virtual_vertex_v": true
+      },
+      {
+        "code": "PG2",
+        "official_name": "Posicionamento Relativo Rápido GNSS",
+        "description": "Ocupacoes curtas de estacoes com resolucao de ambiguidades 'on-the-fly'.",
+        "max_horizontal_sigma_m": 0.5,
+        "max_vertical_sigma_m": 1.0,
+        "allows_physical_monument_m": true,
+        "allows_virtual_vertex_v": false
+      },
+      {
+        "code": "PG3",
+        "official_name": "Posicionamento Cinemático em Tempo Real (RTK / NTRIP)",
+        "description": "Correcoes diferenciais transmitidas via radio modem UHF ou protocolo IP/NTRIP.",
+        "max_horizontal_sigma_m": 0.5,
+        "max_vertical_sigma_m": 1.0,
+        "allows_physical_monument_m": true,
+        "allows_virtual_vertex_v": false
+      },
+      {
+        "code": "PG4",
+        "official_name": "Posicionamento Diferencial GNSS em Código e Fase (DGPS)",
+        "description": "Determinacao submetrica baseada em estacoes de referencia de banda L.",
+        "max_horizontal_sigma_m": 0.5,
+        "max_vertical_sigma_m": 1.0,
+        "allows_physical_monument_m": true,
+        "allows_virtual_vertex_v": true
+      },
+      {
+        "code": "PE1",
+        "official_name": "Poligonação Topográfica Clássica",
+        "description": "Medicao com Estacao Total com transporte de coordenadas a partir de apoio georreferenciado.",
+        "max_horizontal_sigma_m": 0.5,
+        "max_vertical_sigma_m": 1.0,
+        "allows_physical_monument_m": true,
+        "allows_virtual_vertex_v": false
+      },
+      {
+        "code": "PE2",
+        "official_name": "Irradiação Topográfica Clássica",
+        "description": "Visadas isoladas com Estacao Total com visadas diretas e inversas.",
+        "max_horizontal_sigma_m": 0.5,
+        "max_vertical_sigma_m": 1.0,
+        "allows_physical_monument_m": true,
+        "allows_virtual_vertex_v": true
+      },
+      {
+        "code": "PA1",
+        "official_name": "Aerofotogrametria ou Drone / VANT",
+        "description": "Restituicao fotogrametrica apoiada em pontos de controle no solo (GCPs).",
+        "max_horizontal_sigma_m": 0.5,
+        "max_vertical_sigma_m": 1.0,
+        "allows_physical_monument_m": false,
+        "allows_virtual_vertex_v": true
+      },
+      {
+        "code": "PV1",
+        "official_name": "Ponto Virtual Projetado em Feição Fisiográfica",
+        "description": "Vertice em talvegue de rio, centro de espigao ou linha de crista de encosta.",
+        "max_horizontal_sigma_m": 3.0,
+        "max_vertical_sigma_m": 6.0,
+        "allows_physical_monument_m": false,
+        "allows_virtual_vertex_v": true
+      },
+      {
+        "code": "PV2",
+        "official_name": "Ponto Virtual Geométrico / Cruzamento",
+        "description": "Intersecao geometrica de alinhamentos retos ou divisas cartorarias.",
+        "max_horizontal_sigma_m": 3.0,
+        "max_vertical_sigma_m": 6.0,
+        "allows_physical_monument_m": false,
+        "allows_virtual_vertex_v": true
+      }
+    ],
+    "boundary_types_matrix": [
+      {
+        "code": "LA",
+        "name": "Limite Artificial",
+        "definition": "Elemento fisico construido pelo homem definindo os limites do imovel.",
+        "subtypes": [
+          "Cerca de arame farpado",
+          "Cerca de arame liso",
+          "Muro de alvenaria ou concreto",
+          "Vala ou canal de drenagem",
+          "Faixa de dominio de rodovia",
+          "Faixa de servidao de linha de transmissao",
+          "Eixo de ferrovia"
+        ]
+      },
+      {
+        "code": "LN",
+        "name": "Limite Natural",
+        "definition": "Acidente geografico natural permanente que estabelece a divisa do terreno.",
+        "subtypes": [
+          "Margem direita de curso d'agua",
+          "Margem esquerda de curso d'agua",
+          "Talvegue de rio ou corrego",
+          "Espigao divisor de aguas",
+          "Linha de cumeada",
+          "Crista de encosta",
+          "Espelho d'agua de represa / lagoa"
+        ]
+      },
+      {
+        "code": "LV",
+        "name": "Limite Virtual",
+        "definition": "Alinhamento ideal ou linha imaginaria ligando dois vertices cadastrais.",
+        "subtypes": [
+          "Linha geodesica ideal entre marcos",
+          "Paralelo astronomico",
+          "Meridiano astronomico",
+          "Linha de divisa intermunicipal ou interestadual"
+        ]
+      }
+    ]
+  },
+  "module_5_incra_land_tenure_overlap_auditor": {
+    "ogc_wfs_client_specification": {
+      "service_url": "https://geoservicos.incra.gov.br/geoserver/wfs",
+      "version": "2.0.0",
+      "request_type": "GetFeature",
+      "feature_types": [
+        "certificada_sigef_particular",
+        "certificada_sigef_publico"
+      ],
+      "output_format": "application/json",
+      "spatial_reference_system": "EPSG:4674 (SIRGAS 2000)",
+      "timeout_seconds": 20,
+      "user_agent": "GeoNex-Desktop-GIS/2026.1 (Windows NT 10.0; Win64; x64)"
+    },
+    "bbox_construction_logic": {
+      "envelope_buffer_degrees": 0.01,
+      "approximate_distance_meters": 1100.0,
+      "query_string_template": "service=WFS&version=2.0.0&request=GetFeature&typeNames={typeName}&outputFormat=application/json&srsName=EPSG:4674&bbox={minY},{minX},{maxY},{maxX},EPSG:4674"
+    },
+    "topological_intersection_algorithm": {
+      "step_1": "Desserializar a resposta GeoJSON em NetTopologySuite.Features.FeatureCollection.",
+      "step_2": "Iterar sobre feicoes cadastradas da regiao.",
+      "step_3": "Executar teste de envelope EnvelopeInternal.Intersects(feat.EnvelopeInternal).",
+      "step_4": "Se intersecciona envelope, executar poligonoGleba.Intersects(feat.Geometry).",
+      "step_5": "Calcular geometria de intersecao = poligonoGleba.Intersection(feat.Geometry).",
+      "step_6": "Filtrar intersecoes com area maior que 1.0 m2 (desconsiderar contato linear ou pontual de divisa legal).",
+      "step_7": "Calcular area em hectares e metros quadrados com fator metrico local de latitude.",
+      "step_8": "Popular DTO ConflitoSobreposicaoItem com codigo do imovel invasor, detentor e denominacao."
+    }
+  },
+  "domain_models_and_dto_contracts": {
+    "new_entities": [
+      {
+        "class_name": "ConflitoSobreposicaoItem",
+        "namespace": "GeoNex.Topografia.Domain",
+        "description": "Representa cada poligono ou gleba vizinha que intersecta espacialmente o perimetro do imovel.",
+        "fields": [
+          {
+            "name": "CodigoImovelVizinho",
+            "type": "string",
+            "description": "Codigo identificador unico no SIGEF (ex: 123456789012)"
+          },
+          {
+            "name": "NomeImovelVizinho",
+            "type": "string",
+            "description": "Denominacao cadastrada da propriedade vizinha"
+          },
+          {
+            "name": "DetentorNome",
+            "type": "string",
+            "description": "Nome ou razao social do titular do imovel vizinho"
+          },
+          {
+            "name": "AreaSobreposicaoMetrosQuadrados",
+            "type": "double",
+            "description": "Area calculada da intersecao em metros quadrados"
+          },
+          {
+            "name": "AreaSobreposicaoHectares",
+            "type": "double",
+            "description": "Area calculada da intersecao expressa em hectares"
+          },
+          {
+            "name": "PoligonoConflito",
+            "type": "Geometry",
+            "description": "Geometria NTS correspondente a zona de conflito espacial"
+          }
+        ]
+      },
+      {
+        "class_name": "MetodoIncraInfo",
+        "namespace": "GeoNex.Topografia.Domain",
+        "description": "Descritor normativo para enquadramento tecnico dos metodos de levantamento cadastral.",
+        "fields": [
+          {
+            "name": "Codigo",
+            "type": "string",
+            "description": "Sigla de 3 caracteres oficial (ex: PG1)"
+          },
+          {
+            "name": "Descricao",
+            "type": "string",
+            "description": "Nome por extenso do metodo de posicionamento"
+          },
+          {
+            "name": "SigmaMaximoHorizontal",
+            "type": "double",
+            "description": "Tolerancia de desvio padrao horizontal em metros"
+          },
+          {
+            "name": "SigmaMaximoVertical",
+            "type": "double",
+            "description": "Tolerancia de desvio padrao vertical em metros"
+          },
+          {
+            "name": "PermiteMarcoFisico",
+            "type": "bool",
+            "description": "Indica se o metodo e aceito para marco tipo M"
+          },
+          {
+            "name": "PermitePontoVirtual",
+            "type": "bool",
+            "description": "Indica se o metodo e aceito para vertice virtual V"
+          }
+        ]
+      }
+    ]
+  },
+  "blazor_ui_and_ribbon_integration_blueprint": {
+    "ribbon_commands_expansion": [
+      {
+        "id": "cmd_exportar_dxf",
+        "label": "Exportar CAD (DXF)",
+        "icon": "📐",
+        "group": "Exportação Pro",
+        "handler": "ExportarDxfCadastralAsync",
+        "description": "Gera arquivo DXF R12 com camadas estruturadas, cotas de azimute e malha UTM."
+      },
+      {
+        "id": "cmd_gerar_prancha_pdf",
+        "label": "Planta ABNT (PDF)",
+        "icon": "📄",
+        "group": "Exportação Pro",
+        "handler": "ExportarPranchaPdfAsync",
+        "description": "Desenha prancha cadastral A3 em PDF com carimbo de ART/CREA e rosa dos ventos."
+      },
+      {
+        "id": "cmd_importar_campo",
+        "label": "Importar Campo",
+        "icon": "📥",
+        "group": "Vértices & Geodésia",
+        "handler": "AbrirModalImportacaoCampoAsync",
+        "description": "Importa arquivos brutos CSV/TXT de Estacao Total e GNSS RTK."
+      },
+      {
+        "id": "cmd_auditar_sobreposicao",
+        "label": "Acervo INCRA (WFS)",
+        "icon": "🛡",
+        "group": "Certificação INCRA",
+        "handler": "VerificarSobreposicaoAcervoIncraAsync",
+        "description": "Consulta em tempo real o acervo de parcelas certificadas para evitar sobreposicao."
+      }
+    ],
+    "modal_tabs_restructuring": [
+      {
+        "tab_id": 1,
+        "title": "1. Imóvel & RT",
+        "content": "Metadados cartorarios, denominacao, ART/TRT, comarca e fuso."
+      },
+      {
+        "tab_id": 2,
+        "title": "2. Vértices & Sigmas",
+        "content": "Grade com dropdown de metodos INCRA (PG1..PV2), cotas e coordenadas."
+      },
+      {
+        "tab_id": 3,
+        "title": "3. Confrontantes",
+        "content": "Tabela de vizinhos assistida por varredura R-Tree e tipos de limite (LA/LN/LV)."
+      },
+      {
+        "tab_id": 4,
+        "title": "4. Memorial ABNT",
+        "content": "Live preview do memorial descritivo juridico em tempo real."
+      },
+      {
+        "tab_id": 5,
+        "title": "5. Auditoria Forense",
+        "content": "Painel com as 8 regras preventivas de rejeicao no robo do SIGEF."
+      },
+      {
+        "tab_id": 6,
+        "title": "6. Sobreposição INCRA",
+        "content": "Relatorio de conflitos espaciais com o acervo fundiario federal."
+      },
+      {
+        "tab_id": 7,
+        "title": "7. Central de Exportação",
+        "content": "Emissao conjunta: ODS Oficial, DOCX, DXF Cadastral, Planta A3 e ZIP."
+      }
+    ],
+    "dialog_templates": {
+      "modal_importacao_campo": {
+        "title": "Importador Universal de Dados de Campo",
+        "supported_extensions": ".csv, .txt, .dat, .gsi, .gts",
+        "ui_controls": [
+          "FilePicker para selecao do arquivo do coletor",
+          "Dropdown de separador com auto-deteccao (virgula, ponto-e-virgula, tab)",
+          "Grid de pre-visualizacao das 10 primeiras linhas com mapeamento das colunas",
+          "Checkbox: Fechar automaticamente o perimetro conectando o ultimo ponto ao primeiro",
+          "Checkbox: Reordenar vertices no sentido horario (padrao INCRA)"
+        ]
+      },
+      "modal_prancha_a3": {
+        "title": "Gerador de Planta e Prancha Cadastral ABNT",
+        "supported_scales": [
+          "1:500",
+          "1:1000",
+          "1:2500",
+          "1:5000",
+          "1:10000",
+          "1:20000",
+          "Auto (Calculada)"
+        ],
+        "ui_controls": [
+          "Seletor de formato da folha (A4, A3, A2, A1)",
+          "Campo de declaracao de ART/TRT e CREA/CAU do Responsavel Tecnico",
+          "Seletor de exibicao da Rosa dos Ventos com Declinacao Magnetica",
+          "Botao de exportar arquivo PDF vetorial de alta resolucao para impressao"
+        ]
+      },
+      "modal_sobreposicao_incra": {
+        "title": "Auditoria Forense de Conflitos e Sobreposicao Fundiaria",
+        "ui_controls": [
+          "Barra de progresso de consulta ao Web Feature Service (WFS)",
+          "Tabela de imoveis conflitantes: Codigo INCRA, Denominacao, Titular, Area Invadida (m2 e ha)",
+          "Botao 'Ver Poligono de Conflito no Mapa' para zoom automatico no trecho sobreposto",
+          "Botao 'Gerar Relatorio Tecnico de Sobreposicao' em formato PDF"
+        ]
+      }
+    }
+  },
+  "sprint_execution_workflow_tasks": {
+    "sprint_1_dxf_and_methods": [
+      {
+        "task_id": "ST1.1",
+        "title": "Criar TopografiaNormativeCatalog.cs com os metodos PG1..PV2 e limites LA/LN/LV",
+        "file": "GeoNex/Topografia/Domain/TopografiaNormativeCatalog.cs",
+        "acceptance": "Catalogo expondo listas tipadas e metodos de busca por codigo com 100% de cobertura.",
+        "subtasks": [
+          "Declarar registro estatico List<MetodoIncraInfo> contendo PG1, PG2, PG3, PG4, PE1, PE2, PA1, PV1, PV2.",
+          "Declarar registro estatico List<LimiteIncraInfo> contendo LA, LN, LV e seus subtipos legais.",
+          "Implementar metodo bool ValidarSigmaMetodo(string codigoMetodo, TipoVertice tipo, double sigmaX, double sigmaY, out string motivoRejeicao)."
+        ]
+      },
+      {
+        "task_id": "ST1.2",
+        "title": "Implementar TopografiaDxfExportService.cs nativo em ASCII R12",
+        "file": "GeoNex/Services/Topografia/Export/TopografiaDxfExportService.cs",
+        "acceptance": "Geracao de DXF com 7 layers ACI, blocos SIMBOLO_MARCO e textos rotacionados conforme ABNT.",
+        "subtasks": [
+          "Implementar escritor de cabecalho DXF com secao HEADER e versao AC1009.",
+          "Implementar secao TABLES com declaracao explicita das 7 camadas e cores ACI padrao.",
+          "Implementar secao BLOCKS com geometria de marco topografico (circulo e cruz).",
+          "Implementar escrita de POLYLINE/VERTEX para o perimetro e TEXT para azimutes, confrontantes e malha UTM."
+        ]
+      }
+    ],
+    "sprint_2_field_data_importer": [
+      {
+        "task_id": "ST2.1",
+        "title": "Implementar TopografiaFieldDataImporter.cs com heuristica de cabecalho",
+        "file": "GeoNex/Services/Topografia/Import/TopografiaFieldDataImporter.cs",
+        "acceptance": "Parser de CSV/TXT suportando virgula, ponto-e-virgula e tabulacao com extracao de Este, Norte, Cota e Sigmas.",
+        "subtasks": [
+          "Implementar auto-deteccao de separador analisando a primeira linha de dados.",
+          "Implementar reconhecimento heuristico de cabecalhos em portugues, ingles e espanhol.",
+          "Implementar deteccao de eixos invertidos por ordem de magnitude das coordenadas UTM."
+        ]
+      },
+      {
+        "task_id": "ST2.2",
+        "title": "Integrar criacao de poligono a partir de pontos de campo importados",
+        "file": "GeoNex/Services/Topografia/TopografiaProcessingService.cs",
+        "acceptance": "Montagem automatica do anel fechado com ordenacao horaria estrita.",
+        "subtasks": [
+          "Validar quantidade minima de 3 vertices e eliminar spikes menores que 5cm.",
+          "Assegurar fechamento do anel adicionando duplicata do primeiro ponto ao final da lista.",
+          "Inverter a orientacao para sentido horario caso o anel esteja em sentido anti-horario."
+        ]
+      }
+    ],
+    "sprint_3_skia_cartographic_sheet": [
+      {
+        "task_id": "ST3.1",
+        "title": "Implementar TopografiaPranchaPdfService.cs com SkiaSharp",
+        "file": "GeoNex/Services/Topografia/Export/TopografiaPranchaPdfService.cs",
+        "acceptance": "Geracao de PDF A3 com carimbo paramétrico, tabela de coordenadas, rosa dos ventos e escala grafica.",
+        "subtasks": [
+          "Criar documento SkiaSharp com dimensoes exatas de 420x297mm em pontos tipograficos.",
+          "Desenhar moldura ABNT com margem esquerda de 25mm e demais de 10mm.",
+          "Renderizar viewport da gleba com calculo automatico de enquadramento na serie padrao de escalas.",
+          "Desenhar carimbo cartorario oficial, tabela de coordenadas paginada, escala grafica e rosa dos ventos."
+        ]
+      }
+    ],
+    "sprint_4_incra_wfs_overlap_auditor": [
+      {
+        "task_id": "ST4.1",
+        "title": "Implementar IncraSobreposicaoAuditorService.cs com cliente OGC WFS 2.0.0",
+        "file": "GeoNex/Services/Topografia/Validation/IncraSobreposicaoAuditorService.cs",
+        "acceptance": "Consulta via BBOX no GeoServer INCRA com calculo topologico de area invadida via NTS.",
+        "subtasks": [
+          "Construir requisicao HTTP GetFeature com BBOX em EPSG:4674 SIRGAS 2000.",
+          "Desserializar GeoJSON com NetTopologySuite e executar cruzamento espacial Intersects.",
+          "Calcular area de sobreposicao em metros quadrados e hectares e isolar o poligono de conflito."
+        ]
+      }
+    ],
+    "sprint_5_ui_integration_and_testing": [
+      {
+        "task_id": "ST5.1",
+        "title": "Adicionar comandos DXF, Prancha e Importacao no Home.razor e Home.Topografia.cs",
+        "file": "GeoNex/Components/Pages/Home.razor",
+        "acceptance": "Novos botoes na Ribbon e reestruturacao do modal de certificacao em 7 abas funcionais.",
+        "subtasks": [
+          "Adicionar os comandos na barra Ribbon sob os grupos 'Exportacao Pro' e 'Certificacao INCRA'.",
+          "Expandir o modal principal para 7 abas funcionais com live preview e botoes de acao.",
+          "Conectar os metodos assincronos aos servicos injetados no ciclo de vida Blazor."
+        ]
+      },
+      {
+        "task_id": "ST5.2",
+        "title": "Expandir suite de testes automatizados para 25 testes",
+        "file": "tests/TopografiaSigefTests/Program.cs",
+        "acceptance": "25 de 25 testes passando com 0 falhas no .NET 10.",
+        "subtasks": [
+          "Adicionar casos de teste T18 a T20 para a engine DXF.",
+          "Adicionar casos de teste T21 a T22 para o importador de campo.",
+          "Adicionar caso de teste T23 para a matriz normativa INCRA.",
+          "Adicionar casos de teste T24 a T25 para a auditoria de sobreposicao WFS."
+        ]
+      }
+    ]
+  },
+  "test_suite_matrix_25_cases": [
+    {
+      "id": "T01",
+      "name": "Redfearn Geodésica <-> UTM Bidirecional",
+      "category": "Geodesia",
+      "target": "Erro residual < 0.0001m nos fusos 18-25",
+      "pass_criteria": "Abs(latOrigem - latRecuperada) < 1e-6 && Abs(lonOrigem - lonRecuperada) < 1e-6"
+    },
+    {
+      "id": "T02",
+      "name": "Detecção Automática Graus vs Metros",
+      "category": "Geodesia",
+      "target": "Lat/Lon separada de UTM com 100% de acerto",
+      "pass_criteria": "SistemaOrigem == TipoSistemaCoordenadas.GeograficaDecimal quando em graus"
+    },
+    {
+      "id": "T03",
+      "name": "Identificação de Fuso pelo Centroide",
+      "category": "Geodesia",
+      "target": "Curitiba=22, SP=23, Acre=19",
+      "pass_criteria": "Fuso natural correspondente a formula Floor((lon + 180)/6) + 1"
+    },
+    {
+      "id": "T04",
+      "name": "Transformação 3D Datums IBGE (SAD69 -> SIRGAS)",
+      "category": "Geodesia",
+      "target": "Deslocamento planar entre 60m e 105m",
+      "pass_criteria": "Distancia calculada dentro do intervalo fisico geocêntrico nacional"
+    },
+    {
+      "id": "T05",
+      "name": "Ordenação Horária Estrita de Vértices",
+      "category": "Topologia",
+      "target": "Vertices ordenados em sentido horario CW",
+      "pass_criteria": "Soma de orientacao de Shoelace positiva (CW) com fechamento"
+    },
+    {
+      "id": "T06",
+      "name": "Auditoria Forense INCRA (Regras 1 a 6)",
+      "category": "Auditoria",
+      "target": "Spikes < 5cm e sigmas > 0.50m barrados",
+      "pass_criteria": "Diagnosticos contendo codigos SIGEF_ERR_003, 004, 005 e 006"
+    },
+    {
+      "id": "T07",
+      "name": "Validador de Auto-Interseção (Bowtie)",
+      "category": "Topologia",
+      "target": "Deteccao exata de segmentos que se cruzam",
+      "pass_criteria": "Diagnostico SIGEF_ERR_007 emitido para poligonos auto-cruzantes"
+    },
+    {
+      "id": "T08",
+      "name": "Exportação ODS Estrutura OASIS Oficial",
+      "category": "Exportacao",
+      "target": "Zip valido com mimetype e content.xml",
+      "pass_criteria": "Mimetype exato application/vnd.oasis.opendocument.spreadsheet"
+    },
+    {
+      "id": "T09",
+      "name": "Exportação DOCX OpenXML ABNT NBR 13.133",
+      "category": "Exportacao",
+      "target": "Document.xml com cabecalho e tabela",
+      "pass_criteria": "Texto contendo cabeçalho ABNT e tabela perimetrica"
+    },
+    {
+      "id": "T10",
+      "name": "Normalização de Anel e Fechamento Topológico",
+      "category": "Topologia",
+      "target": "Ultimo ponto identico ao primeiro",
+      "pass_criteria": "Coordenadas inicial e final rigorosamente coincidentes"
+    },
+    {
+      "id": "T11",
+      "name": "MultiPolygon: Extração de Anel Predominante",
+      "category": "Topologia",
+      "target": "Gleba principal separada de ilhas",
+      "pass_criteria": "Poligono de maior area extraido com integridade de perimetro"
+    },
+    {
+      "id": "T12",
+      "name": "R-Tree: Detecção Espacial de Confrontantes",
+      "category": "Topologia",
+      "target": "Distancia <= 0.50m herda dados do vizinho",
+      "pass_criteria": "Atributos de nome, matricula e titular propagados"
+    },
+    {
+      "id": "T13",
+      "name": "Métrica de Área em Hectares e Perímetro ABNT",
+      "category": "Topologia",
+      "target": "Erro de area < 0.0001 ha",
+      "pass_criteria": "Area em hectares conferida com tolerancia de 4 casas decimais"
+    },
+    {
+      "id": "T14",
+      "name": "Ciclo de Vida da Interface Blazor e Abas",
+      "category": "Interface",
+      "target": "Reatividade em cascata nas 7 abas",
+      "pass_criteria": "Navegacao fluida sem perda de estado do imovel ativo"
+    },
+    {
+      "id": "T15",
+      "name": "Renumeração Horária com Prefixo Customizado",
+      "category": "Interface",
+      "target": "Formatacao AAA-M-0001 propagada",
+      "pass_criteria": "Vertices renumerados sequencialmente no memorial e tabela"
+    },
+    {
+      "id": "T16",
+      "name": "Gatekeeper SaaS: Quotas e Ativação Chave Pro",
+      "category": "SaaS",
+      "target": "Bloqueio em cota 0 e liberacao Pro",
+      "pass_criteria": "ConsumirCreditoOuValidarAssinatura retorna true apos chave Pro"
+    },
+    {
+      "id": "T17",
+      "name": "Sanitização de Nomes de Arquivo para SO",
+      "category": "Sistema",
+      "target": "Elimina caracteres ilegais / \\ : * ?",
+      "pass_criteria": "Nenhum caractere restrito presente no caminho de saida"
+    },
+    {
+      "id": "T18",
+      "name": "Geração DXF R12: Sintaxe de Layers e Cores",
+      "category": "CAD/DXF",
+      "target": "Layers 01 a 07 criados com cores ACI",
+      "pass_criteria": "Estrutura de TABLES e LAYER correspondente a especificacao"
+    },
+    {
+      "id": "T19",
+      "name": "Rotação de Textos de Azimute no DXF (ABNT)",
+      "category": "CAD/DXF",
+      "target": "Angulos normalizados entre -90 e +90 graus",
+      "pass_criteria": "Textos legiveis na orientacao cartografica oficial"
+    },
+    {
+      "id": "T20",
+      "name": "Malha UTM DXF: Cruzetas e Anotações Numéricas",
+      "category": "CAD/DXF",
+      "target": "Coordenadas plotadas no intervalo do grid",
+      "pass_criteria": "Entidades LINE e TEXT geradas nos cruzamentos do grid"
+    },
+    {
+      "id": "T21",
+      "name": "Parser CSV Campo: Auto-Detecção de Separador",
+      "category": "Campo",
+      "target": "Identifica virgula, ponto-e-virgula e tab",
+      "pass_criteria": "Detecao de delimitador sem intervencao do usuario"
+    },
+    {
+      "id": "T22",
+      "name": "Parser CSV Campo: Ingestão de Pontos com Sigmas",
+      "category": "Campo",
+      "target": "Mapeamento de Este, Norte, Cota e Metodo",
+      "pass_criteria": "Pontos convertidos em VerticeTopografico com sigmas corretos"
+    },
+    {
+      "id": "T23",
+      "name": "Validação de Sigmas Máximos por Método INCRA",
+      "category": "Normativo",
+      "target": "PG1 barra sigma > 0.50m; PV1 aceita ate 3m",
+      "pass_criteria": "Enquadramento conforme limites da NTGIR 3a Edicao"
+    },
+    {
+      "id": "T24",
+      "name": "WFS INCRA: Construção de BBOX Geodésico SIRGAS",
+      "category": "WFS",
+      "target": "Filtro BBOX valido em EPSG:4674",
+      "pass_criteria": "URL gerada com coordenadas minimas e maximas em graus"
+    },
+    {
+      "id": "T25",
+      "name": "Cálculo de Área de Sobreposição com Acervo",
+      "category": "WFS",
+      "target": "Area invadida em m2 e ha calculada via NTS",
+      "pass_criteria": "Deteccao topologica precisa com descarte de toques de fronteira"
+    }
+  ],
+  "offline_first_and_fault_tolerance_protocol": {
+    "policy": "Zero Blocking Architecture",
+    "guidelines": [
+      "1. Todas as funcoes de calculo geodesico, geracao de DXF, ODS, DOCX e PDF operam 100% offline.",
+      "2. A consulta ao Acervo WFS INCRA possui timeout estrito de 15 segundos; em caso de falha de rede ou instabilidade no GeoServer do Governo, a operacao emite alerta nao-bloqueante e permite a continuacao do projeto.",
+      "3. O parser de campo aplica deteccao automatica de eixos invertidos caso Este e Norte estejam transpostos.",
+      "4. Poligonos em gravata (auto-intersecao) sao destacados visualmente com coordenadas do cruzamento."
+    ]
+  },
+  "quality_assurance_and_homologation_checklist": {
+    "cad_inspection": [
+      "Abrir arquivo .dxf no AutoCAD / Autodesk DWG TrueView.",
+      "Confirmar existencia das 7 camadas com suas respectivas cores ACI.",
+      "Verificar legibilidade de textos de azimute e distancias sem sobreposicao."
+    ],
+    "pdf_inspection": [
+      "Abrir prancha gerada no Adobe Acrobat Reader.",
+      "Confirmar dimensoes exatas de folha A3 (420 x 297 mm).",
+      "Verificar carimbo com selo ABNT e dados do RT/CREA/ART.",
+      "Confirmar presenca da rosa dos ventos e barra grafica de escala."
+    ],
+    "incra_sigef_inspection": [
+      "Abrir planilha .ods no LibreOffice Calc 7/24.",
+      "Confirmar preenchimento das abas Identificacao e Perimetro.",
+      "Submeter ao validador oficial do SIGEF (ambiente de testes/producao) comprovando 0 erros."
+    ]
+  }
+}
