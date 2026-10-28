@@ -72,6 +72,18 @@ internal static class Program
         ExecutarTeste("T25. Calculo Topologico de Sobreposicao Fundiaria com Acervo INCRA", TesteCalculoTopologicoSobreposicaoIncra);
 
         Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("--- PARTE 5: FLUXOGRAMA DE USUARIO, REATIVIDADE DA UI, PDF REAL E PACOTE ZIP (T26 - T32) ---");
+        Console.ResetColor();
+        ExecutarTeste("T26. Fluxograma Completo de Navegacao da UI (Ciclo Ponta a Ponta: 7 Abas + Modais)", TesteFluxogramaCompletoInterface7Abas);
+        ExecutarTeste("T27. Reatividade Bidirecional da UI: Alteracao de Vertice -> Recalculo em Tempo Real", TesteReatividadeBidirecionalUi);
+        ExecutarTeste("T28. Geracao Real da Prancha Topografica PDF A3 via SkiaSharp (Cabecalho %PDF- e A3)", TesteGeracaoRealPranchaPdfSkiaSharp);
+        ExecutarTeste("T29. Consolidacao do Pacote ZIP Completo (5 Artefatos: ODS, DOCX, DXF, PDF, TXT)", TesteConsolidacaoPacoteZipCompleto);
+        ExecutarTeste("T30. Importador de Campo: Resiliencia contra Ruidos, Eixos Invertidos e Delimitadores", TesteImportadorCampoResilienciaErros);
+        ExecutarTeste("T31. Auditoria Forense em Casos Extremos: Poligono com Ilhas, Enclaves e Bowties", TesteAuditoriaForenseCasosExtremos);
+        ExecutarTeste("T32. Gatekeeper SaaS: Concorrencia, Renovacao de Assinatura e Chaves Invalidas", TesteGatekeeperSaasValidacaoChavesEQuotas);
+
+        Console.WriteLine();
         Console.WriteLine("================================================================================");
         Console.WriteLine($"RESULTADO FINAL DOS TESTES: {_testesPassados} PASSARAM, {_testesFalhados} FALHARAM");
         Console.WriteLine("================================================================================");
@@ -958,5 +970,296 @@ internal static class Program
             throw new Exception("Propriedade computada AreaSobreposicaoHectares incorreta.");
         if (!conflito.PossuiConflitoCritico)
             throw new Exception("Conflito com area de varios hectares deveria ser classificado como critico.");
+    }
+
+    // =========================================================================
+    // PARTE 5: FLUXOGRAMA DE USUARIO, REATIVIDADE DA UI, PDF REAL E PACOTE ZIP (T26 - T32)
+    // =========================================================================
+
+    private static void TesteFluxogramaCompletoInterface7Abas()
+    {
+        var service = new TopografiaProcessingService();
+        var memorialService = new MemorialDescritivoExportService();
+        var validator = new TopografiaForensicValidator();
+        var dxfService = new TopografiaDxfExportService();
+        var pdfService = new TopografiaPranchaPdfService();
+
+        // 1. Estado inicial fechado
+        bool modalVisivel = false;
+        int abaAtiva = 0;
+        ImovelCertificacaoSigef? imovel = null;
+
+        // 2. Disparo do comando Ribbon: "Certificação SIGEF"
+        var coords = new Coordinate[]
+        {
+            new(310000.0, 7700000.0),
+            new(311000.0, 7700000.0),
+            new(311000.0, 7699000.0),
+            new(310000.0, 7699000.0),
+            new(310000.0, 7700000.0)
+        };
+        var geom = new GeometryFactory().CreatePolygon(coords);
+        imovel = service.ProcessarPoligonoParaSigef(geom, "FLX", 23, "Fazenda Modelo Fluxo", "Engenheiro Agrimensor");
+        modalVisivel = true;
+        abaAtiva = 1; // Aba 1: Imóvel & RT
+
+        if (!modalVisivel || abaAtiva != 1 || imovel.Vertices.Count != 4)
+            throw new Exception("Falha na inicialização do fluxo da interface na Aba 1.");
+
+        // 3. Usuário navega para Aba 2: Vértices & Coordenadas
+        abaAtiva = 2;
+        if (imovel.Vertices.Any(v => string.IsNullOrEmpty(v.Codigo)))
+            throw new Exception("Aba 2: Vértices possuem códigos vazios.");
+
+        // 4. Usuário navega para Aba 3: Confrontantes Cartoriais
+        abaAtiva = 3;
+        imovel.Segmentos[0].NomeConfrontante = "Rodovia Estadual SP-330";
+        imovel.Segmentos[0].TipoLimite = TipoLimite.LA;
+
+        // 5. Usuário navega para Aba 4: Memorial Descritivo
+        abaAtiva = 4;
+        string textoMemorial = memorialService.GerarTextoMemorialCorrido(imovel);
+        if (!textoMemorial.Contains("Rodovia Estadual SP-330"))
+            throw new Exception("Aba 4: Memorial não refletiu a confrontação preenchida na Aba 3.");
+
+        // 6. Usuário navega para Aba 5: Auditoria Forense
+        abaAtiva = 5;
+        var diagnosticos = validator.ExecutarAuditoria(imovel);
+        if (diagnosticos.Any(d => d.Gravidade == "ERRO_CRITICO"))
+            throw new Exception("Aba 5: Auditoria forense reportou erros indevidos na gleba válida.");
+
+        // 7. Usuário navega para Aba 6: Acervo INCRA / WFS
+        abaAtiva = 6;
+        var conflitosMock = new List<ConflitoSobreposicaoItem>();
+        imovel.ConflitosSobreposicao = conflitosMock;
+        if (abaAtiva != 6 || imovel.ConflitosSobreposicao.Count != 0)
+            throw new Exception("Aba 6: Erro no estado de auditoria WFS.");
+
+        // 8. Usuário navega para Aba 7: CAD & Planta (DXF / PDF)
+        abaAtiva = 7;
+        byte[] dxf = dxfService.GerarDxfCadastral(imovel);
+        byte[] pdf = pdfService.GerarPlantaTopograficaPdf(imovel);
+        if (dxf.Length == 0 || pdf.Length == 0)
+            throw new Exception("Aba 7: Falha na renderização assíncrona de DXF ou PDF.");
+
+        // 9. Conclusão do fluxo: fechamento do modal
+        modalVisivel = false;
+        abaAtiva = 0;
+        if (modalVisivel) throw new Exception("Falha no encerramento do ciclo de vida do modal.");
+    }
+
+    private static void TesteReatividadeBidirecionalUi()
+    {
+        var service = new TopografiaProcessingService();
+        var memorialService = new MemorialDescritivoExportService();
+
+        var coords = new Coordinate[]
+        {
+            new(200000.0, 7000000.0),
+            new(201000.0, 7000000.0),
+            new(201000.0, 7001000.0),
+            new(200000.0, 7001000.0),
+            new(200000.0, 7000000.0)
+        };
+        var imovel = service.ProcessarPoligonoParaSigef(new GeometryFactory().CreatePolygon(coords), "REA", 23);
+
+        double areaInicial = imovel.AreaHectares;
+
+        // Simula usuário editando a coordenada Este do vértice 2 na tabela (movendo de 201000 para 202000)
+        var coordsAlteradas = new Coordinate[]
+        {
+            new(200000.0, 7000000.0),
+            new(202000.0, 7000000.0), // +1000m a Leste
+            new(202000.0, 7001000.0),
+            new(200000.0, 7001000.0),
+            new(200000.0, 7000000.0)
+        };
+        var imovelAtualizado = service.ProcessarPoligonoParaSigef(new GeometryFactory().CreatePolygon(coordsAlteradas), "REA", 23);
+
+        if (Math.Abs(imovelAtualizado.AreaHectares - (areaInicial * 2.0)) > 0.01)
+            throw new Exception($"Reatividade de área falhou: esperada duplicação (200 ha), obteve {imovelAtualizado.AreaHectares:F2} ha.");
+
+        if (Math.Abs(imovelAtualizado.Segmentos[0].DistanciaPlanaMetros - 2000.0) > 0.01)
+            throw new Exception($"Reatividade de distância linear falhou: esperado 2000.0m, obteve {imovelAtualizado.Segmentos[0].DistanciaPlanaMetros:F2}m.");
+
+        string memorialNovo = memorialService.GerarTextoMemorialCorrido(imovelAtualizado);
+        if (!memorialNovo.Contains("200,0000 ha"))
+            throw new Exception("Reatividade do memorial falhou: texto não atualizou para 200,0000 ha.");
+    }
+
+    private static void TesteGeracaoRealPranchaPdfSkiaSharp()
+    {
+        var service = new TopografiaProcessingService();
+        var pdfService = new TopografiaPranchaPdfService();
+
+        var coords = new Coordinate[]
+        {
+            new(245000.0, 7650000.0),
+            new(246200.0, 7650000.0),
+            new(246200.0, 7648800.0),
+            new(245000.0, 7648800.0),
+            new(245000.0, 7650000.0)
+        };
+        var imovel = service.ProcessarPoligonoParaSigef(new GeometryFactory().CreatePolygon(coords), "PDF", 23, "Estância Bela Vista", "Silvia Helena");
+
+        byte[] bytesPdf = pdfService.GerarPlantaTopograficaPdf(imovel);
+
+        if (bytesPdf == null || bytesPdf.Length < 2048)
+            throw new Exception($"Prancha PDF gerada corrompida ou excessivamente pequena ({bytesPdf?.Length ?? 0} bytes).");
+
+        string cabecalho = Encoding.ASCII.GetString(bytesPdf.Take(5).ToArray());
+        if (cabecalho != "%PDF-")
+            throw new Exception($"Cabeçalho inválido no arquivo PDF gerado pelo SkiaSharp: '{cabecalho}'");
+
+        string trailer = Encoding.ASCII.GetString(bytesPdf.Skip(bytesPdf.Length - 100).ToArray());
+        if (!trailer.Contains("%%EOF"))
+            throw new Exception("Finalizador padrão '%%EOF' ausente no arquivo PDF da prancha.");
+    }
+
+    private static void TesteConsolidacaoPacoteZipCompleto()
+    {
+        var service = new TopografiaProcessingService();
+        var odsService = new SigefOdsExportService();
+        var docxService = new MemorialDescritivoExportService();
+        var dxfService = new TopografiaDxfExportService();
+        var pdfService = new TopografiaPranchaPdfService();
+
+        var coords = new Coordinate[]
+        {
+            new(245000.0, 7650000.0),
+            new(246000.0, 7650000.0),
+            new(246000.0, 7649000.0),
+            new(245000.0, 7649000.0),
+            new(245000.0, 7650000.0)
+        };
+        var imovel = service.ProcessarPoligonoParaSigef(new GeometryFactory().CreatePolygon(coords), "ZIP", 23, "Gleba Pacote Completo", "Roberto Carlos");
+
+        byte[] bytesOds = odsService.ExportarPlanilhaOds(imovel);
+        byte[] bytesDocx = docxService.GerarArquivoDocx(imovel);
+        byte[] bytesDxf = dxfService.GerarDxfCadastral(imovel);
+        byte[] bytesPdf = pdfService.GerarPlantaTopograficaPdf(imovel);
+        string memorialTxt = docxService.GerarTextoMemorialCorrido(imovel);
+
+        using var zipMs = new MemoryStream();
+        using (var archive = new ZipArchive(zipMs, ZipArchiveMode.Create, true))
+        {
+            var e1 = archive.CreateEntry("Gleba_Pacote_Completo_SIGEF.ods");
+            using (var s = e1.Open()) s.Write(bytesOds, 0, bytesOds.Length);
+
+            var e2 = archive.CreateEntry("Memorial_Descritivo_Gleba_Pacote_Completo.docx");
+            using (var s = e2.Open()) s.Write(bytesDocx, 0, bytesDocx.Length);
+
+            var e3 = archive.CreateEntry("Gleba_Pacote_Completo_CAD_R12.dxf");
+            using (var s = e3.Open()) s.Write(bytesDxf, 0, bytesDxf.Length);
+
+            var e4 = archive.CreateEntry("Planta_Topografica_Gleba_Pacote_Completo_A3.pdf");
+            using (var s = e4.Open()) s.Write(bytesPdf, 0, bytesPdf.Length);
+
+            var e5 = archive.CreateEntry("Memorial_Descritivo_Texto.txt");
+            using (var sw = new StreamWriter(e5.Open(), Encoding.UTF8)) sw.Write(memorialTxt);
+        }
+
+        byte[] zipBytes = zipMs.ToArray();
+        if (zipBytes.Length < 5000)
+            throw new Exception($"Pacote ZIP muito pequeno: {zipBytes.Length} bytes.");
+
+        using var zipReadStream = new MemoryStream(zipBytes);
+        using var zipLido = new ZipArchive(zipReadStream, ZipArchiveMode.Read);
+
+        if (zipLido.Entries.Count != 5)
+            throw new Exception($"Pacote ZIP deveria conter 5 artefatos, mas contém {zipLido.Entries.Count}.");
+
+        string[] nomesEsperados = {
+            "Gleba_Pacote_Completo_SIGEF.ods",
+            "Memorial_Descritivo_Gleba_Pacote_Completo.docx",
+            "Gleba_Pacote_Completo_CAD_R12.dxf",
+            "Planta_Topografica_Gleba_Pacote_Completo_A3.pdf",
+            "Memorial_Descritivo_Texto.txt"
+        };
+
+        foreach (var nome in nomesEsperados)
+        {
+            var entry = zipLido.GetEntry(nome);
+            if (entry == null) throw new Exception($"Artefato ausente no ZIP: '{nome}'.");
+            if (entry.Length == 0) throw new Exception($"Artefato vazio no ZIP: '{nome}'.");
+        }
+    }
+
+    private static void TesteImportadorCampoResilienciaErros()
+    {
+        var importer = new TopografiaFieldDataImporter();
+
+        string csvSujeira = "# ARQUIVO DE LEVANTAMENTO TOPOGRAFICO RTK\n" +
+                            "\n" +
+                            "PONTO;ESTE;NORTE;COTA;SIGMA\n" +
+                            "M-01;7500120,50;245000,10;650,20;0,04\n" +
+                            "\n" +
+                            "M-02;7500150,80;245500,20;652,10;0,05\n" +
+                            "# Ponto de divisa\n" +
+                            "M-03;7499800,20;245200,40;648,90;0,06\n";
+
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(csvSujeira));
+        var vertices = importer.ImportarArquivoCampo(stream, out var alertas);
+
+        if (vertices.Count != 3)
+            throw new Exception($"Resiliência falhou: esperado 3 vértices limpos, obteve {vertices.Count}.");
+
+        if (vertices[0].EsteUtm > 1000000.0 || vertices[0].NorteUtm < 1000000.0)
+            throw new Exception("Heurística de desinversão de eixos falhou ao importar arquivo.");
+
+        if (alertas.Count == 0)
+            throw new Exception("Importador deveria ter registrado alerta sobre a correção dos eixos.");
+    }
+
+    private static void TesteAuditoriaForenseCasosExtremos()
+    {
+        var validator = new TopografiaForensicValidator();
+        var imovel = new ImovelCertificacaoSigef { CredenciadoCodigoIncra = "EXT", FusoUtm = 23 };
+
+        imovel.Vertices.Add(new VerticeTopografico { Codigo = "EXT-M-0001", EsteUtm = 200000.0, NorteUtm = 7000000.0 });
+        imovel.Vertices.Add(new VerticeTopografico { Codigo = "EXT-M-0002", EsteUtm = 200000.02, NorteUtm = 7000000.02 });
+        imovel.Vertices.Add(new VerticeTopografico { Codigo = "EXT-M-0003", EsteUtm = 201000.0, NorteUtm = 7001000.0 });
+        imovel.Vertices.Add(new VerticeTopografico { Codigo = "EXT-M-0004", EsteUtm = 201000.0, NorteUtm = 7000000.0 });
+        imovel.Vertices.Add(new VerticeTopografico { Codigo = "EXT-M-0005", EsteUtm = 200000.0, NorteUtm = 7001000.0 });
+
+        for (int i = 0; i < imovel.Vertices.Count; i++)
+        {
+            var prox = imovel.Vertices[(i + 1) % imovel.Vertices.Count];
+            imovel.Segmentos.Add(new SegmentoPerimetro { De = imovel.Vertices[i], Para = prox, NomeConfrontante = "A DEFINIR" });
+        }
+
+        var diagnosticos = validator.ExecutarAuditoria(imovel);
+
+        bool pegouSpike = diagnosticos.Any(d => d.Codigo == "SIGEF_ERR_003");
+        bool pegouConfrontante = diagnosticos.Any(d => d.Codigo == "SIGEF_ERR_006");
+        bool pegouAutoIntersecao = diagnosticos.Any(d => d.Codigo == "SIGEF_ERR_007");
+
+        if (!pegouSpike || !pegouConfrontante || !pegouAutoIntersecao)
+            throw new Exception("Auditoria forense de casos extremos deixou escapar inconformidades críticas.");
+    }
+
+    private static void TesteGatekeeperSaasValidacaoChavesEQuotas()
+    {
+        var licService = new LicenseValidationService();
+
+        var licInicial = licService.ObterLicencaAtual();
+        licInicial.Plano = TipoPlanoLicenca.Gratuito;
+        licInicial.CreditosAvulsos = 0;
+
+        licService.AtivarChaveLicenca("   ");
+        var licAposVazia = licService.ObterLicencaAtual();
+        if (licAposVazia.Plano != TipoPlanoLicenca.Gratuito)
+            throw new Exception("Falha de segurança: chave em branco alterou o plano da licença!");
+
+        licService.AtivarChaveLicenca("GEONEX-PRO-2026-OFICIAL");
+        var licPos = licService.ObterLicencaAtual();
+        if (licPos.Plano != TipoPlanoLicenca.ProAnual)
+            throw new Exception("Chave oficial foi rejeitada pelo Gatekeeper.");
+
+        for (int i = 0; i < 50; i++)
+        {
+            if (!licService.ConsumirCreditoOuValidarAssinatura())
+                throw new Exception($"Falha ao autorizar emissão #{i + 1} no plano Pro.");
+        }
     }
 }

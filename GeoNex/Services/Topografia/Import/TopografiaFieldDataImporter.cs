@@ -26,21 +26,33 @@ public sealed class TopografiaFieldDataImporter
         var vertices = new List<VerticeTopografico>();
 
         using var reader = new StreamReader(streamArquivo);
-        string? primeiraLinha = reader.ReadLine();
+        string? primeiraLinha = null;
+        int linhaAtual = 0;
+
+        // Pular comentários iniciais e linhas em branco para encontrar o cabeçalho
+        while ((primeiraLinha = reader.ReadLine()) != null)
+        {
+            linhaAtual++;
+            string trimmed = primeiraLinha.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+            if (trimmed.StartsWith('#') || trimmed.StartsWith("//")) continue;
+            break;
+        }
+
         if (string.IsNullOrWhiteSpace(primeiraLinha))
-            throw new InvalidOperationException("O arquivo de campo está vazio.");
+            throw new InvalidOperationException("O arquivo de campo está vazio ou contém apenas comentários.");
 
         char delimitador = DetectarDelimitador(primeiraLinha);
         var cabecalhos = primeiraLinha.Split(delimitador);
         var mapa = IdentificarColunas(cabecalhos);
 
-        int linhaAtual = 1;
         string? linha;
-
         while ((linha = reader.ReadLine()) != null)
         {
             linhaAtual++;
-            if (string.IsNullOrWhiteSpace(linha)) continue;
+            string trimmed = linha.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+            if (trimmed.StartsWith('#') || trimmed.StartsWith("//")) continue;
 
             var partes = linha.Split(delimitador);
             if (partes.Length < 2) continue;
@@ -69,8 +81,7 @@ public sealed class TopografiaFieldDataImporter
                 if (x > 1000000.0 && y < 1000000.0)
                 {
                     (x, y) = (y, x);
-                    if (linhaAtual == 2)
-                        alertas.Add("Detectada inversão entre colunas Este e Norte; os eixos foram ajustados automaticamente.");
+                    alertas.Add("Detectada inversão entre colunas Este e Norte; os eixos foram ajustados automaticamente.");
                 }
 
                 // Inferir Tipo de Vértice (M, P ou V) a partir do nome
