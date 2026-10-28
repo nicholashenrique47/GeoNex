@@ -787,15 +787,7 @@
                         <label>Lados<select class="gis-select" @bind="LadosConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">@for (int sides = 3; sides <= 32; sides++) { <option value="@sides">@sides</option> }</select></label>
                     }
                 </section>
-                <section class="command-ribbon-setting-group" aria-label="Captura durante desenho">
-                    <span>CAPTURA · DESENHO</span>
-                    <label class="command-check"><input type="checkbox" @bind="_snapAquisicaoVertice" />Vértices</label>
-                    <label class="command-check"><input type="checkbox" @bind="_snapAquisicaoAresta" />Arestas</label>
-                    <label class="command-check"><input type="checkbox" @bind="_snapAquisicaoMeio" />Meios</label>
-                    <label class="command-check"><input type="checkbox" @bind="_snapAquisicaoIntersecao" />Interseções</label>
-                    <label class="command-check"><input type="checkbox" @bind="_modoOrtogonalAquisicao" disabled="@ConstrucaoParametrica" />Ortogonal</label>
-                    <label>Tolerância<select class="gis-select" @bind="ToleranciaSnapPixels"><option value="6">6 px</option><option value="10">10 px</option><option value="15">15 px</option><option value="20">20 px</option><option value="30">30 px</option></select></label>
-                </section>
+
             </div>
         }
         @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Vetorização" && (_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode))
@@ -827,15 +819,7 @@
                     }
                 </section>
                 }
-                <section class="command-ribbon-setting-group" aria-label="Captura durante edição">
-                    <span>CAPTURA · EDIÇÃO</span>
-                    <label class="command-check"><input type="checkbox" @bind="_snapVectorEditVertices" />Vértices</label>
-                    <label class="command-check"><input type="checkbox" @bind="_snapVectorEditEdges" />Arestas</label>
-                    <label class="command-check"><input type="checkbox" @bind="_snapVectorEditMidpoints" />Meios</label>
-                    <label class="command-check"><input type="checkbox" @bind="_snapVectorEditIntersections" />Interseções</label>
-                    <label class="command-check"><input type="checkbox" @bind="_propagateSelectedSharedVertices" disabled="@(!CanPropagateSelectedSharedVertices)" />Nós compartilhados</label>
-                    <label>Tolerância<select class="gis-select" @bind="ToleranciaSnapPixels"><option value="6">6 px</option><option value="10">10 px</option><option value="15">15 px</option><option value="20">20 px</option><option value="30">30 px</option></select></label>
-                </section>
+
             </div>
         }
         <footer class="command-ribbon-status" role="status" aria-live="polite">
@@ -1203,26 +1187,7 @@
                         <small class="advanced-control-help">Informe distância e azimute a partir do último ponto.</small>
                     </section>
 
-                    <section class="advanced-control-group advanced-snap-group" aria-label="Captura e encaixes">
-                        <div class="advanced-group-heading"><span class="advanced-group-index">03</span><div><strong>Captura</strong><small>Alinhamento inteligente</small></div></div>
-                        <details class="snap-options workbench-details">
-                            <summary><span class="advanced-snap-icon" aria-hidden="true">⌖</span><span>Encaixes ativos</span><span class="setting-count">@NumeroEncaixesAtivos</span></summary>
-                            <div class="snap-menu">
-                                <div class="settings-title">Atração do cursor</div>
-                                <button class="snap-toggle" aria-pressed="@_snapAquisicaoVertice" @onclick="() => _snapAquisicaoVertice = !_snapAquisicaoVertice"><i class="snap-key vertex"></i>Atrair vértices<span>@(_snapAquisicaoVertice ? "Ligado" : "Desligado")</span></button>
-                                <button class="snap-toggle" aria-pressed="@_snapAquisicaoAresta" @onclick="() => _snapAquisicaoAresta = !_snapAquisicaoAresta"><i class="snap-key edge"></i>Atrair arestas<span>@(_snapAquisicaoAresta ? "Ligado" : "Desligado")</span></button>
-                                <label><input type="checkbox" @bind="_snapAquisicaoMeio" /><i class="snap-key midpoint"></i>Meio das arestas</label>
-                                <label><input type="checkbox" @bind="_snapAquisicaoIntersecao" /><i class="snap-key intersection"></i>Interseções</label>
-                                <label><input type="checkbox" @bind="_modoOrtogonalAquisicao" disabled="@ConstrucaoParametrica" />Ortogonal (90°) · vértices</label>
-                                <label class="tolerance-field">Tolerância em tela
-                                    <select class="gis-select" aria-label="Tolerância do snap" @bind="ToleranciaSnapPixels">
-                                        <option value="6">6 px · precisa</option><option value="10">10 px</option><option value="15">15 px · padrão</option><option value="20">20 px</option><option value="30">30 px · ampla</option>
-                                    </select>
-                                </label>
-                            </div>
-                        </details>
-                        <small class="advanced-control-help">@NumeroEncaixesAtivos opção(ões) de captura ativada(s).</small>
-                    </section>
+
                 </div>
             }
             @if (_mostrarMenuContexto)
@@ -1759,6 +1724,16 @@
                     @if (atributosFeicaoSelecionada != null && atributosFeicaoSelecionada.Count > 0)
                     {
                         <div class="attribute-form">
+                            @if (_feicoesIdentificadas.Count > 1)
+                            {
+                                <div class="identify-multi-header" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; padding: 6px 10px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px;">
+                                    <span style="font-size: 11px; color: #bae6fd; font-weight: 600;">@(_indiceFeicaoIdentificadaAtiva + 1) de @_feicoesIdentificadas.Count feições</span>
+                                    <div style="display: flex; gap: 4px;">
+                                        <button type="button" class="command-ribbon-mini" disabled="@(_indiceFeicaoIdentificadaAtiva <= 0)" @onclick="() => NavegarFeicaoIdentificada(-1)">◀ Anterior</button>
+                                        <button type="button" class="command-ribbon-mini" disabled="@(_indiceFeicaoIdentificadaAtiva >= _feicoesIdentificadas.Count - 1)" @onclick="() => NavegarFeicaoIdentificada(1)">Próxima ▶</button>
+                                    </div>
+                                </div>
+                            }
                             <div class="form-group mb-15" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
                                 <label>Camada Origem</label>
                                 <span style="font-size: 0.75rem; color: #38bdf8; font-weight: bold; word-break: break-all;">@camadaSelecionadaPainel</span>
@@ -5277,11 +5252,11 @@
         Func<Microsoft.AspNetCore.Components.Web.MouseEventArgs, Task> Execute,
         bool? IsPressed = null);
 
-    private string _activeRibbonTab = "Mapa";
+    private string _activeRibbonTab = "Início";
     private string _ribbonCommandSearch = string.Empty;
     private string _ribbonCommandFeedback = string.Empty;
     private ModoFerramenta? _ferramentaPendenteTroca;
-    private static readonly string[] RibbonTabs = ["Mapa", "Camadas", "Vetorização", "Geoprocessamento"];
+    private static readonly string[] RibbonTabs = ["Início", "Vetorização", "Geoprocessamento"];
 
     private IReadOnlyList<RibbonCommand> RibbonCommands
     {
@@ -5289,14 +5264,38 @@
         {
             List<RibbonCommand> commands =
             [
-                new("Mapa", "Navegação", "Mover mapa", "✥", "pan navegar mover", "Ativa a navegação pelo mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Navegacao))),
-                new("Mapa", "Consulta", "Identificar feições", "⌖", "identificar atributos consulta", "Ativa a identificação de feições no mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Identificacao))),
-                new("Mapa", "Medição", "Medir distância e área", "∠", "medir comprimento área superficie", "Ativa a medição no mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Medicao))),
+                // Início - Navegação
+                new("Início", "Navegação", "Mover mapa", "✥", "pan navegar mover arrastar", "Ativa a navegação pelo mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Navegacao))),
+                new("Início", "Navegação", "Extensão total", "⛶", "extensao total enquadrar zoom full", "Enquadra as camadas do projeto no mapa.", true, CreateRibbonCommand(EnquadrarExtensaoTotalAsync)),
 
-                new("Camadas", "Painel", "Mostrar ou ocultar camadas", "▱", "painel layers camadas", "Mostra ou recolhe o painel de camadas.", true, CreateRibbonCommand(() => _painelCamadasAberto = !_painelCamadasAberto)),
-                new("Camadas", "Atributos", "Abrir tabela de atributos", "▦", "tabela atributos registros", "Abre a tabela da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(async () => await AbrirTabela(CamadaAtivaFerramentas!.Nome))),
-                new("Camadas", "Camada ativa", "Propriedades da camada", "⚙", "camada simbologia estilo propriedades", "Abre as propriedades da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(() => AbrirPropriedadesSincronizadas(CamadaAtivaFerramentas!.Nome))),
-                new("Camadas", "Exportação", "Exportar camada", "⇧", "exportar vetor shp geojson kml", "Exporta uma camada vetorial para outro formato.", CamadasAtivas.Any(camada => camada.Tipo == "Vetor" && !camada.PendenteReconexao && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo)), CreateRibbonCommand(AbrirModalExportacao)),
+                // Início - Seleção
+                new("Início", "Seleção", "Selecionar feições", "▫", "selecao selecionar feicoes retangulo poligono clique", "Ativa a seleção persistente de feições na camada ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AlternarSelecaoFeicoesRibbon)),
+                new("Início", "Seleção", "Limpar seleção", "×", "limpar desselecionar feicoes", "Limpa a seleção vetorial atual.", _vectorFeatureEditSelection.Count > 0, CreateRibbonCommand(LimparSelecaoEdicaoVetorial)),
+
+                // Início - Consulta
+                new("Início", "Consulta", "Identificar feições", "⌖", "identificar atributos consulta info", "Inspeciona feições e exibe seus atributos no painel lateral.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Identificacao))),
+                new("Início", "Consulta", "Medir distância e área", "∠", "medir comprimento area superficie regua", "Ativa a medição interativa no mapa.", true, CreateRibbonCommand(() => TrocarFerramenta(ModoFerramenta.Medicao))),
+
+                // Início - Desenho Rápido
+                new("Início", "Desenho", "Criar geometria", "◇", "desenhar vetor ponto linha poligono simples", "Inicia o desenho rápido de feição na camada ativa.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AtivarModoVetorizacao)),
+                new("Início", "Desenho", "Concluir esboço", "✓", "finalizar concluir desenho feicao", "Conclui e grava o desenho atual na camada (Enter).", FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count >= MinimoPontosAquisicao, CreateRibbonCommand(ConcluirAquisicaoGeometrica)),
+                new("Início", "Desenho", "Cancelar esboço", "×", "cancelar descartar desenho feicao", "Cancela o desenho em andamento (Esc).", FerramentaDesenhoAtiva, CreateRibbonCommand(CancelarAquisicao)),
+
+                // Início - Edição Direta
+                new("Início", "Edição", "Editar vértices", "⌖", "editar vertices nos geometria feicao", "Ativa a edição de vértices da feição previamente selecionada.", SelectedVectorFeatureState is { IsDeleted: false } && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
+                new("Início", "Edição", "Mover feição", "⤧", "mover feicao translacao corpo", "Move o corpo da feição selecionada no mapa mantendo sua forma.", SelectedVectorFeatureState is not null && !_vectorFeatureSelectionMode, CreateRibbonCommand(AlternarModoMoverFeicao)),
+
+                // Início - Encaixes e Snaps
+                new("Início", "Encaixes e Snaps", "Atrair vértices", "🧲", "snap magnetico vertice encaixe", "Ativa ou desativa a captura magnética em vértices.", true, CreateRibbonCommand(AlternarSnapVertices)),
+                new("Início", "Encaixes e Snaps", "Atrair arestas", "∿", "snap magnetico aresta segmento encaixe", "Ativa ou desativa a atração magnética em arestas.", true, CreateRibbonCommand(AlternarSnapArestas)),
+                new("Início", "Encaixes e Snaps", "Modo ortogonal", "∟", "ortogonal angulo reto 90 f8", "Restringe os ângulos de desenho a múltiplos retos de 90 graus (F8).", true, CreateRibbonCommand(AlternarModoOrtogonal)),
+
+                // Início - Camada e Projeto
+                new("Início", "Camada e Projeto", "Painel de camadas", "▱", "painel layers camadas", "Mostra ou recolhe o painel de camadas.", true, CreateRibbonCommand(() => _painelCamadasAberto = !_painelCamadasAberto)),
+                new("Início", "Camada e Projeto", "Tabela de atributos", "▦", "tabela atributos registros dados", "Abre a tabela de atributos da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(async () => await AbrirTabela(CamadaAtivaFerramentas!.Nome))),
+                new("Início", "Camada e Projeto", "Propriedades da camada", "⚙", "camada simbologia estilo propriedades", "Abre as propriedades e simbologia da camada ativa.", CamadaAtivaFerramentas is not null, CreateRibbonCommand(() => AbrirPropriedadesSincronizadas(CamadaAtivaFerramentas!.Nome))),
+                new("Início", "Camada e Projeto", "Exportar camada", "⇧", "exportar vetor shp geojson kml", "Exporta uma camada vetorial para outro formato.", CamadasAtivas.Any(camada => camada.Tipo == "Vetor" && !camada.PendenteReconexao && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo)), CreateRibbonCommand(AbrirModalExportacao)),
+                new("Início", "Camada e Projeto", "Salvar edições", "✓", "salvar gravar edicoes feicoes pendencias", "Grava permanentemente as edições na camada.", (temEdicoesPendentes || MapService.PontosAquisicao.Count > 0) && !_salvandoEdicoes, CreateRibbonCommand(ConfirmarTodasEdicoes)),
 
                 // Geoprocessamento - Sobreposição
                 new("Geoprocessamento", "Sobreposição", "Recortar (Clip)", "◩", "recortar clip mascara corte poligono", "Recorta feições de uma camada pelo limite de uma máscara.", CamadasAtivas.Count(c => c.Tipo == "Vetor") >= 2, CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Recortar))),
@@ -5366,10 +5365,16 @@
                         "Identificar feições" => _ferramentaAtiva == ModoFerramenta.Identificacao,
                         _ when command.Label.StartsWith("Medir", StringComparison.Ordinal) => _ferramentaAtiva == ModoFerramenta.Medicao,
                         "Mostrar ou ocultar camadas" => _painelCamadasAberto,
+                        "Painel de camadas" => _painelCamadasAberto,
                         "Criar geometria" => FerramentaDesenhoAtiva,
+                        "Editar vértices" => _ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode,
+                        "Mover feição" => _vectorMoveFeatureMode,
                         _ when command.Label.StartsWith("Editar", StringComparison.Ordinal) =>
                             (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode) || _vectorCutMode || _vectorRingMode || _vectorReshapeMode,
                         "Selecionar feições" => _vectorFeatureSelectionMode,
+                        "Atrair vértices" => _snapAquisicaoVertice,
+                        "Atrair arestas" => _snapAquisicaoAresta,
+                        "Modo ortogonal" => _modoOrtogonalAquisicao,
                         _ => null
                     },
                     IsEnabled = command.Label == "Identificar feições" ? true : command.IsEnabled
@@ -5438,7 +5443,7 @@
             return "Adicione ou reconecte uma camada vetorial local antes de exportar.";
         if (FerramentaDesenhoAtiva && MapService.PontosAquisicao.Count > 0)
             return "Finalize ou descarte o esboço pendente antes de usar esta operação.";
-        if (command.Tab == "Vetorização" && !CamadaAtivaVetorialDisponivel)
+        if ((command.Tab == "Vetorização" || command.Tab == "Início") && !CamadaAtivaVetorialDisponivel && (command.Group == "Desenho" || command.Group == "Edição" || command.Group == "Criação"))
             return OrientacaoCamadaAtiva;
         if (command.Label.Contains("Mesclar", StringComparison.OrdinalIgnoreCase))
             return "Selecione pelo menos duas feições compatíveis da mesma camada.";
@@ -6540,15 +6545,18 @@
         }
         else if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
         {
-            _vectorFeatureSelectionMode = false;
             _vectorMoveFeatureMode = false;
             modoEdicaoVerticeLigado = false;
             _insertVectorVertexMode = false;
             _vectorEditPointerPressed = false;
             _hoveredVectorVertexDisplayIndex = -1;
-            LimparSelecaoVerticeEdicao();
             LimparEstadoArrasteVertice();
-            MapService.LimparOverlayEdicao();
+            if (novaFerramenta != ModoFerramenta.Navegacao)
+            {
+                _vectorFeatureSelectionMode = false;
+                LimparSelecaoVerticeEdicao();
+                MapService.LimparOverlayEdicao();
+            }
         }
 
         if (novaFerramenta is ModoFerramenta.Medicao or ModoFerramenta.Identificacao or ModoFerramenta.EdicaoVertice)
@@ -7323,10 +7331,11 @@
             }, null, 0, 50); // Atualiza a cada 50ms para fluidez
 
             using IDisposable? renderPause = _server is null ? null : await _server.PauseRenderingAsync();
+            string caminhoCompilado = caminhoFonte;
             await Task.Run(() =>
             {
                 // JIT COMPILATION: Converte GeoJSON/KML em Shapefile Binário na hora!
-                string caminhoCompilado = ProjetoService.CompilarParaShapefileNativo(
+                caminhoCompilado = ProjetoService.CompilarParaShapefileNativo(
                     caminhoFonte, out string? sourceFidMappingPath, out bool sourceFidsPreserved);
                 
                 // O motor vai sempre receber um binário nativo (.shp) ultrarrápido
@@ -7351,8 +7360,18 @@
             // CORREÇÃO CRÍTICA: Popula a árvore de busca logarítmica com os lotes importados
             // MapService.ConstruirIndiceEspacial(); já foi movido para dentro da Task.Run para não travar a UI!
             // Mantém novas camadas no topo, sem duplicá-las.
+            string tipoGeom = (MapService.FeaturesPorCamada.TryGetValue(nomeArquivo, out var featsCarregadas) && featsCarregadas.Count > 0)
+                ? (featsCarregadas[0].Kind switch
+                {
+                    GeometryKind.Point => "PONTO",
+                    GeometryKind.Line => "LINHA",
+                    _ => "POLIGONO"
+                })
+                : FastShapeReader.GetGeometryType(caminhoCompilado);
+
+            // Mantém novas camadas no topo, sem duplicá-las.
             if (!RegistrarNovaCamada(
-                new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoFonte },
+                new Camada { Nome = nomeArquivo, Tipo = "Vetor", Visivel = true, CaminhoArquivo = caminhoFonte, Geometria = tipoGeom },
                 inserirNoInicio: true,
                 reservaDoChamador: true))
                 throw new InvalidOperationException($"A camada '{nomeArquivo}' já existe no mapa.");
@@ -8681,6 +8700,197 @@
         else SolicitarNovoFrame();
     }
 
+    private void AlternarSnapVertices()
+    {
+        _snapAquisicaoVertice = !_snapAquisicaoVertice;
+        _snapVectorEditVertices = _snapAquisicaoVertice;
+        StateHasChanged();
+    }
+
+    private void AlternarSnapArestas()
+    {
+        _snapAquisicaoAresta = !_snapAquisicaoAresta;
+        _snapVectorEditEdges = _snapAquisicaoAresta;
+        StateHasChanged();
+    }
+
+    private void AlternarModoOrtogonal()
+    {
+        _modoOrtogonalAquisicao = !_modoOrtogonalAquisicao;
+        StateHasChanged();
+    }
+
+    private void AlternarSelecaoFeicoesRibbon()
+    {
+        if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && _vectorFeatureSelectionMode)
+        {
+            _vectorFeatureSelectionMode = false;
+            JSRuntime.InvokeVoidAsyncSafe("mapEngine.setFeatureSelectionMode", false, "rectangle");
+            _vectorEditMessage = "Modo de seleção desativado.";
+            StateHasChanged();
+            return;
+        }
+        PrepararMesclagemPoligonos();
+    }
+
+    public class IdentifiedFeatureItem
+    {
+        public long FID { get; set; }
+        public string Camada { get; set; } = string.Empty;
+        public CompiledFeature Feicao { get; set; } = default!;
+        public Dictionary<string, string> Atributos { get; set; } = new();
+    }
+
+    private List<IdentifiedFeatureItem> _feicoesIdentificadas = new();
+    private int _indiceFeicaoIdentificadaAtiva = 0;
+
+    private void NavegarFeicaoIdentificada(int delta)
+    {
+        int novo = _indiceFeicaoIdentificadaAtiva + delta;
+        if (novo >= 0 && novo < _feicoesIdentificadas.Count)
+        {
+            _indiceFeicaoIdentificadaAtiva = novo;
+            ExibirFeicaoIdentificada(_feicoesIdentificadas[novo]);
+        }
+    }
+
+    private void ExibirFeicaoIdentificada(IdentifiedFeatureItem item)
+    {
+        camadaSelecionadaPainel = item.Camada;
+        atributosFeicaoSelecionada = item.Atributos;
+        MapService.DestacarFeicao(item.Feicao);
+        _ = SincronizarOverlay(false);
+        SolicitarNovoFrame(interacaoRapida: true);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task ProcessarIdentificacaoPorForma(double[] imagePoints, double[]? displayedMatrix = null)
+    {
+        if (imagePoints is null || imagePoints.Length < 6 || imagePoints.Length % 2 != 0) return;
+        SKMatrix matrix = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
+        var coordinates = new List<NetTopologySuite.Geometries.Coordinate>(imagePoints.Length / 2 + 1);
+        for (int i = 0; i < imagePoints.Length; i += 2)
+        {
+            if (!TentarMapearPontoTelaParaLocal(imagePoints[i], imagePoints[i + 1], displayedMatrix, matrix, out SKPoint local))
+                return;
+            coordinates.Add(new NetTopologySuite.Geometries.Coordinate(local.X + MapService.OffsetMundoX, MapService.OffsetMundoY - local.Y));
+        }
+        coordinates = coordinates.Where((coordinate, index) => index == 0 || !coordinate.Equals2D(coordinates[index - 1])).ToList();
+        if (coordinates.Count > 1 && coordinates[0].Equals2D(coordinates[^1])) coordinates.RemoveAt(coordinates.Count - 1);
+        if (coordinates.DistinctBy(c => (c.X, c.Y)).Count() < 3) return;
+
+        var ringCoordinates = coordinates.Select(c => c.Copy()).Append(coordinates[0].Copy()).ToArray();
+        NetTopologySuite.Geometries.Geometry selectionArea = new NetTopologySuite.Geometries.GeometryFactory().CreatePolygon(new NetTopologySuite.Geometries.LinearRing(ringCoordinates));
+        if (!selectionArea.IsValid) selectionArea = NetTopologySuite.Geometries.Utilities.GeometryFixer.Fix(selectionArea);
+        if (selectionArea.IsEmpty) return;
+
+        var envelope = selectionArea.EnvelopeInternal;
+        var foundItems = new List<IdentifiedFeatureItem>();
+
+        var camadasParaBuscar = new List<string>();
+        if (CamadaAtivaVetorialDisponivel && !string.IsNullOrWhiteSpace(_camadaAtivaFerramentas))
+            camadasParaBuscar.Add(_camadaAtivaFerramentas);
+        else
+        {
+            for (int i = CamadasAtivas.Count - 1; i >= 0; i--)
+            {
+                var c = CamadasAtivas[i];
+                if (c.Visivel && c.Tipo == "Vetor" && !c.PendenteReconexao)
+                    camadasParaBuscar.Add(c.Nome);
+            }
+        }
+
+        foreach (string nomeCamada in camadasParaBuscar)
+        {
+            using ResourceLease<NativeShapeSpatialIndex>? indexLease = MapService.AcquireSpatialIndex(nomeCamada);
+            using ResourceLease<MemoryMappedShapefile>? shapefileLease = MapService.AcquireShapefile(nomeCamada);
+            if (indexLease is not null)
+            {
+                using NativeFeatureQuery query = indexLease.Resource.Query(envelope);
+                foreach (CompiledFeature candidate in query)
+                {
+                    var attrs = new Dictionary<string, string>();
+                    if (candidate.FID >= 0 && shapefileLease is not null)
+                        attrs = shapefileLease.Resource.LerAtributos((int)candidate.FID);
+
+                    foundItems.Add(new IdentifiedFeatureItem
+                    {
+                        FID = candidate.FID,
+                        Camada = nomeCamada,
+                        Feicao = candidate,
+                        Atributos = attrs
+                    });
+                }
+            }
+        }
+
+        if (foundItems.Count > 0)
+        {
+            _feicoesIdentificadas = foundItems;
+            _indiceFeicaoIdentificadaAtiva = 0;
+            ExibirFeicaoIdentificada(_feicoesIdentificadas[0]);
+            _mensagemIdentificacaoCamada = string.Empty;
+            _painelIdentificarAberto = true;
+        }
+        else
+        {
+            _feicoesIdentificadas.Clear();
+            _indiceFeicaoIdentificadaAtiva = 0;
+            camadaSelecionadaPainel = string.Empty;
+            atributosFeicaoSelecionada?.Clear();
+            _geometriaDestacada = null;
+            MapService.DestacarFeicao(null);
+            _mensagemIdentificacaoCamada = "Nenhuma feição encontrada na área delimitada.";
+        }
+        _ = SincronizarOverlay(false);
+        SolicitarNovoFrame(interacaoRapida: true);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task EnquadrarExtensaoTotalAsync()
+    {
+        if (CamadaAtivaFerramentas is not null)
+        {
+            await EnquadrarCamadaAsync(CamadaAtivaFerramentas.Nome);
+            return;
+        }
+
+        if (CamadasAtivas.Count > 0)
+        {
+            await EnquadrarCamadaAsync(CamadasAtivas[0].Nome);
+            return;
+        }
+
+        var scene = MapService.GetSceneBounds();
+        if (scene.IsEmpty)
+        {
+            MapService.CameraPanX = 0;
+            MapService.CameraPanY = 0;
+            MapService.CameraZoom = 1;
+            SolicitarNovoFrame();
+            return;
+        }
+
+        if (LayerCameraPolicy.TryFit(scene, scene, _larguraTela, _alturaTela, out var camera))
+        {
+            long serial = await JSRuntime.InvokeAsync<long>("mapEngine.sincronizarCameraComBlazor",
+                camera.PanX, camera.PanY, camera.Zoom);
+            _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
+            MapService.CameraPanX = camera.PanX;
+            MapService.CameraPanY = camera.PanY;
+            MapService.CameraZoom = camera.Zoom;
+            MapService.IsPanning = false;
+
+            MapService.RequestRedraw();
+            await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
+        }
+        else
+        {
+            SolicitarNovoFrame();
+        }
+    }
+
     private async Task PrepararRemocaoCamada()
     {
         string alvo = camadaSelecionadaMenu;
@@ -8968,7 +9178,7 @@
         try
         {
             if (listaPontosCaderneta.Count == 0) return;
-            RegistrarNovaCamada(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true });
+            RegistrarNovaCamada(new Camada { Nome = camadaAquisicaoAtual, Tipo = "Vetor", Visivel = true, Geometria = "PONTO" });
             var pontosProcessados = new List<Dictionary<string, string>>();
             ProjNet.CoordinateSystems.Transformations.ICoordinateTransformation conversorUtm = null;
             if (sistemaCoordenadas == "UTM")
@@ -9140,7 +9350,12 @@
         bool additiveSelection = false, bool toggleVertexSelection = false,
         bool removeVertexSelection = false)
     {
-        if (_vectorEditOperationInProgress) return;
+        if (_vectorEditOperationInProgress || _ferramentaAtiva == ModoFerramenta.Navegacao) return;
+        if (_vectorEditPlacementArmed)
+        {
+            await FinalizarArrasteVerticeEdicaoAsync(telaX, telaY);
+            return;
+        }
         var matriz = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
             if (TentarMapearPontoTelaParaLocal(telaX, telaY, displayedMatrix, matriz, out var ptMundo))
             {
@@ -9160,6 +9375,15 @@
                         atributosFeicaoSelecionada.Clear();
                     }
                     await InvokeAsync(StateHasChanged);
+                    return;
+                }
+
+                if (_vectorFeatureSelectionMode)
+                {
+                    float escalaEdicao = Math.Max(0.0001f, Math.Abs(matriz.ScaleX));
+                    CompiledFeature? featureEdit = MapService.DispararRaycast(
+                        yMundo, xMundo, 7.0 / escalaEdicao, out string layerEdit, _camadaAtivaFerramentas);
+                    await SelecionarFeicaoParaEdicaoAsync(featureEdit, layerEdit, additiveSelection || toggleVertexSelection);
                     return;
                 }
 
@@ -9194,8 +9418,6 @@
                         break;
                     }
                     if (!_insertVectorVertexMode && !additiveSelection && SelectedVectorFeatureState is { } vertexFeature &&
-                        (featureEdit is null || (featureEdit.FID == vertexFeature.Key.FeatureId &&
-                         string.Equals(layerEdit, vertexFeature.Key.LayerName, StringComparison.Ordinal))) &&
                         SelecionarVerticeNoPonto(ptMundo, matriz, add: false))
                     {
                         ArmarReposicionamentoVerticeSelecionado();
@@ -9248,9 +9470,16 @@
                             if (shapefileLease != null)
                                 atributosFeicaoSelecionada = shapefileLease.Resource.LerAtributos((int)feicao.FID);
                         }
+                        _feicoesIdentificadas = new List<IdentifiedFeatureItem>
+                        {
+                            new() { FID = feicao.FID, Camada = camadaAtingida, Feicao = feicao, Atributos = atributosFeicaoSelecionada }
+                        };
+                        _indiceFeicaoIdentificadaAtiva = 0;
                     }
                     else
                     {
+                        _feicoesIdentificadas.Clear();
+                        _indiceFeicaoIdentificadaAtiva = 0;
                         camadaSelecionadaPainel = string.Empty;
                         atributosFeicaoSelecionada?.Clear();
                         _geometriaDestacada = null;

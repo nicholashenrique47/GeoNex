@@ -214,14 +214,23 @@ public static class VectorGeometryEditingService
         using OgrGeometry sourceGeometry = feature.GetGeometryRef()
             ?? throw new InvalidDataException("A feição selecionada não possui geometria.");
         using OgrGeometry geometry = sourceGeometry.Clone();
-        using SpatialReference sourceSrs = layer.GetSpatialRef()
-            ?? throw new InvalidDataException("A camada não possui SRC definido; a geometria não pode ser editada com segurança.");
-        using SpatialReference targetSrs = SrsFactory.FromUserInput(projectSrs);
-        sourceSrs.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
-        if (sourceSrs.IsSame(targetSrs, null) != 1)
+        using SpatialReference? sourceSrs = layer.GetSpatialRef();
+        if (sourceSrs is not null && !string.IsNullOrWhiteSpace(projectSrs))
         {
-            using var transform = new CoordinateTransformation(sourceSrs, targetSrs);
-            EnsureSuccess(geometry.Transform(transform), "reprojetar a feição para o SRC do projeto");
+            try
+            {
+                using SpatialReference targetSrs = SrsFactory.FromUserInput(projectSrs);
+                sourceSrs.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+                if (sourceSrs.IsSame(targetSrs, null) != 1)
+                {
+                    using var transform = new CoordinateTransformation(sourceSrs, targetSrs);
+                    EnsureSuccess(geometry.Transform(transform), "reprojetar a feição para o SRC do projeto");
+                }
+            }
+            catch
+            {
+                // Preserva geometria no SRC nativo da camada se a transformação falhar
+            }
         }
 
         EnsureSuccess(geometry.ExportToWkt(out string wkt), "ler a geometria da feição");
@@ -910,6 +919,16 @@ public static class VectorGeometryEditingService
             throw new InvalidOperationException("Clique próximo a uma aresta da feição selecionada para inserir o vértice.");
         if (nearest.Fraction <= 1e-7 || nearest.Fraction >= 1 - 1e-7)
             throw new InvalidOperationException("O clique está sobre um vértice existente. Clique no meio da aresta para inserir um novo vértice.");
+
+        // Trava topologica anti-duplicacao: impede a criacao de vertices sobrepostos
+        double minVertexSeparation = Math.Max(1e-5, tolerance * 0.25);
+        foreach (var coord in geometry.Coordinates)
+        {
+            double dx = coord.X - nearest.X;
+            double dy = coord.Y - nearest.Y;
+            if (dx * dx + dy * dy < minVertexSeparation * minVertexSeparation)
+                throw new InvalidOperationException("O clique esta muito proximo a um vertice existente. Nao e permitido criar vertices duplicados no mesmo local.");
+        }
 
         int rebuildSequence = 0;
         NtsGeometry result = InsertOnSequence(

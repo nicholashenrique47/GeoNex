@@ -261,6 +261,7 @@ namespace GeoNex.Services
         
         public SKPath? CaminhoDestaquePoligono { get; private set; }
         public SKPath? CaminhoDestaqueLinha { get; private set; }
+        public SKPoint? PontoDestaque { get; private set; }
         public SKPaint PincelDestaqueFill { get; private set; } = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Yellow.WithAlpha(100), IsAntialias = true };
         public SKPaint PincelDestaqueBorda { get; private set; } = new SKPaint { Style = SKPaintStyle.Stroke, Color = SKColors.Yellow, StrokeWidth = 2, IsAntialias = true };
         
@@ -1543,21 +1544,32 @@ namespace GeoNex.Services
             CaminhoDestaqueLinha?.Dispose();
             CaminhoDestaquePoligono = null;
             CaminhoDestaqueLinha = null;
+            PontoDestaque = null;
 
-            using ResourceLease<MemoryMappedShapefile>? shapefileLease = feicao == null
-                ? null
-                : AcquireShapefile(feicao.LayerName);
-            var path = feicao?.GetPath(shapefileLease?.Resource, OffsetMundoX, OffsetMundoY);
-
-            if (feicao != null && path != null)
+            if (feicao != null)
             {
-                if (feicao.Kind == GeometryKind.Polygon)
+                if (feicao.Kind == GeometryKind.Point)
                 {
-                    CaminhoDestaquePoligono = new SKPath(path);
+                    PontoDestaque = feicao.CentroidLocal;
                 }
-                else if (feicao.Kind == GeometryKind.Line)
+                else
                 {
-                    CaminhoDestaqueLinha = new SKPath(path);
+                    using ResourceLease<MemoryMappedShapefile>? shapefileLease = feicao == null
+                        ? null
+                        : AcquireShapefile(feicao.LayerName);
+                    var path = feicao?.GetPath(shapefileLease?.Resource, OffsetMundoX, OffsetMundoY);
+
+                    if (path != null)
+                    {
+                        if (feicao.Kind == GeometryKind.Polygon)
+                        {
+                            CaminhoDestaquePoligono = new SKPath(path);
+                        }
+                        else if (feicao.Kind == GeometryKind.Line)
+                        {
+                            CaminhoDestaqueLinha = new SKPath(path);
+                        }
+                    }
                 }
             }
             RequestOverlayRedraw();

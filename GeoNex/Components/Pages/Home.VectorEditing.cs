@@ -1,3 +1,4 @@
+using Microsoft.JSInterop;
 using GeoNex.Services;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Features;
@@ -229,8 +230,10 @@ public partial class Home
                     _vectorEditMessage = "O provedor não forneceu um FID estável para esta feição; a camada permanece somente para visualização e edição não será iniciada.";
                     return;
                 }
-                Geometry geometry = await Task.Run(() =>
-                    VectorGeometryEditingService.ReadGeometry(layer.CaminhoArquivo, compiledFeature.SourceFeatureId, MapService.ProjetoSRS));
+                Geometry geometry = compiledFeature.Kind == GeometryKind.Point
+                    ? new NetTopologySuite.Geometries.Point(compiledFeature.EnvelopeWorld.MinX, compiledFeature.EnvelopeWorld.MinY)
+                    : await Task.Run(() =>
+                        VectorGeometryEditingService.ReadGeometry(layer.CaminhoArquivo, compiledFeature.SourceFeatureId, MapService.ProjetoSRS));
                 state = new VectorFeatureEditState { Key = key, Baseline = geometry, Current = geometry };
                 _vectorFeatureEditStates.Add(key, state);
             }
@@ -630,7 +633,8 @@ public partial class Home
         }
     }
 
-    private async Task FinalizarArrasteVerticeEdicaoAsync(double clientX, double clientY)
+    [JSInvokable]
+    public async Task FinalizarArrasteVerticeEdicaoAsync(double clientX, double clientY)
     {
         _vectorEditPointerPressed = false;
         _vectorEditPlacementArmed = false;
@@ -1145,23 +1149,40 @@ public partial class Home
         var previews = new List<SKPath>(_vectorFeatureEditSelection.Count);
         try
         {
+            var pointHandlesList = new List<SKPoint>();
             foreach (VectorFeatureEditState state in SelectedVectorFeatureStates)
             {
                 CompiledFeature compiled = PostgisGeometryCompiler.Compile(
                     state.Current, state.Key.FeatureId, state.Key.LayerName,
                     MapService.OffsetMundoX, MapService.OffsetMundoY);
-                if (compiled.Path is { } path) previews.Add(path);
+                if (compiled.Path is { } path)
+                {
+                    previews.Add(path);
+                }
+                else if (compiled.Kind == GeometryKind.Point)
+                {
+                    pointHandlesList.Add(compiled.CentroidLocal);
+                }
             }
 
             DefinirVerticesSelecionados(VectorGeometryEditingService.GetVertices(primary.Current));
-            SKPoint[] pointHandles = primary.Current is NetTopologySuite.Geometries.Point or NetTopologySuite.Geometries.MultiPoint
-                ? _selectedVectorVertices.Select(vertex => new SKPoint(
-                    (float)(vertex.X - MapService.OffsetMundoX),
-                    (float)(MapService.OffsetMundoY - vertex.Y))).ToArray()
-                : Array.Empty<SKPoint>();
+            SKPoint[] pointHandles;
+            if (primary.Current is NetTopologySuite.Geometries.Point or NetTopologySuite.Geometries.MultiPoint)
+            {
+                pointHandles = pointHandlesList.Count > 0
+                    ? pointHandlesList.ToArray()
+                    : _selectedVectorVertices.Select(vertex => new SKPoint(
+                        (float)(vertex.X - MapService.OffsetMundoX),
+                        (float)(MapService.OffsetMundoY - vertex.Y))).ToArray();
+            }
+            else
+            {
+                pointHandles = Array.Empty<SKPoint>();
+            }
             MapService.DefinirOverlayEdicao(previews, pointHandles);
-            MapService.DefinirIndicesVerticesEdicaoSelecionados(Array.Empty<int>());
-            if (overlayModeChanged) SolicitarNovoFrame(interacaoRapida: true);
+            MapService.DefinirIndicesVerticesEdicaoSelecionados(
+                Enumerable.Range(0, pointHandles.Length));
+            SolicitarNovoFrame(interacaoRapida: true);
         }
         catch (Exception ex)
         {
@@ -1307,6 +1328,14 @@ public partial class Home
         {
             _vectorEditMessage = OrientacaoCamadaAtiva;
             return;
+        }
+        if (FerramentaDesenhoAtiva)
+        {
+            CancelarAquisicao();
+        }
+        if (_coordenadaAbsolutaTravada)
+        {
+            DestravarCoordenadaAbsoluta();
         }
         if (MapService.PontosAquisicao.Count > 0 || _coordenadaAbsolutaTravada)
         {
@@ -1472,7 +1501,16 @@ public partial class Home
                 {
                     if (item.State?.IsDeleted == true) continue;
                     Geometry geometry;
-                    if (item.State is not null) geometry = item.State.Current;
+                    if (item.State is not null)
+                    {
+                        geometry = item.State.Current;
+                    }
+                    else if (item.Feature.Kind == GeometryKind.Point)
+                    {
+                        geometry = new NetTopologySuite.Geometries.Point(
+                            item.Feature.EnvelopeWorld.MinX,
+                            item.Feature.EnvelopeWorld.MinY);
+                    }
                     else
                     {
                         if (item.Feature.SourceFeatureId < 0) continue;
@@ -2272,6 +2310,7 @@ public partial class Home
                 await Task.Run(() => VectorGeometryEditingService.InsertVertexAtPoint(before, x, y, tolerance));
             await PublicarGeometriaEdicaoAsync(state, insertion.Geometry);
             RegistrarAcaoGeometria(state.Key, before, insertion.Geometry);
+            _insertVectorVertexMode = false;
             _vectorEditMessage = $"Vértice inserido na feição {state.Key.SourceFeatureId} · salve as edições para gravar na fonte.";
             int displayIndex = -1;
             for (int i = 0; i < _selectedVectorVertices.Count; i++)

@@ -268,6 +268,7 @@ namespace GeoNex.Services
                 _mapService.PontosMedicao.Count > 0 ||
                 _mapService.CaminhoDestaquePoligono != null ||
                 _mapService.CaminhoDestaqueLinha != null ||
+                _mapService.PontoDestaque != null ||
                 _mapService.CaminhosEdicaoPreview.Count > 0 ||
                 _mapService.VerticesEdicao.Length > 0) return false;
             var q = context.Request.QueryString;

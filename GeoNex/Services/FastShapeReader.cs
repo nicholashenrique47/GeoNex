@@ -45,6 +45,30 @@ namespace GeoNex.Services
             return (minX, maxX, minY, maxY);
         }
 
+        public static string GetGeometryType(string shpPath)
+        {
+            try
+            {
+                if (!File.Exists(shpPath)) return "POLIGONO";
+                using var handle = File.OpenHandle(shpPath, FileMode.Open, FileAccess.Read, GetOptimalFileShare(shpPath));
+                Span<byte> typeBuffer = stackalloc byte[4];
+                int read = RandomAccess.Read(handle, typeBuffer, 32);
+                if (read < 4) return "POLIGONO";
+                int shapeType = BinaryPrimitives.ReadInt32LittleEndian(typeBuffer);
+                return shapeType switch
+                {
+                    1 or 8 or 11 or 18 or 21 or 28 => "PONTO",
+                    3 or 13 or 23 => "LINHA",
+                    5 or 15 or 25 => "POLIGONO",
+                    _ => "POLIGONO"
+                };
+            }
+            catch
+            {
+                return "POLIGONO";
+            }
+        }
+
         public unsafe static (List<CompiledFeature> Features, MemoryMappedShapefile ShpData) ReadAllFeatures(
             string filePath, string layerName, double offsetX, double offsetY,
             string? catColumnName = null, string? sourceFidMappingPath = null, bool sourceFidsAreNative = true)

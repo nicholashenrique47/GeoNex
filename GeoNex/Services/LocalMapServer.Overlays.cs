@@ -339,6 +339,23 @@ public partial class LocalMapServer
             };
             canvas.DrawPath(_mapService.CaminhoDestaqueLinha, paintM);
         }
+        if (!_mapService.ClientRenderedVectorEditOverlay && _mapService.PontoDestaque != null)
+        {
+            canvas.SetMatrix(matriz);
+            SKPoint pt = _mapService.PontoDestaque.Value;
+            float r = 10f / zoomReal;
+            using var paintHalo = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = SKColors.Cyan,
+                StrokeWidth = 3f / zoomReal,
+                PathEffect = SKPathEffect.CreateDash(new float[] { 6f / zoomReal, 6f / zoomReal }, (DateTime.Now.Millisecond % 1000) / 1000f * 12f / zoomReal),
+                IsAntialias = true
+            };
+            using var paintFill = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.Cyan.WithAlpha(80), IsAntialias = true };
+            canvas.DrawCircle(pt, r, paintFill);
+            canvas.DrawCircle(pt, r, paintHalo);
+        }
 
         lock (_mapService.VectorEditOverlayGate)
         {

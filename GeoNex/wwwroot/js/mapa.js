@@ -1083,6 +1083,32 @@ window.mapEngine = {
             this.container.addEventListener('pointermove', (e) => this.onPointerMove(e));
             this.container.addEventListener('pointerup', (e) => this.onPointerUp(e, false));
             this.container.addEventListener('pointercancel', (e) => this.onPointerUp(e, true));
+            window.addEventListener('keydown', (e) => {
+                if (e.code === 'Space' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+                    this.spaceKeyPressed = true;
+                    e.preventDefault();
+                    if (this.container && !this.isDragging) this.container.style.cursor = 'grab';
+                }
+            });
+            window.addEventListener('keyup', (e) => {
+                if (e.code === 'Space') {
+                    this.spaceKeyPressed = false;
+                    if (this.container && !this.isDragging) {
+                        this.container.style.cursor = this.featureSelectionMode ? 'crosshair' :
+                            (this.ferramentaAtual === 'Navegacao' ? 'grab' :
+                            (this.ferramentaAtual === 'Medicao' || this.ferramentaAtual === 'AquisicaoPoligono' || this.ferramentaAtual === 'EdicaoVertice' ? 'crosshair' : 'default'));
+                    }
+                }
+            });
+            window.addEventListener('blur', () => {
+                this.spaceKeyPressed = false;
+                if (this.container && !this.isDragging) {
+                    this.container.style.cursor = this.featureSelectionMode ? 'crosshair' :
+                        (this.ferramentaAtual === 'Navegacao' ? 'grab' :
+                        (this.ferramentaAtual === 'Medicao' || this.ferramentaAtual === 'AquisicaoPoligono' || this.ferramentaAtual === 'EdicaoVertice' ? 'crosshair' : 'default'));
+                }
+            });
+
             this.container.addEventListener('contextmenu', (e) => {
                 if (this.featureSelectionMode && this.featureSelectionShape === 'polygon' && this.featureSelectionPolygon.length >= 3) {
                     e.preventDefault();
@@ -1469,6 +1495,22 @@ window.mapEngine = {
             this.resetToolPointer();
             return;
         }
+        if (this.ferramentaAtual === 'Identificacao' && this.identifyGesture && this.identifyGesture.pointerId === e.pointerId) {
+            const dist = Math.hypot(e.clientX - this.identifyGesture.startX, e.clientY - this.identifyGesture.startY);
+            if (dist > 5) {
+                this.identifyGesture.dragged = true;
+                const left = Math.min(this.identifyGesture.startX, e.clientX);
+                const top = Math.min(this.identifyGesture.startY, e.clientY);
+                const right = Math.max(this.identifyGesture.startX, e.clientX);
+                const bottom = Math.max(this.identifyGesture.startY, e.clientY);
+                this.atualizarSelecaoOverlay([
+                    { x: left, y: top }, { x: right, y: top },
+                    { x: right, y: bottom }, { x: left, y: bottom }
+                ]);
+            }
+            return;
+        }
+
         if (this.featureSelectionMode) {
             const gesture = this.featureSelectionGesture;
             const isPanPointer = this.panCandidate && this.panPointerId === e.pointerId;
@@ -1553,7 +1595,7 @@ window.mapEngine = {
 
         let panStartedThisMove = false;
         if (this.panCandidate && this.panPointerId === e.pointerId &&
-            Math.hypot(e.clientX - this.startX, e.clientY - this.startY) >= 10) {
+            Math.hypot(e.clientX - this.startX, e.clientY - this.startY) >= 3) {
             this.panCandidate = false;
             this.panPointerId = null;
             this.isDragging = true;
@@ -1692,6 +1734,33 @@ window.mapEngine = {
             }
         }
 
+        const isSpacePan = (e.button === 0 && this.spaceKeyPressed === true);
+        const isMiddlePan = (e.button === 1);
+        const isNavPan = (e.button === 0 && this.ferramentaAtual === 'Navegacao');
+        if (isMiddlePan || isSpacePan || isNavPan) {
+            this.panCandidate = true;
+            this.panPointerId = e.pointerId;
+            this.isPanGesture = true;
+            this.startPanX = this.targetX;
+            this.startPanY = this.targetY;
+
+            this.velocityX = 0;
+            this.velocityY = 0;
+            if (isSpacePan || isMiddlePan) e.preventDefault();
+            return;
+        }
+
+        if (this.ferramentaAtual === 'Identificacao' && e.button === 0) {
+            this.identifyGesture = {
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                dragged: false
+            };
+            e.preventDefault();
+            return;
+        }
+
         if (this.featureSelectionMode && e.button === 0) {
             this.featureSelectionGesture = {
                 pointerId: e.pointerId,
@@ -1702,16 +1771,6 @@ window.mapEngine = {
             };
             if (this.featureSelectionShape !== 'polygon') e.preventDefault();
             return;
-        }
-
-        if (e.button === 1 || (e.button === 0 && this.ferramentaAtual === 'Navegacao')) {
-            this.panCandidate = true;
-            this.panPointerId = e.pointerId;
-            this.startPanX = this.targetX;
-            this.startPanY = this.targetY;
-
-            this.velocityX = 0;
-            this.velocityY = 0;
         }
     },
 
@@ -1737,6 +1796,7 @@ window.mapEngine = {
         }
 
         if (cancelado) {
+            this.identifyGesture = null;
             this.featureSelectionGesture = null;
             this.vertexSelectionGesture = false;
             this.limparSelecaoOverlay();
@@ -1754,12 +1814,44 @@ window.mapEngine = {
             return;
         }
 
-        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexEditDragging) {
+        if (this.ferramentaAtual === 'Identificacao' && this.identifyGesture) {
+            const gesture = this.identifyGesture;
+            this.identifyGesture = null;
+            this.limparSelecaoOverlay();
+            if (gesture.dragged && e.button === 0) {
+                const left = Math.min(gesture.startX, e.clientX);
+                const top = Math.min(gesture.startY, e.clientY);
+                const right = Math.max(gesture.startX, e.clientX);
+                const bottom = Math.max(gesture.startY, e.clientY);
+                const clientPoints = [
+                    { x: left, y: top }, { x: right, y: top },
+                    { x: right, y: bottom }, { x: left, y: bottom }
+                ];
+                const imagePoints = [];
+                for (const point of clientPoints) {
+                    const imagePoint = this.obterPontoImagem(point.x, point.y);
+                    imagePoints.push(imagePoint.x, imagePoint.y);
+                }
+                const displayedMatrix = window.GeoNexGraphics ? window.GeoNexGraphics.obterMatrizApresentada() : null;
+                if (this.dotNetHelper) {
+                    this.dotNetHelper.invokeMethodAsync('ProcessarIdentificacaoPorForma', imagePoints, displayedMatrix)
+                        .catch(err => console.warn('Erro ao identificar por area:', err));
+                }
+                return;
+            }
+        }
+
+        if (this.ferramentaAtual === 'EdicaoVertice' && (this.vertexEditDragging || this.vertexEditPlacementArmed) && e.button === 0) {
             this.vertexEditDragging = false;
+            this.vertexEditPlacementArmed = false;
             this.vertexSelectionGesture = false;
             this.limparSelecaoOverlay();
             this.vertexEditPointerStart = null;
             this.resetToolPointer();
+            if (this.dotNetHelper) {
+                this.dotNetHelper.invokeMethodAsync('FinalizarArrasteVerticeEdicaoAsync', e.clientX, e.clientY)
+                    .catch(err => console.warn('Erro ao finalizar arraste vertice:', err));
+            }
             this.scheduleRender();
             return;
         }
@@ -1796,11 +1888,7 @@ window.mapEngine = {
             this.limparSelecaoOverlay();
         }
 
-        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexEditPlacementArmed && e.button === 0) {
-            this.vertexEditPointerStart = null;
-            this.resetToolPointer();
-            return;
-        }
+
 
         if (this.ferramentaAtual === 'EdicaoVertice' && !this.featureSelectionMode && this.vertexSelectionGesture && !this.vertexMoveFeatureMode &&
             !this.vertexEditDragging && e.button === 0 && this.dotNetHelper) {
@@ -1845,16 +1933,21 @@ window.mapEngine = {
 
         const tempoDecorrido = performance.now() - this.clickStartTime;
         const distMovida = Math.abs(e.clientX - this.startX) + Math.abs(e.clientY - this.startY);
+        const wasPan = (this.isPanGesture || this.panCandidate || this.isDragging || this.spaceKeyPressed || e.button === 1);
+        this.isPanGesture = false;
+        this.panCandidate = false;
+        this.panPointerId = null;
 
         if (this.isDragging) {
             this.isDragging = false;
 
             this.container.style.cursor =
+                this.spaceKeyPressed ? 'grab' :
                 this.featureSelectionMode ? 'crosshair' :
-                    this.ferramentaAtual === 'Navegacao' ? 'grab' :
-                    (this.ferramentaAtual === 'Medicao' ? 'crosshair' : 'default');
+                this.ferramentaAtual === 'Navegacao' ? 'grab' :
+                (this.ferramentaAtual === 'Medicao' || this.ferramentaAtual === 'EdicaoVertice' || this.ferramentaAtual === 'AquisicaoPoligono' ? 'crosshair' : 'default');
 
-            if (distMovida > 10) {
+            if (distMovida > 3) {
                 // INÉRCIA ATIVADA: Deslizar estilo Leaflet / Google Maps
                 const multiplicadorFriccao = 180;
                 if (Math.abs(this.velocityX) > 0.3 || Math.abs(this.velocityY) > 0.3) {
@@ -1869,6 +1962,11 @@ window.mapEngine = {
             }
             this.velocityX = 0;
             this.velocityY = 0;
+        }
+
+        if (wasPan) {
+            this.scheduleRender();
+            return;
         }
 
         if (e.button === 0 && tempoDecorrido < 300 && distMovida < 10) {
