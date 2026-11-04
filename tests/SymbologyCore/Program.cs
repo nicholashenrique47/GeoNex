@@ -315,4 +315,74 @@ grid.ConfigurarViewport(1920f, 1080f, margemBordaPx: 10f, espacamentoMinimoPx: 2
 Assert(grid.TestarColisao(new SKRect(2f, 100f, 80f, 120f)), "Rótulo cortando a borda esquerda da tela deve ser rejeitado");
 Assert(!grid.TestarColisao(new SKRect(100f, 100f, 180f, 120f)), "Rótulo dentro da área útil da tela deve ser aceito");
 
-Console.WriteLine($"\n>>> TODOS OS 11 MÓDULOS PASSARAM COM SUCESSO! Total de asserções validadas: {assertions} <<<");
+// 13. TESTES TIPOGRÁFICOS AVANÇADOS: TEXTOS COM ACENTOS E CARACTERES ESPECIAIS (QGIS / IBGE)
+Console.WriteLine("[13/14] Testando Formatação Tipográfica com Acentuação, Caracteres Especiais e Pontuação...");
+var casosTexto = new (string Original, string Modo, string Esperado)[]
+{
+    ("são paulo", "Maiusculas", "SÃO PAULO"),
+    ("ÁGUA CLARA", "Minusculas", "água clara"),
+    ("rio de janeiro", "Titulo", "Rio De Janeiro"),
+    ("florianópolis", "Titulo", "Florianópolis"),
+    ("brasília - distrito federal", "Maiusculas", "BRASÍLIA - DISTRITO FEDERAL"),
+    ("cuiabá", "Titulo", "Cuiabá"),
+    ("PARANÁ", "Minusculas", "paraná"),
+    ("   espaços extras   ", "Normal", "   espaços extras   "),
+    ("123 número 456", "Maiusculas", "123 NÚMERO 456"),
+    ("são joão d'aliança", "Titulo", "São João D'aliança")
+};
+
+foreach (var (orig, modo, esp) in casosTexto)
+{
+    string fmt = LabelPlacementEngine.FormatarTexto(orig, modo);
+    Assert(fmt == esp, $"Formatação '{orig}' em modo '{modo}' resultou em '{fmt}', esperava '{esp}'");
+}
+
+// 14. VALIDAÇÃO INTEGRAL DE INTEROPERABILIDADE .GNXSTYLE E OGC SLD COM HACHURAS E SOMBRA
+Console.WriteLine("[14/14] Testando Roundtrip de Serialização SLD e GNXStyle com Hachuras, Marcadores e Sombra...");
+var estiloFull = new EstiloCamada
+{
+    TipoSimbologia = "GRADUADA",
+    ColunaSimbologia = "AREA_HA",
+    FormaMarcador = "Pentagono",
+    RotacaoMarcador = 72f,
+    PadraoPreenchimento = "DiagonalDireita",
+    CorHachura = "#ff5500",
+    EspacamentoHachura = 18,
+    ModoMesclagem = "Multiply",
+    EfeitoSombra = true,
+    RaioSombra = 8f,
+    CorSombra = "#112233",
+    FamiliaFonteRotulo = "Roboto",
+    TransformacaoTextoRotulo = "Titulo",
+    RotuloNegrito = true,
+    RotuloItalico = true,
+    AntiColisaoRotulos = true,
+    DesenharLinhaChamada = true,
+    CorLinhaChamada = "#38bdf8",
+    EspessuraLinhaChamada = 1.5f,
+    UsarPoloInacessibilidade = true,
+    FaixasGraduadas = new List<FaixaGraduada>
+    {
+        new FaixaGraduada(0, 10, "#ffffcc", "0 a 10 ha"),
+        new FaixaGraduada(10, 50, "#a1dab4", "10 a 50 ha"),
+        new FaixaGraduada(50, 200, "#41b6c4", "50 a 200 ha"),
+        new FaixaGraduada(200, 1000, "#225ea8", "Acima de 200 ha")
+    }
+};
+
+string jsonExport = StyleSerializationService.ExportarParaJson(estiloFull);
+Assert(jsonExport.Contains("Pentagono") && jsonExport.Contains("DiagonalDireita"), "JSON deve conter propriedades avançadas");
+var estiloImportJson = StyleSerializationService.ImportarDeJson(jsonExport);
+Assert(estiloImportJson != null, "Deserialização do JSON completo deve ter sucesso");
+Assert(estiloImportJson!.FormaMarcador == "Pentagono", "Marcador Pentagono preservado no JSON");
+Assert(estiloImportJson.PadraoPreenchimento == "DiagonalDireita", "Hachura DiagonalDireita preservada no JSON");
+Assert(estiloImportJson.EfeitoSombra == true, "EfeitoSombra preservado");
+Assert(estiloImportJson.FaixasGraduadas.Count == 4, "4 faixas preservadas");
+
+string sldExport = StyleSerializationService.ExportarParaSLD("CamadaFull", estiloFull);
+Assert(sldExport.Contains("PolygonSymbolizer") && sldExport.Contains("LineSymbolizer"), "SLD deve conter os simbolizadores");
+var estiloImportSld = StyleSerializationService.ImportarDeSLD(sldExport);
+Assert(estiloImportSld != null, "Importação SLD deve ser bem sucedida");
+
+Console.WriteLine($"\n>>> TODOS OS 14 MÓDULOS DE SIMBOLOGIA PASSARAM COM 100% DE SUCESSO! Total de asserções validadas: {assertions} <<<");
+

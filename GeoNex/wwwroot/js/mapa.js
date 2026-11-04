@@ -4128,3 +4128,21 @@ window.geonexResizeDockKeydown = function (event) {
     panel.style.setProperty('--dock-panel-height', `${Math.round(bounded)}px`);
     handle.setAttribute('aria-valuenow', String(Math.round((bounded / available) * 100)));
 };
+
+window.geonexDownloadText = function (text, filename) {
+    try {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'estilo.gnxstyle';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 20000);
+        return true;
+    } catch (e) {
+        console.error('geonexDownloadText failed:', e);
+        return false;
+    }
+};

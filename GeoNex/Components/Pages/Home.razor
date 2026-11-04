@@ -2304,354 +2304,699 @@
     @if (exibirModalPropriedades)
     {
         <style>
-                
-                /* =======================================================
-                       FÍSICA DO DRAG & DROP (MÁXIMA SUAVIDADE E GRIP)
-                       ======================================================= */
+            .geonex-props-modal {
+                width: 760px;
+                min-height: 520px;
+                max-height: 90vh;
+                display: flex;
+                flex-direction: column;
+                background: rgba(15, 23, 42, 0.95);
+                backdrop-filter: blur(16px);
+                border: 1px solid rgba(56, 189, 248, 0.25);
+                border-radius: 12px;
+                box-shadow: 0 24px 48px rgba(0, 0, 0, 0.7);
+                overflow: hidden;
+            }
 
-                .layer-item {
-                    /* A branda transição que remove os pulos secos do ecrã */
-                    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s, background-color 0.2s;
-                    will-change: transform;
-                }
+            .geonex-props-sidebar {
+                width: 170px;
+                background: rgba(10, 15, 29, 0.85);
+                border-right: 1px solid rgba(255, 255, 255, 0.06);
+                display: flex;
+                flex-direction: column;
+                padding: 10px 8px;
+                gap: 4px;
+            }
 
-                    /* O Efeito de Levitação Magnética quando o clique é mantido */
-                    .layer-item.is-dragging {
-                        transform: scale(1.02); /* Aumenta um bocadinho, dando a ilusão que se descolou do fundo */
-                        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.6); /* Sombra pesada por baixo */
-                        background-color: rgba(30, 41, 59, 0.95) !important;
-                        border: 1px solid #38bdf8;
-                        opacity: 0.95;
-                        z-index: 100;
-                    }
+            .geonex-props-sidebar .tab-btn {
+                text-align: left;
+                padding: 10px 14px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                color: #94a3b8;
+                background: transparent;
+                border: 1px solid transparent;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
 
-                /* O Seu Clique Perfeito (Refinado do seu Print) */
-                .drag-handle {
-                    padding: 6px;
-                    border-radius: 4px;
-                    background: rgba(0,0,0,0.15);
-                    cursor: grab; /* Mão aberta a pedir clique */
-                    touch-action: none;
-                    transition: background 0.2s, color 0.2s;
-                }
+            .geonex-props-sidebar .tab-btn:hover {
+                background: rgba(255, 255, 255, 0.05);
+                color: #e2e8f0;
+            }
 
-                    .drag-handle:hover {
-                        background: rgba(0,0,0,0.3);
-                        color: #38bdf8;
-                    }
+            .geonex-props-sidebar .tab-btn.active {
+                background: rgba(56, 189, 248, 0.15);
+                color: #38bdf8;
+                border-color: rgba(56, 189, 248, 0.35);
+                font-weight: 600;
+            }
 
-                    /* Quando clica, o ícone do rato muda para mão fechada! */
-                    .drag-handle:active, .is-dragging .drag-handle {
-                        cursor: grabbing !important;
-                        background: rgba(56, 189, 248, 0.2);
-                        color: #38bdf8;
-                    }
-                .geonex-toggle {
-                    position: relative;
-                    display: inline-block;
-                    width: 36px;
-                    height: 18px;
-                    margin-right: 10px;
-                }
+            .symbol-preview-header-card {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                background: rgba(0, 0, 0, 0.4);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 12px 16px;
+                margin-bottom: 16px;
+            }
 
-                    .geonex-toggle input {
-                        opacity: 0;
-                        width: 0;
-                        height: 0;
-                    }
+            .symbol-svg-viewport {
+                width: 64px;
+                height: 64px;
+                background: repeating-linear-gradient(45deg, #1e293b, #1e293b 8px, #0f172a 8px, #0f172a 16px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 6px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+            }
 
-                .geonex-slider {
-                    position: absolute;
-                    cursor: pointer;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background-color: rgba(255,255,255,0.1);
-                    border: 1px solid rgba(255,255,255,0.2);
-                    transition: .3s;
-                    border-radius: 18px;
-                }
+            .carto-section-card {
+                background: rgba(30, 41, 59, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                padding: 14px;
+                margin-bottom: 14px;
+            }
 
-                    .geonex-slider:before {
-                        position: absolute;
-                        content: "";
-                        height: 12px;
-                        width: 12px;
-                        left: 2px;
-                        bottom: 2px;
-                        background-color: #888;
-                        transition: .3s;
-                        border-radius: 50%;
-                    }
+            .carto-section-title {
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                color: #38bdf8;
+                margin-bottom: 10px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
 
-                .geonex-toggle input:checked + .geonex-slider {
-                    background-color: rgba(56, 189, 248, 0.2);
-                    border-color: #38bdf8;
-                }
+            .symbology-grid-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 10px;
+                font-size: 12px;
+            }
 
-                    .geonex-toggle input:checked + .geonex-slider:before {
-                        transform: translateX(18px);
-                        background-color: #38bdf8;
-                    }
+            .symbology-grid-table th {
+                text-align: left;
+                padding: 6px 8px;
+                color: #94a3b8;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                font-size: 11px;
+                text-transform: uppercase;
+            }
 
-                .gis-toolbar {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    background: rgba(0,0,0,0.4);
-                    padding: 6px;
-                    border-radius: 6px;
-                    border: 1px solid rgba(255,255,255,0.05);
-                }
+            .symbology-grid-table td {
+                padding: 6px 8px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+                vertical-align: middle;
+            }
 
-                .gis-tool-btn {
-                    position: relative;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    height: 32px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    transition: 0.2s;
-                    color: #cbd5e1;
-                    background: transparent;
-                    border: 1px solid transparent;
-                    overflow: hidden;
-                }
+            .color-inline-picker {
+                width: 28px;
+                height: 24px;
+                border: 1px solid rgba(255,255,255,0.2);
+                border-radius: 4px;
+                padding: 0;
+                cursor: pointer;
+                background: none;
+            }
 
-                    .gis-tool-btn:hover {
-                        background: rgba(255,255,255,0.1);
-                        color: #fff;
-                        border-color: rgba(255,255,255,0.2);
-                    }
+            .input-inline-sm {
+                background: rgba(0, 0, 0, 0.35);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 4px;
+                color: #fff;
+                padding: 3px 6px;
+                font-size: 12px;
+                width: 100%;
+            }
 
-                    .gis-tool-btn.active {
-                        background: rgba(56, 189, 248, 0.15);
-                        color: #38bdf8;
-                        border-color: rgba(56, 189, 248, 0.4);
-                    }
+            .style-quick-btn {
+                background: rgba(56, 189, 248, 0.1);
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                color: #38bdf8;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 11px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
 
-                .gis-color-input {
-                    position: absolute;
-                    opacity: 0;
-                    width: 100%;
-                    height: 100%;
-                    cursor: pointer;
-                }
+            .style-quick-btn:hover {
+                background: rgba(56, 189, 248, 0.25);
+                color: #fff;
+            }
 
-                .gis-number-wrapper {
-                    display: flex;
-                    align-items: center;
-                    background: rgba(0,0,0,0.4);
-                    border: 1px solid rgba(255,255,255,0.05);
-                    border-radius: 4px;
-                    overflow: hidden;
-                    transition: border-color 0.2s;
-                }
-
-                    .gis-number-wrapper:focus-within {
-                        border-color: #38bdf8;
-                    }
-
-                .gis-number-input {
-                    width: 100%;
-                    background: transparent;
-                    border: none;
-                    color: #fff;
-                    padding: 8px 10px;
-                    font-size: 14px;
-                    outline: none;
-                }
-
-                .gis-number-unit {
-                    color: #94a3b8;
-                    padding-right: 10px;
-                    font-size: 12px;
-                    user-select: none;
-                }
-
-                /* NOVOS ESTILOS: Textos mais claros e fortes */
-                .gis-label {
-                    font-size: 11px;
-                    color: #cbd5e1;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                    margin-bottom: 6px;
-                    display: block;
-                }
-
+            .gis-label {
+                font-size: 11px;
+                color: #cbd5e1;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 6px;
+                display: block;
+            }
         </style>
 
         <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
-            <div class="glass-panel modal-container" style="width: 550px; min-height: 400px; max-height: 85vh; display: flex; flex-direction: column;">
-                <div class="modal-header">
-                    <h2>PROPRIEDADES: @camadaEmEdicao</h2>
+            <div class="glass-panel geonex-props-modal">
+                <div class="modal-header" style="padding: 12px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: #38bdf8; font-size: 16px;">🎨</span>
+                        <h2 style="margin: 0; font-size: 15px; font-weight: 600; color: #f8fafc; letter-spacing: 0.5px;">PROPRIEDADES DA CAMADA: @camadaEmEdicao</h2>
+                    </div>
                     <button class="close-btn-red" @onclick="() => exibirModalPropriedades = false">✕</button>
                 </div>
 
-                <div class="modal-body properties-layout" style="flex: 1; overflow-y: auto;">
-
-                    <nav class="properties-sidebar">
-                        <button class="tab-btn @(abaAtivaPropriedades == "Simbologia" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Simbologia"'>Simbologia</button>
-                        <button class="tab-btn @(abaAtivaPropriedades == "Rotulos" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Rotulos"'>Rótulos</button>
-                        <button class="tab-btn @(abaAtivaPropriedades == "Informacao" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Informacao"'>Informação</button>
+                <div class="modal-body properties-layout" style="display: flex; flex: 1; overflow: hidden;">
+                    <nav class="geonex-props-sidebar">
+                        <button class="tab-btn @(abaAtivaPropriedades == "Simbologia" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Simbologia"'>
+                            🎨 Simbologia
+                        </button>
+                        <button class="tab-btn @(abaAtivaPropriedades == "Rotulos" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Rotulos"'>
+                            🏷️ Rótulos & Textos
+                        </button>
+                        <button class="tab-btn @(abaAtivaPropriedades == "Informacao" ? "active" : "")" @onclick='() => abaAtivaPropriedades = "Informacao"'>
+                            ℹ️ Informações
+                        </button>
                     </nav>
 
-                    <div class="properties-content custom-scrollbar">
-
+                    <div class="properties-content custom-scrollbar" style="flex: 1; padding: 18px; overflow-y: auto;">
                         @if (abaAtivaPropriedades == "Simbologia")
                         {
-                            <div class="form-group-vertical">
+                            <!-- LIVE SYMBOL PREVIEW BADGE -->
+                            <div class="symbol-preview-header-card">
+                                <div class="symbol-svg-viewport">
+                                    <svg width="48" height="48" viewBox="-24 -24 48 48">
+                                        <defs>
+                                            @if (padraoPreenchimento != "Solido")
+                                            {
+                                                <pattern id="hatchPreview" width="@espacamentoHachura" height="@espacamentoHachura" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                                                    <line x1="0" y1="0" x2="0" y2="@espacamentoHachura" stroke="@corHachura" stroke-width="2" />
+                                                </pattern>
+                                            }
+                                            @if (efeitoSombra)
+                                            {
+                                                <filter id="shadowPreview" x="-50%" y="-50%" width="200%" height="200%">
+                                                    <feDropShadow dx="2" dy="2" stdDeviation="@(raioSombra / 2)" flood-color="@corSombra" flood-opacity="0.7"/>
+                                                </filter>
+                                            }
+                                        </defs>
+
+                                        @if (MapService.PontosPorCamada.ContainsKey(camadaEmEdicao))
+                                        {
+                                            <g transform="rotate(@rotacaoMarcador)" filter="@(efeitoSombra ? "url(#shadowPreview)" : null)">
+                                                <path d="@ObterSvgMarkerPath(formaMarcador, (float)Math.Clamp(tamanhoPonto, 6.0, 18.0))"
+                                                      fill="@(semCorPreenchimento ? "transparent" : corPreenchimento)"
+                                                      fill-opacity="@(opacidadePreenchimento / 100.0)"
+                                                      stroke="@(semCorBorda ? "transparent" : corBorda)"
+                                                      stroke-width="@espessuraBorda"
+                                                      stroke-dasharray="@ObterSvgDashArray(tipoLinha)" />
+                                            </g>
+                                        }
+                                        else
+                                        {
+                                            <g filter="@(efeitoSombra ? "url(#shadowPreview)" : null)">
+                                                <rect x="-18" y="-18" width="36" height="36" rx="3"
+                                                      fill="@(semCorPreenchimento ? "transparent" : corPreenchimento)"
+                                                      fill-opacity="@(opacidadePreenchimento / 100.0)"
+                                                      stroke="@(semCorBorda ? "transparent" : corBorda)"
+                                                      stroke-width="@espessuraBorda"
+                                                      stroke-dasharray="@ObterSvgDashArray(tipoLinha)" />
+                                                @if (padraoPreenchimento != "Solido")
+                                                {
+                                                    <rect x="-18" y="-18" width="36" height="36" rx="3" fill="url(#hatchPreview)" />
+                                                }
+                                            </g>
+                                        }
+                                    </svg>
+                                </div>
+                                <div style="flex: 1;">
+                                    <div style="font-size: 13px; font-weight: 600; color: #f8fafc;">Amostra do Símbolo Cartográfico</div>
+                                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
+                                        Modo: <strong style="color: #38bdf8;">@tipoSimbologia</strong> | Mesclagem: <strong>@modoMesclagem</strong>
+                                        @if (efeitoSombra) { <span style="color: #fbbf24;"> | Sombra Ativa</span> }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- TIPO DE SIMBOLOGIA -->
+                            <div class="carto-section-card">
                                 <label class="gis-label">TIPO DE SIMBOLOGIA</label>
-                                <select class="gis-select" @bind="tipoSimbologia">
-                                    <option value="UNICA">Símbolo Único (Cor Sólida)</option>
-                                    <option value="CATEGORIZADA">Categorizado (Por Atributo)</option>
+                                <select class="gis-select" @bind="tipoSimbologia" @bind:after="AtualizarSimbologiaAoVivo">
+                                    <option value="UNICA">Símbolo Único (Cor Sólida & Hachuras)</option>
+                                    <option value="CATEGORIZADA">Categorizado (Por Atributo Qualitativo)</option>
+                                    <option value="GRADUADA">Graduado (Por Intervalos Quantitativos / Jenks)</option>
                                 </select>
                             </div>
 
-                            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;" />
-
+                            <!-- 1. PAINEL MODO ÚNICO -->
                             @if (tipoSimbologia == "UNICA")
                             {
-                                <div class="form-group-vertical" style="position: relative; margin-bottom: 15px;">
-                                    <label class="gis-label">Cor de Preenchimento</label>
-                                    <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorFill = !abrirSeletorFill; abrirSeletorBorda = false; }">
-                                        @if (semCorPreenchimento)
+                                <div class="carto-section-card">
+                                    <div class="carto-section-title">Preenchimento & Geometria do Marcador</div>
+
+                                    <div class="form-group-vertical" style="position: relative; margin-bottom: 12px;">
+                                        <label class="gis-label">Cor de Preenchimento</label>
+                                        <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorFill = !abrirSeletorFill; abrirSeletorBorda = false; }">
+                                            @if (semCorPreenchimento)
+                                            {
+                                                <div class="color-preview-box no-color-diagonal"></div>
+                                                <span class="color-text-value">Sem Cor (Transparente)</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="color-preview-box" style="background-color: @corPreenchimento;"></div>
+                                                <span class="color-text-value">@corPreenchimento.ToUpper()</span>
+                                            }
+                                            <div class="dropdown-arrow-indicator">▼</div>
+                                        </div>
+
+                                        @if (abrirSeletorFill)
+                                        {
+                                            <div class="arcmap-dropdown-palette glass-panel">
+                                                <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("FILL", "transparent")'>
+                                                    <div class="no-color-icon-small"></div> Sem Cor
+                                                </button>
+                                                <div class="arcmap-color-grid">
+                                                    @foreach (var cor in PaletaCoresSIG)
+                                                    {
+                                                        <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("FILL", cor)'></div>
+                                                    }
+                                                </div>
+                                                <label class="arcmap-more-colors-btn">
+                                                    Mais Cores...
+                                                    <input @ref="inputColorFillRef" type="color" value="@corPreenchimento" style="display:none;"
+                                                           @onchange='(e) => SelecionarCorCustomizada("FILL", e.Value?.ToString() ?? "#38bdf8")' />
+                                                </label>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    @if (MapService.PontosPorCamada.ContainsKey(camadaEmEdicao))
+                                    {
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+                                            <div>
+                                                <label class="gis-label">Forma do Marcador (Ponto)</label>
+                                                <select class="gis-select" @bind="formaMarcador" @bind:after="AtualizarSimbologiaAoVivo">
+                                                    @foreach (var forma in FormasMarcadorDisponiveis)
+                                                    {
+                                                        <option value="@forma">@forma</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                    Rotação <span>@rotacaoMarcador°</span>
+                                                </label>
+                                                <input type="range" min="0" max="360" step="5" @bind="rotacaoMarcador" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+                                            <div>
+                                                <label class="gis-label">Padrão de Hachura (Polígono)</label>
+                                                <select class="gis-select" @bind="padraoPreenchimento" @bind:after="AtualizarSimbologiaAoVivo">
+                                                    @foreach (var p in PadroesHachuraDisponiveis)
+                                                    {
+                                                        <option value="@p">@p</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            @if (padraoPreenchimento != "Solido")
+                                            {
+                                                <div>
+                                                    <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                        Espaçamento <span>@(espacamentoHachura)px</span>
+                                                    </label>
+                                                    <input type="range" min="6" max="48" step="2" @bind="espacamentoHachura" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            <!-- 2. PAINEL MODO CATEGORIZADO -->
+                            else if (tipoSimbologia == "CATEGORIZADA")
+                            {
+                                <div class="carto-section-card">
+                                    <div class="carto-section-title">Classificação Qualitativa por Atributo</div>
+
+                                    <div style="display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 12px;">
+                                        <div>
+                                            <label class="gis-label">Coluna de Agrupamento</label>
+                                            <select class="gis-select" @bind="colunaSimbologiaCategorizada">
+                                                <option value="">[ Selecione a Coluna ]</option>
+                                                @foreach (var col in ColunasDaCamadaAtual)
+                                                {
+                                                    <option value="@col">@col</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="gis-label">Paleta Temática</label>
+                                            <select class="gis-select" @bind="paletaCategorizada">
+                                                @foreach (var pal in PaletasQualitativasDisponiveis)
+                                                {
+                                                    <option value="@pal">@pal</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <button type="button" class="style-quick-btn" style="height: 34px; padding: 0 14px; font-weight: 600;" @onclick="ExecutarClassificacaoCategorizada">
+                                            @(_carregandoClassificacao ? "Classificando..." : "Classificar")
+                                        </button>
+                                    </div>
+
+                                    @if (listaCategoriasUI.Count > 0)
+                                    {
+                                        <table class="symbology-grid-table">
+                                            <thead>
+                                                <tr>
+                                                    <th style="width: 40px;">Cor</th>
+                                                    <th>Valor</th>
+                                                    <th>Legenda</th>
+                                                    <th style="width: 70px; text-align: right;">Qtd</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (int i = 0; i < listaCategoriasUI.Count; i++)
+                                                {
+                                                    int idx = i;
+                                                    var item = listaCategoriasUI[idx];
+                                                    <tr>
+                                                        <td>
+                                                            <input type="color" value="@item.CorHex" class="color-inline-picker"
+                                                                   @onchange='(e) => AlterarCorCategoria(idx, e.Value?.ToString() ?? item.CorHex)' />
+                                                        </td>
+                                                        <td style="color: #cbd5e1; font-family: monospace;">@item.Valor</td>
+                                                        <td>
+                                                            <input type="text" class="input-inline-sm" @bind="item.RotuloLegenda" />
+                                                        </td>
+                                                        <td style="text-align: right; color: #94a3b8;">@item.ContagemFeicoes</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    }
+                                </div>
+                            }
+
+                            <!-- 3. PAINEL MODO GRADUADO -->
+                            else if (tipoSimbologia == "GRADUADA")
+                            {
+                                <div class="carto-section-card">
+                                    <div class="carto-section-title">Classificação Estatística Quantitativa</div>
+
+                                    <div style="display: grid; grid-template-columns: 1.2fr 1fr 80px; gap: 10px; margin-bottom: 10px;">
+                                        <div>
+                                            <label class="gis-label">Coluna Numérica</label>
+                                            <select class="gis-select" @bind="colunaSimbologiaGraduada">
+                                                <option value="">[ Selecione a Coluna ]</option>
+                                                @foreach (var col in ColunasDaCamadaAtual)
+                                                {
+                                                    <option value="@col">@col</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="gis-label">Método Estatístico</label>
+                                            <select class="gis-select" @bind="metodoClassificacao">
+                                                <option value="@MetodoClassificacao.QuebrasNaturaisJenks">Fisher-Jenks (Quebras Naturais)</option>
+                                                <option value="@MetodoClassificacao.IntervaloIgual">Intervalos Iguais (Equal Interval)</option>
+                                                <option value="@MetodoClassificacao.Quantil">Quantis (Frequência Igual)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="gis-label">Classes</label>
+                                            <select class="gis-select" @bind="numeroClasses">
+                                                @for (int c = 3; c <= 10; c++)
+                                                {
+                                                    <option value="@c">@c</option>
+                                                }
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: grid; grid-template-columns: 1.5fr auto auto; gap: 10px; align-items: end; margin-bottom: 12px;">
+                                        <div>
+                                            <label class="gis-label">Rampa de Cores Científica</label>
+                                            <select class="gis-select" @bind="rampaCores">
+                                                @foreach (var rampa in ClassificationEngine.RampasDisponiveis)
+                                                {
+                                                    <option value="@rampa">@rampa</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #cbd5e1; margin-bottom: 8px; cursor: pointer;">
+                                            <input type="checkbox" @bind="inverterRampa" /> Inverter
+                                        </label>
+                                        <button type="button" class="style-quick-btn" style="height: 34px; padding: 0 14px; font-weight: 600;" @onclick="ExecutarClassificacaoGraduada">
+                                            @(_carregandoClassificacao ? "Calculando..." : "Classificar")
+                                        </button>
+                                    </div>
+
+                                    @if (faixasGraduadasUI.Count > 0)
+                                    {
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 6px;">
+                                            <span style="font-size: 11px; color: #94a3b8;">Faixas Calculadas (@faixasGraduadasUI.Count)</span>
+                                            <button type="button" class="style-quick-btn" style="font-size: 10px;" @onclick="AdicionarFaixaGraduada">+ Adicionar Faixa</button>
+                                        </div>
+                                        <table class="symbology-grid-table">
+                                            <thead>
+                                                <tr>
+                                                    <th style="width: 36px;">Cor</th>
+                                                    <th>Mínimo</th>
+                                                    <th>Máximo</th>
+                                                    <th>Legenda</th>
+                                                    <th style="width: 32px;"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (int i = 0; i < faixasGraduadasUI.Count; i++)
+                                                {
+                                                    int idx = i;
+                                                    var fx = faixasGraduadasUI[idx];
+                                                    <tr>
+                                                        <td>
+                                                            <input type="color" value="@fx.CorHex" class="color-inline-picker"
+                                                                   @onchange='(e) => AlterarCorFaixaGraduada(idx, e.Value?.ToString() ?? fx.CorHex)' />
+                                                        </td>
+                                                        <td><input type="number" step="any" class="input-inline-sm" @bind="fx.Minimo" /></td>
+                                                        <td><input type="number" step="any" class="input-inline-sm" @bind="fx.Maximo" /></td>
+                                                        <td><input type="text" class="input-inline-sm" @bind="fx.RotuloLegenda" /></td>
+                                                        <td style="text-align: center;">
+                                                            <button type="button" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 13px;" title="Remover Faixa" @onclick="() => RemoverFaixaGraduada(idx)">✕</button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    }
+                                </div>
+                            }
+
+                            <!-- 4. CONTORNO, LINHA E OPACIDADE (GLOBAL) -->
+                            <div class="carto-section-card">
+                                <div class="carto-section-title">Contorno, Traço e Opacidade</div>
+
+                                <div class="form-group-vertical" style="position: relative; margin-bottom: 12px;">
+                                    <label class="gis-label">Cor do Contorno (Borda/Casing)</label>
+                                    <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorBorda = !abrirSeletorBorda; abrirSeletorFill = false; }">
+                                        @if (semCorBorda)
                                         {
                                             <div class="color-preview-box no-color-diagonal"></div>
                                             <span class="color-text-value">Sem Cor (Transparente)</span>
                                         }
                                         else
                                         {
-                                            <div class="color-preview-box" style="background-color: @corPreenchimento;"></div>
-                                            <span class="color-text-value">@corPreenchimento.ToUpper()</span>
+                                            <div class="color-preview-box" style="background-color: @corBorda;"></div>
+                                            <span class="color-text-value">@corBorda.ToUpper()</span>
                                         }
                                         <div class="dropdown-arrow-indicator">▼</div>
                                     </div>
 
-                                    @if (abrirSeletorFill)
+                                    @if (abrirSeletorBorda)
                                     {
                                         <div class="arcmap-dropdown-palette glass-panel">
-                                            <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("FILL", "transparent")'>
+                                            <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("BORDA", "transparent")'>
                                                 <div class="no-color-icon-small"></div> Sem Cor
                                             </button>
                                             <div class="arcmap-color-grid">
                                                 @foreach (var cor in PaletaCoresSIG)
                                                 {
-                                                    <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("FILL", cor)'></div>
+                                                    <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("BORDA", cor)'></div>
                                                 }
                                             </div>
                                             <label class="arcmap-more-colors-btn">
                                                 Mais Cores...
-                                                <input @ref="inputColorFillRef" type="color" value="@corPreenchimento" style="display:none;"
-                                                       @onchange='(e) => SelecionarCorCustomizada("FILL", e.Value?.ToString() ?? "#38bdf8")' />
+                                                <input @ref="inputColorBordaRef" type="color" value="@corBorda" style="display:none;"
+                                                       @onchange='(e) => SelecionarCorCustomizada("BORDA", e.Value?.ToString() ?? "#0ea5e9")' />
                                             </label>
                                         </div>
                                     }
                                 </div>
-                            }
-                            else
-                            {
-                                <div class="form-group-vertical">
-                                    <label class="gis-label">Separar Cores Usando a Coluna</label>
-                                    <select class="gis-select" @bind="colunaSimbologiaCategorizada">
-                                        <option value="">[ Selecione a Coluna ]</option>
-                                        @foreach (var col in ColunasDaCamadaAtual)
-                                        {
-                                            <option value="@col">@col</option>
-                                        }
-                                    </select>
-                                </div>
-                            }
 
-                            <!-- O CONTORNO (BORDA/CASING) DEVE ESTAR SEMPRE DISPONÍVEL -->
-                            <div class="form-group-vertical" style="position: relative; margin-top: 15px;">
-                                <label class="gis-label">Cor do Contorno (Borda/Casing)</label>
-                                <div class="arcmap-picker-trigger" @onclick="() => { abrirSeletorBorda = !abrirSeletorBorda; abrirSeletorFill = false; }">
-                                    @if (semCorBorda)
-                                    {
-                                        <div class="color-preview-box no-color-diagonal"></div>
-                                        <span class="color-text-value">Sem Cor (Transparente)</span>
-                                    }
-                                    else
-                                    {
-                                        <div class="color-preview-box" style="background-color: @corBorda;"></div>
-                                        <span class="color-text-value">@corBorda.ToUpper()</span>
-                                    }
-                                    <div class="dropdown-arrow-indicator">▼</div>
-                                </div>
-
-                                @if (abrirSeletorBorda)
-                                {
-                                    <div class="arcmap-dropdown-palette glass-panel">
-                                        <button type="button" class="arcmap-no-color-btn" @onclick='() => SelecionarCorCustomizada("BORDA", "transparent")'>
-                                            <div class="no-color-icon-small"></div> Sem Cor
-                                        </button>
-                                        <div class="arcmap-color-grid">
-                                            @foreach (var cor in PaletaCoresSIG)
-                                            {
-                                                <div class="arcmap-color-cell" style="background-color: @cor;" @onclick='() => SelecionarCorCustomizada("BORDA", cor)'></div>
-                                            }
-                                        </div>
-                                        <label class="arcmap-more-colors-btn">
-                                            Mais Cores...
-                                            <input @ref="inputColorBordaRef" type="color" value="@corBorda" style="display:none;"
-                                                   @onchange='(e) => SelecionarCorCustomizada("BORDA", e.Value?.ToString() ?? "#0ea5e9")' />
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px;">
+                                    <div>
+                                        <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                            Espessura da Linha <span>@(espessuraLinha)px</span>
                                         </label>
+                                        <input type="range" min="0" max="15" step="0.5" @bind="espessuraLinha" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
                                     </div>
+                                    <div>
+                                        <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                            Estilo do Traço
+                                        </label>
+                                        <select class="gis-select" @bind="tipoLinha" @bind:after="AtualizarSimbologiaAoVivo">
+                                            <option value="Solid">Linha Sólida (Contínua)</option>
+                                            <option value="Dash">Tracejado Regular</option>
+                                            <option value="Dot">Pontilhado (Pontos)</option>
+                                            <option value="DashDot">Traço-Ponto (Alternado)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                    <div>
+                                        <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                            Opacidade Geral <span>@opacidadePreenchimento%</span>
+                                        </label>
+                                        <input type="range" min="0" max="100" step="1" @bind="opacidadePreenchimento" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
+                                    </div>
+                                    @if (MapService.PontosPorCamada.ContainsKey(camadaEmEdicao))
+                                    {
+                                        <div>
+                                            <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                Tamanho do Ponto <span>@(tamanhoPonto)px</span>
+                                            </label>
+                                            <input type="range" min="2" max="40" step="1" @bind="tamanhoPonto" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- 5. EFEITOS AVANÇADOS: MESCLAGEM, SOMBRA & PROPORCIONAL -->
+                            <div class="carto-section-card">
+                                <div class="carto-section-title">Efeitos Visuais, Mesclagem & Proporcionalidade</div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                                    <div>
+                                        <label class="gis-label">Modo de Mesclagem (Blending)</label>
+                                        <select class="gis-select" @bind="modoMesclagem" @bind:after="AtualizarSimbologiaAoVivo">
+                                            <option value="SrcOver">Normal (Padrão)</option>
+                                            <option value="Multiply">Multiplicação (Relevo / Hillshade)</option>
+                                            <option value="Screen">Clarear (Screen)</option>
+                                            <option value="Overlay">Sobreposição (Overlay)</option>
+                                            <option value="Darken">Escurecer (Darken)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="gis-label" style="display: flex; justify-content: space-between; align-items: center;">
+                                            <span>Sombra Projetada (Drop Shadow)</span>
+                                            <input type="checkbox" @bind="efeitoSombra" @bind:after="AtualizarSimbologiaAoVivo" />
+                                        </label>
+                                        @if (efeitoSombra)
+                                        {
+                                            <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+                                                <input type="range" min="1" max="16" step="0.5" @bind="raioSombra" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" style="flex: 1;" />
+                                                <input type="color" @bind="corSombra" @bind:after="AtualizarSimbologiaAoVivo" class="color-inline-picker" />
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 10px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; font-weight: 600; cursor: pointer;">
+                                        <input type="checkbox" @bind="simbologiaProporcional" @bind:after="AtualizarSimbologiaAoVivo" />
+                                        Símbolos Proporcionais (Bolhas / Linhas de Fluxo)
+                                    </label>
+
+                                    @if (simbologiaProporcional)
+                                    {
+                                        <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 10px; margin-top: 8px;">
+                                            <div>
+                                                <label class="gis-label">Coluna de Tamanho</label>
+                                                <select class="gis-select" @bind="colunaTamanhoProporcional" @bind:after="AtualizarSimbologiaAoVivo">
+                                                    <option value="">[ Selecione ]</option>
+                                                    @foreach (var col in ColunasDaCamadaAtual)
+                                                    {
+                                                        <option value="@col">@col</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="gis-label">Método</label>
+                                                <select class="gis-select" @bind="metodoEscalaProporcional" @bind:after="AtualizarSimbologiaAoVivo">
+                                                    @foreach (var met in MetodosEscalaProporcionalDisponiveis)
+                                                    {
+                                                        <option value="@met">@met</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="gis-label">Mín (px)</label>
+                                                <input type="number" min="1" max="50" step="1" @bind="tamanhoMinimoProporcional" @bind:after="AtualizarSimbologiaAoVivo" class="input-inline-sm" />
+                                            </div>
+                                            <div>
+                                                <label class="gis-label">Máx (px)</label>
+                                                <input type="number" min="5" max="100" step="1" @bind="tamanhoMaximoProporcional" @bind:after="AtualizarSimbologiaAoVivo" class="input-inline-sm" />
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- 6. GESTÃO DE ESTILOS (EXPORTAR/IMPORTAR) -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 14px; margin-top: 10px;">
+                                <div style="display: flex; gap: 8px;">
+                                    <button type="button" class="style-quick-btn" title="Salvar Estilo em JSON Nativo GeoNex" @onclick="ExportarEstiloJsonAsync">
+                                        💾 Salvar (.gnxstyle)
+                                    </button>
+                                    <button type="button" class="style-quick-btn" title="Exportar Estilo no Padrão Aberto Internacional OGC SLD" @onclick="ExportarEstiloSldAsync">
+                                        🌐 OGC SLD (.sld)
+                                    </button>
+                                    <label class="style-quick-btn" style="cursor: pointer; display: inline-flex; align-items: center; margin: 0;" title="Carregar arquivo .gnxstyle ou .sld">
+                                        📂 Carregar Estilo...
+                                        <InputFile OnChange="CarregarEstiloArquivoAsync" accept=".gnxstyle,.sld,.xml,.json" style="display:none;" />
+                                    </label>
+                                </div>
+                                @if (!string.IsNullOrEmpty(statusFeedbackEstilo))
+                                {
+                                    <span style="font-size: 11px; color: @(statusEstiloSucesso ? "#34d399" : "#f87171"); font-weight: 500;">
+                                        @statusFeedbackEstilo
+                                    </span>
                                 }
                             </div>
-
-
-                            <div class="form-group-vertical" style="margin-top: 15px;">
-                                <label class="gis-label" style="display: flex; justify-content: space-between;">
-                                    Opacidade <span>@opacidadePreenchimento%</span>
-                                </label>
-                                <input type="range" min="0" max="100" step="1" @bind="opacidadePreenchimento" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
-                            </div>
-
-                            <div class="form-group-vertical" style="margin-top: 15px;">
-                                <label class="gis-label" style="display: flex; justify-content: space-between; align-items: center;" title="Espessura do miolo interno (Linha Central)">
-                                    Espessura do Miolo (Linha Central)
-                                    <input type="number" min="0" max="30" step="1" @bind="espessuraLinha" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" style="width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 4px; padding: 2px 5px;" />
-                                </label>
-                                <input type="range" min="0" max="15" step="1" @bind="espessuraLinha" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
-                            </div>
-
-                            <div class="form-group-vertical" style="margin-top: 15px;">
-                                <label class="gis-label" style="display: flex; justify-content: space-between; align-items: center;" title="Espessura absoluta da base (deve ser maior que o Miolo para ser visível)">
-                                    Espessura da Base (Casing/Borda)
-                                    <input type="number" min="0" max="15" step="0.5" @bind="espessuraBorda" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" style="width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 4px; padding: 2px 5px;" />
-                                </label>
-                                <input type="range" min="0" max="15" step="0.5" @bind="espessuraBorda" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
-                            </div>
-
-                            <div class="form-group-vertical" style="margin-top: 15px;">
-                                <label class="gis-label">Estilo do Contorno (Traço)</label>
-                                <select class="gis-select" @bind="tipoLinha" @bind:after="AtualizarSimbologiaAoVivo">
-                                    <option value="Solid">Linha Sólida (Continua)</option>
-                                    <option value="Dash">Tracejado Regular</option>
-                                    <option value="Dot">Pontilhado (Pontos)</option>
-                                    <option value="DashDot">Traço-Ponto (Alternado)</option>
-                                </select>
-                            </div>
-
-                            @if (MapService.PontosPorCamada.ContainsKey(camadaEmEdicao))
-                            {
-                                <div class="form-group-vertical" style="margin-top: 15px;">
-                                    <label class="gis-label" style="display: flex; justify-content: space-between; align-items: center;">
-                                        Tamanho do Símbolo (Ponto)
-                                        <input type="number" min="0" max="100" step="1" @bind="tamanhoPonto" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" style="width: 60px; text-align: right; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 4px; padding: 2px 5px;" />
-                                    </label>
-                                    <input type="range" min="0" max="40" step="1" @bind="tamanhoPonto" @bind:event="oninput" @bind:after="AtualizarSimbologiaAoVivo" class="slider" />
-                                </div>
-                            }
                         }
                         else if (abaAtivaPropriedades == "Rotulos")
                         {
-                            <div style="display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <!-- LIVE TEXT PREVIEW BADGE -->
+                            <div class="symbol-preview-header-card">
+                                <div class="symbol-svg-viewport" style="width: auto; min-width: 140px; padding: 8px 14px; overflow: hidden;">
+                                    <span style="font-family: '@familiaFonteRotulo', sans-serif; font-size: @(Math.Clamp(tamanhoFonteRotulo, 11, 24))px; font-weight: @(rotuloNegrito ? "bold" : "normal"); font-style: @(rotuloItalico ? "italic" : "normal"); color: @corFonteRotulo; text-shadow: 0 0 @(tamanhoHaloRotulo)px @corHaloRotulo, 0 0 @(tamanhoHaloRotulo * 1.5)px @corHaloRotulo; white-space: nowrap;">
+                                        @ObterTextoFormatadoPreview()
+                                    </span>
+                                </div>
+                                <div style="flex: 1;">
+                                    <div style="font-size: 13px; font-weight: 600; color: #f8fafc;">Pré-visualização Tipográfica</div>
+                                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
+                                        Fonte: <strong>@familiaFonteRotulo</strong> | Caixa: <strong>@transformacaoTextoRotulo</strong>
+                                        @if (antiColisaoRotulos) { <span style="color: #38bdf8;"> | PAL Anti-Colisão</span> }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="display: flex; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
                                 <label class="geonex-toggle">
                                     <input type="checkbox" @bind="exibirRotulos">
                                     <span class="geonex-slider"></span>
@@ -2661,79 +3006,168 @@
 
                             @if (exibirRotulos)
                             {
-                                <div style="margin-bottom: 18px;">
-                                    <label class="gis-label">Atributo de Leitura</label>
-                                    <select class="gis-select" @bind="colunaRotuloSelecionada">
-                                        <option value="">Selecione a Coluna...</option>
-                                        @foreach (var coluna in ColunasDaCamadaAtual)
-                                        {
-                                            <option value="@coluna">@coluna</option>
-                                        }
-                                    </select>
-                                </div>
+                                <!-- ATRIBUTO E TIPOGRAFIA -->
+                                <div class="carto-section-card">
+                                    <div class="carto-section-title">Texto & Tipografia Cartográfica</div>
 
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 18px;">
-                                    <div>
-                                        <label class="gis-label">Tamanho do Texto</label>
-                                        <div class="gis-number-wrapper">
-                                            <input type="number" min="6" max="72" step="1" @bind="tamanhoFonteRotulo" class="gis-number-input" />
-                                            <span class="gis-number-unit">px</span>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                                        <div>
+                                            <label class="gis-label">Atributo de Leitura (Coluna)</label>
+                                            <select class="gis-select" @bind="colunaRotuloSelecionada">
+                                                <option value="">Selecione a Coluna...</option>
+                                                @foreach (var coluna in ColunasDaCamadaAtual)
+                                                {
+                                                    <option value="@coluna">@coluna</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="gis-label">Família da Fonte</label>
+                                            <select class="gis-select" @bind="familiaFonteRotulo">
+                                                @foreach (var font in FamiliasFonteDisponiveis)
+                                                {
+                                                    <option value="@font">@font</option>
+                                                }
+                                            </select>
                                         </div>
                                     </div>
-                                    <div>
-                                        <label class="gis-label">Espessura do Halo</label>
-                                        <div class="gis-number-wrapper">
-                                            <input type="number" min="0" max="15" step="0.5" @bind="tamanhoHaloRotulo" class="gis-number-input" />
-                                            <span class="gis-number-unit">px</span>
+
+                                    <div style="display: grid; grid-template-columns: 120px 1fr 1.2fr; gap: 12px; align-items: center; margin-bottom: 12px;">
+                                        <div>
+                                            <label class="gis-label">Tamanho (@tamanhoFonteRotulo px)</label>
+                                            <input type="number" min="6" max="72" step="1" @bind="tamanhoFonteRotulo" class="input-inline-sm" />
+                                        </div>
+                                        <div>
+                                            <label class="gis-label">Estilo</label>
+                                            <div class="gis-toolbar" style="height: 32px;">
+                                                <label class="gis-tool-btn @(rotuloNegrito ? "active" : "")" style="width: 36px;" title="Negrito">
+                                                    <input type="checkbox" @bind="rotuloNegrito" style="display: none;" />
+                                                    <span style="font-weight: bold; font-size: 15px;">N</span>
+                                                </label>
+                                                <label class="gis-tool-btn @(rotuloItalico ? "active" : "")" style="width: 36px;" title="Itálico">
+                                                    <input type="checkbox" @bind="rotuloItalico" style="display: none;" />
+                                                    <span style="font-style: italic; font-weight: bold; font-size: 15px;">I</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="gis-label">Transformação de Caixa</label>
+                                            <select class="gis-select" @bind="transformacaoTextoRotulo">
+                                                <option value="Normal">Normal (Como no DBF)</option>
+                                                <option value="Maiusculas">MAIÚSCULAS (Caixa Alta)</option>
+                                                <option value="Minusculas">minúsculas (Caixa Baixa)</option>
+                                                <option value="Titulo">Título (Iniciais Maiúsculas)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label class="gis-label">Cor do Texto</label>
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <input type="color" @bind="corFonteRotulo" class="color-inline-picker" />
+                                                <span style="font-size: 12px; color: #cbd5e1; font-family: monospace;">@corFonteRotulo</span>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                Opacidade do Texto <span>@opacidadeRotulo%</span>
+                                            </label>
+                                            <input type="range" min="10" max="100" step="5" @bind="opacidadeRotulo" class="slider" />
                                         </div>
                                     </div>
                                 </div>
 
-                                <div style="margin-bottom: 15px;">
-                                    <label class="gis-label">Formatação Visual</label>
-                                    <div class="gis-toolbar">
+                                <!-- HALO CARTOGRÁFICO -->
+                                <div class="carto-section-card">
+                                    <div class="carto-section-title">Halo Cartográfico de Proteção (Contorno)</div>
 
-                                        <label class="gis-tool-btn @(rotuloNegrito ? "active" : "")" style="width: 40px;" title="Negrito">
-                                            <input type="checkbox" @bind="rotuloNegrito" style="display: none;" />
-                                            <span style="font-weight: bold; font-family: serif; font-size: 16px;">N</span>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                Espessura do Halo <span>@(tamanhoHaloRotulo)px</span>
+                                            </label>
+                                            <input type="range" min="0" max="15" step="0.5" @bind="tamanhoHaloRotulo" class="slider" />
+                                        </div>
+                                        <div>
+                                            <label class="gis-label">Cor do Halo</label>
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <input type="color" @bind="corHaloRotulo" class="color-inline-picker" />
+                                                <span style="font-size: 12px; color: #cbd5e1; font-family: monospace;">@corHaloRotulo</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- POSICIONAMENTO E ANTI-COLISÃO -->
+                                <div class="carto-section-card">
+                                    <div class="carto-section-title">Posicionamento Espacial & Anti-Colisão (PAL Maplex)</div>
+
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; cursor: pointer;">
+                                            <input type="checkbox" @bind="antiColisaoRotulos" />
+                                            Anti-Colisão Inteligente PAL Maplex
                                         </label>
+                                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; cursor: pointer;">
+                                            <input type="checkbox" @bind="desenharLinhaChamada" />
+                                            Linhas de Chamada (Callouts Conectores)
+                                        </label>
+                                    </div>
 
-                                        <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 6px;"></div>
-
-                                        <div class="gis-tool-btn" style="flex: 1; display: flex; gap: 10px; padding: 0 12px;" title="Cor da Fonte">
-                                            <span style="font-weight: bold; font-size: 15px; border-bottom: 3px solid @corFonteRotulo; padding-bottom: 2px;">A</span>
-                                            <span style="font-size: 13px; font-weight: 500; opacity: 0.8;">Texto</span>
-                                            <input type="color" @bind="corFonteRotulo" class="gis-color-input" />
+                                    <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label class="gis-label">Ancoragem em Polígonos</label>
+                                            <select class="gis-select" @bind="usarPoloInacessibilidade">
+                                                <option value="true">Polo de Inacessibilidade (Polylabel - Centro Seguro)</option>
+                                                <option value="false">Centróide Geométrico Médio</option>
+                                            </select>
                                         </div>
-
-                                        <div class="gis-tool-btn" style="flex: 1; display: flex; gap: 10px; padding: 0 12px;" title="Cor do Halo (Contorno)">
-                                            <span style="font-weight: bold; font-size: 15px; color: transparent; -webkit-text-stroke: 1px @corHaloRotulo; padding-bottom: 2px;">A</span>
-                                            <span style="font-size: 13px; font-weight: 500; opacity: 0.8;">Halo</span>
-                                            <input type="color" @bind="corHaloRotulo" class="gis-color-input" />
+                                        <div>
+                                            <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                Tamanho Mínimo da Feição <span>@(tamanhoMinimoFeicaoPixels)px</span>
+                                            </label>
+                                            <input type="range" min="10" max="100" step="2" @bind="tamanhoMinimoFeicaoPixels" class="slider" />
                                         </div>
-
                                     </div>
                                 </div>
                             }
                         }
                         else if (abaAtivaPropriedades == "Informacao")
                         {
-                            <div style="color: #94a3b8; font-size: 0.85rem; padding: 10px;">
-                                <p style="margin-bottom: 10px;"><strong>Sistema de Coordenadas:</strong> EPSG:4326</p>
-                                <p style="margin-bottom: 10px;"><strong>Formato:</strong> Vetor OGR</p>
+                            <div class="carto-section-card">
+                                <div class="carto-section-title">Metadados Espaciais da Camada</div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; color: #cbd5e1;">
+                                    <div><strong>Nome da Camada:</strong> @camadaEmEdicao</div>
+                                    <div><strong>Sistema de Coordenadas:</strong> @(MapService.ProjetoSRS ?? "EPSG:4326")</div>
+                                    <div><strong>Formato do Vetor:</strong> Vetor OGR / ESRI Shapefile</div>
+                                    <div><strong>Total de Feições:</strong> @(MapService.FeaturesPorCamada.TryGetValue(camadaEmEdicao, out var fList) ? fList.Count : 0)</div>
+                                </div>
+
+                                <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 12px 0;" />
+
+                                <div class="gis-label">Campos da Tabela de Atributos (@ColunasDaCamadaAtual.Count)</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;">
+                                    @foreach (var col in ColunasDaCamadaAtual)
+                                    {
+                                        <span style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-family: monospace;">
+                                            @col
+                                        </span>
+                                    }
+                                </div>
                             </div>
                         }
-
                     </div>
                 </div>
 
-                <div class="modal-footer">
+                <div class="modal-footer" style="padding: 12px 18px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: flex-end; gap: 10px; background: rgba(10, 15, 29, 0.7);">
                     <button class="btn-cancel" @onclick="() => exibirModalPropriedades = false">CANCELAR</button>
                     <button class="btn-save add-layer-btn" @onclick="AplicarPropriedadesUnificadas">APLICAR ESTILO</button>
                 </div>
             </div>
         </div>
     }
+
     <!-- A CHAVE DO MODAL DE PROPRIEDADES FECHA AQUI PRIMEIRO -->
     <!-- AGORA SIM, O MENU DE CONTEXTO É TOTALMENTE INDEPENDENTE -->
     @if (mostrarMenuContexto)
@@ -11378,28 +11812,12 @@
         if (string.IsNullOrEmpty(camadaEmEdicao)) return;
         var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, new GeoNex.Services.EstiloCamada());
 
-        // =========================================================
-        // LIMPEZA DE CACHE: Força o motor a recalcular os centros
-        // geométricos (Resolve o problema do Mirim)
-        // =========================================================
+        // LIMPEZA DE CACHE: Força o motor a recalcular os centros geométricos
         MapService.PontosAncoragemRotulo.Remove(camadaEmEdicao);
 
-        // 1. PROPRIEDADES GERAIS
-        estilo.TipoSimbologia = tipoSimbologia;
+        // Salva todos os parâmetros visuais e avançados
+        SalvarCamposUIParaEstilo(estilo);
 
-        // 1. PROPRIEDADES GERAIS
-        estilo.TipoSimbologia = tipoSimbologia;
-        estilo.Tamanho = Convert.ToSingle(tamanhoPonto);
-        estilo.EspessuraLinha = Convert.ToSingle(espessuraLinha);
-        estilo.EspessuraBorda = Convert.ToSingle(espessuraBorda);
-        estilo.TipoLinha = tipoLinha;
-        estilo.Opacidade = Convert.ToSingle(opacidadePreenchimento) / 100f;
-        // 2. A PONTE DOS RÓTULOS
-        // 2. A PONTE DOS RÓTULOS
-        // O motor só liga se o botão estiver ativado E uma coluna válida estiver selecionada!
-        estilo.ExibirRotulos = !string.IsNullOrEmpty(colunaRotuloSelecionada);
-        estilo.ColunaRotulo = colunaRotuloSelecionada; // <-- A LINHA QUE FALTAVA E QUEBROU TUDO!
-        
         if (estilo.ExibirRotulos)
         {
             MapService.AtualizarRotulosCamada(camadaEmEdicao, colunaRotuloSelecionada);
@@ -11410,49 +11828,33 @@
                 MapService.PontosAncoragemRotulo.Remove(camadaEmEdicao);
         }
 
-        estilo.CorHaloRotulo = corHaloRotulo;
-        estilo.TamanhoTextoRotulo = (float)tamanhoFonteRotulo;
-        estilo.TamanhoHaloRotulo = (float)tamanhoHaloRotulo;
-        estilo.RotuloNegrito = rotuloNegrito;
-        estilo.AntiColisaoRotulos = antiColisaoRotulos; // Adicione esta linha aqui!
-        estilo.EscalaMinimaRotulo = escalaMinimaRotulo; // <-- Adicione esta linha
-        // 3. MOTOR DE SIMBOLOGIA (ÚNICA OU CATEGORIZADA)
-        estilo.BordaTransparente = semCorBorda;
-        estilo.CorBorda = semCorBorda ? "transparent" : corBorda;
-
-        if (tipoSimbologia == "UNICA")
+        if (tipoSimbologia == "CATEGORIZADA")
         {
-            estilo.PreenchimentoTransparente = semCorPreenchimento;
-            estilo.CorPreenchimento = semCorPreenchimento ? "transparent" : corPreenchimento;
-        }
-        else if (tipoSimbologia == "CATEGORIZADA")
-        {
-            estilo.ColunaSimbologia = colunaSimbologiaCategorizada;
-            estilo.CoresCategorizadas.Clear();
-
-            MapService.CompilarCategorias(camadaEmEdicao, colunaSimbologiaCategorizada);
-
-            // Funde Polígonos e Linhas para garantir que atribuímos cor a todas as categorias
-            var categorias = new HashSet<string>();
-            if (MapService.VetoresCategorizados.TryGetValue(camadaEmEdicao, out var dicPoly))
-                foreach (var k in dicPoly.Keys) categorias.Add(k);
-            if (MapService.LinhasCategorizadas.TryGetValue(camadaEmEdicao, out var dicLine))
-                foreach (var k in dicLine.Keys) categorias.Add(k);
-
-            int corIndex = 0;
-            foreach (string nomeCategoria in categorias)
+            if (!string.IsNullOrEmpty(colunaSimbologiaCategorizada))
             {
-                // Motor de Harmonia Cartográfica ArcMap
-                float hue = (corIndex * 137.508f) % 360f;
-                int perfil = corIndex % 4;
-
-                float sat = perfil switch { 0 => 80f, 1 => 45f, 2 => 65f, _ => 55f };
-                float val = perfil switch { 0 => 95f, 1 => 100f, 2 => 80f, _ => 90f };
-
-                var corHsv = SkiaSharp.SKColor.FromHsv(hue, sat, val);
-                estilo.CoresCategorizadas[nomeCategoria] = $"#{corHsv.Red:X2}{corHsv.Green:X2}{corHsv.Blue:X2}";
-
-                corIndex++;
+                MapService.CompilarCategorias(camadaEmEdicao, colunaSimbologiaCategorizada);
+                if (listaCategoriasUI.Count > 0)
+                {
+                    foreach (var item in listaCategoriasUI)
+                    {
+                        estilo.CoresCategorizadas[item.Valor] = item.CorHex;
+                        estilo.RotulosCategorizados[item.Valor] = item.RotuloLegenda;
+                    }
+                }
+            }
+        }
+        else if (tipoSimbologia == "GRADUADA")
+        {
+            if (!string.IsNullOrEmpty(colunaSimbologiaGraduada))
+            {
+                MapService.CompilarGraduado(
+                    camadaEmEdicao,
+                    colunaSimbologiaGraduada,
+                    numeroClasses,
+                    metodoClassificacao,
+                    rampaCores,
+                    inverterRampa,
+                    faixasGraduadasUI.Count > 0 ? faixasGraduadasUI : null);
             }
         }
 
@@ -11465,58 +11867,26 @@
         if (string.IsNullOrEmpty(camadaEmEdicao)) return;
 
         var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, new Services.EstiloCamada());
-        estilo.Opacidade = (float)opacidadePreenchimento / 100f;
-        estilo.PreenchimentoTransparente = semCorPreenchimento;
-        estilo.BordaTransparente = semCorBorda;
-        estilo.CorPreenchimento = semCorPreenchimento ? "transparent" : corPreenchimento;
-        estilo.CorBorda = semCorBorda ? "transparent" : corBorda;
-        estilo.EspessuraLinha = (float)espessuraLinha;
-        estilo.EspessuraBorda = (float)espessuraBorda;
-        estilo.Tamanho = (float)tamanhoPonto;
-        estilo.TipoLinha = tipoLinha;
+        SalvarCamposUIParaEstilo(estilo);
 
         SolicitarNovoFrame();
         
         _ = JSRuntime.InvokeVoidAsync("alterarEstiloCamada", camadaEmEdicao, corPreenchimento, corBorda, espessuraLinha, opacidadePreenchimento, tamanhoPonto, tipoLinha);
     }
-    // NOVO MÉTODO: Carrega o estado real da camada para a interface não sobrescrever dados
+
     private void AbrirPropriedadesSincronizadas(string nomeCamada)
     {
         camadaEmEdicao = nomeCamada;
         abaAtivaPropriedades = "Simbologia";
 
-        // Tenta ir buscar o estilo à Placa Gráfica, ou cria um novo se a camada for virgem
         var estilo = MapService.EstilosPorCamada.TryGetValue(nomeCamada, out var est)
                      ? est : new GeoNex.Services.EstiloCamada();
 
-        // 1. SINCRONIZA A MEMÓRIA DA SIMBOLOGIA E CORES
-        tipoSimbologia = string.IsNullOrEmpty(estilo.TipoSimbologia) ? "UNICA" : estilo.TipoSimbologia;
-        colunaSimbologiaCategorizada = estilo.ColunaSimbologia ?? "";
-        opacidadePreenchimento = (int)(estilo.Opacidade * 100f);
-        espessuraLinha = estilo.EspessuraLinha;
-        espessuraBorda = estilo.EspessuraBorda;
-        tipoLinha = estilo.TipoLinha ?? "Solid";
-        tamanhoPonto = estilo.Tamanho;
-
-        // O SEGREDO: Força a interface a ler as cores exatas da camada que acabou de clicar!
-        // Se a cor for vazia (camada nova), assume o Ciano Padrão do GeoNex
-        semCorPreenchimento = (estilo.CorPreenchimento == "transparent");
-        corPreenchimento = string.IsNullOrEmpty(estilo.CorPreenchimento) ? "#38bdf8" : (semCorPreenchimento ? "#38bdf8" : estilo.CorPreenchimento);
-
-        semCorBorda = (estilo.CorBorda == "transparent");
-        corBorda = string.IsNullOrEmpty(estilo.CorBorda) ? "#0ea5e9" : (semCorBorda ? "#0ea5e9" : estilo.CorBorda);
-
-        // 2. SINCRONIZA A MEMÓRIA DOS RÓTULOS
-        exibirRotulos = estilo.ExibirRotulos;
-        colunaRotuloSelecionada = estilo.ColunaRotulo ?? "";
-        tamanhoFonteRotulo = (int)(estilo.TamanhoTextoRotulo > 0 ? estilo.TamanhoTextoRotulo : 12f);
-        tamanhoHaloRotulo = estilo.TamanhoHaloRotulo;
-        corFonteRotulo = string.IsNullOrEmpty(estilo.CorTextoRotulo) ? "#FFFFFF" : estilo.CorTextoRotulo;
-        corHaloRotulo = string.IsNullOrEmpty(estilo.CorHaloRotulo) ? "#000000" : estilo.CorHaloRotulo;
-        rotuloNegrito = estilo.RotuloNegrito;
+        SincronizarCamposEstiloParaUI(estilo);
 
         exibirModalPropriedades = true;
     }
+
     private float _ultimoMidXUI = 0f;
     private float _ultimoMidYUI = 0f;
     private float _ultimaEscalaUI = 1f;
