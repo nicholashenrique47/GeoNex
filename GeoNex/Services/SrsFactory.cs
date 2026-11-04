@@ -1,4 +1,6 @@
 using OSGeo.OSR;
+using System;
+using System.Collections.Concurrent;
 using System.Threading;
 
 namespace GeoNex.Services
@@ -9,6 +11,8 @@ namespace GeoNex.Services
     /// </summary>
     public static class SrsFactory
     {
+        private static readonly ConcurrentDictionary<(string A, string B), bool> _isSameCache = new();
+
         public static SpatialReference FromEPSG(int epsg)
         {
             var sr = new SpatialReference("");
@@ -62,14 +66,24 @@ namespace GeoNex.Services
         public static bool IsSame(string srsA, string srsB)
         {
             if (string.IsNullOrEmpty(srsA) || string.IsNullOrEmpty(srsB)) return false;
-            if (srsA == srsB) return true; // Fast-path para WKT idêntico
+            if (string.Equals(srsA, srsB, StringComparison.OrdinalIgnoreCase)) return true; // Fast-path para WKT/EPSG idêntico
+
+            var key = string.CompareOrdinal(srsA, srsB) <= 0 ? (srsA, srsB) : (srsB, srsA);
+            if (_isSameCache.TryGetValue(key, out bool cached))
+                return cached;
+
+            bool result = false;
             try
             {
                 using var a = FromUserInput(srsA);
                 using var b = FromUserInput(srsB);
-                return a.IsSame(b, null) == 1;
+                result = a.IsSame(b, null) == 1;
             }
-            catch { return false; }
+            catch { result = false; }
+
+            if (_isSameCache.Count < 4096)
+                _isSameCache.TryAdd(key, result);
+            return result;
         }
     }
 }

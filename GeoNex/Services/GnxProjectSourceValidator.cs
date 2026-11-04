@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GeoNex.Models;
 using OSGeo.GDAL;
 using OSGeo.OGR;
@@ -7,6 +8,15 @@ namespace GeoNex.Services;
 /// <summary>Validates durable layer sources before a project replaces the active map.</summary>
 public static class GnxProjectSourceValidator
 {
+    private static readonly ConcurrentDictionary<string, string?> _rasterProjectionCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public static bool TryGetCachedRasterProjection(string path, out string? projection)
+    {
+        projection = null;
+        return !string.IsNullOrWhiteSpace(path) && _rasterProjectionCache.TryGetValue(path, out projection);
+    }
+
     public static async Task<IReadOnlyList<string>> ValidarTodasAsync(
         IEnumerable<Camada> camadas,
         object gdalRasterLock)
@@ -73,6 +83,7 @@ public static class GnxProjectSourceValidator
                                 return (false, ExplicarFalhaRaster(caminho));
                             if (dataset.RasterXSize <= 0 || dataset.RasterYSize <= 0)
                                 return (false, "O raster abriu, mas não contém uma grade de pixels válida.");
+                            _rasterProjectionCache[caminho] = dataset.GetProjection();
                             return (true, string.Empty);
                         }
 

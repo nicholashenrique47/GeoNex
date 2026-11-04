@@ -232,7 +232,49 @@ public class ProjetoService
         if (!System.IO.Directory.Exists(cacheDir)) System.IO.Directory.CreateDirectory(cacheDir);
 
         string nomeLimpo = System.IO.Path.GetFileNameWithoutExtension(caminhoOriginal);
-        string caminhoShpDestino = System.IO.Path.Combine(cacheDir, $"{nomeLimpo}_{Guid.NewGuid().ToString().Substring(0,8)}.shp");
+        var infoOrigem = new FileInfo(Path.GetFullPath(caminhoOriginal));
+        string chaveIdentidade = $"{infoOrigem.FullName}|{infoOrigem.LastWriteTimeUtc.Ticks}|{infoOrigem.Length}";
+        string hashDeterministico = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(chaveIdentidade)))[..12].ToLowerInvariant();
+        string prefixoSeguro = string.Concat(nomeLimpo.Where(c => char.IsLetterOrDigit(c) || c == '_'));
+        if (string.IsNullOrWhiteSpace(prefixoSeguro)) prefixoSeguro = "vec";
+        if (prefixoSeguro.Length > 24) prefixoSeguro = prefixoSeguro[..24];
+        string caminhoShpDestino = System.IO.Path.Combine(cacheDir, $"{prefixoSeguro}_{hashDeterministico}.shp");
+        string caminhoFidCache = caminhoShpDestino + ".gnxfid";
+
+        if (File.Exists(caminhoShpDestino) &&
+            File.Exists(Path.ChangeExtension(caminhoShpDestino, ".shx")) &&
+            File.Exists(Path.ChangeExtension(caminhoShpDestino, ".dbf")) &&
+            File.Exists(caminhoFidCache))
+        {
+            try
+            {
+                sourceFidMappingPath = caminhoFidCache;
+                using var fidStream = new FileStream(caminhoFidCache, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var fidReader = new BinaryReader(fidStream);
+                long totalFids = fidStream.Length / sizeof(long);
+                for (long i = 0; i < totalFids; i++)
+                {
+                    if (fidReader.ReadInt64() < 0)
+                    {
+                        sourceFidsPreserved = false;
+                        break;
+                    }
+                }
+                Console.WriteLine($"[GEONEX JIT] Reutilizando Shapefile Binário em cache ({extensao}): {caminhoShpDestino}");
+                return caminhoShpDestino;
+            }
+            catch
+            {
+                sourceFidsPreserved = true;
+            }
+        }
+
+        foreach (string extCache in new[] { ".shp", ".shx", ".dbf", ".prj", ".cpg", ".qix", ".sbn", ".sbx" })
+        {
+            try { File.Delete(Path.ChangeExtension(caminhoShpDestino, extCache)); } catch { }
+        }
+        try { File.Delete(caminhoFidCache); } catch { }
 
         Console.WriteLine($"[GEONEX JIT] A compilar vetor genérico ({extensao}) para Shapefile Binário: {caminhoShpDestino}");
 
@@ -356,7 +398,7 @@ public class ProjetoService
     /// </summary>
     public void CarregarShapefileParaMotorMapas(
         string caminhoShp, string nomeCamada, MapRenderingService mapService,
-        bool gravarLogPerformance = true, string? sourceFidMappingPath = null, bool sourceFidsAreNative = true)
+        bool gravarLogPerformance = false, string? sourceFidMappingPath = null, bool sourceFidsAreNative = true)
     {
         try
         {
@@ -382,7 +424,7 @@ public class ProjetoService
                 srsOrigem = System.IO.File.ReadAllText(caminhoPrj);
             }
 
-            if (!mapService.OffsetMundoDefinido)
+            if (!mapService.OffsetMundoDefinido || mapService.HasOnlyOnlineBasemap)
             {
                 mapService.DefinirOffset(ext.MinX, ext.MaxX, ext.MinY, ext.MaxY);
                 // O primeiro layer define o Mestre de Projeção (Project CRS)
@@ -390,6 +432,8 @@ public class ProjetoService
                 {
                     mapService.ProjetoSRS = srsOrigem;
                 }
+                if (mapService.HasOnlineBasemap)
+                    mapService.SyncOnlineRasterBoundsToProjectSrs();
             }
             
             var swReader = System.Diagnostics.Stopwatch.StartNew();

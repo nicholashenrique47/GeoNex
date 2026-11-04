@@ -329,7 +329,8 @@ namespace GeoNex.Services
                 else
                 {
                     MemoryMappedShapefile shp = shapefileLease.Resource;
-                    DbfField? field = shp.DbfFields.FirstOrDefault(f => f.Name == colunaRotulo);
+                    DbfField? field = shp.DbfFields.FirstOrDefault(f =>
+                        string.Equals(f.Name, colunaRotulo, StringComparison.OrdinalIgnoreCase));
                     if (field == null || shp.DbfPointerDirect == null)
                     {
                         LabelFieldsPorCamada.TryRemove(nomeCamada, out _);
@@ -873,6 +874,12 @@ namespace GeoNex.Services
 
         private readonly HashSet<string> _onlineRasterNames = new();
         private readonly Dictionary<string, string> _onlineRasterXml = new();
+        public bool HasLocalLayers
+        {
+            get { lock (_rasterResourceGate) return FeaturesPorCamada.Count > 0 || _rasters.Count > _onlineRasterNames.Count; }
+        }
+        public bool HasOnlyOnlineBasemap => HasOnlineBasemap && !HasLocalLayers;
+
         public string? GetOnlineRasterXml(string layerName)
         { lock (_rasterResourceGate) return _onlineRasterXml.GetValueOrDefault(layerName); }
         public bool HasOnlineBasemap { get { lock (_rasterResourceGate) return _onlineRasterNames.Count > 0; } }
@@ -996,6 +1003,19 @@ namespace GeoNex.Services
                 _rasterCacheMetadata.Clear();
                 _rasterCacheResources.Clear();
             }
+        }
+
+        public void SyncOnlineRasterBoundsToProjectSrs()
+        {
+            bool isWebMercator = SrsFactory.IsSame(ProjetoSRS, OnlineBasemapPolicy.WebMercatorSrs);
+            var defaultBounds = isWebMercator
+                ? new SKRect(-20037508.34f, -20037508.34f, 20037508.34f, 20037508.34f)
+                : SKRect.Empty;
+            string[] onlineNames;
+            lock (_rasterResourceGate) onlineNames = _onlineRasterNames.ToArray();
+            foreach (string name in onlineNames)
+                LimitesRasters[name] = defaultBounds;
+            ClearRasterCaches();
         }
 
         public ResourceLease<SKBitmap>? AcquireGlobalCache(out GlobalCacheMetadata metadata)

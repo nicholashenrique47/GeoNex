@@ -652,9 +652,6 @@ public static class GnxProjectStore
             salvo.OffsetMundoX != (double.IsFinite(offsetMundoX) ? offsetMundoX : 0) ||
             salvo.OffsetMundoY != (double.IsFinite(offsetMundoY) ? offsetMundoY : 0) ||
             salvo.OffsetMundoDefinido != offsetMundoDefinido ||
-            salvo.CameraPanX != (double.IsFinite(cameraPanX) ? cameraPanX : 0) ||
-            salvo.CameraPanY != (double.IsFinite(cameraPanY) ? cameraPanY : 0) ||
-            salvo.CameraZoom != (double.IsFinite(cameraZoom) && cameraZoom > 0 ? cameraZoom : 1) ||
             !string.Equals(salvo.LayoutJson, layoutJson, StringComparison.Ordinal) ||
             salvo.Camadas.Count != camadas.Count)
             return false;
@@ -704,9 +701,6 @@ public static class GnxProjectStore
             salvo.OffsetMundoX != snapshot.OffsetMundoX ||
             salvo.OffsetMundoY != snapshot.OffsetMundoY ||
             salvo.OffsetMundoDefinido != snapshot.OffsetMundoDefinido ||
-            salvo.CameraPanX != snapshot.CameraPanX ||
-            salvo.CameraPanY != snapshot.CameraPanY ||
-            salvo.CameraZoom != snapshot.CameraZoom ||
             !string.Equals(salvo.LayoutJson, snapshot.LayoutJson, StringComparison.Ordinal) ||
             salvo.Camadas.Count != snapshot.Camadas.Count)
             return false;

@@ -297,4 +297,22 @@ swStress.Stop();
 Assert(labelsColocados > 500, "Vários rótulos devem ter sido alocados na tela 4K");
 Assert(swStress.ElapsedMilliseconds < 25, $"10.000 avaliações espaciais devem rodar em <25ms: gastou {swStress.ElapsedMilliseconds}ms");
 
+// 12. POSICIONAMENTO DE POLÍGONOS, LINHAS TANGENTES E PROTEÇÃO DE BORDAS DE TELA
+Console.WriteLine("[12/12] Testando Candidatos de Polígono, Linha Tangente e Clipping de Borda de Tela...");
+var candsPoly = new List<CandidatoRotulo>(8);
+LabelPlacementEngine.GerarCandidatosPoligono(new SKPoint(500, 500), 80f, 16f, -12f, 200f, 120f, true, candsPoly);
+Assert(candsPoly.Count >= 5, "Polígono amplo deve gerar candidato central + micro-ajustes internos");
+Assert(Math.Abs(candsPoly[0].LimitesTexto.MidX - 500f) < 1e-2f && Math.Abs(candsPoly[0].LimitesTexto.MidY - 500f) < 1e-2f,
+    "Candidato 1 do polígono deve estar centrado exatamente no Polo de Inacessibilidade");
+
+var candsLine = new List<CandidatoRotulo>(8);
+LabelPlacementEngine.GerarCandidatosLinha(new SKPoint(400, 300), 90f, 14f, -11f, 30f, 2f, candsLine);
+Assert(candsLine.Count == 5, "Linha deve gerar 5 candidatos (acima, eixo, abaixo e deslizamentos tangenciais)");
+Assert(Math.Abs(candsLine[0].RotacaoGraus - 30f) < 1e-2f, "Candidatos de linha devem preservar ângulo tangente com Auto-Flip");
+
+grid.Limpar();
+grid.ConfigurarViewport(1920f, 1080f, margemBordaPx: 10f, espacamentoMinimoPx: 2f);
+Assert(grid.TestarColisao(new SKRect(2f, 100f, 80f, 120f)), "Rótulo cortando a borda esquerda da tela deve ser rejeitado");
+Assert(!grid.TestarColisao(new SKRect(100f, 100f, 180f, 120f)), "Rótulo dentro da área útil da tela deve ser aceito");
+
 Console.WriteLine($"\n>>> TODOS OS 11 MÓDULOS PASSARAM COM SUCESSO! Total de asserções validadas: {assertions} <<<");

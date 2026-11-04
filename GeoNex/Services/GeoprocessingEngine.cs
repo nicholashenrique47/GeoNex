@@ -196,7 +196,7 @@ namespace GeoNex.Services
                             Geometry? mascara = null;
                             if (!string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) && File.Exists(caminhoArquivoSobreposicao))
                             {
-                                var (fMasc, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                                var (fMasc, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                                 mascara = CascadedPolygonUnion.Union(fMasc.Select(f => f.Geometry).Where(g => g != null).ToList());
                             }
                             feicoesResultado = ProximityTessellationAlgorithms.ExecutarVoronoi(
@@ -235,7 +235,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A segunda camada é obrigatória para Diferença Simétrica.");
 
-                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                             feicoesResultado = AdvancedOverlayAlgorithms.ExecutarDiferencaSimetrica(feicoesEntrada, feicoesB, progresso, ct);
                             break;
                         }
@@ -245,7 +245,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A segunda camada é obrigatória para União Plena.");
 
-                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                             feicoesResultado = AdvancedOverlayAlgorithms.ExecutarUniaoPlena(feicoesEntrada, feicoesB, progresso, ct);
                             break;
                         }
@@ -255,7 +255,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada prioritária (patch) é obrigatória para Atualização.");
 
-                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                             feicoesResultado = AdvancedOverlayAlgorithms.ExecutarAtualizacaoCamadas(feicoesEntrada, feicoesB, progresso, ct);
                             break;
                         }
@@ -348,7 +348,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de linhas de corte é obrigatória.");
 
-                            var (feicoesLinhas, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                            var (feicoesLinhas, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                             feicoesResultado = LinearSegmentationAlgorithms.ExecutarParticaoPoligonosPorLinhas(feicoesEntrada, feicoesLinhas, progresso, ct);
                             break;
                         }
@@ -398,7 +398,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de pontos é obrigatória para contagem zonal.");
 
-                            var (feicoesPontos, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                            var (feicoesPontos, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                             feicoesResultado = ZonalStatisticsAlgorithms.ExecutarContagemPontosPoligono(
                                 feicoesEntrada,
                                 feicoesPontos,
@@ -413,7 +413,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de linhas é obrigatória para densidade linear.");
 
-                            var (feicoesLinhas, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                            var (feicoesLinhas, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                             feicoesResultado = ZonalStatisticsAlgorithms.ExecutarDensidadeLinearPoligonos(
                                 feicoesEntrada,
                                 feicoesLinhas,
@@ -427,7 +427,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de junção é obrigatória para Spatial Join.");
 
-                            var (feicoesJuncao, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, null, srsEntrada);
+                            var (feicoesJuncao, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
                             feicoesResultado = ZonalStatisticsAlgorithms.ExecutarSpatialJoinAvancado(
                                 feicoesEntrada,
                                 feicoesJuncao,
@@ -508,7 +508,7 @@ namespace GeoNex.Services
                 if (ogrFeature == null) break;
 
                 long fid = ogrFeature.GetFID();
-                if (idsSelecionados != null && idsSelecionados.Count > 0 && !idsSelecionados.Contains(fid))
+                if (idsSelecionados != null && !idsSelecionados.Contains(fid))
                     continue;
 
                 using var ogrGeom = ogrFeature.GetGeometryRef()?.Clone();

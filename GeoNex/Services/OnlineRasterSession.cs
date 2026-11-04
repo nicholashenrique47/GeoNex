@@ -43,6 +43,8 @@ public sealed class OnlineRasterSession : IDisposable
         finally { _reads.Release(); }
     }
 
+    internal ResourceLease<Dataset> AcquireDataset(string xml) => Acquire(xml);
+
     private ResourceLease<Dataset> Acquire(string xml)
     {
         lock (_gate)

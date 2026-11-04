@@ -459,11 +459,30 @@ public sealed class OnlineTileTransport : IDisposable
         return Convert.ToHexStringLower(digest);
     }
 
-    [ThreadStatic]
-    private static byte[]? _threadDecodeScratch;
+    private static unsafe bool HasValidContainerTail(byte[] bytes, SKEncodedImageFormat format)
+    {
+        int len = bytes.Length;
+        return format switch
+        {
+            // PNG must end with IEND chunk: 00 00 00 00 49 45 4E 44 AE 42 60 82
+            SKEncodedImageFormat.Png => len >= 67 &&
+                bytes[len - 12] == 0x00 && bytes[len - 11] == 0x00 && bytes[len - 10] == 0x00 && bytes[len - 9] == 0x00 &&
+                bytes[len - 8] == (byte)'I' && bytes[len - 7] == (byte)'E' && bytes[len - 6] == (byte)'N' && bytes[len - 5] == (byte)'D' &&
+                bytes[len - 4] == 0xAE && bytes[len - 3] == 0x42 && bytes[len - 2] == 0x60 && bytes[len - 1] == 0x82,
+            // JPEG must end with EOI marker (FF D9)
+            SKEncodedImageFormat.Jpeg => len >= 107 &&
+                ((bytes[len - 2] == 0xFF && bytes[len - 1] == 0xD9) ||
+                 (len >= 4 && bytes[len - 3] == 0xFF && bytes[len - 2] == 0xD9)),
+            // WebP RIFF header declares exact file size - 8 in bytes[4..8]
+            SKEncodedImageFormat.Webp => len >= 30 &&
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(4, 4)) + 8u == (uint)len,
+            _ => false
+        };
+    }
 
     private static unsafe string? ContentType(byte[] bytes)
     {
+        if (bytes.Length < 30) return null;
         fixed (byte* ptr = bytes)
         {
             using var data = SKData.Create((IntPtr)ptr, bytes.Length);
@@ -477,12 +496,7 @@ public sealed class OnlineTileTransport : IDisposable
                 _ => null
             };
             if (type == null) return null;
-            byte[] scratch = _threadDecodeScratch ??= new byte[256 * 256 * 4];
-            fixed (byte* dstPtr = scratch)
-            {
-                var info = new SKImageInfo(256, 256, SKColorType.Rgba8888, SKAlphaType.Premul);
-                return codec.GetPixels(info, (IntPtr)dstPtr) == SKCodecResult.Success ? type : null;
-            }
+            return HasValidContainerTail(bytes, codec.EncodedFormat) ? type : null;
         }
     }
 

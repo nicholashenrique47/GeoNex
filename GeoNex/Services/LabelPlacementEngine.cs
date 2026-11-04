@@ -13,13 +13,15 @@ namespace GeoNex.Services
         SKPoint PontoOrigemTexto,
         SKRect LimitesTexto,
         int Prioridade,
-        bool RequerLinhaChamada
+        bool RequerLinhaChamada,
+        float RotacaoGraus = 0f
     );
 
     /// <summary>
     /// Motor Cartográfico de Posicionamento e Geometria de Rótulos (QGIS PAL / Maplex Standard).
-    /// Executa cálculos de Polo de Inacessibilidade (Polylabel), 8 quadrantes cartesianos,
-    /// orientação angular de linhas com proteção contra inversão (Auto-Flip) e transformações de texto.
+    /// Executa cálculos de Polo de Inacessibilidade (Polylabel com distância assinada real),
+    /// 8 quadrantes cartesianos, posicionamento curvo/angular ao longo de linhas com Auto-Flip
+    /// e transformações tipográficas com cache.
     /// </summary>
     public static class LabelPlacementEngine
     {
@@ -40,8 +42,9 @@ namespace GeoNex.Services
         }
 
         /// <summary>
-        /// Calcula o Polo de Inacessibilidade (Polylabel / Maior Círculo Inscrito) para um polígono.
-        /// Garante que o rótulo de polígonos côncavos (formato C, ferradura, fiordes) fique sempre dentro da feição.
+        /// Calcula o Polo de Inacessibilidade (Polylabel / Maior Círculo Inscrito) para um polígono SKPath.
+        /// Avalia a distância real até as bordas do polígono para garantir que o rótulo de polígonos côncavos
+        /// (formato C, L, ferradura, lotes irregulares) fique no ponto mais profundo do interior da feição.
         /// </summary>
         public static SKPoint CalcularPoloInacessibilidade(SKPath path, SKPoint centroideFallback, float precisao = 2.0f)
         {
@@ -50,61 +53,307 @@ namespace GeoNex.Services
             var bounds = path.Bounds;
             if (bounds.Width <= 0 || bounds.Height <= 0) return centroideFallback;
 
-            // Se o centroide geométrico já estiver no interior do polígono com folga, aproveita-o
-            if (path.Contains(centroideFallback.X, centroideFallback.Y))
+            SKPoint[]? points = path.Points;
+            if (points == null || points.Length < 3)
+            {
+                return path.Contains(centroideFallback.X, centroideFallback.Y)
+                    ? centroideFallback
+                    : new SKPoint(bounds.MidX, bounds.MidY);
+            }
+
+            float melhorX = centroideFallback.X;
+            float melhorY = centroideFallback.Y;
+            float melhorDistSq = path.Contains(centroideFallback.X, centroideFallback.Y)
+                ? MinDistanceToSegmentsSquared(points, centroideFallback.X, centroideFallback.Y)
+                : -1f;
+
+            // Se o centroide já possui ampla folga interna (> 22% da menor dimensão), retorna imediatamente
+            float minDim = Math.Min(bounds.Width, bounds.Height);
+            float folgaIdealSq = (minDim * 0.22f) * (minDim * 0.22f);
+            if (melhorDistSq >= folgaIdealSq && melhorDistSq > 0f)
             {
                 return centroideFallback;
             }
 
-            // Amostragem por grade QuadTree iterativa para encontrar a célula mais distante das bordas
-            float cellSize = Math.Max(bounds.Width, bounds.Height) / 2f;
-            if (cellSize <= 0) return centroideFallback;
+            // Nível 1: Amostragem 5x5 para encontrar a célula de maior distância até a borda
+            float stepX = bounds.Width / 5f;
+            float stepY = bounds.Height / 5f;
 
-            float melhorX = bounds.MidX;
-            float melhorY = bounds.MidY;
-            float melhorDistancia = -1f;
-
-            // Nível 1: Varredura de grade inicial (4x4)
-            float stepX = bounds.Width / 4f;
-            float stepY = bounds.Height / 4f;
-
-            for (float y = bounds.Top + stepY / 2f; y < bounds.Bottom; y += stepY)
+            for (int iy = 0; iy < 5; iy++)
             {
-                for (float x = bounds.Left + stepX / 2f; x < bounds.Right; x += stepX)
+                float y = bounds.Top + (iy + 0.5f) * stepY;
+                for (int ix = 0; ix < 5; ix++)
                 {
-                    if (path.Contains(x, y))
+                    float x = bounds.Left + (ix + 0.5f) * stepX;
+                    if (!path.Contains(x, y)) continue;
+
+                    float distSq = MinDistanceToSegmentsSquared(points, x, y);
+                    if (distSq > melhorDistSq)
                     {
+                        melhorDistSq = distSq;
                         melhorX = x;
                         melhorY = y;
-                        melhorDistancia = 1f;
-                        break;
                     }
                 }
-                if (melhorDistancia > 0) break;
             }
 
-            // Nível 2: Refinamento local ao redor da melhor célula encontrada
-            if (melhorDistancia > 0)
+            // Nível 2: Refinamento hierárquico ao redor do melhor candidato
+            if (melhorDistSq >= 0f)
             {
-                float subStepX = stepX / 3f;
-                float subStepY = stepY / 3f;
-                for (float dy = -stepY; dy <= stepY; dy += subStepY)
+                float radiusX = stepX * 0.75f;
+                float radiusY = stepY * 0.75f;
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    for (float dx = -stepX; dx <= stepX; dx += subStepX)
+                    float baseBestX = melhorX;
+                    float baseBestY = melhorY;
+                    float subX = radiusX * 0.5f;
+                    float subY = radiusY * 0.5f;
+
+                    for (int dy = -1; dy <= 1; dy++)
                     {
-                        float nx = melhorX + dx;
-                        float ny = melhorY + dy;
-                        if (path.Contains(nx, ny))
+                        for (int dx = -1; dx <= 1; dx++)
                         {
-                            melhorX = nx;
-                            melhorY = ny;
+                            if (dx == 0 && dy == 0) continue;
+                            float nx = baseBestX + dx * subX;
+                            float ny = baseBestY + dy * subY;
+                            if (!path.Contains(nx, ny)) continue;
+
+                            float distSq = MinDistanceToSegmentsSquared(points, nx, ny);
+                            if (distSq > melhorDistSq)
+                            {
+                                melhorDistSq = distSq;
+                                melhorX = nx;
+                                melhorY = ny;
+                            }
                         }
                     }
+
+                    radiusX = subX;
+                    radiusY = subY;
+                    if (Math.Max(radiusX, radiusY) <= precisao) break;
                 }
+
                 return new SKPoint(melhorX, melhorY);
             }
 
             return centroideFallback;
+        }
+
+        private static float MinDistanceToSegmentsSquared(SKPoint[] points, float px, float py)
+        {
+            float minDistSq = float.MaxValue;
+            int n = points.Length;
+            int stride = Math.Max(1, n / 96);
+
+            SKPoint prev = points[0];
+            for (int i = stride; i < n; i += stride)
+            {
+                SKPoint curr = points[i];
+                float dx = curr.X - prev.X;
+                float dy = curr.Y - prev.Y;
+                float lenSq = dx * dx + dy * dy;
+                if (lenSq > 1e-6f)
+                {
+                    float t = ((px - prev.X) * dx + (py - prev.Y) * dy) / lenSq;
+                    if (t < 0f) t = 0f;
+                    else if (t > 1f) t = 1f;
+                    float projX = prev.X + t * dx;
+                    float projY = prev.Y + t * dy;
+                    float distX = px - projX;
+                    float distY = py - projY;
+                    float dSq = distX * distX + distY * distY;
+                    if (dSq < minDistSq) minDistSq = dSq;
+                }
+                prev = curr;
+            }
+
+            return minDistSq;
+        }
+
+        /// <summary>
+        /// Gera candidatos de posicionamento para polígonos (centrado no Polo de Inacessibilidade
+        /// com micro-ajustes internos e fallback opcional com linha de chamada).
+        /// </summary>
+        public static void GerarCandidatosPoligono(
+            SKPoint pontoMonitor,
+            float larguraTexto,
+            float alturaTexto,
+            float fontAscent,
+            float larguraPoligonoPx,
+            float alturaPoligonoPx,
+            bool permitirLinhaChamada,
+            List<CandidatoRotulo> destino)
+        {
+            destino.Clear();
+            float halfW = larguraTexto * 0.5f;
+            float halfH = alturaTexto * 0.5f;
+            float baseLineOffsetY = -fontAscent;
+
+            // 1. Candidato Central (Polo de Inacessibilidade exato)
+            var rectCentro = new SKRect(
+                pontoMonitor.X - halfW,
+                pontoMonitor.Y - halfH,
+                pontoMonitor.X + halfW,
+                pontoMonitor.Y + halfH);
+            destino.Add(new CandidatoRotulo(
+                pontoMonitor,
+                new SKPoint(pontoMonitor.X, pontoMonitor.Y - halfH + baseLineOffsetY),
+                rectCentro,
+                1,
+                false));
+
+            // 2..5. Micro-ajustes internos suaves se o polígono tiver espaço folgado
+            if (larguraPoligonoPx > larguraTexto * 1.15f && alturaPoligonoPx > alturaTexto * 1.35f)
+            {
+                float shiftX = Math.Min(halfW * 0.35f, (larguraPoligonoPx - larguraTexto) * 0.35f);
+                float shiftY = Math.Min(halfH * 0.45f, (alturaPoligonoPx - alturaTexto) * 0.35f);
+
+                ReadOnlySpan<(float dx, float dy, int prio)> offsets = stackalloc (float, float, int)[]
+                {
+                    (0f, -shiftY, 2),
+                    (0f, shiftY, 3),
+                    (shiftX, 0f, 4),
+                    (-shiftX, 0f, 5)
+                };
+
+                foreach (var (dx, dy, prio) in offsets)
+                {
+                    float cx = pontoMonitor.X + dx;
+                    float cy = pontoMonitor.Y + dy;
+                    var rect = new SKRect(cx - halfW, cy - halfH, cx + halfW, cy + halfH);
+                    destino.Add(new CandidatoRotulo(
+                        pontoMonitor,
+                        new SKPoint(cx, cy - halfH + baseLineOffsetY),
+                        rect,
+                        prio,
+                        false));
+                }
+            }
+
+            // 6..7. Candidatos externos com Linha de Chamada (Callout) quando habilitado
+            if (permitirLinhaChamada)
+            {
+                float calloutOffset = Math.Max(18f, Math.Min(larguraPoligonoPx, alturaPoligonoPx) * 0.4f);
+                float cx1 = pontoMonitor.X + calloutOffset + halfW;
+                float cy1 = pontoMonitor.Y - calloutOffset - halfH;
+                destino.Add(new CandidatoRotulo(
+                    pontoMonitor,
+                    new SKPoint(cx1, cy1 - halfH + baseLineOffsetY),
+                    new SKRect(cx1 - halfW, cy1 - halfH, cx1 + halfW, cy1 + halfH),
+                    6,
+                    true));
+
+                float cx2 = pontoMonitor.X - calloutOffset - halfW;
+                float cy2 = pontoMonitor.Y - calloutOffset - halfH;
+                destino.Add(new CandidatoRotulo(
+                    pontoMonitor,
+                    new SKPoint(cx2, cy2 - halfH + baseLineOffsetY),
+                    new SKRect(cx2 - halfW, cy2 - halfH, cx2 + halfW, cy2 + halfH),
+                    7,
+                    true));
+            }
+        }
+
+        /// <summary>
+        /// Gera candidatos de posicionamento alinhados à tangente de uma linha (com proteção Auto-Flip).
+        /// </summary>
+        public static void GerarCandidatosLinha(
+            SKPoint pontoMonitor,
+            float larguraTexto,
+            float alturaTexto,
+            float fontAscent,
+            float anguloGraus,
+            float espessuraLinhaPx,
+            List<CandidatoRotulo> destino)
+        {
+            destino.Clear();
+            float halfW = larguraTexto * 0.5f;
+            float halfH = alturaTexto * 0.5f;
+            float baseLineOffsetY = -fontAscent;
+
+            float rad = anguloGraus * (MathF.PI / 180f);
+            float cos = MathF.Cos(rad);
+            float sin = MathF.Sin(rad);
+
+            // Vetor normal apontando "para cima" da linha
+            float nx = sin;
+            float ny = -cos;
+            float distNormal = Math.Max(3f, espessuraLinhaPx * 0.5f + halfH * 0.65f);
+
+            // Envoltória rotacionada aproximada (OBB proyectado em AABB na tela)
+            float aabbHalfW = Math.Abs(halfW * cos) + Math.Abs(halfH * sin) + 2f;
+            float aabbHalfH = Math.Abs(halfW * sin) + Math.Abs(halfH * cos) + 2f;
+
+            // 1. Acima da linha no ponto médio (Padrão Cartográfico de Rodovias/Hidrografia)
+            {
+                float cx = pontoMonitor.X + nx * distNormal;
+                float cy = pontoMonitor.Y + ny * distNormal;
+                var rect = new SKRect(cx - aabbHalfW, cy - aabbHalfH, cx + aabbHalfW, cy + aabbHalfH);
+                destino.Add(new CandidatoRotulo(
+                    pontoMonitor,
+                    new SKPoint(cx, cy - halfH + baseLineOffsetY),
+                    rect,
+                    1,
+                    false,
+                    anguloGraus));
+            }
+
+            // 2. Sobre o eixo da linha (com halo)
+            {
+                var rect = new SKRect(
+                    pontoMonitor.X - aabbHalfW,
+                    pontoMonitor.Y - aabbHalfH,
+                    pontoMonitor.X + aabbHalfW,
+                    pontoMonitor.Y + aabbHalfH);
+                destino.Add(new CandidatoRotulo(
+                    pontoMonitor,
+                    new SKPoint(pontoMonitor.X, pontoMonitor.Y - halfH + baseLineOffsetY),
+                    rect,
+                    2,
+                    false,
+                    anguloGraus));
+            }
+
+            // 3. Abaixo da linha
+            {
+                float cx = pontoMonitor.X - nx * distNormal;
+                float cy = pontoMonitor.Y - ny * distNormal;
+                var rect = new SKRect(cx - aabbHalfW, cy - aabbHalfH, cx + aabbHalfW, cy + aabbHalfH);
+                destino.Add(new CandidatoRotulo(
+                    pontoMonitor,
+                    new SKPoint(cx, cy - halfH + baseLineOffsetY),
+                    rect,
+                    3,
+                    false,
+                    anguloGraus));
+            }
+
+            // 4 & 5. Deslizamento tangencial ao longo da linha (+40% / -40% do comprimento do texto)
+            float slide = larguraTexto * 0.42f;
+            {
+                float cx = pontoMonitor.X + cos * slide + nx * distNormal;
+                float cy = pontoMonitor.Y + sin * slide + ny * distNormal;
+                var rect = new SKRect(cx - aabbHalfW, cy - aabbHalfH, cx + aabbHalfW, cy + aabbHalfH);
+                destino.Add(new CandidatoRotulo(
+                    pontoMonitor,
+                    new SKPoint(cx, cy - halfH + baseLineOffsetY),
+                    rect,
+                    4,
+                    false,
+                    anguloGraus));
+            }
+            {
+                float cx = pontoMonitor.X - cos * slide + nx * distNormal;
+                float cy = pontoMonitor.Y - sin * slide + ny * distNormal;
+                var rect = new SKRect(cx - aabbHalfW, cy - aabbHalfH, cx + aabbHalfW, cy + aabbHalfH);
+                destino.Add(new CandidatoRotulo(
+                    pontoMonitor,
+                    new SKPoint(cx, cy - halfH + baseLineOffsetY),
+                    rect,
+                    5,
+                    false,
+                    anguloGraus));
+            }
         }
 
         /// <summary>
@@ -141,10 +390,14 @@ namespace GeoNex.Services
                 return;
             }
 
-            if (modoPosicionamento == "Fixo")
+            if (modoPosicionamento == "Fixo" || modoPosicionamento == "TopRight")
             {
-                float x = pontoMonitor.X + deslocamentoX;
-                float y = pontoMonitor.Y + deslocamentoY;
+                float x = modoPosicionamento == "TopRight"
+                    ? pontoMonitor.X + padding + halfW + deslocamentoX
+                    : pontoMonitor.X + deslocamentoX;
+                float y = modoPosicionamento == "TopRight"
+                    ? pontoMonitor.Y - padding - halfH + deslocamentoY
+                    : pontoMonitor.Y + deslocamentoY;
                 var rect = new SKRect(x - halfW, y - halfH, x + halfW, y + halfH);
                 bool deslocado = Math.Abs(deslocamentoX) > 10f || Math.Abs(deslocamentoY) > 10f;
                 destino.Add(new CandidatoRotulo(pontoMonitor, new SKPoint(x, y - halfH + baseLineOffsetY), rect, 1, deslocado));

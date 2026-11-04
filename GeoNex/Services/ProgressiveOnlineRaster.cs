@@ -35,12 +35,16 @@ public sealed class ProgressiveOnlineRaster : IDisposable
         bool sharedTransport = config.Root?.Element("GeoNexTileTransport")?.Value == "shared";
         int connections = int.TryParse(config.Root?.Element("MaxConnections")?.Value, out int count) ? count : 2;
         var available = GdalRuntimeConfiguration.Apply().AvailablePhysicalMb;
-        int laneCount = Math.Clamp(connections, 1, available < 2048 ? 2 : _lanes.Length);
+        bool isWebMercator = SrsFactory.IsSame(OnlineBasemapPolicy.WebMercatorSrs, srs);
+        // Gdal.Warp uses non-reentrant native PROJ/GDAL state; limit reprojected
+        // progressive previews to 1 lane while keeping multi-lane Direct I/O in 3857.
+        int maxLanes = !isWebMercator ? 1 : (available < 2048 ? 2 : _lanes.Length);
+        int laneCount = Math.Clamp(connections, 1, maxLanes);
         // The adapter enforces the provider limit globally. Let GDAL submit local
         // requests concurrently so duplicate tiles don't occupy every network lane.
         if (!sharedTransport) config.Root!.SetElementValue("MaxConnections", 1);
         string laneXml = config.ToString(SaveOptions.DisableFormatting);
-        var readSize = SrsFactory.IsSame(OnlineBasemapPolicy.WebMercatorSrs, srs)
+        var readSize = isWebMercator
             ? OnlineBasemapPolicy.CalculateDirectRenderDimensions(width, height, available)
             : OnlineBasemapPolicy.CalculateRenderDimensions(width, height, available, false);
         if ((!sharedTransport && config.Root?.Element("Cache") == null) ||
@@ -140,7 +144,7 @@ public sealed class ProgressiveOnlineRaster : IDisposable
         // output patches. Re-reading the entire grid would repeat GDAL work and
         // network-cache lookups without changing pixels; conservatively keep the
         // canonical full-frame read for reprojection, alpha, clipping and downscaling.
-        if (OnlineRasterFrameReader.CanUseCompleteTileMosaic(xml, srs, bounds, offsetX, offsetY,
+        if (OnlineRasterFrameReader.CanUseCompleteTileMosaic(finalSession, xml, srs, bounds, offsetX, offsetY,
                 width, height, readSize.Width, readSize.Height) && size.Width == width && size.Height == height)
         {
             token.ThrowIfCancellationRequested();

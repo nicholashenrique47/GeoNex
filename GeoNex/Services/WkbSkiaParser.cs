@@ -34,6 +34,8 @@ namespace GeoNex.Services
 
         public readonly bool IsNull => MinX > MaxX || MinY > MaxY;
         public readonly double Width => IsNull ? 0.0 : MaxX - MinX;
+        public readonly double Height => IsNull ? 0.0 : MaxY - MinY;
+        public readonly double MaxDimension => IsNull ? 0.0 : Math.Max(MaxX - MinX, MaxY - MinY);
         public readonly (double X, double Y) Centre =>
             IsNull ? (0.0, 0.0) : ((MinX + MaxX) * 0.5, (MinY + MaxY) * 0.5);
 
@@ -67,18 +69,324 @@ namespace GeoNex.Services
         public SKPoint CentroidLocal
         {
             get => new((float)_centroidLocalPrecise.X, (float)_centroidLocalPrecise.Y);
-            set => _centroidLocalPrecise = new MapLocalCoordinate(value.X, value.Y);
+            set
+            {
+                _centroidLocalPrecise = new MapLocalCoordinate(value.X, value.Y);
+                _labelGeometryState = 0;
+            }
         }
         public MapLocalCoordinate CentroidLocalPrecise => _centroidLocalPrecise;
-        public void SetCentroidLocalPrecise(double x, double y) =>
+        public void SetCentroidLocalPrecise(double x, double y)
+        {
             _centroidLocalPrecise = new MapLocalCoordinate(x, y);
+            _labelGeometryState = 0;
+        }
         public FeatureEnvelope EnvelopeWorld;
         public string? CategoryValue; // Opcional, apenas quando Symbology ativa
         // Label text is decoded lazily for visible features and cached per active
         // label-field revision, avoiding one attribute object per feature.
         public string? LabelValue;
         public int LabelValueVersion;
+        public string? FormattedLabelValue;
+        public string? FormattedLabelTransform;
+        public float CachedUnitTextWidth;
+        public int CachedTextStyleHash;
+        private MapLocalCoordinate _labelAnchorPrecise;
+        private float _labelAngleDegrees;
+        private byte _labelGeometryState; // 0 = não calculado, 1 = básico, 2 = Polylabel/Arc-Length
         public string LayerName = ""; // Referência à camada para lazy loading
+
+        public unsafe MapLocalCoordinate GetOrComputeLabelAnchor(
+            MemoryMappedShapefile? shp, double offsetX, double offsetY, bool usePolylabel, out float angleDegrees)
+        {
+            if (Kind == GeometryKind.Point)
+            {
+                angleDegrees = 0f;
+                return _centroidLocalPrecise;
+            }
+
+            if (Kind == GeometryKind.Line)
+            {
+                if (_labelGeometryState == 2)
+                {
+                    angleDegrees = _labelAngleDegrees;
+                    return _labelAnchorPrecise;
+                }
+
+                float ang = 0f;
+                MapLocalCoordinate anchor = _centroidLocalPrecise;
+                if (shp != null && shp.ShpPointer != null && shp.TransformLocal == null && DataOffset >= 100)
+                {
+                    anchor = CalcularAncoraLinhaNativa(
+                        shp.ShpPointer + DataOffset + 8, offsetX, offsetY, _centroidLocalPrecise, out ang);
+                }
+                else if (Path != null && Path.PointCount >= 2)
+                {
+                    SKPoint[] pts = Path.Points;
+                    int midIdx = pts.Length / 2;
+                    anchor = new MapLocalCoordinate(pts[midIdx].X, pts[midIdx].Y);
+                    int p0 = Math.Max(0, midIdx - 1);
+                    int p1 = Math.Min(pts.Length - 1, midIdx + 1);
+                    ang = LabelPlacementEngine.CalcularAnguloComAutoFlip(pts[p0].X, pts[p0].Y, pts[p1].X, pts[p1].Y);
+                }
+
+                _labelAnchorPrecise = anchor;
+                _labelAngleDegrees = ang;
+                _labelGeometryState = 2;
+                angleDegrees = ang;
+                return anchor;
+            }
+
+            angleDegrees = 0f;
+            if (!usePolylabel)
+                return _centroidLocalPrecise;
+
+            if (_labelGeometryState == 2)
+                return _labelAnchorPrecise;
+
+            MapLocalCoordinate polyAnchor = _centroidLocalPrecise;
+            if (Path != null && !Path.IsEmpty)
+            {
+                SKPoint pt = LabelPlacementEngine.CalcularPoloInacessibilidade(Path, CentroidLocal);
+                polyAnchor = new MapLocalCoordinate(pt.X, pt.Y);
+            }
+            else if (shp != null && shp.ShpPointer != null && shp.TransformLocal == null && DataOffset >= 100)
+            {
+                polyAnchor = CalcularPoloInacessibilidadeNativo(
+                    shp.ShpPointer + DataOffset + 8, offsetX, offsetY, _centroidLocalPrecise);
+            }
+
+            _labelAnchorPrecise = polyAnchor;
+            _labelGeometryState = 2;
+            return polyAnchor;
+        }
+
+        private static unsafe MapLocalCoordinate CalcularPoloInacessibilidadeNativo(
+            byte* dataPtr, double offsetX, double offsetY, MapLocalCoordinate fallback)
+        {
+            if (dataPtr == null) return fallback;
+            int shapeType = *(int*)dataPtr;
+            if (shapeType != 5 && shapeType != 15 && shapeType != 25) return fallback;
+
+            int numParts = *(int*)(dataPtr + 36);
+            int numPoints = *(int*)(dataPtr + 40);
+            if (numParts <= 0 || numPoints < 3 || numParts > numPoints) return fallback;
+
+            int* parts = (int*)(dataPtr + 44);
+            byte* pointsBase = dataPtr + 44 + (numParts * 4);
+
+            int bestStart = parts[0];
+            int bestCount = (numParts == 1 ? numPoints : parts[1]) - bestStart;
+            for (int p = 1; p < numParts; p++)
+            {
+                int s = parts[p];
+                int e = (p == numParts - 1) ? numPoints : parts[p + 1];
+                if (e - s > bestCount)
+                {
+                    bestStart = s;
+                    bestCount = e - s;
+                }
+            }
+
+            if (bestCount < 3 || bestStart < 0 || bestStart + bestCount > numPoints)
+                return fallback;
+
+            byte* ringPtr = pointsBase + ((long)bestStart * 16);
+            double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
+            double minY = double.PositiveInfinity, maxY = double.NegativeInfinity;
+
+            int stride = Math.Max(1, bestCount / 96);
+            for (int i = 0; i < bestCount; i += stride)
+            {
+                double vx = *(double*)(ringPtr + (long)i * 16) - offsetX;
+                double vy = -(*(double*)(ringPtr + (long)i * 16 + 8) - offsetY);
+                if (vx < minX) minX = vx;
+                if (vx > maxX) maxX = vx;
+                if (vy < minY) minY = vy;
+                if (vy > maxY) maxY = vy;
+            }
+
+            double width = maxX - minX;
+            double height = maxY - minY;
+            if (width <= 1e-9 || height <= 1e-9) return fallback;
+
+            double melhorX = fallback.X;
+            double melhorY = fallback.Y;
+            double melhorDistSq = PointInRingAndDistanceSq(ringPtr, bestCount, stride, offsetX, offsetY, melhorX, melhorY);
+
+            double minDim = Math.Min(width, height);
+            double folgaIdealSq = (minDim * 0.24) * (minDim * 0.24);
+            if (melhorDistSq >= folgaIdealSq && melhorDistSq > 0)
+                return fallback;
+
+            double stepX = width / 5.0;
+            double stepY = height / 5.0;
+            for (int iy = 0; iy < 5; iy++)
+            {
+                double py = minY + (iy + 0.5) * stepY;
+                for (int ix = 0; ix < 5; ix++)
+                {
+                    double px = minX + (ix + 0.5) * stepX;
+                    double dSq = PointInRingAndDistanceSq(ringPtr, bestCount, stride, offsetX, offsetY, px, py);
+                    if (dSq > melhorDistSq)
+                    {
+                        melhorDistSq = dSq;
+                        melhorX = px;
+                        melhorY = py;
+                    }
+                }
+            }
+
+            if (melhorDistSq >= 0)
+            {
+                double subX = stepX * 0.4;
+                double subY = stepY * 0.4;
+                double baseBestX = melhorX;
+                double baseBestY = melhorY;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        double nx = baseBestX + dx * subX;
+                        double ny = baseBestY + dy * subY;
+                        double dSq = PointInRingAndDistanceSq(ringPtr, bestCount, stride, offsetX, offsetY, nx, ny);
+                        if (dSq > melhorDistSq)
+                        {
+                            melhorDistSq = dSq;
+                            melhorX = nx;
+                            melhorY = ny;
+                        }
+                    }
+                }
+                return new MapLocalCoordinate(melhorX, melhorY);
+            }
+
+            return fallback;
+        }
+
+        private static unsafe MapLocalCoordinate CalcularAncoraLinhaNativa(
+            byte* dataPtr, double offsetX, double offsetY, MapLocalCoordinate fallback, out float anguloGraus)
+        {
+            anguloGraus = 0f;
+            if (dataPtr == null) return fallback;
+            int shapeType = *(int*)dataPtr;
+            if (shapeType != 3 && shapeType != 13 && shapeType != 23) return fallback;
+
+            int numParts = *(int*)(dataPtr + 36);
+            int numPoints = *(int*)(dataPtr + 40);
+            if (numParts <= 0 || numPoints < 2 || numParts > numPoints) return fallback;
+
+            int* parts = (int*)(dataPtr + 44);
+            byte* pointsBase = dataPtr + 44 + (numParts * 4);
+
+            int bestStart = parts[0];
+            int bestCount = (numParts == 1 ? numPoints : parts[1]) - bestStart;
+            for (int p = 1; p < numParts; p++)
+            {
+                int s = parts[p];
+                int e = (p == numParts - 1) ? numPoints : parts[p + 1];
+                if (e - s > bestCount)
+                {
+                    bestStart = s;
+                    bestCount = e - s;
+                }
+            }
+
+            if (bestCount < 2 || bestStart < 0 || bestStart + bestCount > numPoints)
+                return fallback;
+
+            byte* linePtr = pointsBase + ((long)bestStart * 16);
+            int stride = Math.Max(1, bestCount / 128);
+
+            double totalLength = 0;
+            double prevX = *(double*)linePtr - offsetX;
+            double prevY = -(*(double*)(linePtr + 8) - offsetY);
+
+            for (int i = stride; i < bestCount; i += stride)
+            {
+                double cx = *(double*)(linePtr + (long)i * 16) - offsetX;
+                double cy = -(*(double*)(linePtr + (long)i * 16 + 8) - offsetY);
+                double dx = cx - prevX;
+                double dy = cy - prevY;
+                totalLength += Math.Sqrt(dx * dx + dy * dy);
+                prevX = cx;
+                prevY = cy;
+            }
+
+            if (totalLength <= 1e-9) return fallback;
+
+            double halfLength = totalLength * 0.5;
+            double accum = 0;
+            prevX = *(double*)linePtr - offsetX;
+            prevY = -(*(double*)(linePtr + 8) - offsetY);
+
+            for (int i = stride; i < bestCount; i += stride)
+            {
+                double cx = *(double*)(linePtr + (long)i * 16) - offsetX;
+                double cy = -(*(double*)(linePtr + (long)i * 16 + 8) - offsetY);
+                double dx = cx - prevX;
+                double dy = cy - prevY;
+                double segLen = Math.Sqrt(dx * dx + dy * dy);
+                if (accum + segLen >= halfLength && segLen > 1e-9)
+                {
+                    double t = (halfLength - accum) / segLen;
+                    double midX = prevX + dx * t;
+                    double midY = prevY + dy * t;
+                    anguloGraus = LabelPlacementEngine.CalcularAnguloComAutoFlip((float)prevX, (float)prevY, (float)cx, (float)cy);
+                    return new MapLocalCoordinate(midX, midY);
+                }
+                accum += segLen;
+                prevX = cx;
+                prevY = cy;
+            }
+
+            return fallback;
+        }
+
+        private static unsafe double PointInRingAndDistanceSq(
+            byte* ringPtr, int count, int stride, double offsetX, double offsetY, double px, double py)
+        {
+            bool inside = false;
+            double minDistSq = double.PositiveInfinity;
+
+            int lastIdx = ((count - 1) / stride) * stride;
+            double x1 = *(double*)(ringPtr + (long)lastIdx * 16) - offsetX;
+            double y1 = -(*(double*)(ringPtr + (long)lastIdx * 16 + 8) - offsetY);
+
+            for (int i = 0; i < count; i += stride)
+            {
+                double x2 = *(double*)(ringPtr + (long)i * 16) - offsetX;
+                double y2 = -(*(double*)(ringPtr + (long)i * 16 + 8) - offsetY);
+
+                if (((y2 > py) != (y1 > py)) &&
+                    (px < (x1 - x2) * (py - y2) / (y1 - y2 + 1e-30) + x2))
+                {
+                    inside = !inside;
+                }
+
+                double dx = x2 - x1;
+                double dy = y2 - y1;
+                double lenSq = dx * dx + dy * dy;
+                if (lenSq > 1e-12)
+                {
+                    double t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+                    if (t < 0.0) t = 0.0;
+                    else if (t > 1.0) t = 1.0;
+                    double projX = x1 + t * dx;
+                    double projY = y1 + t * dy;
+                    double distX = px - projX;
+                    double distY = py - projY;
+                    double dSq = distX * distX + distY * distY;
+                    if (dSq < minDistSq) minDistSq = dSq;
+                }
+
+                x1 = x2;
+                y1 = y2;
+            }
+
+            return inside ? minDistSq : -1.0;
+        }
 
         /// <summary>
         /// Lock-free lazy path construction.

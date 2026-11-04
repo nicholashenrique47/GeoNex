@@ -269,6 +269,7 @@ public partial class Home
                 throw new IOException("Já existe um projeto com esse nome nessa pasta. Escolha outro nome ou abra o projeto existente.");
 
             Directory.CreateDirectory(pasta);
+            await LimparCamadasDoProjetoAtualAsync();
             Projeto projeto = await ProjetoService.CriarNovoProjetoAsync(caminho, nome);
             ProjetoService.AtivarProjeto(projeto);
             AtualizarIndicadorAutosave(projeto);

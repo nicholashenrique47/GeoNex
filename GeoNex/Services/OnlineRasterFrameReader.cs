@@ -140,7 +140,7 @@ public static class OnlineRasterFrameReader
         catch { output.Dispose(); throw; }
     }
 
-    internal static bool CanUseCompleteTileMosaic(string xml, string targetSrs,
+    internal static bool CanUseCompleteTileMosaic(OnlineRasterSession session, string xml, string targetSrs,
         SKRect localBounds, double offsetX, double offsetY, int requestedWidth, int requestedHeight,
         int mosaicWidth, int mosaicHeight)
     {
@@ -151,7 +151,8 @@ public static class OnlineRasterFrameReader
             var config = XDocument.Parse(xml);
             if (!string.Equals(config.Root?.Element("Service")?.Attribute("name")?.Value,
                     "TMS", StringComparison.OrdinalIgnoreCase)) return false;
-            using var source = OpenSource(xml);
+            using var lease = session.AcquireDataset(xml);
+            var source = lease.Resource;
             if (source.RasterCount != 3 || !SrsFactory.IsSame(source.GetProjection(), targetSrs)) return false;
             double[] geo = RasterDatasetPolicy.GetCachedGeoTransform(source);
             if (!RasterGeometry.IsAxisAligned(geo) || geo[1] <= 0 || geo[5] >= 0) return false;

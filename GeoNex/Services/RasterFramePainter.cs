@@ -29,14 +29,14 @@ internal static class RasterFramePainter
                 using var target = SKSurface.Create(pixels.Info, pixels.GetPixels(), pixels.RowBytes)
                     ?? throw new OutOfMemoryException();
                 target.Canvas.ClipRect(new SKRect(clip.Left, top, clip.Right, bottom), SKClipOperation.Intersect, false);
-                using var paint = new SKPaint { FilterQuality = SKFilterQuality.Medium, IsAntialias = true };
+                using var paint = new SKPaint { FilterQuality = interacting ? SKFilterQuality.Medium : SKFilterQuality.High, IsAntialias = true };
                 target.Canvas.DrawBitmap(bitmap, destination, paint);
             });
             token.ThrowIfCancellationRequested();
             return;
         }
 
-        using var serialPaint = new SKPaint { FilterQuality = SKFilterQuality.Medium, IsAntialias = true };
+        using var serialPaint = new SKPaint { FilterQuality = interacting ? SKFilterQuality.Medium : SKFilterQuality.High, IsAntialias = true };
         canvas.DrawBitmap(bitmap, destination, serialPaint);
     }
 

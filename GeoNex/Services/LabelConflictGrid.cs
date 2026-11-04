@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using SkiaSharp;
 
 namespace GeoNex.Services
@@ -23,19 +24,43 @@ namespace GeoNex.Services
     public sealed class LabelConflictGrid
     {
         private readonly float _cellSize;
+        private readonly float _invCellSize;
         private readonly Dictionary<long, List<SKRect>> _occupiedCells;
         private readonly List<RotuloAlocado> _rotulosAlocados;
+        private SKRect _screenBounds;
+        private bool _hasScreenBounds;
+        private float _breathingPadding;
 
         public IReadOnlyList<RotuloAlocado> RotulosAlocados => _rotulosAlocados;
 
         public LabelConflictGrid(float cellSize = 56f, int capacidadeInicial = 2048)
         {
             _cellSize = cellSize > 0 ? cellSize : 56f;
+            _invCellSize = 1f / _cellSize;
             _occupiedCells = new Dictionary<long, List<SKRect>>(capacidadeInicial);
             _rotulosAlocados = new List<RotuloAlocado>(capacidadeInicial);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static long ObterChaveCelula(int x, int y) => ((long)x << 32) | (uint)y;
+
+        /// <summary>
+        /// Define os limites úteis da tela para impedir que rótulos fiquem cortados nas bordas do viewport.
+        /// </summary>
+        public void ConfigurarViewport(float larguraFisica, float alturaFisica, float margemBordaPx = 6f, float espacamentoMinimoPx = 2f)
+        {
+            if (larguraFisica > margemBordaPx * 2f && alturaFisica > margemBordaPx * 2f)
+            {
+                _screenBounds = new SKRect(margemBordaPx, margemBordaPx, larguraFisica - margemBordaPx, alturaFisica - margemBordaPx);
+                _hasScreenBounds = true;
+                _breathingPadding = Math.Max(0f, espacamentoMinimoPx);
+            }
+            else
+            {
+                _hasScreenBounds = false;
+                _breathingPadding = 0f;
+            }
+        }
 
         /// <summary>
         /// Limpa a grade para reutilização no próximo frame sem desalocar memória.
@@ -47,26 +72,41 @@ namespace GeoNex.Services
                 list.Clear();
             }
             _rotulosAlocados.Clear();
+            _hasScreenBounds = false;
+            _breathingPadding = 0f;
         }
 
         /// <summary>
         /// Verifica se a caixa delimitadora do rótulo colide com algum rótulo já posicionado na grade.
         /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TestarColisao(in SKRect bounds)
         {
-            int minX = (int)MathF.Floor(bounds.Left / _cellSize);
-            int maxX = (int)MathF.Floor(bounds.Right / _cellSize);
-            int minY = (int)MathF.Floor(bounds.Top / _cellSize);
-            int maxY = (int)MathF.Floor(bounds.Bottom / _cellSize);
+            if (_hasScreenBounds)
+            {
+                if (bounds.Left < _screenBounds.Left ||
+                    bounds.Top < _screenBounds.Top ||
+                    bounds.Right > _screenBounds.Right ||
+                    bounds.Bottom > _screenBounds.Bottom)
+                {
+                    return true;
+                }
+            }
+
+            int minX = (int)MathF.Floor(bounds.Left * _invCellSize);
+            int maxX = (int)MathF.Floor(bounds.Right * _invCellSize);
+            int minY = (int)MathF.Floor(bounds.Top * _invCellSize);
+            int maxY = (int)MathF.Floor(bounds.Bottom * _invCellSize);
 
             for (int cy = minY; cy <= maxY; cy++)
             {
                 for (int cx = minX; cx <= maxX; cx++)
                 {
                     long key = ObterChaveCelula(cx, cy);
-                    if (_occupiedCells.TryGetValue(key, out var lista) && lista.Count > 0)
+                    if (_occupiedCells.TryGetValue(key, out var lista))
                     {
-                        for (int i = 0; i < lista.Count; i++)
+                        int count = lista.Count;
+                        for (int i = 0; i < count; i++)
                         {
                             if (lista[i].IntersectsWith(bounds))
                                 return true;
@@ -81,12 +121,21 @@ namespace GeoNex.Services
         /// <summary>
         /// Insere os limites do rótulo em todas as células de tela sobrepostas.
         /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Inserir(in SKRect bounds)
         {
-            int minX = (int)MathF.Floor(bounds.Left / _cellSize);
-            int maxX = (int)MathF.Floor(bounds.Right / _cellSize);
-            int minY = (int)MathF.Floor(bounds.Top / _cellSize);
-            int maxY = (int)MathF.Floor(bounds.Bottom / _cellSize);
+            SKRect padded = _breathingPadding > 0f
+                ? new SKRect(
+                    bounds.Left - _breathingPadding,
+                    bounds.Top - _breathingPadding,
+                    bounds.Right + _breathingPadding,
+                    bounds.Bottom + _breathingPadding)
+                : bounds;
+
+            int minX = (int)MathF.Floor(padded.Left * _invCellSize);
+            int maxX = (int)MathF.Floor(padded.Right * _invCellSize);
+            int minY = (int)MathF.Floor(padded.Top * _invCellSize);
+            int maxY = (int)MathF.Floor(padded.Bottom * _invCellSize);
 
             for (int cy = minY; cy <= maxY; cy++)
             {
@@ -95,10 +144,10 @@ namespace GeoNex.Services
                     long key = ObterChaveCelula(cx, cy);
                     if (!_occupiedCells.TryGetValue(key, out var lista))
                     {
-                        lista = new List<SKRect>(2);
+                        lista = new List<SKRect>(4);
                         _occupiedCells[key] = lista;
                     }
-                    lista.Add(bounds);
+                    lista.Add(padded);
                 }
             }
         }
@@ -128,13 +177,15 @@ namespace GeoNex.Services
                     primeiro.PontoOrigemTexto,
                     primeiro.LimitesTexto,
                     primeiro.PontoAncora,
-                    primeiro.RequerLinhaChamada);
+                    primeiro.RequerLinhaChamada,
+                    primeiro.RotacaoGraus);
                 _rotulosAlocados.Add(resultado);
                 return true;
             }
 
             // Avalia cada candidato por prioridade
-            for (int i = 0; i < candidatos.Count; i++)
+            int count = candidatos.Count;
+            for (int i = 0; i < count; i++)
             {
                 var cand = candidatos[i];
                 if (!TestarColisao(cand.LimitesTexto))
@@ -145,7 +196,8 @@ namespace GeoNex.Services
                         cand.PontoOrigemTexto,
                         cand.LimitesTexto,
                         cand.PontoAncora,
-                        cand.RequerLinhaChamada);
+                        cand.RequerLinhaChamada,
+                        cand.RotacaoGraus);
                     _rotulosAlocados.Add(resultado);
                     return true;
                 }

@@ -2977,15 +2977,26 @@
                         <!-- SELEÇÃO DA CAMADA DE ENTRADA -->
                         <div class="form-group-vertical">
                             <label class="gis-label">Camada de Entrada</label>
-                            <select class="gis-select" @bind="_geoCamadaEntrada" @bind:after="AtualizarCaminhoDestinoPadrao" disabled="@_geoprocessamentoExecutando">
+                            <select class="gis-select" @bind="_geoCamadaEntrada" @bind:after="AoMudarCamadaEntradaGeoprocessamento" disabled="@_geoprocessamentoExecutando">
                                 @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor" && !string.IsNullOrWhiteSpace(c.CaminhoArquivo)))
                                 {
                                     <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
                                 }
                             </select>
+                            @{
+                                int selEntradaCount = ObterTotalSelecionadasCamada(_geoCamadaEntrada);
+                            }
                             <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-top: 4px; cursor: pointer;">
-                                <input type="checkbox" @bind="_geoApenasSelecionadasEntrada" disabled="@_geoprocessamentoExecutando" />
-                                Processar apenas feições selecionadas na camada ativa
+                                <input type="checkbox" @bind="_geoApenasSelecionadasEntrada" disabled="@(_geoprocessamentoExecutando || selEntradaCount == 0)" />
+                                <span>Processar apenas feições selecionadas</span>
+                                @if (selEntradaCount > 0)
+                                {
+                                    <span style="font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: 600;">@selEntradaCount selecionada(s)</span>
+                                }
+                                else
+                                {
+                                    <span style="font-size: 10px; color: #64748b;">(0 selecionadas)</span>
+                                }
                             </label>
                         </div>
 
@@ -2996,15 +3007,26 @@
                         {
                             <div class="form-group-vertical">
                                 <label class="gis-label">@(_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Recortar ? "Camada de Máscara de Recorte (Polígono)" : _geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Diferenca ? "Camada de Subtração (Área a Apagar)" : "Segunda Camada para Cruzamento")</label>
-                                <select class="gis-select" @bind="_geoCamadaSobreposicao" disabled="@_geoprocessamentoExecutando">
+                                <select class="gis-select" @bind="_geoCamadaSobreposicao" @bind:after="AoMudarCamadaSobreposicaoGeoprocessamento" disabled="@_geoprocessamentoExecutando">
                                     @foreach (var camada in CamadasAtivas.Where(c => c.Tipo == "Vetor" && !string.IsNullOrWhiteSpace(c.CaminhoArquivo) && c.Nome != _geoCamadaEntrada))
                                     {
                                         <option value="@camada.Nome">@camada.Nome (@camada.Geometria)</option>
                                     }
                                 </select>
+                                @{
+                                    int selSobCount = ObterTotalSelecionadasCamada(_geoCamadaSobreposicao);
+                                }
                                 <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-top: 4px; cursor: pointer;">
-                                    <input type="checkbox" @bind="_geoApenasSelecionadasSobreposicao" disabled="@_geoprocessamentoExecutando" />
-                                    Usar apenas feições selecionadas da camada de sobreposição
+                                    <input type="checkbox" @bind="_geoApenasSelecionadasSobreposicao" disabled="@(_geoprocessamentoExecutando || selSobCount == 0)" />
+                                    <span>Usar apenas feições selecionadas da sobreposição</span>
+                                    @if (selSobCount > 0)
+                                    {
+                                        <span style="font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: 600;">@selSobCount selecionada(s)</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="font-size: 10px; color: #64748b;">(0 selecionadas)</span>
+                                    }
                                 </label>
                             </div>
                         }
@@ -6233,6 +6255,25 @@
     private readonly List<string> _geoLogMensagens = new();
     private CancellationTokenSource? _geoCts;
 
+    private int ObterTotalSelecionadasCamada(string? nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return 0;
+        return _vectorFeatureEditSelection.Count(k => string.Equals(k.LayerName, nomeCamada, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void AoMudarCamadaEntradaGeoprocessamento()
+    {
+        int sel = ObterTotalSelecionadasCamada(_geoCamadaEntrada);
+        _geoApenasSelecionadasEntrada = sel > 0;
+        AtualizarCaminhoDestinoPadrao();
+    }
+
+    private void AoMudarCamadaSobreposicaoGeoprocessamento()
+    {
+        int sel = ObterTotalSelecionadasCamada(_geoCamadaSobreposicao);
+        _geoApenasSelecionadasSobreposicao = sel > 0;
+    }
+
     private void AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento operacao)
     {
         _geoOperacaoAtiva = operacao;
@@ -6247,6 +6288,9 @@
         {
             _geoCamadaSobreposicao = camadasVetoriais.FirstOrDefault(c => c.Nome != _geoCamadaEntrada)?.Nome ?? "";
         }
+
+        _geoApenasSelecionadasEntrada = ObterTotalSelecionadasCamada(_geoCamadaEntrada) > 0;
+        _geoApenasSelecionadasSobreposicao = ObterTotalSelecionadasCamada(_geoCamadaSobreposicao) > 0;
 
         AtualizarCaminhoDestinoPadrao();
         _geoProgressoPercentual = 0;
@@ -6358,12 +6402,48 @@
             return;
         }
 
+        HashSet<long>? selecionadosEntrada = null;
+        if (_geoApenasSelecionadasEntrada)
+        {
+            selecionadosEntrada = _vectorFeatureEditSelection
+                .Where(k => string.Equals(k.LayerName, _geoCamadaEntrada, StringComparison.OrdinalIgnoreCase))
+                .Select(k => k.SourceFeatureId >= 0 ? k.SourceFeatureId : k.FeatureId)
+                .Where(id => id >= 0)
+                .ToHashSet();
+
+            if (selecionadosEntrada.Count == 0)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Nenhuma feição está selecionada na camada de entrada '{_geoCamadaEntrada}'. Selecione as feições no mapa ou desmarque a opção 'Processar apenas feições selecionadas'.");
+                return;
+            }
+        }
+
+        HashSet<long>? selecionadosSobreposicao = null;
+        if (_geoApenasSelecionadasSobreposicao && !string.IsNullOrWhiteSpace(_geoCamadaSobreposicao))
+        {
+            selecionadosSobreposicao = _vectorFeatureEditSelection
+                .Where(k => string.Equals(k.LayerName, _geoCamadaSobreposicao, StringComparison.OrdinalIgnoreCase))
+                .Select(k => k.SourceFeatureId >= 0 ? k.SourceFeatureId : k.FeatureId)
+                .Where(id => id >= 0)
+                .ToHashSet();
+
+            if (selecionadosSobreposicao.Count == 0)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Nenhuma feição está selecionada na camada de sobreposição '{_geoCamadaSobreposicao}'. Selecione as feições no mapa ou desmarque a opção 'Usar apenas feições selecionadas'.");
+                return;
+            }
+        }
+
         _geoprocessamentoExecutando = true;
         _geoLogMensagens.Clear();
         _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Iniciando operação: {ObterTituloOperacao(_geoOperacaoAtiva)}");
         _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Camada de Entrada: {_geoCamadaEntrada}");
+        if (_geoApenasSelecionadasEntrada && selecionadosEntrada != null)
+            _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Filtro de Entrada: {selecionadosEntrada.Count} feição(ões) selecionada(s).");
         if (caminhoSobreposicao != null)
             _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Camada de Sobreposição: {_geoCamadaSobreposicao}");
+        if (_geoApenasSelecionadasSobreposicao && selecionadosSobreposicao != null)
+            _geoLogMensagens.Add($"[{DateTime.Now:HH:mm:ss}] Filtro de Sobreposição: {selecionadosSobreposicao.Count} feição(ões) selecionada(s).");
 
         _geoCts?.Cancel();
         _geoCts = new CancellationTokenSource();
@@ -6408,6 +6488,8 @@
                 parametros,
                 camadaEntradaObj.CaminhoArquivo,
                 caminhoSobreposicao,
+                selecionadosEntrada: selecionadosEntrada,
+                selecionadosSobreposicao: selecionadosSobreposicao,
                 progresso: progresso,
                 ct: _geoCts.Token);
 
