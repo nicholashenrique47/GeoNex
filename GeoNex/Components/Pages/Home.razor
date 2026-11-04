@@ -1787,13 +1787,45 @@
     {
         <div class="glass-panel attribute-table-container">
             <div class="table-header">
-                <span>TABELA DE ATRIBUTOS: @nomeCamadaAtiva</span>
-                <button class="close-btn" @onclick="() => exibirTabelaAtributos = false">✕</button>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span>TABELA DE ATRIBUTOS: @nomeCamadaAtiva</span>
+                    <span class="badge" style="background: rgba(56,189,248,0.2); color: #38bdf8; font-size: 11px; padding: 2px 8px; border-radius: 4px;">
+                        @dadosTabela.Count feições
+                    </span>
+                    <span class="badge" style="background: @(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) > 0 ? "rgba(250,204,21,0.2)" : "rgba(255,255,255,0.1)"); color: @(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) > 0 ? "#facc15" : "#94a3b8"); font-size: 11px; padding: 2px 8px; border-radius: 4px;">
+                        @ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) selecionadas
+                    </span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <button type="button" class="btn-table-action"
+                            disabled="@(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) == 0)"
+                            title="Aproximar o mapa para enquadrar todas as feições selecionadas (Auto-Zoom)"
+                            @onclick="() => ZoomParaFeicoesSelecionadasAsync(nomeCamadaAtiva)">
+                        ⤢ Zoom para Seleção
+                    </button>
+                    <button type="button" class="btn-table-action"
+                            title="Inverter seleção de feições"
+                            @onclick="() => InverterSelecaoTabela(nomeCamadaAtiva)">
+                        ⇄ Inverter
+                    </button>
+                    <button type="button" class="btn-table-action"
+                            disabled="@(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) == 0)"
+                            title="Limpar seleção atual"
+                            @onclick="() => LimparSelecaoTabela(nomeCamadaAtiva)">
+                        ✖ Desmarcar
+                    </button>
+                    <button class="close-btn" @onclick="() => exibirTabelaAtributos = false">✕</button>
+                </div>
             </div>
             <div class="table-wrapper custom-scrollbar">
                 <table>
                     <thead>
                         <tr>
+                            <th style="width: 38px; text-align: center;">
+                                <input type="checkbox"
+                                       checked="@(dadosTabela.Count > 0 && ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) == dadosTabela.Count)"
+                                       @onchange="() => AlternarSelecionarTudoTabela(nomeCamadaAtiva)" />
+                            </th>
                             @foreach (var col in colunasTabela)
                             {
                                 <th>@col</th>
@@ -1803,7 +1835,14 @@
                     <tbody>
                         @foreach (var linha in dadosTabela)
                         {
-                            <tr @onclick="() => SelecionarNoMapa(linha)">
+                            <tr class="@(IsLinhaSelecionada(linha) ? "row-selected" : "")"
+                                @onclick="(e) => AlternarSelecaoLinha(e, linha)"
+                                @ondblclick="() => ZoomParaLinhaIndividualAsync(linha)">
+                                <td style="text-align: center;" @onclick:stopPropagation="true">
+                                    <input type="checkbox"
+                                           checked="@IsLinhaSelecionada(linha)"
+                                           @onchange="() => ToggleSelecaoLinhaCheckbox(linha)" />
+                                </td>
                                 @foreach (var col in colunasTabela)
                                 {
                                     <td>
@@ -2220,9 +2259,30 @@
                     </div>
 
                     <div class="form-group mb-15">
+                        <label>Escopo de Exportação</label>
+                        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+                            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                                <input type="radio" name="escopoExportacao" checked="@(exportEscopo == ExportScope.AllFeatures)" @onchange="() => exportEscopo = ExportScope.AllFeatures" />
+                                <span>Todas as Feições</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; @(ObterContagemFeicoesSelecionadas(exportCamadaOrigem) == 0 ? "opacity: 0.5;" : "")">
+                                <input type="radio" name="escopoExportacao" checked="@(exportEscopo == ExportScope.SelectedFeaturesOnly)" disabled="@(ObterContagemFeicoesSelecionadas(exportCamadaOrigem) == 0)" @onchange="() => exportEscopo = ExportScope.SelectedFeaturesOnly" />
+                                <span style="color: @(ObterContagemFeicoesSelecionadas(exportCamadaOrigem) > 0 ? "#facc15" : "inherit")">
+                                    Apenas Feições Selecionadas (@ObterContagemFeicoesSelecionadas(exportCamadaOrigem))
+                                </span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                                <input type="radio" name="escopoExportacao" checked="@(exportEscopo == ExportScope.CurrentVisibleExtent)" @onchange="() => exportEscopo = ExportScope.CurrentVisibleExtent" />
+                                <span>Extensão Visível na Tela</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-15">
                         <label>Formato de Saída (Driver OGR)</label>
                         <select class="glass-input editable" @bind="exportFormatoDriver">
-                            <option value="ESRI Shapefile">ESRI Shapefile (.shp)</option>
+                            <option value="ESRI Shapefile">ESRI Shapefile (.shp / .cpg UTF-8)</option>
+                            <option value="GPKG">OGC GeoPackage (.gpkg)</option>
                             <option value="GeoJSON">GeoJSON (.geojson)</option>
                             <option value="KML">Google Earth KML (.kml)</option>
                         </select>
@@ -2691,6 +2751,32 @@
             {
                 <button @onclick="() => { FecharMenuContexto(); AbrirTabela(camadaSelecionadaMenu); }">Tabela de Atributos</button>
                 <button @onclick="() => { FecharMenuContexto(); AbrirPropriedadesSincronizadas(camadaSelecionadaMenu); }">Propriedades e Estilos</button>
+
+                <!-- SUBMENU CASCATA DE EXPORTAÇÃO (SEM BOTÃO NOVO NO RIBBON) -->
+                <div class="context-submenu-wrapper" @onmouseenter="() => _submenuExportacaoAberto = true" @onmouseleave="() => _submenuExportacaoAberto = false">
+                    <button type="button" class="submenu-header-btn" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span>Exportar Camada</span>
+                        <span style="font-size: 10px; color: #94a3b8;">▶</span>
+                    </button>
+                    @if (_submenuExportacaoAberto)
+                    {
+                        <div class="context-submenu-flyout glass-panel">
+                            <button type="button" @onclick="() => { FecharMenuContexto(); AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.AllFeatures); }">
+                                Todas as Feições
+                            </button>
+                            <button type="button"
+                                    disabled="@(ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu) == 0)"
+                                    style="@(ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu) == 0 ? "opacity: 0.45; cursor: not-allowed;" : "")"
+                                    title="@(ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu) == 0 ? "Nenhuma feição selecionada nesta camada" : $"Exportar {ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu)} feições selecionadas")"
+                                    @onclick="() => { FecharMenuContexto(); AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.SelectedFeaturesOnly); }">
+                                Feições Selecionadas (@ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu))
+                            </button>
+                            <button type="button" @onclick="() => { FecharMenuContexto(); AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.CurrentVisibleExtent); }">
+                                Extensão Visível Atual
+                            </button>
+                        </div>
+                    }
+                </div>
 
                 <hr class="menu-divider" />
 
@@ -5498,6 +5584,67 @@
             border-right: 1px solid rgba(255, 255, 255, 0.05);
         }
 
+        .table-wrapper tr.row-selected td {
+            background: rgba(14, 165, 233, 0.35) !important;
+            color: #ffffff;
+        }
+        .table-wrapper tr.row-selected .cell-input {
+            color: #ffffff;
+            font-weight: 600;
+        }
+        .btn-table-action {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #e2e8f0;
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+        }
+        .btn-table-action:hover:not(:disabled) {
+            background: rgba(56, 189, 248, 0.25);
+            border-color: #38bdf8;
+            color: #38bdf8;
+        }
+        .btn-table-action:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .context-submenu-wrapper {
+            position: relative;
+            width: 100%;
+        }
+        .context-submenu-flyout {
+            position: absolute;
+            left: 98%;
+            top: -4px;
+            min-width: 210px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            padding: 6px;
+            background: rgba(15, 23, 42, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
+        }
+        .context-submenu-flyout button {
+            background: transparent;
+            border: none;
+            color: #e2e8f0;
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .context-submenu-flyout button:hover:not(:disabled) {
+            background: rgba(56, 189, 248, 0.2);
+            color: #38bdf8;
+        }
+
         .table-wrapper tr:hover td {
             background: rgba(56, 189, 248, 0.1);
         }
@@ -6895,10 +7042,20 @@
     private bool exibirModalImportacao = false;
     private bool exibirModalExportacao = false;
     
+    public enum ExportScope
+    {
+        AllFeatures,
+        SelectedFeaturesOnly,
+        CurrentVisibleExtent
+    }
+
     // Variáveis Exportação
     private string exportCamadaOrigem = "";
     private string exportFormatoDriver = "ESRI Shapefile";
     private int exportEPSG = 4326;
+    private ExportScope exportEscopo = ExportScope.AllFeatures;
+    private bool _submenuExportacaoAberto = false;
+    private readonly Dictionary<string, HashSet<long>> _fidsSelecionadosTabela = new(StringComparer.OrdinalIgnoreCase);
 
     private string AbaModalAtiva = "Raster";
     private DotNetObjectReference<Home>? objRef;
@@ -8152,24 +8309,57 @@
         var camadaOrig = CamadasAtivas.FirstOrDefault(c => c.Nome == exportCamadaOrigem);
         if (camadaOrig == null || string.IsNullOrWhiteSpace(camadaOrig.CaminhoArquivo))
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Caminho do ficheiro original não encontrado.");
+            await JSRuntime.InvokeVoidAsync("alert", "Caminho do arquivo original não encontrado.");
             return;
         }
 
-        string extensao = exportFormatoDriver == "GeoJSON" ? ".geojson" : (exportFormatoDriver == "KML" ? ".kml" : ".shp");
-        var opcoes = new PickOptions { PickerTitle = "Exportar Vetor" };
-        
-        // Simulação de SaveFileDialog nativo - MAUI não tem SavePicker bom, então usaremos um Pick genérico de diretório se estivéssemos num desktop puro
-        // Para simplificar, vou exportar diretamente para Meus Documentos e alertar.
+        string extensao = exportFormatoDriver switch
+        {
+            "GeoJSON" => ".geojson",
+            "KML" => ".kml",
+            "GPKG" => ".gpkg",
+            _ => ".shp"
+        };
         
         string pasta = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        string caminhoDestino = System.IO.Path.Combine(pasta, $"Exportacao_{exportCamadaOrigem}{extensao}");
+        string sufixo = exportEscopo switch
+        {
+            ExportScope.SelectedFeaturesOnly => "_Selecionadas",
+            ExportScope.CurrentVisibleExtent => "_ExtensaoTela",
+            _ => ""
+        };
+        string caminhoDestino = System.IO.Path.Combine(pasta, $"Exportacao_{exportCamadaOrigem}{sufixo}{extensao}");
 
-        bool sucesso = ExportService.ExportarVetor(exportCamadaOrigem, camadaOrig.CaminhoArquivo, caminhoDestino, exportFormatoDriver, exportEPSG);
+        IReadOnlySet<long>? fidsFilter = null;
+        if (exportEscopo == ExportScope.SelectedFeaturesOnly)
+        {
+            var fids = ObterFidsSelecionadosCamada(exportCamadaOrigem);
+            if (fids.Count == 0)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Nenhuma feição selecionada nesta camada para exportar.");
+                return;
+            }
+            fidsFilter = fids;
+        }
+
+        NetTopologySuite.Geometries.Envelope? spatialEnvelope = null;
+        if (exportEscopo == ExportScope.CurrentVisibleExtent)
+        {
+            spatialEnvelope = ObterEnvelopeVisivelTela();
+        }
+
+        bool sucesso = ExportService.ExportarVetor(
+            exportCamadaOrigem,
+            camadaOrig.CaminhoArquivo,
+            caminhoDestino,
+            exportFormatoDriver,
+            exportEPSG,
+            fidsFilter,
+            spatialEnvelope);
 
         if (sucesso)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Exportação concluída!\nO ficheiro foi gerado em:\n{caminhoDestino}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Exportação concluída com sucesso!\nArquivo gerado em:\n{caminhoDestino}");
             FecharModalExportacao();
         }
         else
@@ -9666,13 +9856,282 @@
         StateHasChanged();
     }
 
+    private void AbrirExportacaoComEscopo(string nomeCamada, ExportScope escopo)
+    {
+        exportCamadaOrigem = nomeCamada;
+        exportEscopo = escopo;
+        if (int.TryParse(new string((MapService.ProjetoSRS ?? "").Where(char.IsDigit).ToArray()), out int parsedEpsg) && parsedEpsg > 0)
+            exportEPSG = parsedEpsg;
+        else
+            exportEPSG = 4326;
+        _submenuExportacaoAberto = false;
+        exibirModalExportacao = true;
+    }
+
+    private int ObterContagemFeicoesSelecionadas(string? nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return 0;
+        int countTabela = _fidsSelecionadosTabela.TryGetValue(nomeCamada, out var set) ? set.Count : 0;
+        int countEdit = _vectorFeatureEditSelection.Count(k => string.Equals(k.LayerName, nomeCamada, StringComparison.OrdinalIgnoreCase));
+        return Math.Max(countTabela, countEdit);
+    }
+
+    private IReadOnlySet<long> ObterFidsSelecionadosCamada(string? nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return System.Collections.Immutable.ImmutableHashSet<long>.Empty;
+        var result = new HashSet<long>();
+        if (_fidsSelecionadosTabela.TryGetValue(nomeCamada, out var set))
+        {
+            foreach (var id in set) result.Add(id);
+        }
+        foreach (var k in _vectorFeatureEditSelection)
+        {
+            if (string.Equals(k.LayerName, nomeCamada, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(k.SourceFeatureId >= 0 ? k.SourceFeatureId : k.FeatureId);
+            }
+        }
+        return result;
+    }
+
+    private bool IsLinhaSelecionada(Dictionary<string, object> linha)
+    {
+        long fid = ObterFidDaLinha(linha);
+        if (fid < 0 || string.IsNullOrWhiteSpace(nomeCamadaAtiva)) return false;
+        if (_fidsSelecionadosTabela.TryGetValue(nomeCamadaAtiva, out var set) && set.Contains(fid)) return true;
+        return _vectorFeatureEditSelection.Any(k => string.Equals(k.LayerName, nomeCamadaAtiva, StringComparison.OrdinalIgnoreCase) && 
+            (k.SourceFeatureId == fid || k.FeatureId == fid));
+    }
+
+    private long ObterFidDaLinha(Dictionary<string, object> linha)
+    {
+        if (linha.TryGetValue("FID", out var val) && long.TryParse(val?.ToString(), out long fid))
+            return fid;
+        if (linha.TryGetValue("ID", out var val2) && long.TryParse(val2?.ToString(), out long id))
+            return id;
+        return -1;
+    }
+
+    private async Task AlternarSelecaoLinha(MouseEventArgs e, Dictionary<string, object> linha)
+    {
+        long fid = ObterFidDaLinha(linha);
+        if (fid < 0 || string.IsNullOrWhiteSpace(nomeCamadaAtiva)) return;
+
+        if (!_fidsSelecionadosTabela.TryGetValue(nomeCamadaAtiva, out var set))
+        {
+            set = new HashSet<long>();
+            _fidsSelecionadosTabela[nomeCamadaAtiva] = set;
+        }
+
+        bool isMulti = e.CtrlKey || e.ShiftKey;
+        if (!isMulti)
+        {
+            set.Clear();
+            set.Add(fid);
+        }
+        else
+        {
+            if (!set.Remove(fid))
+                set.Add(fid);
+        }
+
+        SincronizarSelecaoTabelaComMapa(nomeCamadaAtiva);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleSelecaoLinhaCheckbox(Dictionary<string, object> linha)
+    {
+        long fid = ObterFidDaLinha(linha);
+        if (fid < 0 || string.IsNullOrWhiteSpace(nomeCamadaAtiva)) return;
+
+        if (!_fidsSelecionadosTabela.TryGetValue(nomeCamadaAtiva, out var set))
+        {
+            set = new HashSet<long>();
+            _fidsSelecionadosTabela[nomeCamadaAtiva] = set;
+        }
+
+        if (!set.Remove(fid))
+            set.Add(fid);
+
+        SincronizarSelecaoTabelaComMapa(nomeCamadaAtiva);
+    }
+
+    private void AlternarSelecionarTudoTabela(string nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return;
+        if (!_fidsSelecionadosTabela.TryGetValue(nomeCamada, out var set))
+        {
+            set = new HashSet<long>();
+            _fidsSelecionadosTabela[nomeCamada] = set;
+        }
+
+        if (set.Count == dadosTabela.Count && dadosTabela.Count > 0)
+        {
+            set.Clear();
+        }
+        else
+        {
+            set.Clear();
+            foreach (var linha in dadosTabela)
+            {
+                long fid = ObterFidDaLinha(linha);
+                if (fid >= 0) set.Add(fid);
+            }
+        }
+        SincronizarSelecaoTabelaComMapa(nomeCamada);
+    }
+
+    private void InverterSelecaoTabela(string nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return;
+        if (!_fidsSelecionadosTabela.TryGetValue(nomeCamada, out var set))
+        {
+            set = new HashSet<long>();
+            _fidsSelecionadosTabela[nomeCamada] = set;
+        }
+
+        var novos = new HashSet<long>();
+        foreach (var linha in dadosTabela)
+        {
+            long fid = ObterFidDaLinha(linha);
+            if (fid >= 0 && !set.Contains(fid)) novos.Add(fid);
+        }
+        set.Clear();
+        foreach (var id in novos) set.Add(id);
+        SincronizarSelecaoTabelaComMapa(nomeCamada);
+    }
+
+    private void LimparSelecaoTabela(string nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return;
+        if (_fidsSelecionadosTabela.TryGetValue(nomeCamada, out var set))
+        {
+            set.Clear();
+        }
+        _vectorFeatureEditSelection.RemoveAll(k => string.Equals(k.LayerName, nomeCamada, StringComparison.OrdinalIgnoreCase));
+        MapService.DestacarFeicao(null);
+        MapService.LimparOverlayEdicao();
+        SolicitarNovoFrame(interacaoRapida: true);
+    }
+
+    private void SincronizarSelecaoTabelaComMapa(string nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return;
+        var fids = ObterFidsSelecionadosCamada(nomeCamada);
+
+        _vectorFeatureEditSelection.RemoveAll(k => string.Equals(k.LayerName, nomeCamada, StringComparison.OrdinalIgnoreCase));
+
+        if (MapService.FeaturesPorCamada.TryGetValue(nomeCamada, out var features))
+        {
+            var matchFeatures = features.Where(f => fids.Contains(f.FID) || (f.SourceFeatureId >= 0 && fids.Contains(f.SourceFeatureId))).ToList();
+            foreach (var f in matchFeatures)
+            {
+                _vectorFeatureEditSelection.Add(new VectorFeatureKey(nomeCamada, f.FID, f.SourceFeatureId >= 0 ? f.SourceFeatureId : f.FID));
+            }
+
+            if (matchFeatures.Count > 0)
+            {
+                MapService.DestacarFeicao(matchFeatures[0]);
+                AtualizarOverlaySelecaoFeicoes();
+            }
+            else
+            {
+                MapService.DestacarFeicao(null);
+                MapService.LimparOverlayEdicao();
+            }
+        }
+        SolicitarNovoFrame(interacaoRapida: true);
+    }
+
+    private async Task ZoomParaFeicoesSelecionadasAsync(string nomeCamada)
+    {
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return;
+        var fids = ObterFidsSelecionadosCamada(nomeCamada);
+        if (fids.Count == 0) return;
+
+        if (MapService.FeaturesPorCamada.TryGetValue(nomeCamada, out var features))
+        {
+            var selecionadas = features.Where(f => fids.Contains(f.FID) || (f.SourceFeatureId >= 0 && fids.Contains(f.SourceFeatureId))).ToList();
+            if (selecionadas.Count == 0) return;
+
+            SKRect combinedRect = SKRect.Empty;
+            foreach (var f in selecionadas)
+            {
+                if (f.Path is { } path)
+                {
+                    if (combinedRect.IsEmpty)
+                        combinedRect = path.Bounds;
+                    else
+                        combinedRect.Union(path.Bounds);
+                }
+            }
+
+            if (!combinedRect.IsEmpty)
+            {
+                // Margem de 15% de respiro perimetral (padding)
+                float dx = combinedRect.Width * 0.15f;
+                float dy = combinedRect.Height * 0.15f;
+                combinedRect.Inflate(Math.Max(dx, 15f), Math.Max(dy, 15f));
+
+                if (LayerCameraPolicy.TryFit(MapService.GetSceneBounds(), combinedRect, _larguraTela, _alturaTela, out var camera))
+                {
+                    long serial = await JSRuntime.InvokeAsync<long>("mapEngine.sincronizarCameraComBlazor",
+                        camera.PanX, camera.PanY, camera.Zoom);
+                    _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
+                    MapService.CameraPanX = camera.PanX;
+                    MapService.CameraPanY = camera.PanY;
+                    MapService.CameraZoom = camera.Zoom;
+                    MapService.IsPanning = false;
+                    MapService.RequestRedraw();
+                    await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
+                }
+            }
+        }
+    }
+
+    private async Task ZoomParaLinhaIndividualAsync(Dictionary<string, object> linha)
+    {
+        long fid = ObterFidDaLinha(linha);
+        if (fid < 0 || string.IsNullOrWhiteSpace(nomeCamadaAtiva)) return;
+
+        if (MapService.FeaturesPorCamada.TryGetValue(nomeCamadaAtiva, out var features))
+        {
+            var feature = features.FirstOrDefault(f => f.FID == fid || f.SourceFeatureId == fid);
+            if (feature.Path is { } path)
+            {
+                var rect = path.Bounds;
+                float dx = rect.Width * 0.25f;
+                float dy = rect.Height * 0.25f;
+                rect.Inflate(Math.Max(dx, 20f), Math.Max(dy, 20f));
+
+                if (LayerCameraPolicy.TryFit(MapService.GetSceneBounds(), rect, _larguraTela, _alturaTela, out var camera))
+                {
+                    long serial = await JSRuntime.InvokeAsync<long>("mapEngine.sincronizarCameraComBlazor",
+                        camera.PanX, camera.PanY, camera.Zoom);
+                    _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
+                    MapService.CameraPanX = camera.PanX;
+                    MapService.CameraPanY = camera.PanY;
+                    MapService.CameraZoom = camera.Zoom;
+                    MapService.IsPanning = false;
+                    MapService.RequestRedraw();
+                    await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
+                }
+            }
+        }
+    }
+
+    private NetTopologySuite.Geometries.Envelope ObterEnvelopeVisivelTela()
+    {
+        double xMin = (0 - MapService.CameraPanX) / MapService.CameraZoom + MapService.OffsetMundoX;
+        double xMax = (_larguraTela - MapService.CameraPanX) / MapService.CameraZoom + MapService.OffsetMundoX;
+        double yMax = MapService.OffsetMundoY - (0 - MapService.CameraPanY) / MapService.CameraZoom;
+        double yMin = MapService.OffsetMundoY - (_alturaTela - MapService.CameraPanY) / MapService.CameraZoom;
+        return new NetTopologySuite.Geometries.Envelope(Math.Min(xMin, xMax), Math.Max(xMin, xMax), Math.Min(yMin, yMax), Math.Max(yMin, yMax));
+    }
+
     private async Task SelecionarNoMapa(Dictionary<string, object> linha)
     {
-        if (linha.ContainsKey("ID"))
-        {
-            long id = Convert.ToInt64(linha["ID"]);
-            Console.WriteLine($"Polígono ID {id} selecionado para tracking.");
-        }
+        await AlternarSelecaoLinha(new MouseEventArgs(), linha);
     }
 
     private void AtualizarAtributo(Dictionary<string, object> linha, string coluna, object novoValor) { linha[coluna] = novoValor; }

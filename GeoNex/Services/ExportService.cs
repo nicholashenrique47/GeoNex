@@ -1,5 +1,8 @@
+using System.Text;
+using NetTopologySuite.Geometries;
 using OSGeo.OGR;
 using OSGeo.OSR;
+using NtsEnvelope = NetTopologySuite.Geometries.Envelope;
 
 namespace GeoNex.Services;
 
@@ -11,6 +14,8 @@ public class ExportService
         string caminhoDestino,
         string formatoDriver,
         int epsgDestino,
+        IReadOnlySet<long>? fidsFilter = null,
+        NtsEnvelope? spatialEnvelope = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -64,6 +69,16 @@ public class ExportService
                 using var coordTrans = new CoordinateTransformation(srsOrigem, srsDestino);
                 using var defnDestino = layerDestino.GetLayerDefn();
 
+                // Se houver filtro de extensão espacial ativa na tela
+                if (spatialEnvelope != null && !spatialEnvelope.IsNull)
+                {
+                    layerOrigem.SetSpatialFilterRect(spatialEnvelope.MinX, spatialEnvelope.MinY, spatialEnvelope.MaxX, spatialEnvelope.MaxY);
+                }
+                else
+                {
+                    layerOrigem.SetSpatialFilter(null);
+                }
+
                 layerOrigem.ResetReading();
                 while (true)
                 {
@@ -71,9 +86,15 @@ public class ExportService
                     using Feature? feat = layerOrigem.GetNextFeature();
                     if (feat is null) break;
 
+                    // Se houver filtro de seleção de feições (FIDs)
+                    if (fidsFilter != null && !fidsFilter.Contains(feat.GetFID()))
+                    {
+                        continue;
+                    }
+
                     using var outFeat = new Feature(defnDestino);
-                    using Geometry? sourceGeometry = feat.GetGeometryRef();
-                    using Geometry? outputGeometry = sourceGeometry?.Clone();
+                    using OSGeo.OGR.Geometry? sourceGeometry = feat.GetGeometryRef();
+                    using OSGeo.OGR.Geometry? outputGeometry = sourceGeometry?.Clone();
                     if (outputGeometry is not null)
                     {
                         EnsureSuccess(outputGeometry.Transform(coordTrans), "Falha ao reprojetar uma geometria");
@@ -95,8 +116,37 @@ public class ExportService
                 EnsureSuccess(dsDestino.SyncToDisk(), "Falha ao sincronizar o dataset de destino");
             }
 
+            // Se for Shapefile, emitir arquivo .cpg com codificação UTF-8
+            if (isShapefile)
+            {
+                try
+                {
+                    string stagingCpg = Path.ChangeExtension(publication.StagingPath, ".cpg");
+                    File.WriteAllText(stagingCpg, "UTF-8", Encoding.UTF8);
+                }
+                catch
+                {
+                    // Falha silenciosa em CPG para não abortar publicação principal
+                }
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             publication.Publish(cancellationToken);
+
+            // Garantir que o CPG final também exista no destino publicado
+            if (isShapefile)
+            {
+                try
+                {
+                    string destCpg = Path.ChangeExtension(caminhoDestino, ".cpg");
+                    if (!File.Exists(destCpg))
+                    {
+                        File.WriteAllText(destCpg, "UTF-8", Encoding.UTF8);
+                    }
+                }
+                catch { }
+            }
+
             return true;
         }
         catch (Exception ex)

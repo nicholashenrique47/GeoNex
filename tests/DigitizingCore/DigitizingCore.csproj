@@ -15,6 +15,8 @@
     <Compile Include="../../GeoNex/Services/SrsFactory.cs" Link="SrsFactory.cs" />
     <Compile Include="../../GeoNex/Services/VectorGeometryEditingService.cs" Link="VectorGeometryEditingService.cs" />
     <Compile Include="../../GeoNex/Services/MapMeasurementService.cs" Link="MapMeasurementService.cs" />
+    <Compile Include="../../GeoNex/Services/Geodesy/VincentyGeodesicEngine.cs" Link="VincentyGeodesicEngine.cs" />
+    <Compile Include="../../GeoNex/Services/Measurement/SpatialSnapEngine.cs" Link="SpatialSnapEngine.cs" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
     <PackageReference Include="NetTopologySuite.Features" Version="2.0.0" />
     <PackageReference Include="GDAL" Version="3.12.1" />

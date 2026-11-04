@@ -582,4 +582,35 @@ catch (InvalidOperationException exception)
         "The exterior boundary cannot be removed through the hole-removal operation.");
 }
 
+// --- Testes de Unidade de Geodésia Rigorosa (Vincenty) ---
+var eqDist = GeoNex.Services.Geodesy.VincentyGeodesicEngine.ComputeInverse(0.0, 0.0, 0.0, 1.0);
+Check(eqDist.Converged, "Vincenty 1 grau Equador deve convergir");
+Check(Math.Abs(eqDist.DistanceMeters - 111319.49) < 0.1, $"Vincenty 1 grau Equador: {eqDist.DistanceMeters}");
+Check(Math.Abs(eqDist.InitialAzimuthDegrees - 90.0) < 0.01, "Azimute inicial no equador deve ser 90 graus");
+
+var merDist = GeoNex.Services.Geodesy.VincentyGeodesicEngine.ComputeInverse(0.0, 0.0, 1.0, 0.0);
+Check(merDist.Converged, "Vincenty 1 grau Meridiano deve convergir");
+Check(Math.Abs(merDist.DistanceMeters - 110574.39) < 0.1, $"Vincenty 1 grau Meridiano: {merDist.DistanceMeters}");
+Check(Math.Abs(merDist.InitialAzimuthDegrees - 0.0) < 0.01, "Azimute inicial no meridiano deve ser 0 grau");
+
+var zeroDist = GeoNex.Services.Geodesy.VincentyGeodesicEngine.ComputeInverse(-23.5505, -46.6333, -23.5505, -46.6333);
+Check(zeroDist.DistanceMeters == 0.0, "Distância entre pontos coincidentes deve ser 0");
+
+var ringGeo = new[] { new Coordinate(0, 0), new Coordinate(1, 0), new Coordinate(0, 1), new Coordinate(0, 0) };
+double areaGeo = GeoNex.Services.Geodesy.VincentyGeodesicEngine.ComputeGeodesicPolygonArea(ringGeo);
+Check(areaGeo > 0, "Área geodésica do polígono deve ser positiva");
+
+// --- Testes de Unidade de Snap Espacial O(1) ---
+var snapEngine = new GeoNex.Services.Measurement.SpatialSnapEngine();
+var testPoint = new Point(100, 200);
+snapEngine.PopulateIndex(new[] { ("LayerTest", (IEnumerable<Geometry>)new[] { testPoint }) }, metersPerPixel: 1.0, snapTolerancePixels: 15.0);
+
+var snapHit = snapEngine.QuerySnap(new Coordinate(103, 202), metersPerPixel: 1.0, tolerancePixels: 15.0);
+Check(snapHit.HasSnap, "Snap a 3.6m deve travar no vértice");
+Check(snapHit.Type == GeoNex.Services.Measurement.SnapType.Vertex, "Tipo de snap deve ser Vertex");
+Check(snapHit.Point.X == 100 && snapHit.Point.Y == 200, "Coordenada travada deve ser exata no vértice");
+
+var snapMiss = snapEngine.QuerySnap(new Coordinate(150, 200), metersPerPixel: 1.0, tolerancePixels: 15.0);
+Check(!snapMiss.HasSnap, "Cursor fora da tolerância não deve ter snap");
+
 Console.WriteLine($"Digitizing core contracts passed: {passed} assertions.");
