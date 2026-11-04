@@ -2986,18 +2986,23 @@
                             @{
                                 int selEntradaCount = ObterTotalSelecionadasCamada(_geoCamadaEntrada);
                             }
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-top: 4px; cursor: pointer;">
-                                <input type="checkbox" @bind="_geoApenasSelecionadasEntrada" disabled="@(_geoprocessamentoExecutando || selEntradaCount == 0)" />
-                                <span>Processar apenas feições selecionadas</span>
-                                @if (selEntradaCount > 0)
-                                {
-                                    <span style="font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: 600;">@selEntradaCount selecionada(s)</span>
-                                }
-                                else
-                                {
-                                    <span style="font-size: 10px; color: #64748b;">(0 selecionadas)</span>
-                                }
-                            </label>
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; cursor: pointer; margin: 0;">
+                                    <input type="checkbox" @bind="_geoApenasSelecionadasEntrada" disabled="@(_geoprocessamentoExecutando || selEntradaCount == 0)" />
+                                    <span>Processar apenas feições selecionadas</span>
+                                    @if (selEntradaCount > 0)
+                                    {
+                                        <span style="font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: 600;">@selEntradaCount selecionada(s)</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="font-size: 10px; color: #64748b;">(0 selecionadas)</span>
+                                    }
+                                </label>
+                                <button type="button" @onclick="FecharModalParaSelecionar" style="background: none; border: none; color: #38bdf8; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0;" title="Fecha o diálogo e ativa o cursor de seleção no mapa">
+                                    Selecionar no mapa ↗
+                                </button>
+                            </div>
                         </div>
 
                         <!-- SELEÇÃO DA CAMADA DE SOBREPOSIÇÃO / MÁSCARA (QUANDO APLICÁVEL) -->
@@ -5851,6 +5856,10 @@
                 new("Início", "Camada e Projeto", "Exportar camada", "⇧", "exportar vetor shp geojson kml", "Exporta uma camada vetorial para outro formato.", CamadasAtivas.Any(camada => camada.Tipo == "Vetor" && !camada.PendenteReconexao && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo)), CreateRibbonCommand(AbrirModalExportacao)),
                 new("Início", "Camada e Projeto", "Salvar edições", "✓", "salvar gravar edicoes feicoes pendencias", "Grava permanentemente as edições na camada.", (temEdicoesPendentes || MapService.PontosAquisicao.Count > 0) && !_salvandoEdicoes, CreateRibbonCommand(ConfirmarTodasEdicoes)),
 
+                // Geoprocessamento - Seleção
+                new("Geoprocessamento", "Seleção", "Selecionar feições", "▫", "selecao selecionar feicoes retangulo poligono clique", "Ativa a seleção persistente de feições na camada ativa para uso nas ferramentas.", CamadaAtivaVetorialDisponivel, CreateRibbonCommand(AlternarSelecaoFeicoesRibbon)),
+                new("Geoprocessamento", "Seleção", "Limpar seleção", "×", "limpar desselecionar feicoes", "Limpa a seleção vetorial atual.", _vectorFeatureEditSelection.Count > 0, CreateRibbonCommand(LimparSelecaoEdicaoVetorial)),
+
                 // Geoprocessamento - Sobreposição
                 new("Geoprocessamento", "Sobreposição", "Recortar (Clip)", "◩", "recortar clip mascara corte poligono", "Recorta feições de uma camada pelo limite de uma máscara.", CamadasAtivas.Count(c => c.Tipo == "Vetor") >= 2, CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Recortar))),
                 new("Geoprocessamento", "Sobreposição", "Intersecção", "∩", "interseccao cruzar sobreposicao", "Cruza duas camadas mantendo apenas a sobreposição e unindo atributos.", CamadasAtivas.Count(c => c.Tipo == "Vetor") >= 2, CreateRibbonCommand(() => AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento.Interseccao))),
@@ -6272,6 +6281,18 @@
     {
         int sel = ObterTotalSelecionadasCamada(_geoCamadaSobreposicao);
         _geoApenasSelecionadasSobreposicao = sel > 0;
+    }
+
+    private void FecharModalParaSelecionar()
+    {
+        if (_geoprocessamentoExecutando) return;
+        exibirModalGeoprocessamento = false;
+        if (!_vectorFeatureSelectionMode)
+        {
+            AlternarSelecaoFeicoesRibbon();
+        }
+        _vectorEditMessage = "Modo de seleção ativo: clique ou desenhe um retângulo/polígono no mapa para selecionar feições. Depois, reabra o Geoprocessamento.";
+        StateHasChanged();
     }
 
     private void AbrirModalGeoprocessamento(TipoOperacaoGeoprocessamento operacao)
