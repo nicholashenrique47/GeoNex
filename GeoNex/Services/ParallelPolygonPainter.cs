@@ -28,7 +28,7 @@ internal static class ParallelPolygonPainter
         // Cover the peak of either the pooled vertex histogram input (<=16N)
         // or the growing contour buffer (<=24N); they never coexist.
         long scratch = 24L * source.PointCount + 4096;
-        for (int bands = workers >= 4 ? 4 : 2; bands >= 2; bands /= 2)
+        for (int bands = workers >= 8 ? 8 : workers >= 4 ? 4 : 2; bands >= 2; bands /= 2)
         {
             long pathBudget = spareBytes - imageBytes * bands - scratch;
             if (pathBudget <= 0) continue;
@@ -77,8 +77,9 @@ internal static class ParallelPolygonPainter
                 });
                 token.ThrowIfCancellationRequested();
                 // No destination mutation before every worker has succeeded.
-                for (int i = 0; i < bands; i++)
-                    CopyRegion(images[i]!, destination, cuts[i], cuts[i + 1], columns);
+                // Each worker copies its strictly disjoint band into destination in parallel.
+                Parallel.For(0, bands, new ParallelOptions { MaxDegreeOfParallelism = bands }, i =>
+                    CopyRegion(images[i]!, destination, cuts[i], cuts[i + 1], columns));
                 return true;
             }
             catch (OutOfMemoryException) { return false; }
@@ -124,6 +125,9 @@ internal static class ParallelPolygonPainter
         histogram.Clear();
         int total = 0;
         int count = source.PointCount;
+        double scaleX = matrix.ScaleX;
+        double transX = matrix.TransX;
+        double invDimBuckets = (double)buckets / dimension;
         var points = ArrayPool<SKPoint>.Shared.Rent(count);
         try
         {
@@ -131,10 +135,11 @@ internal static class ParallelPolygonPainter
             for (int i = 0; i < count; i++)
             {
                 if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
-                if (!float.IsFinite(points[i].X) || !float.IsFinite(points[i].Y)) return cuts;
-                double x = points[i].X * (double)matrix.ScaleX + matrix.TransX;
+                float px = points[i].X, py = points[i].Y;
+                if (!float.IsFinite(px) || !float.IsFinite(py)) return cuts;
+                double x = px * scaleX + transX;
                 if (x < 0 || x >= dimension) continue;
-                histogram[Math.Min(buckets - 1, (int)(x * buckets / dimension))]++;
+                histogram[Math.Min(buckets - 1, (int)(x * invDimBuckets))]++;
                 total++;
             }
         }
@@ -215,7 +220,11 @@ internal static class ParallelPolygonPainter
                 buffer[count++] = point;
                 float coordinate = vertical ? point.X : point.Y;
                 if (count == 1) { low = high = coordinate; }
-                else { low = Math.Min(low, coordinate); high = Math.Max(high, coordinate); }
+                else
+                {
+                    if (coordinate < low) low = coordinate;
+                    else if (coordinate > high) high = coordinate;
+                }
             }
             if (count != 0) return null;
             token.ThrowIfCancellationRequested();
@@ -257,18 +266,17 @@ internal static class ParallelPolygonPainter
             long totalBytes = (long)(end - start) * bitmap.RowBytes;
             while (totalBytes > 0)
             {
-                int chunk = (int)Math.Min(totalBytes, int.MaxValue);
-                new Span<byte>(pixels + offset, chunk).Clear();
+                uint chunk = (uint)Math.Min(totalBytes, uint.MaxValue);
+                System.Runtime.CompilerServices.Unsafe.InitBlockUnaligned(pixels + offset, 0, chunk);
                 offset += chunk;
                 totalBytes -= chunk;
             }
             return;
         }
-        int top = 0;
-        int bottom = bitmap.Height;
+        uint widthBytes = (uint)((end - start) * 4);
         int colOffset = start * 4;
-        int bytes = (end - start) * 4;
-        for (int y = top; y < bottom; y++)
-            new Span<byte>(pixels + (long)y * bitmap.RowBytes + colOffset, bytes).Clear();
+        for (int y = 0; y < bitmap.Height; y++)
+            System.Runtime.CompilerServices.Unsafe.InitBlockUnaligned(
+                pixels + (long)y * bitmap.RowBytes + colOffset, 0, widthBytes);
     }
 }

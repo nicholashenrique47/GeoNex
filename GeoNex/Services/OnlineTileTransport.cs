@@ -17,8 +17,14 @@ public sealed class OnlineTileTransport : IDisposable
     private const int MaximumSources = 16;
     private const int MaximumValidatedTiles = 4096;
     private const long MaximumValidatedTileBytes = 32L * 1024 * 1024;
-    private readonly record struct CachedTile(byte[] Bytes, long LastWriteUtcTicks,
-        string ContentType, long LastAccess);
+    private sealed class CachedTile(byte[] bytes, long lastWriteUtcTicks, string contentType, long lastAccess)
+    {
+        public readonly byte[] Bytes = bytes;
+        public readonly long LastWriteUtcTicks = lastWriteUtcTicks;
+        public readonly string ContentType = contentType;
+        public readonly Tile ResponseTile = new(200, bytes, contentType);
+        public long LastAccess = lastAccess;
+    }
     private sealed record Tile(int Status, byte[] Bytes, string ContentType);
     private sealed class Source : IDisposable
     {
@@ -28,6 +34,7 @@ public sealed class OnlineTileTransport : IDisposable
         public required HttpClient Client;
         public required SemaphoreSlim Slots;
         public readonly Dictionary<string, Task<Tile>> Flights = new(StringComparer.Ordinal);
+        public readonly ConcurrentDictionary<string, byte> CreatedDirs = new(StringComparer.Ordinal);
         public long WrittenBytes;
         public bool Trimming;
         public void Dispose() => Client.Dispose();
@@ -167,14 +174,11 @@ public sealed class OnlineTileTransport : IDisposable
                 !int.TryParse(ySpan, NumberStyles.None, CultureInfo.InvariantCulture, out int y) || y < 0 || y >= 1 << z)
             { context.Response.StatusCode = 404; return; }
 
-            string sourceKey = sourceIdSpan.ToString();
+            string sourceKey = sourceIdSpan.Length == 1 && sourceIdSpan[0] == '0' ? "0" : sourceIdSpan.ToString();
             Source? source;
             lock (_gate) _sources.TryGetValue(sourceKey, out source);
             if (source == null) { context.Response.StatusCode = 404; return; }
-            string url = source.Template
-                .Replace("${z}", zSpan.ToString())
-                .Replace("${x}", xSpan.ToString())
-                .Replace("${y}", ySpan.ToString());
+            string url = BuildTileUrl(source.Template, zSpan, xSpan, ySpan);
             Tile tile = await Get(source, url).ConfigureAwait(false);
             context.Response.StatusCode = tile.Status;
             context.Response.ContentType = tile.ContentType;
@@ -192,6 +196,27 @@ public sealed class OnlineTileTransport : IDisposable
             catch (HttpListenerException) { }
             catch (ObjectDisposedException) { }
         }
+    }
+
+    private static string BuildTileUrl(string template, ReadOnlySpan<char> z, ReadOnlySpan<char> x, ReadOnlySpan<char> y)
+    {
+        if (template.Length + 32 > 512)
+            return template.Replace("${z}", z.ToString()).Replace("${x}", x.ToString()).Replace("${y}", y.ToString());
+        var sb = new ValueStringBuilder(stackalloc char[512]);
+        ReadOnlySpan<char> span = template.AsSpan();
+        int i = 0;
+        while (i < span.Length)
+        {
+            if (i + 3 < span.Length && span[i] == '$' && span[i + 1] == '{' && span[i + 3] == '}')
+            {
+                char token = span[i + 2];
+                if (token == 'z') { sb.Append(z); i += 4; continue; }
+                if (token == 'x') { sb.Append(x); i += 4; continue; }
+                if (token == 'y') { sb.Append(y); i += 4; continue; }
+            }
+            sb.Append(span[i++]);
+        }
+        return sb.ToString();
     }
 
     private Task<Tile> Get(Source source, string url)
@@ -359,8 +384,8 @@ public sealed class OnlineTileTransport : IDisposable
             if (DateTime.UtcNow.Ticks - cached.LastWriteUtcTicks < TimeSpan.FromSeconds(expirySeconds).Ticks)
             {
                 long tick = Interlocked.Increment(ref _validatedTileClock);
-                _validatedTiles[path] = cached with { LastAccess = tick };
-                tile = new Tile(200, cached.Bytes, cached.ContentType);
+                Volatile.Write(ref cached.LastAccess, tick);
+                tile = cached.ResponseTile;
                 return true;
             }
             if (_validatedTiles.TryRemove(path, out var removed))
@@ -385,9 +410,10 @@ public sealed class OnlineTileTransport : IDisposable
                 long oldestAccess = long.MaxValue;
                 foreach (var pair in _validatedTiles)
                 {
-                    if (pair.Value.LastAccess < oldestAccess)
+                    long access = Volatile.Read(ref pair.Value.LastAccess);
+                    if (access < oldestAccess)
                     {
-                        oldestAccess = pair.Value.LastAccess;
+                        oldestAccess = access;
                         oldestPath = pair.Key;
                     }
                 }
@@ -406,7 +432,12 @@ public sealed class OnlineTileTransport : IDisposable
         string temporary = string.Concat(path, ".", Guid.NewGuid().ToString("N"), ".tmp");
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && !source.CreatedDirs.ContainsKey(dir))
+            {
+                Directory.CreateDirectory(dir);
+                source.CreatedDirs.TryAdd(dir, 0);
+            }
             using (var handle = File.OpenHandle(temporary, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.Asynchronous, bytes.Length))
             {
                 await RandomAccess.WriteAsync(handle, bytes, 0, _stop.Token).ConfigureAwait(false);
@@ -483,6 +514,24 @@ public sealed class OnlineTileTransport : IDisposable
     private static unsafe string? ContentType(byte[] bytes)
     {
         if (bytes.Length < 30) return null;
+        // Fast-reject non-image or truncated payloads before allocating native SKData/SKCodec.
+        if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+        {
+            if (!HasValidContainerTail(bytes, SKEncodedImageFormat.Png)) return null;
+        }
+        else if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+        {
+            if (!HasValidContainerTail(bytes, SKEncodedImageFormat.Jpeg)) return null;
+        }
+        else if (bytes[0] == (byte)'R' && bytes[1] == (byte)'I' && bytes[2] == (byte)'F' && bytes[3] == (byte)'F')
+        {
+            if (!HasValidContainerTail(bytes, SKEncodedImageFormat.Webp)) return null;
+        }
+        else
+        {
+            return null;
+        }
+
         fixed (byte* ptr = bytes)
         {
             using var data = SKData.Create((IntPtr)ptr, bytes.Length);

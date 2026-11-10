@@ -142,15 +142,19 @@ public static class OnlineRasterFrameReader
 
     internal static bool CanUseCompleteTileMosaic(OnlineRasterSession session, string xml, string targetSrs,
         SKRect localBounds, double offsetX, double offsetY, int requestedWidth, int requestedHeight,
-        int mosaicWidth, int mosaicHeight)
+        int mosaicWidth, int mosaicHeight, bool? isTmsHint = null)
     {
         if (mosaicWidth != requestedWidth || mosaicHeight != requestedHeight ||
             !SrsFactory.IsSame(targetSrs, OnlineBasemapPolicy.WebMercatorSrs)) return false;
         try
         {
-            var config = XDocument.Parse(xml);
-            if (!string.Equals(config.Root?.Element("Service")?.Attribute("name")?.Value,
-                    "TMS", StringComparison.OrdinalIgnoreCase)) return false;
+            if (isTmsHint == false) return false;
+            if (isTmsHint == null)
+            {
+                var config = XDocument.Parse(xml);
+                if (!string.Equals(config.Root?.Element("Service")?.Attribute("name")?.Value,
+                        "TMS", StringComparison.OrdinalIgnoreCase)) return false;
+            }
             using var lease = session.AcquireDataset(xml);
             var source = lease.Resource;
             if (source.RasterCount != 3 || !SrsFactory.IsSame(source.GetProjection(), targetSrs)) return false;

@@ -270,3 +270,29 @@ sequential reference: 689–758 changed channels out of 34,328,576, with no chan
 to geometry, alpha policy, worker count, memory limits or fallback behavior.
 `--parallel-polygon-contracts`, frame encoding, encoded-frame cache and the real
 production high-zoom run passed after this change. The source SHP remains read-only.
+
+## Very large polygon frames, 2026-11-10
+
+The transient polygon painter budget now follows the adaptive vector cache
+budget up to 512 MiB (previously half that budget, capped at 256 MiB). The
+parallel painter starts with eight bands when eight workers are available, then
+falls back to four, two, or the sequential path if the measured working-memory
+budget cannot cover the source path and scratch images. Persistent caches remain
+bounded by their existing policies.
+
+Measured on the read-only `QUADRA130_P03.shp` (490.28 MiB, 2,468,704 features),
+Release, 1600x900 CSS viewport, DPI 1, scale 0.25, 2050x1350 physical frame:
+
+| Configuration | Geometry | Draw | Render | HTTP endpoint | Pixel delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Previous budget / up to 4 bands | 1873 ms | 7472 ms | 9418 ms | 9881 ms | reference |
+| 512 MiB adaptive budget / up to 4 bands | 1835 ms | 1403 ms | 3273 ms | 3415 ms | 0 |
+| 512 MiB adaptive budget / up to 8 bands | 1951 ms | 1182 ms | 3187 ms | 3344 ms | 0 |
+
+The eight-band run reduced cold-frame draw time by 84% versus the previous
+configuration and by 16% versus four bands. The decoded output matched the
+previous frame exactly across all 11,070,000 RGBA channels. These are single
+cold-frame captures; dataset loading varied with the OS file cache and is not
+used to claim an improvement. The extra transient allocation is bounded by the
+current adaptive cache budget and the 512 MiB ceiling; low-memory machines reduce
+the budget and naturally fall back to fewer workers.

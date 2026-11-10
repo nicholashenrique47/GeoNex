@@ -32,6 +32,8 @@ public sealed class ProgressiveOnlineRaster : IDisposable
             xml = _transport.Value.Register(xml);
             config = XDocument.Parse(xml);
         }
+        bool isTms = string.Equals(config.Root?.Element("Service")?.Attribute("name")?.Value,
+            "TMS", StringComparison.OrdinalIgnoreCase);
         bool sharedTransport = config.Root?.Element("GeoNexTileTransport")?.Value == "shared";
         int connections = int.TryParse(config.Root?.Element("MaxConnections")?.Value, out int count) ? count : 2;
         var available = GdalRuntimeConfiguration.Apply().AvailablePhysicalMb;
@@ -42,8 +44,16 @@ public sealed class ProgressiveOnlineRaster : IDisposable
         int laneCount = Math.Clamp(connections, 1, maxLanes);
         // The adapter enforces the provider limit globally. Let GDAL submit local
         // requests concurrently so duplicate tiles don't occupy every network lane.
-        if (!sharedTransport) config.Root!.SetElementValue("MaxConnections", 1);
-        string laneXml = config.ToString(SaveOptions.DisableFormatting);
+        string laneXml;
+        if (!sharedTransport)
+        {
+            config.Root!.SetElementValue("MaxConnections", 1);
+            laneXml = config.ToString(SaveOptions.DisableFormatting);
+        }
+        else
+        {
+            laneXml = xml;
+        }
         var readSize = isWebMercator
             ? OnlineBasemapPolicy.CalculateDirectRenderDimensions(width, height, available)
             : OnlineBasemapPolicy.CalculateRenderDimensions(width, height, available, false);
@@ -145,7 +155,7 @@ public sealed class ProgressiveOnlineRaster : IDisposable
         // network-cache lookups without changing pixels; conservatively keep the
         // canonical full-frame read for reprojection, alpha, clipping and downscaling.
         if (OnlineRasterFrameReader.CanUseCompleteTileMosaic(finalSession, xml, srs, bounds, offsetX, offsetY,
-                width, height, readSize.Width, readSize.Height) && size.Width == width && size.Height == height)
+                width, height, readSize.Width, readSize.Height, isTms) && size.Width == width && size.Height == height)
         {
             token.ThrowIfCancellationRequested();
             return preview.Copy() ?? throw new IOException("Cannot allocate the completed tile mosaic.");

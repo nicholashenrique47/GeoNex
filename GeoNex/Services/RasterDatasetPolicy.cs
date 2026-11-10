@@ -49,41 +49,50 @@ public static class RasterDatasetPolicy
 
     internal static bool RequiresGrayAlphaExpansion(Dataset dataset) => GetRenderMetadata(dataset).ExpandGrayAlpha;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static unsafe void ExpandGrayInPlace(IntPtr pixels, int width, int height, int rowBytes)
     {
         if (pixels == IntPtr.Zero || width <= 0 || height <= 0 || rowBytes != (long)width * 4)
             throw new ArgumentException("Invalid gray destination.");
         int count = checked(width * height);
         byte* data = (byte*)pixels;
-        for (int index = count - 1; index >= 0; index--)
+        uint* dst32 = (uint*)pixels;
+        int index = count - 1;
+        for (; index >= 3; index -= 4)
         {
-            byte gray = data[index];
-            long destination = (long)index * 4;
-            data[destination] = gray;
-            data[destination + 1] = gray;
-            data[destination + 2] = gray;
-            data[destination + 3] = 255;
+            uint g3 = data[index];
+            uint g2 = data[index - 1];
+            uint g1 = data[index - 2];
+            uint g0 = data[index - 3];
+            dst32[index] = 0xFF000000u | (g3 * 0x00010101u);
+            dst32[index - 1] = 0xFF000000u | (g2 * 0x00010101u);
+            dst32[index - 2] = 0xFF000000u | (g1 * 0x00010101u);
+            dst32[index - 3] = 0xFF000000u | (g0 * 0x00010101u);
+        }
+        for (; index >= 0; index--)
+        {
+            uint gray = data[index];
+            dst32[index] = 0xFF000000u | (gray * 0x00010101u);
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static unsafe void ExpandGrayAlphaInPlace(IntPtr pixels, int width, int height, int rowBytes)
     {
         if (pixels == IntPtr.Zero || width <= 0 || height <= 0 || rowBytes != (long)width * 4)
             throw new ArgumentException("Invalid gray-alpha destination.");
         int count = checked(width * height);
-        byte* data = (byte*)pixels;
+        uint* dst32 = (uint*)pixels;
         for (int index = count - 1; index >= 0; index--)
         {
-            long destination = (long)index * 4;
-            byte gray = data[destination];
-            byte alpha = data[destination + 1];
-            data[destination] = gray;
-            data[destination + 1] = gray;
-            data[destination + 2] = gray;
-            data[destination + 3] = alpha;
+            uint raw = dst32[index];
+            uint gray = raw & 0xFFu;
+            uint alpha = (raw >> 8) & 0xFFu;
+            dst32[index] = (alpha << 24) | (gray * 0x00010101u);
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static unsafe void ExpandPaletteInPlace(IntPtr pixels, int width, int height, int rowBytes,
         RasterPaletteColor[] palette, bool hasSeparateAlpha)
     {
@@ -92,32 +101,46 @@ public static class RasterDatasetPolicy
             throw new ArgumentException("Invalid palette destination.");
         int count = checked(width * height);
         byte* data = (byte*)pixels;
+        uint* dst32 = (uint*)pixels;
         if (hasSeparateAlpha)
         {
             for (int index = count - 1; index >= 0; index--)
             {
-                byte paletteIndex = data[(long)index * 4];
-                byte sourceAlpha = data[(long)index * 4 + 1];
+                uint raw = dst32[index];
+                byte paletteIndex = (byte)raw;
+                byte sourceAlpha = (byte)(raw >> 8);
                 RasterPaletteColor color = paletteIndex < palette.Length
                     ? palette[paletteIndex] : default;
-                data[(long)index * 4] = color.Red;
-                data[(long)index * 4 + 1] = color.Green;
-                data[(long)index * 4 + 2] = color.Blue;
-                data[(long)index * 4 + 3] = (byte)((color.Alpha * sourceAlpha + 127) / 255);
+                uint alpha = (uint)((color.Alpha * sourceAlpha + 127) / 255);
+                dst32[index] = color.Red | ((uint)color.Green << 8) | ((uint)color.Blue << 16) | (alpha << 24);
             }
             return;
         }
 
-        for (int index = count - 1; index >= 0; index--)
+        Span<uint> packed = stackalloc uint[256];
+        packed.Clear();
+        int limit = Math.Min(palette.Length, 256);
+        for (int i = 0; i < limit; i++)
         {
-            byte paletteIndex = data[index];
-            RasterPaletteColor color = paletteIndex < palette.Length
-                ? palette[paletteIndex] : default;
-            long destination = (long)index * 4;
-            data[destination] = color.Red;
-            data[destination + 1] = color.Green;
-            data[destination + 2] = color.Blue;
-            data[destination + 3] = color.Alpha;
+            RasterPaletteColor c = palette[i];
+            packed[i] = c.Red | ((uint)c.Green << 8) | ((uint)c.Blue << 16) | ((uint)c.Alpha << 24);
+        }
+
+        int idx = count - 1;
+        for (; idx >= 3; idx -= 4)
+        {
+            byte p3 = data[idx];
+            byte p2 = data[idx - 1];
+            byte p1 = data[idx - 2];
+            byte p0 = data[idx - 3];
+            dst32[idx] = packed[p3];
+            dst32[idx - 1] = packed[p2];
+            dst32[idx - 2] = packed[p1];
+            dst32[idx - 3] = packed[p0];
+        }
+        for (; idx >= 0; idx--)
+        {
+            dst32[idx] = packed[data[idx]];
         }
     }
 

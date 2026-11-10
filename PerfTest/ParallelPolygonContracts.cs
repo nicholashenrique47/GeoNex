@@ -36,11 +36,11 @@ internal static class ParallelPolygonContracts
                 if (activeFill != null) canvas.DrawPath(path, activeFill);
                 if (activeStroke != null) canvas.DrawPath(path, activeStroke);
             }
-            foreach (int workers in new[] { 2, 4 })
+            foreach (int workers in new[] { 2, 4, 8 })
             foreach (bool vertical in new[] { false, true })
             {
                 using var actual = new SKBitmap(expected.Info);
-                Check(ParallelPolygonPainter.TryPaint(actual, path, activeFill, activeStroke, matrix, workers, 64L << 20, default,
+                Check(ParallelPolygonPainter.TryPaint(actual, path, activeFill, activeStroke, matrix, workers, 128L << 20, default,
                     vertical: vertical), "parallel fixture declined");
                 byte[] a = expected.Bytes, b = actual.Bytes;
                 if (!a.SequenceEqual(b))
@@ -89,7 +89,7 @@ internal static class ParallelPolygonContracts
         Check(completedBands == 2, "RAM downgrade did not use exactly two workers");
         CheckBalancedParcels();
         CheckClippedParcels();
-        Console.WriteLine("Parallel polygons: PASS (exact pixels, rows/columns, 2/4 workers, 3 DPIs, odd portrait/landscape, winding/holes, hairline/miter, fill/border, resource fallbacks, cancellation)");
+        Console.WriteLine("Parallel polygons: PASS (exact pixels, rows/columns, 2/4/8 workers, 3 DPIs, odd portrait/landscape, winding/holes, hairline/miter, fill/border, resource fallbacks, cancellation)");
     }
 
     private static void CheckBalancedParcels()
@@ -157,7 +157,7 @@ internal static class ParallelPolygonContracts
             Style = SKPaintStyle.Stroke, StrokeJoin = SKStrokeJoin.Round };
         foreach (var size in new[] { (Width: 643, Height: 481), (Width: 481, Height: 643) })
         foreach (float width in new[] { 0f, 1f, 1.005f, 2f, 3.5f })
-        foreach (int workers in new[] { 2, 4 })
+        foreach (int workers in new[] { 2, 4, 8 })
         {
             var matrix = SKMatrix.CreateScale(.5f, .5f);
             matrix.TransX = size.Width / 2f + .375f; matrix.TransY = size.Height / 2f - .1875f;
@@ -166,13 +166,13 @@ internal static class ParallelPolygonContracts
             using var actual = new SKBitmap(expected.Info);
             using (var canvas = new SKCanvas(expected))
             { canvas.Clear(SKColors.Transparent); canvas.SetMatrix(matrix); canvas.DrawPath(path, fill); canvas.DrawPath(path, stroke); }
-            Check(ParallelPolygonPainter.TryPaint(actual, path, fill, stroke, matrix, workers, 64L << 20, default), "clipped fixture declined");
+            Check(ParallelPolygonPainter.TryPaint(actual, path, fill, stroke, matrix, workers, 128L << 20, default), "clipped fixture declined");
             byte[] a = expected.Bytes, b = actual.Bytes;
             int maximum = 0;
             for (int i = 0; i < a.Length; i++) maximum = Math.Max(maximum, Math.Abs(a[i] - b[i]));
             Check(maximum <= 1, $"Clipped parcels changed: {size} width={width} workers={workers} max={maximum}");
         }
-        Console.WriteLine("Clipped parcels: PASS (synthetic, portrait/landscape, 2/4 workers, physical widths 0/1/1.005/2/3.5, RGBA tolerance <= 1/255)");
+        Console.WriteLine("Clipped parcels: PASS (synthetic, portrait/landscape, 2/4/8 workers, physical widths 0/1/1.005/2/3.5, RGBA tolerance <= 1/255)");
     }
     private static void Check(bool condition, string message)
     { if (!condition) throw new InvalidOperationException(message); }
