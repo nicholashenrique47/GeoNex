@@ -378,12 +378,39 @@ public partial class Home
                 float cx = rect.MidX;
                 float cy = rect.MidY;
 
-                // Centraliza sem alterar o zoom
-                MapService.CameraPanX = _larguraTela / 2f - (cx - MapService.OffsetMundoX) * MapService.CameraZoom;
-                MapService.CameraPanY = _alturaTela / 2f + (cy - MapService.OffsetMundoY) * MapService.CameraZoom;
+                var bounds = MapService.GetSceneBounds();
+                float midX = MapService.ViewportMidX;
+                float midY = MapService.ViewportMidY;
+                if ((midX == 0 && midY == 0) || !float.IsFinite(midX) || !float.IsFinite(midY))
+                {
+                    if (!bounds.IsEmpty)
+                    {
+                        midX = bounds.MidX;
+                        midY = bounds.MidY;
+                    }
+                }
+
+                float escalaAutoFit = MapService.ViewportEscalaAutoFit;
+                if (escalaAutoFit <= 0f && !bounds.IsEmpty && _larguraTela > 0 && _alturaTela > 0)
+                {
+                    float escalaX = _larguraTela / bounds.Width;
+                    float escalaY = _alturaTela / bounds.Height;
+                    escalaAutoFit = Math.Min(escalaX, escalaY) * 0.8f;
+                }
+                if (escalaAutoFit <= 0f || !float.IsFinite(escalaAutoFit)) escalaAutoFit = 1f;
+
+                float zoomReal = (float)(escalaAutoFit * MapService.CameraZoom);
+                float targetPanX = (midX - cx) * zoomReal;
+                float targetPanY = (midY - cy) * zoomReal;
+
+                long serial = await JSRuntime.InvokeAsync<long>("mapEngine.sincronizarCameraComBlazor",
+                    targetPanX, targetPanY, MapService.CameraZoom);
+                _ultimaRequisicaoCamera = Math.Max(_ultimaRequisicaoCamera, serial);
+                MapService.CameraPanX = targetPanX;
+                MapService.CameraPanY = targetPanY;
+                MapService.IsPanning = false;
                 MapService.DestacarFeicao(feat);
                 MapService.RequestRedraw();
-                await JSRuntime.InvokeVoidAsync("mapEngine.sincronizarCameraComBlazor", MapService.CameraPanX, MapService.CameraPanY, MapService.CameraZoom);
                 await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
             }
         }

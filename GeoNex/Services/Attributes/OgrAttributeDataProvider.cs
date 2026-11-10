@@ -1,4 +1,6 @@
 ﻿using System.Globalization;
+using NetTopologySuite.IO;
+using OSGeo.GDAL;
 using OSGeo.OGR;
 
 namespace GeoNex.Services.Attributes;
@@ -16,6 +18,7 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
     private long _totalRowCount;
     private long _filteredRowCount;
     private bool _isEditing;
+    private bool _isWritable;
     private readonly Dictionary<long, Dictionary<string, object?>> _dirtyRows = new();
     private readonly HashSet<long> _deletedRows = new();
     private List<long>? _filteredFids;
@@ -31,6 +34,9 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
     public string? CurrentFilter { get; private set; }
     public string? SortColumn { get; private set; }
     public bool SortAscending { get; private set; } = true;
+
+    public Func<Task>? BeforeSchemaChangeAsync { get; set; }
+    public Func<Task>? AfterSchemaChangeAsync { get; set; }
 
     public OgrAttributeDataProvider(string filePath, string? layerName = null)
     {
@@ -61,14 +67,23 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
 
         GdalRuntimeBootstrap.Configure();
         _dataSource = Ogr.Open(_filePath, writable ? 1 : 0);
-        if (_dataSource == null && writable)
+        if (_dataSource != null && writable)
+        {
+            _isWritable = true;
+        }
+        else if (_dataSource == null && writable)
         {
             // Fallback to read-only if write lock fails
             _dataSource = Ogr.Open(_filePath, 0);
+            _isWritable = false;
+        }
+        else
+        {
+            _isWritable = false;
         }
 
         if (_dataSource == null)
-            throw new InvalidOperationException($"Não foi possível abrir a fonte de dados: {_filePath}");
+            throw new InvalidOperationException($"Não foi possível abrir a fonte de dados: {_filePath}. GDAL: {Gdal.GetLastErrorMsg()}");
 
         _layer = _dataSource.GetLayerCount() > 0 ? _dataSource.GetLayerByIndex(0) : null;
         if (_layer == null)
@@ -117,9 +132,6 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         try
         {
             var result = new List<AttributeRow>(count);
-            int blockIndex = startIndex / AttributeTableBlockCache.BlockSize;
-            int offsetInBlock = startIndex % AttributeTableBlockCache.BlockSize;
-
             int remaining = count;
             int currentStart = startIndex;
 
@@ -127,7 +139,6 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
             {
                 int bIdx = currentStart / AttributeTableBlockCache.BlockSize;
                 int inBOffset = currentStart % AttributeTableBlockCache.BlockSize;
-                int takeFromBlock = Math.Min(remaining, AttributeTableBlockCache.BlockSize - inBOffset);
 
                 if (!_blockCache.TryGetBlock(bIdx, out var blockRows) || blockRows == null)
                 {
@@ -250,9 +261,9 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
                 for (int c = 1; c < _columns.Count; c++)
                 {
                     string colName = _columns[c].Name;
-                    if (edits.TryGetValue(colName, out var editedVal))
+                    if (edits.TryGetValue(colName, out var edVal))
                     {
-                        row.Values[c] = editedVal;
+                        row.Values[c] = edVal;
                         row.State = RowState.Modified;
                     }
                 }
@@ -265,38 +276,44 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         }
     }
 
+    public async Task<NetTopologySuite.Geometries.Geometry?> GetGeometryAsync(long fid, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            if (_layer == null) return null;
+            using Feature? feat = _layer.GetFeature(fid);
+            if (feat == null) return null;
+            using var ogrGeom = feat.GetGeometryRef();
+            if (ogrGeom == null) return null;
+            int size = (int)ogrGeom.WkbSize();
+            if (size <= 0) return null;
+            byte[] bytes = new byte[size];
+            ogrGeom.ExportToWkb(bytes);
+            return new WKBReader().Read(bytes);
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task SetFilterAsync(string? filterQuery, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);
         try
         {
-            CurrentFilter = string.IsNullOrWhiteSpace(filterQuery) ? null : filterQuery.Trim();
-            _blockCache.InvalidateAll();
-
             if (_layer == null) return;
-
-            if (string.IsNullOrEmpty(CurrentFilter))
-            {
-                _layer.SetAttributeFilter(null);
-                _filteredFids = null;
-                _filteredRowCount = _layer.GetFeatureCount(1);
-            }
-            else
-            {
-                try
-                {
-                    _layer.SetAttributeFilter(CurrentFilter);
-                    _filteredRowCount = _layer.GetFeatureCount(1);
-                    _filteredFids = null;
-                }
-                catch
-                {
-                    // If OGR filter fails, clear and rethrow
-                    _layer.SetAttributeFilter(null);
-                    _filteredRowCount = _totalRowCount;
-                    throw;
-                }
-            }
+            CurrentFilter = filterQuery;
+            _layer.SetAttributeFilter(filterQuery);
+            _totalRowCount = _layer.GetFeatureCount(1);
+            _filteredRowCount = _totalRowCount;
+            _filteredFids = null;
+            _blockCache.InvalidateAll();
         }
         finally
         {
@@ -309,7 +326,6 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         await _gate.WaitAsync(ct);
         try
         {
-            _blockCache.InvalidateAll();
             if (matchingFids == null)
             {
                 _filteredFids = null;
@@ -320,6 +336,7 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
                 _filteredFids = matchingFids.ToList();
                 _filteredRowCount = _filteredFids.Count;
             }
+            _blockCache.InvalidateAll();
         }
         finally
         {
@@ -332,50 +349,54 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         await _gate.WaitAsync(ct);
         try
         {
+            if (_layer == null) return;
             SortColumn = columnName;
             SortAscending = ascending;
             _blockCache.InvalidateAll();
 
-            // Build sorted FID index
-            if (_layer == null) return;
+            var colDef = _columns.FirstOrDefault(c => string.Equals(c.Name, columnName, StringComparison.OrdinalIgnoreCase));
+            if (colDef == null) return;
 
-            int colIdx = _columns.FindIndex(c => string.Equals(c.Name, columnName, StringComparison.OrdinalIgnoreCase));
-            if (colIdx < 0) return;
-
-            var items = new List<(long FID, object? Value)>();
+            // Collect all FIDs with column values for in-memory sort index
+            var items = new List<(long FID, object? Value)>((int)_totalRowCount);
             _layer.ResetReading();
             Feature? feat;
+
             while ((feat = _layer.GetNextFeature()) != null)
             {
                 long fid = feat.GetFID();
                 object? val = null;
-                if (colIdx == 0) val = fid;
+
+                if (string.Equals(columnName, "FID", StringComparison.OrdinalIgnoreCase))
+                {
+                    val = fid;
+                }
                 else
                 {
                     int fIdx = feat.GetFieldIndex(columnName);
                     if (fIdx >= 0 && feat.IsFieldSet(fIdx))
-                        val = feat.GetFieldAsString(fIdx);
+                    {
+                        val = colDef.DataType switch
+                        {
+                            AttributeDataType.Integer => feat.GetFieldAsInteger(fIdx),
+                            AttributeDataType.Int64 => feat.GetFieldAsInteger64(fIdx),
+                            AttributeDataType.Real => feat.GetFieldAsDouble(fIdx),
+                            _ => feat.GetFieldAsString(fIdx)
+                        };
+                    }
                 }
 
-                // Check dirty rows
+                // Check dirty edits
                 if (_dirtyRows.TryGetValue(fid, out var edits) && edits.TryGetValue(columnName, out var edVal))
+                {
                     val = edVal;
+                }
 
                 items.Add((fid, val));
                 feat.Dispose();
             }
 
-            var colDef = _columns[colIdx];
-            if (colDef.DataType is AttributeDataType.Integer or AttributeDataType.Int64)
-            {
-                items.Sort((a, b) =>
-                {
-                    long va = long.TryParse(a.Value?.ToString(), out var parsedA) ? parsedA : 0;
-                    long vb = long.TryParse(b.Value?.ToString(), out var parsedB) ? parsedB : 0;
-                    return ascending ? va.CompareTo(vb) : vb.CompareTo(va);
-                });
-            }
-            else if (colDef.DataType is AttributeDataType.Real)
+            if (colDef.DataType is AttributeDataType.Integer or AttributeDataType.Int64 or AttributeDataType.Real)
             {
                 items.Sort((a, b) =>
                 {
@@ -453,8 +474,12 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
                 return;
             }
 
+            if (BeforeSchemaChangeAsync != null)
+                await BeforeSchemaChangeAsync();
+
             ReopenDataSource(writable: true);
-            if (_layer == null) throw new InvalidOperationException("Camada indisponível para gravação.");
+            if (_layer == null || !_isWritable)
+                throw new InvalidOperationException($"Não foi possível abrir o arquivo da camada para gravação: {_filePath}. GDAL: {Gdal.GetLastErrorMsg()}");
 
             foreach (var kvp in _dirtyRows)
             {
@@ -502,6 +527,9 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
             // Re-read clean
             ReopenDataSource(writable: false);
             LoadSchemaAndCounts();
+
+            if (AfterSchemaChangeAsync != null)
+                await AfterSchemaChangeAsync();
         }
         finally
         {
@@ -523,8 +551,18 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         await _gate.WaitAsync(ct);
         try
         {
+            if (BeforeSchemaChangeAsync != null)
+                await BeforeSchemaChangeAsync();
+
             ReopenDataSource(writable: true);
-            if (_layer == null) throw new InvalidOperationException("Camada indisponível.");
+            if (_layer == null || !_isWritable)
+                throw new InvalidOperationException($"Não foi possível abrir o arquivo para alteração de esquema: {_filePath}. GDAL: {Gdal.GetLastErrorMsg()}");
+
+            string cleanName = column.Name.Trim().ToUpperInvariant();
+            if (_filePath.EndsWith(".shp", StringComparison.OrdinalIgnoreCase) && cleanName.Length > 10)
+            {
+                cleanName = cleanName[..10];
+            }
 
             var ogrType = column.DataType switch
             {
@@ -536,13 +574,16 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
                 _ => FieldType.OFTString
             };
 
-            using var fDefn = new FieldDefn(column.Name, ogrType);
+            using var fDefn = new FieldDefn(cleanName, ogrType);
             if (column.Length > 0) fDefn.SetWidth(column.Length);
             if (column.Precision > 0) fDefn.SetPrecision(column.Precision);
 
             int err = _layer.CreateField(fDefn, 1);
             if (err != 0)
-                throw new InvalidOperationException($"Erro GDAL ({err}) ao criar o campo {column.Name}.");
+            {
+                string msg = Gdal.GetLastErrorMsg();
+                throw new InvalidOperationException($"Erro GDAL ({err}) ao criar o campo '{cleanName}': {msg}");
+            }
 
             _layer.SyncToDisk();
             ReopenDataSource(writable: false);
@@ -550,18 +591,20 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
 
             if (defaultValue != null)
             {
-                // Apply default value
                 _layer.ResetReading();
                 Feature? feat;
                 while ((feat = _layer.GetNextFeature()) != null)
                 {
                     _dirtyRows[feat.GetFID()] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
                     {
-                        [column.Name] = defaultValue
+                        [cleanName] = defaultValue
                     };
                     feat.Dispose();
                 }
             }
+
+            if (AfterSchemaChangeAsync != null)
+                await AfterSchemaChangeAsync();
         }
         finally
         {
@@ -577,8 +620,12 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         await _gate.WaitAsync(ct);
         try
         {
+            if (BeforeSchemaChangeAsync != null)
+                await BeforeSchemaChangeAsync();
+
             ReopenDataSource(writable: true);
-            if (_layer == null) throw new InvalidOperationException("Camada indisponível.");
+            if (_layer == null || !_isWritable)
+                throw new InvalidOperationException($"Não foi possível abrir o arquivo para exclusão de campo: {_filePath}. GDAL: {Gdal.GetLastErrorMsg()}");
 
             using var defn = _layer.GetLayerDefn();
             int fieldIdx = defn.GetFieldIndex(columnName);
@@ -587,11 +634,17 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
 
             int err = _layer.DeleteField(fieldIdx);
             if (err != 0)
-                throw new InvalidOperationException($"Erro GDAL ({err}) ao excluir o campo {columnName}.");
+            {
+                string msg = Gdal.GetLastErrorMsg();
+                throw new InvalidOperationException($"Erro GDAL ({err}) ao excluir o campo {columnName}: {msg}");
+            }
 
             _layer.SyncToDisk();
             ReopenDataSource(writable: false);
             LoadSchemaAndCounts();
+
+            if (AfterSchemaChangeAsync != null)
+                await AfterSchemaChangeAsync();
         }
         finally
         {
@@ -607,26 +660,42 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         await _gate.WaitAsync(ct);
         try
         {
+            if (BeforeSchemaChangeAsync != null)
+                await BeforeSchemaChangeAsync();
+
             ReopenDataSource(writable: true);
-            if (_layer == null) throw new InvalidOperationException("Camada indisponível.");
+            if (_layer == null || !_isWritable)
+                throw new InvalidOperationException($"Não foi possível abrir o arquivo para renomear campo: {_filePath}. GDAL: {Gdal.GetLastErrorMsg()}");
 
             using var defn = _layer.GetLayerDefn();
             int fieldIdx = defn.GetFieldIndex(oldName);
             if (fieldIdx < 0)
                 throw new ArgumentException($"Coluna {oldName} não encontrada.");
 
+            string cleanNewName = newName.Trim().ToUpperInvariant();
+            if (_filePath.EndsWith(".shp", StringComparison.OrdinalIgnoreCase) && cleanNewName.Length > 10)
+            {
+                cleanNewName = cleanNewName[..10];
+            }
+
             using var fDefn = defn.GetFieldDefn(fieldIdx);
-            using var newFieldDefn = new FieldDefn(newName, fDefn.GetFieldType());
+            using var newFieldDefn = new FieldDefn(cleanNewName, fDefn.GetFieldType());
             newFieldDefn.SetWidth(fDefn.GetWidth());
             newFieldDefn.SetPrecision(fDefn.GetPrecision());
 
             int err = _layer.AlterFieldDefn(fieldIdx, newFieldDefn, 1);
             if (err != 0)
-                throw new InvalidOperationException($"Erro GDAL ({err}) ao renomear o campo {oldName} para {newName}.");
+            {
+                string msg = Gdal.GetLastErrorMsg();
+                throw new InvalidOperationException($"Erro GDAL ({err}) ao renomear o campo {oldName} para {cleanNewName}: {msg}");
+            }
 
             _layer.SyncToDisk();
             ReopenDataSource(writable: false);
             LoadSchemaAndCounts();
+
+            if (AfterSchemaChangeAsync != null)
+                await AfterSchemaChangeAsync();
         }
         finally
         {
@@ -634,7 +703,12 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
         }
     }
 
-    public async Task CalculateColumnAsync(string targetColumn, Func<long, IReadOnlyDictionary<string, object?>, object?> evaluator, IReadOnlySet<long>? targetFids = null, CancellationToken ct = default)
+    public Task CalculateColumnAsync(string targetColumn, Func<long, IReadOnlyDictionary<string, object?>, object?> evaluator, IReadOnlySet<long>? targetFids = null, CancellationToken ct = default)
+    {
+        return CalculateColumnAsync(targetColumn, (fid, dict, geom) => evaluator(fid, dict), targetFids, ct);
+    }
+
+    public async Task CalculateColumnAsync(string targetColumn, Func<long, IReadOnlyDictionary<string, object?>, NetTopologySuite.Geometries.Geometry?, object?> evaluator, IReadOnlySet<long>? targetFids = null, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);
         try
@@ -642,6 +716,7 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
             if (_layer == null) return;
             _layer.ResetReading();
             Feature? feat;
+            var wkbReader = new WKBReader();
 
             while ((feat = _layer.GetNextFeature()) != null)
             {
@@ -659,9 +734,20 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
                     string colName = _columns[c].Name;
                     int fIdx = feat.GetFieldIndex(colName);
                     if (fIdx >= 0 && feat.IsFieldSet(fIdx))
-                        rowDict[colName] = feat.GetFieldAsString(fIdx);
+                    {
+                        rowDict[colName] = _columns[c].DataType switch
+                        {
+                            AttributeDataType.Integer => feat.GetFieldAsInteger(fIdx),
+                            AttributeDataType.Int64 => feat.GetFieldAsInteger64(fIdx),
+                            AttributeDataType.Real => feat.GetFieldAsDouble(fIdx),
+                            AttributeDataType.Date or AttributeDataType.DateTime => feat.GetFieldAsString(fIdx),
+                            _ => feat.GetFieldAsString(fIdx)
+                        };
+                    }
                     else
+                    {
                         rowDict[colName] = null;
+                    }
                 }
 
                 // If already dirty, merge
@@ -670,7 +756,28 @@ public sealed class OgrAttributeDataProvider : IAttributeDataProvider
                     foreach (var ed in existingEdits) rowDict[ed.Key] = ed.Value;
                 }
 
-                object? calculatedValue = evaluator(fid, rowDict);
+                // Read native geometry
+                NetTopologySuite.Geometries.Geometry? ntsGeom = null;
+                using var ogrGeom = feat.GetGeometryRef();
+                if (ogrGeom != null)
+                {
+                    try
+                    {
+                        int size = (int)ogrGeom.WkbSize();
+                        if (size > 0)
+                        {
+                            byte[] bytes = new byte[size];
+                            ogrGeom.ExportToWkb(bytes);
+                            ntsGeom = wkbReader.Read(bytes);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore geometry parse failures gracefully
+                    }
+                }
+
+                object? calculatedValue = evaluator(fid, rowDict, ntsGeom);
 
                 if (!_dirtyRows.TryGetValue(fid, out var targetRowEdits))
                 {

@@ -1,4 +1,5 @@
-﻿using SkiaSharp;
+﻿using NetTopologySuite.Geometries;
+using SkiaSharp;
 
 namespace GeoNex.Services.Attributes;
 
@@ -30,9 +31,13 @@ public interface IAttributeDataProvider : IDisposable
     string? SortColumn { get; }
     bool SortAscending { get; }
 
+    Func<Task>? BeforeSchemaChangeAsync { get; set; }
+    Func<Task>? AfterSchemaChangeAsync { get; set; }
+
     Task InitializeAsync(CancellationToken ct = default);
     Task<IReadOnlyList<AttributeRow>> GetRowsAsync(int startIndex, int count, CancellationToken ct = default);
     Task<AttributeRow?> GetRowByFidAsync(long fid, CancellationToken ct = default);
+    Task<NetTopologySuite.Geometries.Geometry?> GetGeometryAsync(long fid, CancellationToken ct = default);
 
     Task SetFilterAsync(string? filterQuery, CancellationToken ct = default);
     Task SetSpatialFilterAsync(IReadOnlySet<long>? matchingFids, CancellationToken ct = default);
@@ -49,5 +54,6 @@ public interface IAttributeDataProvider : IDisposable
     Task RenameColumnAsync(string oldName, string newName, CancellationToken ct = default);
 
     Task CalculateColumnAsync(string targetColumn, Func<long, IReadOnlyDictionary<string, object?>, object?> evaluator, IReadOnlySet<long>? targetFids = null, CancellationToken ct = default);
+    Task CalculateColumnAsync(string targetColumn, Func<long, IReadOnlyDictionary<string, object?>, NetTopologySuite.Geometries.Geometry?, object?> evaluator, IReadOnlySet<long>? targetFids = null, CancellationToken ct = default);
     Task<ColumnStatistics> GetColumnStatisticsAsync(string columnName, CancellationToken ct = default);
 }

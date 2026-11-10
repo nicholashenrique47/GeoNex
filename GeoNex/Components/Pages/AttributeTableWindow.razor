@@ -498,6 +498,7 @@
     private string _calcExpressao = string.Empty;
     private string? _calcPrevia;
     private string? _calcErro;
+    private NetTopologySuite.Geometries.Geometry? _sampleGeom;
 
     // Adicionar Coluna
     private bool _mostrarModalAddCol = false;
@@ -594,7 +595,30 @@
             if (!string.IsNullOrEmpty(caminho) && File.Exists(caminho))
             {
                 _attributeProvider?.Dispose();
-                _attributeProvider = new OgrAttributeDataProvider(caminho, nomeCamada);
+                var ogrProv = new OgrAttributeDataProvider(caminho, nomeCamada);
+                ogrProv.BeforeSchemaChangeAsync = async () =>
+                {
+                    MapService.RemoveVectorResources(nomeCamada);
+                    await Task.CompletedTask;
+                };
+                ogrProv.AfterSchemaChangeAsync = async () =>
+                {
+                    try
+                    {
+                        var (features, shpData) = FastShapeReader.ReadAllFeatures(
+                            caminho, nomeCamada, MapService.OffsetMundoX, MapService.OffsetMundoY);
+                        shpData.LayerSRS = MapService.ProjetoSRS;
+                        MapService.FeaturesPorCamada[nomeCamada] = features;
+                        MapService.PublishShapefile(nomeCamada, shpData);
+                        MapService.RequestRedraw();
+                    }
+                    catch
+                    {
+                    }
+                    await Task.CompletedTask;
+                };
+
+                _attributeProvider = ogrProv;
                 await _attributeProvider.InitializeAsync();
                 _tableColumns = _attributeProvider.Columns;
                 await CarregarPaginaAsync();
@@ -906,13 +930,19 @@
         }
     }
 
-    private void AbrirCalculadoraCampos()
+    private async Task AbrirCalculadoraCampos()
     {
         _calcColDestino = _tableColumns.FirstOrDefault(c => !c.IsPrimaryKey)?.Name ?? "";
-        _calcExpressao = "";
+        _calcExpressao = "$area";
         _calcPrevia = null;
         _calcErro = null;
         _mostrarModalCalc = true;
+        _sampleGeom = null;
+        if (_tableRows.Count > 0 && _attributeProvider != null)
+        {
+            _sampleGeom = await _attributeProvider.GetGeometryAsync(_tableRows[0].FID);
+        }
+        AtualizarPreviaCalc();
     }
 
     private void InserirTokenCalculadora(string token)
@@ -933,7 +963,7 @@
         {
             var ast = ExpressionParser.Parse(_calcExpressao);
             var row = _tableRows.FirstOrDefault();
-            var dict = new Dictionary<string, object?>();
+            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             if (row != null)
             {
                 for (int i = 0; i < _tableColumns.Count; i++)
@@ -941,9 +971,9 @@
                     if (i < row.Values.Length) dict[_tableColumns[i].Name] = row.Values[i];
                 }
             }
-            var ctx = new FeatureEvaluationContext(row?.FID ?? 1, 1, dict, null);
+            var ctx = new FeatureEvaluationContext(row?.FID ?? 1, 1, dict, _sampleGeom);
             var res = ast.Evaluate(ctx);
-            _calcPrevia = res?.ToString() ?? "NULL";
+            _calcPrevia = res != null ? string.Format(CultureInfo.InvariantCulture, "{0}", res) : "NULL";
             _calcErro = null;
         }
         catch (Exception ex)
@@ -960,20 +990,30 @@
         {
             _isLoading = true;
             string destCol = _calcCriarNovaCol ? _calcNovaColNome.Trim().ToUpperInvariant() : _calcColDestino;
+            if (string.IsNullOrWhiteSpace(destCol))
+            {
+                _calcErro = "Selecione ou informe a coluna de destino.";
+                return;
+            }
+
             if (_calcCriarNovaCol)
             {
+                if (destCol.Length > 10) destCol = destCol[..10];
                 await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(destCol, _calcNovaColTipo, 50, 4));
+                _tableColumns = _attributeProvider.Columns;
             }
+
             var ast = ExpressionParser.Parse(_calcExpressao);
             long rowCount = 0;
-            await _attributeProvider.CalculateColumnAsync(destCol, (fid, attrs) =>
+            await _attributeProvider.CalculateColumnAsync(destCol, (fid, attrs, geom) =>
             {
                 long r = Interlocked.Increment(ref rowCount);
-                var ctx = new FeatureEvaluationContext(fid, r, attrs, null);
+                var ctx = new FeatureEvaluationContext(fid, r, attrs, geom);
                 return ast.Evaluate(ctx);
             }, _calcApenasSelecionados ? _selectedFids : null);
+
             _mostrarModalCalc = false;
-            _statusMessage = $"Campo '{destCol}' calculado com sucesso.";
+            _statusMessage = $"Campo '{destCol}' calculado com sucesso ({_attributeProvider.TotalRowCount} registros). Clique em 'Salvar' para gravar no disco.";
             await CarregarPaginaAsync();
         }
         catch (Exception ex)
@@ -1001,9 +1041,11 @@
         {
             _isLoading = true;
             string name = _novaColNome.Trim().ToUpperInvariant();
+            if (name.Length > 10) name = name[..10];
             await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(name, _novaColTipo, _novaColTamanho, 0));
             _mostrarModalAddCol = false;
-            _statusMessage = $"Coluna '{name}' criada.";
+            _statusMessage = $"Coluna '{name}' criada com sucesso.";
+            _tableColumns = _attributeProvider.Columns;
             await CarregarPaginaAsync();
         }
         catch (Exception ex)
@@ -1045,7 +1087,11 @@
 
     private async Task TratarTecladoLocal(KeyboardEventArgs e)
     {
-        if (e.CtrlKey && e.Key.ToLower() == "e")
+        if (e.Key == "Escape")
+        {
+            LimparSelecao();
+        }
+        else if (e.CtrlKey && e.Key.ToLower() == "e")
         {
             await AlternarModoEdicaoAsync();
         }
@@ -1063,7 +1109,7 @@
         }
         else if (e.CtrlKey && e.Key.ToLower() == "i")
         {
-            AbrirCalculadoraCampos();
+            await AbrirCalculadoraCampos();
         }
     }
 
