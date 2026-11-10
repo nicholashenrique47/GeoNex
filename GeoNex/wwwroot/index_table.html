@@ -1,0 +1,71 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Tabela de Atributos - GeoNex</title>
+    <base href="/" />
+    <link href="GeoNex.styles.css" rel="stylesheet" />
+    <meta name="ms-webview-background-color" content="#0b131c" />
+    <style>
+        html, body, #app {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background: #0b131c;
+            color: #e2eaf1;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            box-sizing: border-box;
+        }
+
+        .table-preloader {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #0b131c;
+            color: #70e2bf;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 13px;
+            gap: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .preloader-spinner {
+            width: 26px;
+            height: 26px;
+            border: 2px solid rgba(112, 226, 191, 0.15);
+            border-top: 2px solid #70e2bf;
+            border-radius: 50%;
+            animation: tableSpin 0.7s linear infinite;
+        }
+
+        @keyframes tableSpin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="table-preloader">
+            <div class="preloader-spinner"></div>
+            <span>Carregando atributos da camada...</span>
+        </div>
+    </div>
+
+    <script>
+        window.geonexDownloadText = function (content, filename) {
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        };
+    </script>
+    <script src="_framework/blazor.webview.js" autostart="true"></script>
+</body>
+</html>

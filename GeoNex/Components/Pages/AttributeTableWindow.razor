@@ -245,6 +245,7 @@
                     bool isSel = _selectedFids.Contains(rowFid);
 
                     <tr class="@(isSel ? "row-selected" : "") @(row.State == RowState.Modified ? "row-dirty" : "")"
+                        @onclick="() => ToggleSelecaoLinha(rowFid)"
                         @ondblclick="() => ZoomParaLinhaFid(rowFid)">
                         
                         <td class="td-pinned td-selection" @onclick:stopPropagation="true">
@@ -260,7 +261,7 @@
 
                             if (col.IsPrimaryKey)
                             {
-                                <td class="td-pinned td-fid">
+                                <td class="td-pinned td-fid" @onclick:stopPropagation="true">
                                     <div class="fid-cell">
                                         <span>@rowFid</span>
                                         <button type="button" class="btn-micro" title="Centralizar no Mapa" @onclick:stopPropagation="true" @onclick="() => PanParaLinhaFid(rowFid)">
@@ -274,7 +275,7 @@
                             }
                             else if (_attributeProvider?.IsEditing == true && !col.IsReadOnly)
                             {
-                                <td class="cell-editable">
+                                <td class="cell-editable" @onclick:stopPropagation="true">
                                     <input class="cell-input"
                                            value="@(cellVal?.ToString() ?? "")"
                                            @onchange="@(async (e) => await AtualizarCelulaAsync(rowFid, col.Name, e.Value, cellVal))" />
@@ -282,7 +283,7 @@
                             }
                             else
                             {
-                                <td>
+                                <td @ondblclick="() => IniciarEdicaoCelula(rowFid, col.Name)" @ondblclick:stopPropagation="true">
                                     <span class="cell-text @(cellVal == null ? "null-value" : "")">
                                         @(cellVal?.ToString() ?? "NULL")
                                     </span>
@@ -582,9 +583,11 @@
         try
         {
             string? caminho = AttributeSession.CamadaAtivaCaminho;
-            if (string.IsNullOrEmpty(caminho))
+            if (string.IsNullOrEmpty(caminho) || !File.Exists(caminho))
             {
-                var camada = ProjetoService.ProjetoAtual?.Camadas.FirstOrDefault(c => string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase));
+                var camada = ProjetoService.ProjetoAtual?.Camadas.FirstOrDefault(c =>
+                    string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Path.GetFileNameWithoutExtension(c.Nome), Path.GetFileNameWithoutExtension(nomeCamada), StringComparison.OrdinalIgnoreCase));
                 caminho = camada?.CaminhoFonteOriginal;
             }
 
@@ -756,6 +759,7 @@
         {
             AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
         }
+        StateHasChanged();
     }
 
     private void AlternarSelecionarTudo()
@@ -772,6 +776,7 @@
         {
             AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
         }
+        StateHasChanged();
     }
 
     private void InverterSelecao()
@@ -786,6 +791,7 @@
         {
             AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
         }
+        StateHasChanged();
     }
 
     private void LimparSelecao()
@@ -794,6 +800,17 @@
         if (_nomeCamadaAtiva != null)
         {
             AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
+        }
+        StateHasChanged();
+    }
+
+    private async Task IniciarEdicaoCelula(long fid, string colName)
+    {
+        if (_attributeProvider == null) return;
+        if (!_attributeProvider.IsEditing)
+        {
+            await _attributeProvider.BeginTransactionAsync();
+            await CarregarPaginaAsync();
         }
     }
 

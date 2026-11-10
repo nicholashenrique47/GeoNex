@@ -8157,17 +8157,17 @@
 
     private void AoSolicitarZoomDaTabela(string camada, long fid)
     {
-        InvokeAsync(async () => await ZoomParaLinhaFidAsync(fid));
+        InvokeAsync(async () => await ZoomParaLinhaFidAsync(camada, fid));
     }
 
     private void AoSolicitarPanDaTabela(string camada, long fid)
     {
-        InvokeAsync(async () => await CentralizarFeicaoNoMapaAsync(fid));
+        InvokeAsync(async () => await CentralizarFeicaoNoMapaAsync(camada, fid));
     }
 
     private void AoSolicitarBlinkDaTabela(string camada, long fid)
     {
-        InvokeAsync(async () => await PiscarFeicaoNoMapaAsync(fid));
+        InvokeAsync(async () => await PiscarFeicaoNoMapaAsync(camada, fid));
     }
 
     private void AoAlterarSelecaoPelaTabela(string camada, IReadOnlySet<long> fids)
@@ -8181,7 +8181,35 @@
             }
             set.Clear();
             foreach (var id in fids) set.Add(id);
-            SincronizarSelecaoTabelaComMapa(camada);
+            nomeCamadaAtiva = camada;
+
+            _vectorFeatureEditSelection.RemoveAll(k => string.Equals(k.LayerName, camada, StringComparison.OrdinalIgnoreCase));
+            List<CompiledFeature>? features = null;
+            if (!MapService.FeaturesPorCamada.TryGetValue(camada, out features))
+            {
+                MapService.FeaturesPorCamada.TryGetValue(System.IO.Path.GetFileNameWithoutExtension(camada), out features);
+            }
+
+            if (features != null)
+            {
+                var matchFeatures = features.Where(f => fids.Contains(f.FID) || (f.SourceFeatureId >= 0 && fids.Contains(f.SourceFeatureId))).ToList();
+                foreach (var f in matchFeatures)
+                {
+                    _vectorFeatureEditSelection.Add(new VectorFeatureKey(camada, f.FID, f.SourceFeatureId >= 0 ? f.SourceFeatureId : f.FID));
+                }
+
+                if (matchFeatures.Count > 0)
+                {
+                    MapService.DestacarFeicao(matchFeatures[0]);
+                    AtualizarOverlaySelecaoFeicoes();
+                }
+                else
+                {
+                    MapService.DestacarFeicao(null);
+                    MapService.LimparOverlayEdicao();
+                }
+            }
+            SolicitarNovoFrame(interacaoRapida: true);
             StateHasChanged();
         });
     }

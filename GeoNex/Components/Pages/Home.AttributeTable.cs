@@ -103,10 +103,17 @@ public partial class Home
     {
         if (string.IsNullOrWhiteSpace(nomeCamada)) return;
 
+        nomeCamadaAtiva = nomeCamada;
         var camada = CamadasAtivas.FirstOrDefault(c => string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase));
         string? caminho = camada?.CaminhoArquivo;
 
         AttributeSession.DefinirCamadaAtiva(nomeCamada, caminho);
+
+        var fids = ObterFidsSelecionadosCamada(nomeCamada);
+        if (fids.Count > 0)
+        {
+            AttributeSession.NotificarSelecaoMapa(nomeCamada, fids);
+        }
 
 #if WINDOWS || MACCATALYST
         var win = new Window(new AttributeTablePage(nomeCamada))
@@ -352,10 +359,17 @@ public partial class Home
         await CarregarPaginaTabelaAsync();
     }
 
-    private async Task CentralizarFeicaoNoMapaAsync(long fid)
+    private async Task CentralizarFeicaoNoMapaAsync(string camada, long fid)
     {
-        if (string.IsNullOrWhiteSpace(nomeCamadaAtiva)) return;
-        if (MapService.FeaturesPorCamada.TryGetValue(nomeCamadaAtiva, out var features))
+        if (fid < 0 || string.IsNullOrWhiteSpace(camada)) return;
+        nomeCamadaAtiva = camada;
+        List<CompiledFeature>? features = null;
+        if (!MapService.FeaturesPorCamada.TryGetValue(camada, out features))
+        {
+            MapService.FeaturesPorCamada.TryGetValue(System.IO.Path.GetFileNameWithoutExtension(camada), out features);
+        }
+
+        if (features != null)
         {
             var feat = features.FirstOrDefault(f => f.FID == fid || f.SourceFeatureId == fid);
             if (feat?.Path is { } path)
@@ -367,6 +381,7 @@ public partial class Home
                 // Centraliza sem alterar o zoom
                 MapService.CameraPanX = _larguraTela / 2f - (cx - MapService.OffsetMundoX) * MapService.CameraZoom;
                 MapService.CameraPanY = _alturaTela / 2f + (cy - MapService.OffsetMundoY) * MapService.CameraZoom;
+                MapService.DestacarFeicao(feat);
                 MapService.RequestRedraw();
                 await JSRuntime.InvokeVoidAsync("mapEngine.sincronizarCameraComBlazor", MapService.CameraPanX, MapService.CameraPanY, MapService.CameraZoom);
                 await JSRuntime.InvokeVoidAsync("mapEngine.executarRequisicao", true, true);
@@ -374,17 +389,24 @@ public partial class Home
         }
     }
 
-    private async Task PiscarFeicaoNoMapaAsync(long fid)
+    private async Task PiscarFeicaoNoMapaAsync(string camada, long fid)
     {
-        if (string.IsNullOrWhiteSpace(nomeCamadaAtiva)) return;
-        if (MapService.FeaturesPorCamada.TryGetValue(nomeCamadaAtiva, out var features))
+        if (fid < 0 || string.IsNullOrWhiteSpace(camada)) return;
+        nomeCamadaAtiva = camada;
+        List<CompiledFeature>? features = null;
+        if (!MapService.FeaturesPorCamada.TryGetValue(camada, out features))
+        {
+            MapService.FeaturesPorCamada.TryGetValue(System.IO.Path.GetFileNameWithoutExtension(camada), out features);
+        }
+
+        if (features != null)
         {
             var feat = features.FirstOrDefault(f => f.FID == fid || f.SourceFeatureId == fid);
             if (feat != null)
             {
                 MapService.DestacarFeicao(feat);
                 SolicitarNovoFrame(interacaoRapida: true);
-                await Task.Delay(300);
+                await Task.Delay(250);
                 MapService.DestacarFeicao(null);
                 SolicitarNovoFrame(interacaoRapida: true);
                 await Task.Delay(150);
@@ -407,18 +429,25 @@ public partial class Home
         SincronizarSelecaoTabelaComMapa(nomeCamadaAtiva);
     }
 
-    private async Task ZoomParaLinhaFidAsync(long fid)
+    private async Task ZoomParaLinhaFidAsync(string camada, long fid)
     {
-        if (fid < 0 || string.IsNullOrWhiteSpace(nomeCamadaAtiva)) return;
-        if (MapService.FeaturesPorCamada.TryGetValue(nomeCamadaAtiva, out var features))
+        if (fid < 0 || string.IsNullOrWhiteSpace(camada)) return;
+        nomeCamadaAtiva = camada;
+        List<CompiledFeature>? features = null;
+        if (!MapService.FeaturesPorCamada.TryGetValue(camada, out features))
+        {
+            MapService.FeaturesPorCamada.TryGetValue(System.IO.Path.GetFileNameWithoutExtension(camada), out features);
+        }
+
+        if (features != null)
         {
             var feature = features.FirstOrDefault(f => f.FID == fid || f.SourceFeatureId == fid);
             if (feature?.Path is { } path)
             {
                 var rect = path.Bounds;
-                float dx = rect.Width * 0.25f;
-                float dy = rect.Height * 0.25f;
-                rect.Inflate(Math.Max(dx, 20f), Math.Max(dy, 20f));
+                float dx = rect.Width * 0.35f;
+                float dy = rect.Height * 0.35f;
+                rect.Inflate(Math.Max(dx, 30f), Math.Max(dy, 30f));
 
                 if (LayerCameraPolicy.TryFit(MapService.GetSceneBounds(), rect, _larguraTela, _alturaTela, out var camera))
                 {
