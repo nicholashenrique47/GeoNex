@@ -57,7 +57,7 @@ internal static class ProductionRasterRefreshContracts
         using var old = map.Lease("AcquireRaster");
         using (Band band = original.GetRasterBand(1)) Assert(band.GetOverviewCount() == 0, "old session predates overviews");
         object ticket = map.Capture(path);
-        map.Call("PublishRasterCache", "raster", original, new SKBitmap(4, 4), "old", 0f, 0f, 1f, null);
+        map.Call("PublishRasterCache", "raster", original, new SKBitmap(4, 4), "old", 0f, 0f, 1f, null, null);
         using var oldCache = map.CacheLease();
         long revision = (long)map.Get("SceneRevision");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -116,7 +116,7 @@ internal static class ProductionRasterRefreshContracts
         map.Set("ProjetoSRS", "EPSG:3395"); // changed while the overview job was running
         using (var pause = await map.Pause()) Assert(map.Refresh(ticket), "refresh to current project CRS");
         using var freshWarp = map.Lease("AcquireWarpedRaster");
-        using Dataset referenceWarp = Warp(referenceSource, "EPSG:3395");
+        using Dataset referenceWarp = Warp(referenceSource, "EPSG:3395", "bilinear");
         ComparePixels(freshWarp!.Resource, referenceWarp);
         using Dataset oldReferenceWarp = Warp(referenceSource, "EPSG:3857");
         ComparePixels(retainedWarp!.Resource, oldReferenceWarp);
@@ -149,9 +149,9 @@ internal static class ProductionRasterRefreshContracts
         using (var pause = await map.Pause()) Assert(!map.Refresh(disposedTicket), "disposed map safely rejects callback");
     }
 
-    private static Dataset Warp(Dataset source, string crs)
+    private static Dataset Warp(Dataset source, string crs, string resampling = "cubicspline")
     {
-        using var options = new GDALWarpAppOptions(["-of", "VRT", "-t_srs", crs, "-r", "cubicspline"]);
+        using var options = new GDALWarpAppOptions(["-of", "VRT", "-t_srs", crs, "-r", resampling]);
         return Gdal.Warp("", [source], options, null, null) ?? throw new InvalidOperationException("Reference warp failed.");
     }
 

@@ -16,6 +16,7 @@ if (!string.IsNullOrEmpty(nativeOverride))
 if (args.Contains("--index-contracts")) { IndexContracts.Run(); return; }
 if (args.Contains("--raster-frame-painter-contracts")) { RasterFramePainterContracts.Run(); return; }
 if (args.Length == 3 && args[0] == "--production-raster-metrics") { await ProductionRasterMetrics.Run(args[1], args[2]); return; }
+if (args.Length == 4 && args[0] == "--production-mixed-metrics") { await ProductionRasterMetrics.Run(args[1], args[2], args[3]); return; }
 if (args.Contains("--tile-fixture-server"))
 {
     using var fixture = new DelayedTileServer { CacheControl = "public, max-age=86400" };
@@ -50,6 +51,7 @@ if (args.Contains("--cpu-contracts")) { NativeCpuContracts.Run(); return; }
 if (args.Contains("--render-contracts")) { RenderContracts.Run(); return; }
 if (args.Contains("--managed-interop-contracts")) { ManagedInteropContracts.Run(); return; }
 if (args.Contains("--presentation-metrics")) { PresentationMetrics.Run(); return; }
+if (args.Length == 2 && args[0] == "--presentation-file-metrics") { PresentationMetrics.Run(args[1]); return; }
 if (args.Contains("--resource-budget-contracts")) { ResourceBudgetContracts.Run(); return; }
 if (args.Contains("--vector-resource-contracts")) { VectorResourceContracts.Run(); return; }
 if (args.Contains("--vector-display-contracts")) { VectorDisplayContracts.Run(); return; }

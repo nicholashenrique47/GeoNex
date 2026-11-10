@@ -46,6 +46,16 @@ internal static class CachedPreviewImageContracts
             try { using var ignored = CachedPreviewImage.Create(source, SKMatrix.CreateTranslation(1, -1), cancelled.Token, buffer); throw new InvalidOperationException("Cancellation ignored"); }
             catch (OperationCanceledException) { }
         }
+        using (var edge = new SKBitmap(4, 2, SKColorType.Rgba8888, SKAlphaType.Premul))
+        {
+            for (int y = 0; y < edge.Height; y++)
+            for (int x = 0; x < edge.Width; x++)
+                edge.SetPixel(x, y, x < 2 ? SKColors.Black : SKColors.White);
+            using var scaled = CachedPreviewImage.Create(edge, SKMatrix.CreateScale(1.5f, 1.5f), default);
+            using var scaledBitmap = SKBitmap.FromImage(scaled);
+            if (!scaledBitmap.Pixels.Any(pixel => pixel.Red is > 0 and < 255 && pixel.Green == pixel.Red && pixel.Blue == pixel.Red))
+                throw new InvalidOperationException("Zoom preview did not interpolate raster edges");
+        }
         // Native image owns pixels after the cache lease and bitmap are retired.
         using (var source = new SKBitmap(17, 13, SKColorType.Rgba8888, SKAlphaType.Premul))
         {
@@ -80,7 +90,8 @@ internal static class CachedPreviewImageContracts
     {
         using var surface = SKSurface.Create(new SKImageInfo(source.Width, source.Height, SKColorType.Rgba8888, SKAlphaType.Premul));
         surface.Canvas.Clear(SKColors.Transparent); surface.Canvas.SetMatrix(matrix);
-        surface.Canvas.DrawBitmap(source, 0, 0);
+        using var image = SKImage.FromBitmap(source) ?? throw new OutOfMemoryException();
+        surface.Canvas.DrawImage(image, 0, 0, new SKSamplingOptions(SKFilterMode.Linear));
         return surface.Snapshot();
     }
 }

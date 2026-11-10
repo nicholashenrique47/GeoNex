@@ -51,6 +51,7 @@ internal static class PolygonImageCacheContracts
         }
         Console.WriteLine($"POLYGON IMAGE premultiplied_channel_max_delta={maximumDifference}");
         Require(maximumDifference <= 2, "Offscreen compositing exceeds 2/255 channel rounding tolerance");
+
         using var bitmap = new SKBitmap(160, 120);
         using var canvas = new SKCanvas(bitmap);
         long builds = cache.Builds;

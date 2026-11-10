@@ -7,10 +7,13 @@ internal static class CachedPreviewImage
     // The caller keeps its cache lease until encoding finishes. Integer pans
     // need a pixel transfer, not a resampling/compositing pass over a clear frame.
     public static SKImage Create(SKBitmap source, SKMatrix matrix, CancellationToken token,
-        RasterPixelBuffer? buffer = null)
+        RasterPixelBuffer? buffer = null, int outputWidth = 0, int outputHeight = 0)
     {
         token.ThrowIfCancellationRequested();
+        outputWidth = outputWidth > 0 ? outputWidth : source.Width;
+        outputHeight = outputHeight > 0 ? outputHeight : source.Height;
         if (source.ColorType == SKColorType.Rgba8888 && source.AlphaType == SKAlphaType.Premul &&
+            outputWidth == source.Width && outputHeight == source.Height &&
             source.Info.ColorSpace == null && matrix.ScaleX == 1 && matrix.ScaleY == 1 &&
             matrix.SkewX == 0 && matrix.SkewY == 0 && matrix.Persp0 == 0 && matrix.Persp1 == 0 && matrix.Persp2 == 1 &&
             float.IsFinite(matrix.TransX) && float.IsFinite(matrix.TransY) &&
@@ -63,16 +66,17 @@ internal static class CachedPreviewImage
             }
             finally { rental?.Dispose(); }
         }
-        // Fractional pans, zoom, rotation and other pixel formats retain Skia's
-        // existing sampling, blending and color conversion semantics while reusing
+        // Fractional pans, zoom, rotation and other pixel formats use Skia's
+        // linear sampling, blending and color conversion while reusing
         // the pooled RasterPixelBuffer to eliminate 8-16 MB per-frame native allocations.
-        var targetInfo = new SKImageInfo(source.Width, source.Height,
+        var targetInfo = new SKImageInfo(outputWidth, outputHeight,
             SKColorType.Rgba8888, SKAlphaType.Premul);
         using var renderTarget = RasterRenderTarget.Create(targetInfo, buffer);
         var canvas = renderTarget.Surface.Canvas;
         canvas.Clear(SKColors.Transparent);
         canvas.SetMatrix(matrix);
-        canvas.DrawBitmap(source, 0, 0);
+        using var sourceImage = SKImage.FromBitmap(source) ?? throw new OutOfMemoryException();
+        canvas.DrawImage(sourceImage, 0, 0, new SKSamplingOptions(SKFilterMode.Linear));
         return renderTarget.Finish();
     }
 }

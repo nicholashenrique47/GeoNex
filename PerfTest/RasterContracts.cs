@@ -21,6 +21,57 @@ internal static class RasterContracts
             "continuous interaction uses bilinear");
         Assert(RasterRenderingPolicy.SelectRenderResampling(false, false, true, false, _ => null) == "bilinear",
             "RGB final render uses bilinear");
+        Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true) == 1.5f &&
+               RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true) == 1f &&
+               RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true,
+                   startupPreview: true) == 0.75f &&
+               RasterRenderingPolicy.SelectInteractivePreviewDpi(1.2f, true, rasterContent: true) == 1f &&
+               RasterRenderingPolicy.SelectInteractivePreviewDpi(1f, true) == 1f &&
+               RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, false, rasterContent: true) == 2f,
+            "interactive preview adapts physical DPI to raster/vector workload without reducing final quality");
+        var settledRasterViewport = MapViewportMetrics.Create(1600, 900, 2f);
+        var gestureRasterViewport = MapViewportMetrics.Create(1600, 900, 1.25f);
+        Assert(RasterRenderingPolicy.HasSufficientCachedRasterResolution(
+                   1, settledRasterViewport, 1.5, gestureRasterViewport) &&
+               !RasterRenderingPolicy.HasSufficientCachedRasterResolution(
+                   1, settledRasterViewport, 2, gestureRasterViewport) &&
+               RasterRenderingPolicy.HasSufficientCachedRasterResolution(
+                   2, settledRasterViewport, 1, gestureRasterViewport),
+            "raster cache yields to a fresh preview after detail falls below the target zoom resolution");
+        string? previousPreviewDpi = Environment.GetEnvironmentVariable("GEONEX_INTERACTIVE_RASTER_PREVIEW_DPI");
+        string? previousStartupPreviewDpi = Environment.GetEnvironmentVariable("GEONEX_STARTUP_RASTER_PREVIEW_DPI");
+        try
+        {
+            Environment.SetEnvironmentVariable("GEONEX_STARTUP_RASTER_PREVIEW_DPI", null);
+            Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true,
+                       startupPreview: true) == 0.75f,
+                "startup raster preview defaults to the measured lower first-frame resolution");
+            Environment.SetEnvironmentVariable("GEONEX_INTERACTIVE_RASTER_PREVIEW_DPI", "1.5");
+            Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true) == 1.5f,
+                "raster gesture preview allows a bounded field tuning override");
+            Environment.SetEnvironmentVariable("GEONEX_INTERACTIVE_RASTER_PREVIEW_DPI", "0.75");
+            Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true) == 0.75f,
+                "raster preview accepts a lower temporary resolution for slow remote sources");
+            Environment.SetEnvironmentVariable("GEONEX_INTERACTIVE_RASTER_PREVIEW_DPI", "0.25");
+            Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true) == 1f,
+                "out-of-range raster preview tuning falls back to the measured default");
+            Environment.SetEnvironmentVariable("GEONEX_INTERACTIVE_RASTER_PREVIEW_DPI", "2.5");
+            Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true) == 1f,
+                "out-of-range raster preview tuning falls back to the measured default");
+            Environment.SetEnvironmentVariable("GEONEX_STARTUP_RASTER_PREVIEW_DPI", "1.0");
+            Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true,
+                       startupPreview: true) == 1f,
+                "startup raster preview has a separate bounded tuning override");
+            Environment.SetEnvironmentVariable("GEONEX_STARTUP_RASTER_PREVIEW_DPI", "0.25");
+            Assert(RasterRenderingPolicy.SelectInteractivePreviewDpi(2f, true, rasterContent: true,
+                       startupPreview: true) == 0.75f,
+                "out-of-range startup preview tuning falls back to its default");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GEONEX_INTERACTIVE_RASTER_PREVIEW_DPI", previousPreviewDpi);
+            Environment.SetEnvironmentVariable("GEONEX_STARTUP_RASTER_PREVIEW_DPI", previousStartupPreviewDpi);
+        }
         Assert(RasterRenderingPolicy.SelectOverviewResampling(false, false, false, _ => null) == "NEAREST",
             "unclassified integer values are not averaged");
         Assert(RasterRenderingPolicy.SelectOverviewResampling(false, true, false, _ => null) == "AVERAGE",

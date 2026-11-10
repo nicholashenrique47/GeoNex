@@ -13,6 +13,17 @@ namespace GeoNex.Services
         // Cache estático thread-safe para Shaders de Hachura
         private static readonly ConcurrentDictionary<string, SKShader> _shaderCache = new();
 
+        private readonly record struct MarkerSpriteKey(
+            string Forma,
+            int DiameterSubPx,
+            uint FillColor,
+            uint StrokeColor,
+            int StrokeSubPx,
+            int RotationTenths);
+
+        private sealed record MarkerSpriteEntry(SKImage Image, float HalfExtentPx);
+        private static readonly ConcurrentDictionary<MarkerSpriteKey, MarkerSpriteEntry> _markerSpriteCache = new();
+
         // Paths canônicos normalizados (raio = 1.0f) centrados em (0, 0)
         private static readonly SKPath _pathQuadrado;
         private static readonly SKPath _pathLosango;
@@ -183,6 +194,95 @@ namespace GeoNex.Services
                 using var img = surface.Snapshot();
                 return img.ToShader(SKShaderTileMode.Repeat, SKShaderTileMode.Repeat);
             });
+        }
+
+        /// <summary>
+        /// Obtém ou compila um Sprite SKImage pré-rasterizado em espaço de dispositivo (pixels físicos)
+        /// para blitting ultra-rápido de milhares de marcadores sem Save/Translate/Scale/DrawPath por feição.
+        /// </summary>
+        internal static (SKImage? Image, float HalfExtentPx) ObterSpriteMarcadorFisico(
+            string forma,
+            float raioPx,
+            float rotacaoGraus,
+            SKColor fillColor,
+            SKColor? strokeColor,
+            float strokeWidthPx)
+        {
+            if (raioPx <= 0.25f || raioPx > 96f || !float.IsFinite(raioPx))
+                return (null, 0f);
+
+            string normForma = string.IsNullOrEmpty(forma) ? "Circulo" : forma;
+            int diamSubPx = Math.Clamp((int)Math.Round(raioPx * 4f), 2, 384);
+            int strokeSubPx = strokeColor.HasValue ? Math.Clamp((int)Math.Round(strokeWidthPx * 4f), 0, 128) : 0;
+            int rotTenths = normForma.Equals("Circulo", StringComparison.OrdinalIgnoreCase)
+                ? 0
+                : ((int)Math.Round(rotacaoGraus * 10f) % 3600 + 3600) % 3600;
+
+            var key = new MarkerSpriteKey(
+                normForma,
+                diamSubPx,
+                (uint)fillColor,
+                strokeColor.HasValue ? (uint)strokeColor.Value : 0u,
+                strokeSubPx,
+                rotTenths);
+
+            if (_markerSpriteCache.Count > 256)
+            {
+                foreach (var old in _markerSpriteCache.Values)
+                    old.Image.Dispose();
+                _markerSpriteCache.Clear();
+            }
+
+            var entry = _markerSpriteCache.GetOrAdd(key, k =>
+            {
+                float r = k.DiameterSubPx * 0.25f;
+                float sw = k.StrokeSubPx * 0.25f;
+                float padding = Math.Max(3f, sw + 2.5f);
+                int halfDim = (int)Math.Ceiling(r * 1.25f + padding);
+                int dim = Math.Max(8, halfDim * 2);
+                float center = dim * 0.5f;
+
+                var info = new SKImageInfo(dim, dim, SKColorType.Rgba8888, SKAlphaType.Premul);
+                using var surface = SKSurface.Create(info);
+                var c = surface.Canvas;
+                c.Clear(SKColors.Transparent);
+
+                using var fp = new SKPaint
+                {
+                    Style = SKPaintStyle.Fill,
+                    Color = new SKColor(k.FillColor),
+                    IsAntialias = true
+                };
+                using var sp = k.StrokeSubPx > 0
+                    ? new SKPaint
+                    {
+                        Style = SKPaintStyle.Stroke,
+                        Color = new SKColor(k.StrokeColor),
+                        StrokeWidth = Math.Max(1f, sw) / r,
+                        IsAntialias = true,
+                        StrokeJoin = SKStrokeJoin.Round,
+                        StrokeCap = SKStrokeCap.Round
+                    }
+                    : null;
+
+                if (k.Forma.Equals("Circulo", StringComparison.OrdinalIgnoreCase))
+                {
+                    c.DrawCircle(center, center, r, fp);
+                    if (sp != null)
+                    {
+                        sp.StrokeWidth = Math.Max(1f, sw);
+                        c.DrawCircle(center, center, r, sp);
+                    }
+                }
+                else
+                {
+                    DesenharMarcador(c, new SKPoint(center, center), r, k.Forma, k.RotationTenths * 0.1f, fp, sp);
+                }
+
+                return new MarkerSpriteEntry(surface.Snapshot(), center);
+            });
+
+            return (entry.Image, entry.HalfExtentPx);
         }
 
         /// <summary>

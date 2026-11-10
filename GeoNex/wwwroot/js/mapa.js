@@ -1513,7 +1513,8 @@ window.mapEngine = {
 
         if (this.featureSelectionMode) {
             const gesture = this.featureSelectionGesture;
-            const isPanPointer = this.panCandidate && this.panPointerId === e.pointerId;
+            const isPanPointer = this.panPointerId === e.pointerId &&
+                (this.panCandidate || this.isDragging);
             const isTouchPan = e.pointerType === 'touch' && this.activeTouches.size >= 2;
             if (gesture && gesture.pointerId === e.pointerId && this.featureSelectionShape !== 'polygon') {
                 const distance = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY);
@@ -1597,7 +1598,6 @@ window.mapEngine = {
         if (this.panCandidate && this.panPointerId === e.pointerId &&
             Math.hypot(e.clientX - this.startX, e.clientY - this.startY) >= 3) {
             this.panCandidate = false;
-            this.panPointerId = null;
             this.isDragging = true;
             this.lastX = this.startX;
             this.lastY = this.startY;
@@ -2110,7 +2110,8 @@ window.mapEngine = {
             this.pendingY,
             this.pendingScale,
             !!interacaoRapida,
-            requestId, this.pendingCameraBasis.panX, this.pendingCameraBasis.panY, this.pendingCameraBasis.zoom)
+            requestId, this.pendingCameraBasis.panX, this.pendingCameraBasis.panY,
+            this.pendingCameraBasis.zoom, this.refineAfterRequestId === requestId)
             .catch((erro) => {
                 console.warn('[GEONEX] Falha ao enviar a câmera:', erro);
                 this.falharRequisicao(requestId);
@@ -2130,7 +2131,8 @@ window.mapEngine = {
         this.fetchWatchdog = setTimeout(() => this.falharRequisicao(requestId), 10000);
         this.dotNetHelper.invokeMethodAsync('AtualizarCameraJS',
             this.pendingX, this.pendingY, this.pendingScale, this.requestInteractive, requestId,
-            this.pendingCameraBasis.panX, this.pendingCameraBasis.panY, this.pendingCameraBasis.zoom)
+            this.pendingCameraBasis.panX, this.pendingCameraBasis.panY,
+            this.pendingCameraBasis.zoom, this.refineAfterRequestId === requestId)
             .catch(() => this.falharRequisicao(requestId));
     },
 

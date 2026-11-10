@@ -12,14 +12,8 @@ internal static class ParallelPolygonPainter
         SKMatrix matrix, int workers, long spareBytes, CancellationToken token,
         Action<int, int, double>? measureBand = null, bool? vertical = null)
     {
-        if (workers < 2 || source.PointCount < 8192 || (fill == null && stroke == null) ||
-            source.FillType is not (SKPathFillType.Winding or SKPathFillType.EvenOdd) ||
-            !Simple(fill, SKPaintStyle.Fill) || !Simple(stroke, SKPaintStyle.Stroke) ||
-            matrix.SkewX != 0 || matrix.SkewY != 0 || matrix.Persp0 != 0 || matrix.Persp1 != 0 || matrix.Persp2 != 1 ||
-            !float.IsFinite(matrix.ScaleX) || !float.IsFinite(matrix.ScaleY) || matrix.ScaleX <= 0 || matrix.ScaleY <= 0 ||
-            !float.IsFinite(matrix.TransX) || !float.IsFinite(matrix.TransY) ||
-            destination.ColorType != SKColorType.Rgba8888 || destination.AlphaType != SKAlphaType.Premul ||
-            destination.RowBytes != (long)destination.Width * 4) return false;
+        if (workers < 2 || !Supported(source, fill, stroke, matrix, destination.Width, destination.Height,
+                destination.ColorType, destination.AlphaType, destination.RowBytes)) return false;
         double join = stroke?.StrokeJoin == SKStrokeJoin.Miter ? Math.Max(1, stroke.StrokeMiter) : 1;
         double strokePixels = (stroke?.StrokeWidth ?? 0) * Math.Max(matrix.ScaleX, matrix.ScaleY);
         double guard = 2 + Math.Max(1, strokePixels * join);
@@ -105,6 +99,18 @@ internal static class ParallelPolygonPainter
          paint.Shader == null && paint.ColorFilter == null && paint.ImageFilter == null &&
          paint.MaskFilter == null && paint.PathEffect == null && float.IsFinite(paint.StrokeWidth) && paint.StrokeWidth >= 0);
 
+    private static bool Supported(SKPath source, SKPaint? fill, SKPaint? stroke, SKMatrix matrix,
+        int width, int height, SKColorType colorType, SKAlphaType alphaType, long rowBytes) =>
+        source.PointCount >= 8192 &&
+        (fill != null || stroke != null) &&
+        (source.FillType is SKPathFillType.Winding or SKPathFillType.EvenOdd) &&
+        Simple(fill, SKPaintStyle.Fill) && Simple(stroke, SKPaintStyle.Stroke) &&
+        matrix.SkewX == 0 && matrix.SkewY == 0 && matrix.Persp0 == 0 && matrix.Persp1 == 0 && matrix.Persp2 == 1 &&
+        float.IsFinite(matrix.ScaleX) && float.IsFinite(matrix.ScaleY) && matrix.ScaleX > 0 && matrix.ScaleY > 0 &&
+        float.IsFinite(matrix.TransX) && float.IsFinite(matrix.TransY) &&
+        width >= 64 && height >= 64 && colorType == SKColorType.Rgba8888 && alphaType == SKAlphaType.Premul &&
+        rowBytes == (long)width * 4;
+
     private static int[] Boundaries(SKPath source, SKMatrix matrix, int dimension, int bands,
         bool vertical, double guard, CancellationToken token)
     {
@@ -171,7 +177,7 @@ internal static class ParallelPolygonPainter
         try
         {
             for (int i = 0; i < bands; i++) paths[i] = new SKPath { FillType = source.FillType };
-            buffer = ArrayPool<SKPoint>.Shared.Rent(256);
+            buffer = ArrayPool<SKPoint>.Shared.Rent(Math.Max(256, Math.Min(16384, source.PointCount / 8)));
             using var iterator = source.CreateRawIterator();
             while (true)
             {

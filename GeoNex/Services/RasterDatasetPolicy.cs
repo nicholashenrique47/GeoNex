@@ -8,10 +8,15 @@ public readonly record struct RasterDatasetSemantics(
     bool IsFloatingPoint,
     bool IsRgbLike);
 
+internal readonly record struct RasterPaletteColor(byte Red, byte Green, byte Blue, byte Alpha);
+
 public static class RasterDatasetPolicy
 {
     private sealed record RenderMetadata(
         int[] RgbaBandMap,
+        RasterPaletteColor[]? Palette,
+        bool ExpandGray,
+        bool ExpandGrayAlpha,
         RasterDatasetSemantics Semantics,
         double[] GeoTransform,
         string DriverShortName,
@@ -32,6 +37,88 @@ public static class RasterDatasetPolicy
     {
         ArgumentNullException.ThrowIfNull(dataset);
         return GetRenderMetadata(dataset).RgbaBandMap;
+    }
+
+    internal static RasterPaletteColor[]? GetCachedPalette(Dataset dataset)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        return GetRenderMetadata(dataset).Palette;
+    }
+
+    internal static bool RequiresGrayExpansion(Dataset dataset) => GetRenderMetadata(dataset).ExpandGray;
+
+    internal static bool RequiresGrayAlphaExpansion(Dataset dataset) => GetRenderMetadata(dataset).ExpandGrayAlpha;
+
+    internal static unsafe void ExpandGrayInPlace(IntPtr pixels, int width, int height, int rowBytes)
+    {
+        if (pixels == IntPtr.Zero || width <= 0 || height <= 0 || rowBytes != (long)width * 4)
+            throw new ArgumentException("Invalid gray destination.");
+        int count = checked(width * height);
+        byte* data = (byte*)pixels;
+        for (int index = count - 1; index >= 0; index--)
+        {
+            byte gray = data[index];
+            long destination = (long)index * 4;
+            data[destination] = gray;
+            data[destination + 1] = gray;
+            data[destination + 2] = gray;
+            data[destination + 3] = 255;
+        }
+    }
+
+    internal static unsafe void ExpandGrayAlphaInPlace(IntPtr pixels, int width, int height, int rowBytes)
+    {
+        if (pixels == IntPtr.Zero || width <= 0 || height <= 0 || rowBytes != (long)width * 4)
+            throw new ArgumentException("Invalid gray-alpha destination.");
+        int count = checked(width * height);
+        byte* data = (byte*)pixels;
+        for (int index = count - 1; index >= 0; index--)
+        {
+            long destination = (long)index * 4;
+            byte gray = data[destination];
+            byte alpha = data[destination + 1];
+            data[destination] = gray;
+            data[destination + 1] = gray;
+            data[destination + 2] = gray;
+            data[destination + 3] = alpha;
+        }
+    }
+
+    internal static unsafe void ExpandPaletteInPlace(IntPtr pixels, int width, int height, int rowBytes,
+        RasterPaletteColor[] palette, bool hasSeparateAlpha)
+    {
+        ArgumentNullException.ThrowIfNull(palette);
+        if (pixels == IntPtr.Zero || width <= 0 || height <= 0 || rowBytes != (long)width * 4)
+            throw new ArgumentException("Invalid palette destination.");
+        int count = checked(width * height);
+        byte* data = (byte*)pixels;
+        if (hasSeparateAlpha)
+        {
+            for (int index = count - 1; index >= 0; index--)
+            {
+                byte paletteIndex = data[(long)index * 4];
+                byte sourceAlpha = data[(long)index * 4 + 1];
+                RasterPaletteColor color = paletteIndex < palette.Length
+                    ? palette[paletteIndex] : default;
+                data[(long)index * 4] = color.Red;
+                data[(long)index * 4 + 1] = color.Green;
+                data[(long)index * 4 + 2] = color.Blue;
+                data[(long)index * 4 + 3] = (byte)((color.Alpha * sourceAlpha + 127) / 255);
+            }
+            return;
+        }
+
+        for (int index = count - 1; index >= 0; index--)
+        {
+            byte paletteIndex = data[index];
+            RasterPaletteColor color = paletteIndex < palette.Length
+                ? palette[paletteIndex] : default;
+            long destination = (long)index * 4;
+            data[destination] = color.Red;
+            data[destination + 1] = color.Green;
+            data[destination + 2] = color.Blue;
+            data[destination + 3] = color.Alpha;
+        }
     }
 
     internal static double[] GetCachedGeoTransform(Dataset dataset)
@@ -60,9 +147,35 @@ public static class RasterDatasetPolicy
 
     private static RenderMetadata InspectForRendering(Dataset dataset)
     {
+        RasterDatasetSemantics semantics = InspectSemantics(dataset);
+        RasterPaletteColor[]? palette = InspectPalette(dataset, semantics);
+        bool expandGray = palette == null && dataset.RasterCount == 1;
+        bool expandGrayAlpha = palette == null && dataset.RasterCount == 2 && IsGrayAlpha(dataset);
         int bandCount = Math.Min(dataset.RasterCount, 3);
         int[] bandMap;
-        if (bandCount < 3)
+        int alphaBand = FindAlphaBand(dataset);
+        if (palette != null)
+        {
+            bandMap = alphaBand > 0 ? [1, alphaBand] : [1];
+        }
+        else if (expandGray)
+        {
+            // Read one channel and expand into RGBA after RasterIO.
+            bandMap = [1];
+        }
+        else if (expandGrayAlpha)
+        {
+            bandMap = [1, 2];
+        }
+        else if (dataset.RasterCount >= 3 && alphaBand > 0 && alphaBand <= 3)
+        {
+            // Keep all interpreted color channels and alpha in their semantic
+            // positions when a source does not use the conventional RGBA order.
+            int[] colorBands = FindRgbBands(dataset);
+            bandMap = colorBands.Length == 3 ? [colorBands[0], colorBands[1], colorBands[2], alphaBand]
+                : [1, 2, 3, alphaBand];
+        }
+        else if (bandCount < 3)
         {
             bandMap = Enumerable.Range(1, bandCount).ToArray();
         }
@@ -78,7 +191,6 @@ public static class RasterDatasetPolicy
             }
         }
 
-        RasterDatasetSemantics semantics = InspectSemantics(dataset);
         double[] geoTransform = new double[6];
         dataset.GetGeoTransform(geoTransform);
         using Driver? driver = dataset.GetDriver();
@@ -89,7 +201,96 @@ public static class RasterDatasetPolicy
             using Band firstBand = dataset.GetRasterBand(1);
             hasPyramids = firstBand.GetOverviewCount() > 0;
         }
-        return new RenderMetadata(bandMap, semantics, geoTransform, driverShortName, hasPyramids);
+        return new RenderMetadata(bandMap, palette, expandGray, expandGrayAlpha, semantics,
+            geoTransform, driverShortName, hasPyramids);
+    }
+
+    private static RasterPaletteColor[]? InspectPalette(Dataset dataset, RasterDatasetSemantics semantics)
+    {
+        if (!semantics.HasPalette || dataset.RasterCount <= 0) return null;
+        using Band band = dataset.GetRasterBand(1);
+        using ColorTable? table = band.GetRasterColorTable();
+        if (table == null || table.GetCount() <= 0) return null;
+        PaletteInterp interpretation = table.GetPaletteInterpretation();
+        if (interpretation is not (PaletteInterp.GPI_Gray or PaletteInterp.GPI_RGB or
+            PaletteInterp.GPI_CMYK or PaletteInterp.GPI_HLS)) return null;
+
+        var colors = new RasterPaletteColor[table.GetCount()];
+        for (int index = 0; index < colors.Length; index++)
+        {
+            ColorEntry entry = table.GetColorEntry(index);
+            byte c1 = ToByte(entry.c1), c2 = ToByte(entry.c2), c3 = ToByte(entry.c3), c4 = ToByte(entry.c4);
+            colors[index] = interpretation switch
+            {
+                PaletteInterp.GPI_Gray => new RasterPaletteColor(c1, c1, c1, c4),
+                PaletteInterp.GPI_RGB => new RasterPaletteColor(c1, c2, c3, c4),
+                PaletteInterp.GPI_CMYK => new RasterPaletteColor(
+                    (byte)((255 - c1) * (255 - c4) / 255),
+                    (byte)((255 - c2) * (255 - c4) / 255),
+                    (byte)((255 - c3) * (255 - c4) / 255), 255),
+                PaletteInterp.GPI_HLS => HlsToRgb(entry.c1, c2, c3, c4),
+                _ => default
+            };
+        }
+        return colors;
+    }
+
+    private static RasterPaletteColor HlsToRgb(short hue, byte luminance, byte saturation, byte alpha)
+    {
+        double h = ((hue % 360) + 360) % 360 / 360.0, l = luminance / 255.0, s = saturation / 255.0;
+        if (s <= 0) return new RasterPaletteColor(luminance, luminance, luminance, alpha);
+        double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        double p = 2 * l - q;
+        static double Channel(double p, double q, double t)
+        {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1.0 / 6) return p + (q - p) * 6 * t;
+            if (t < 1.0 / 2) return q;
+            if (t < 2.0 / 3) return p + (q - p) * (2.0 / 3 - t) * 6;
+            return p;
+        }
+        return new RasterPaletteColor(
+            (byte)Math.Clamp((int)Math.Round(Channel(p, q, h + 1.0 / 3) * 255), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(Channel(p, q, h) * 255), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(Channel(p, q, h - 1.0 / 3) * 255), 0, 255),
+            alpha);
+    }
+
+    private static byte ToByte(short value) => (byte)Math.Clamp((int)value, 0, 255);
+
+    private static int FindAlphaBand(Dataset dataset)
+    {
+        for (int index = 1; index <= dataset.RasterCount; index++)
+        {
+            using Band band = dataset.GetRasterBand(index);
+            if (band.GetRasterColorInterpretation() == ColorInterp.GCI_AlphaBand) return index;
+        }
+        return 0;
+    }
+
+    private static int[] FindRgbBands(Dataset dataset)
+    {
+        int red = 0, green = 0, blue = 0;
+        for (int index = 1; index <= dataset.RasterCount; index++)
+        {
+            using Band band = dataset.GetRasterBand(index);
+            switch (band.GetRasterColorInterpretation())
+            {
+                case ColorInterp.GCI_RedBand: red = index; break;
+                case ColorInterp.GCI_GreenBand: green = index; break;
+                case ColorInterp.GCI_BlueBand: blue = index; break;
+            }
+        }
+        return red > 0 && green > 0 && blue > 0 ? [red, green, blue] : [];
+    }
+
+    private static bool IsGrayAlpha(Dataset dataset)
+    {
+        using Band gray = dataset.GetRasterBand(1);
+        using Band alpha = dataset.GetRasterBand(2);
+        return gray.GetRasterColorInterpretation() is ColorInterp.GCI_GrayIndex or ColorInterp.GCI_Undefined &&
+               alpha.GetRasterColorInterpretation() == ColorInterp.GCI_AlphaBand;
     }
 
     public static bool SupportsExternalOverviews(Dataset dataset)
@@ -121,7 +322,8 @@ public static class RasterDatasetPolicy
         bool isFloatingPoint = firstBand.DataType is
             DataType.GDT_Float16 or DataType.GDT_Float32 or DataType.GDT_Float64 or
             DataType.GDT_CFloat16 or DataType.GDT_CFloat32 or DataType.GDT_CFloat64;
-        bool isRgbLike = dataset.RasterCount >= 3;
+        bool isRgbLike = dataset.RasterCount >= 3 ||
+                         (interpretation == ColorInterp.GCI_GrayIndex && !hasPalette);
         return new RasterDatasetSemantics(hasPalette, isFloatingPoint, isRgbLike);
     }
 

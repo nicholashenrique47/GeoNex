@@ -572,7 +572,7 @@
         </div>
         <div style="width: 1px; background: #333;"></div>
         <div style="display: flex; flex-direction: column; align-items: center;">
-            <span style="font-size: 0.6rem; color: #888;">LATÊNCIA DA REDE/JS</span>
+            <span style="font-size: 0.6rem; color: #888;">LATÊNCIA TOTAL DO FRAME</span>
             <strong>@(_jsLatency.ToString("F1")) ms</strong>
         </div>
         <div style="width: 1px; background: #333;"></div>
@@ -2241,12 +2241,12 @@
     @if (exibirModalExportacao)
     {
         <div class="modal-overlay" role="dialog" aria-modal="true" @onpointerdown:stopPropagation="true" @onpointerup:stopPropagation="true" @onpointermove:stopPropagation="true">
-            <div class="glass-panel import-modal">
+            <div class="glass-panel import-modal export-layer-modal">
                 <div class="modal-header">
                     <h2>EXPORTAR CAMADA VETORIAL (OGR)</h2>
                     <button class="close-modal-btn" @onclick="FecharModalExportacao">✕</button>
                 </div>
-                <div class="modal-body" style="padding: 20px;">
+                <div class="modal-body export-layer-modal-body" style="padding: 20px;">
                     <div class="form-group mb-15">
                         <label>Camada a Exportar</label>
                         <select class="glass-input editable" @bind="exportCamadaOrigem">
@@ -2289,8 +2289,70 @@
                     </div>
 
                     <div class="form-group mb-15">
-                        <label>Sistema de Referência de Coordenadas (EPSG Destino)</label>
-                        <input type="number" class="glass-input editable" @bind="exportEPSG" placeholder="Ex: 31982 ou 4326" />
+                        <label>Sistema de Referência de Coordenadas (SRC de destino)</label>
+                        <div class="export-crs-picker">
+                            <div class="export-crs-search">
+                                <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg>
+                                <input class="glass-input editable" value="@_exportCrsBusca" @oninput="FiltrarCrsExportacao" placeholder="Buscar por código ou nome (ex.: 31982, SIRGAS, UTM...)" aria-label="Buscar sistema de referência" />
+                                @if (!string.IsNullOrWhiteSpace(_exportCrsBusca))
+                                {
+                                    <button type="button" class="export-crs-clear" title="Limpar busca" @onclick="LimparBuscaCrsExportacao">×</button>
+                                }
+                            </div>
+                            <div class="export-crs-selected">
+                                <span class="export-crs-selected-icon" aria-hidden="true">⌖</span>
+                                <span class="export-crs-selected-copy"><small>Sistema de destino selecionado</small><strong>@RotuloCrsExportacaoSelecionado</strong></span>
+                                <span class="export-crs-selected-badge"><span aria-hidden="true">✓</span> ATIVO</span>
+                            </div>
+
+                            <div class="export-crs-browser">
+                                <div class="export-crs-browser-heading">
+                                    <span><strong>Catálogo de SRC</strong><small>Escolha um sistema ou filtre a lista</small></span>
+                                    <span class="export-crs-total">@_tabelaPontosCrsCatalogo.Count disponíveis</span>
+                                </div>
+                                <div class="export-crs-categories" role="group" aria-label="Filtrar por tipo de SRC">
+                                    @foreach (var categoria in _exportCrsCategorias)
+                                    {
+                                        <button type="button" class="export-crs-category @(string.Equals(_exportCrsCategoria, categoria.Key, StringComparison.Ordinal) ? "active" : "")" aria-pressed="@string.Equals(_exportCrsCategoria, categoria.Key, StringComparison.Ordinal)" @onclick="() => SelecionarCategoriaCrsExportacao(categoria.Key)">
+                                            <span>@categoria.Label</span><small>@ContarCrsCategoria(categoria.Key)</small>
+                                        </button>
+                                    }
+                                </div>
+                                @if (_exportCrsResultados.Count > 0)
+                                {
+                                    <div class="export-crs-results" role="listbox" aria-label="Sistemas de referência disponíveis">
+                                        <div class="export-crs-results-heading"><strong>@_exportCrsResultados.Count sistemas</strong><span>CÓDIGO <i></i> NOME <i></i> TIPO</span></div>
+                                        <div class="export-crs-results-list">
+                                            <Virtualize Items="@_exportCrsResultados" Context="crs" ItemSize="52" OverscanCount="6">
+                                                <div class="export-crs-option-wrap" @key="crs.Identifier">
+                                                    <button type="button" role="option" aria-selected="@(string.Equals(crs.Identifier, exportCrsDestino, StringComparison.OrdinalIgnoreCase))" class="export-crs-option @(string.Equals(crs.Identifier, exportCrsDestino, StringComparison.OrdinalIgnoreCase) ? "active" : "")" @onclick="() => SelecionarCrsExportacao(crs)">
+                                                        <span class="export-crs-option-code">@crs.Identifier</span>
+                                                        <span class="export-crs-option-copy"><strong class="export-crs-option-name">@crs.Name</strong><small>@NomeCategoriaCrs(crs.Kind)</small></span>
+                                                        <span class="export-crs-option-kind" aria-hidden="true">@(string.Equals(crs.Identifier, exportCrsDestino, StringComparison.OrdinalIgnoreCase) ? "✓" : "＋")</span>
+                                                    </button>
+                                                </div>
+                                            </Virtualize>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="export-crs-no-results">
+                                        <strong>Nenhum sistema encontrado</strong>
+                                        <span>Ajuste a busca ou escolha outra categoria.</span>
+                                    </div>
+                                }
+                            </div>
+                            @if (_exportCrsBusca.Contains(':') && !_tabelaPontosCrsCatalogo.Any(crs => string.Equals(crs.Identifier, _exportCrsBusca.Trim(), StringComparison.OrdinalIgnoreCase)))
+                            {
+                                <button type="button" class="export-crs-custom" @onclick="UsarCrsDigitadoExportacao">Usar identificador PROJ informado: @_exportCrsBusca</button>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_exportCrsErro))
+                            {
+                                <div class="export-crs-error" role="alert">@_exportCrsErro</div>
+                            }
+                            <div class="export-crs-footnote">Lista completa do catálogo PROJ. SRC selecionado será usado como destino da reprojeção.</div>
+                        </div>
                     </div>
 
                     <div class="import-actions" style="margin-top: 30px;">
@@ -3178,7 +3240,7 @@
         bool bloquearRotulos = !rotulosAtivos && (!temEstilo || string.IsNullOrEmpty(estMenu.ColunaRotulo));
 
         <div class="context-menu-overlay" @onclick="FecharMenuContexto" @oncontextmenu="FecharMenuContexto" @oncontextmenu:preventDefault="true"></div>
-        <div class="context-menu glass-panel" style="left: @(menuContextoX)px; top: @(menuContextoY)px;">
+        <div class="context-menu glass-panel" style="left: max(8px, min(@(menuContextoX)px, calc(100vw - 220px))); top: max(8px, min(@(menuContextoY)px, calc(100vh - 420px)));">
             <button @onclick="AproximarCamada">Aproximar à Camada</button>
 
             @if (CamadasAtivas.FirstOrDefault(c => c.Nome == camadaSelecionadaMenu)?.Tipo == "Vetor")
@@ -3187,25 +3249,25 @@
                 <button @onclick="() => { FecharMenuContexto(); AbrirPropriedadesSincronizadas(camadaSelecionadaMenu); }">Propriedades e Estilos</button>
 
                 <!-- SUBMENU CASCATA DE EXPORTAÇÃO (SEM BOTÃO NOVO NO RIBBON) -->
-                <div class="context-submenu-wrapper" @onmouseenter="() => _submenuExportacaoAberto = true" @onmouseleave="() => _submenuExportacaoAberto = false">
-                    <button type="button" class="submenu-header-btn" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div class="context-submenu-wrapper">
+                    <button type="button" class="submenu-header-btn" aria-haspopup="true" aria-expanded="@_submenuExportacaoAberto" @onclick="() => _submenuExportacaoAberto = !_submenuExportacaoAberto" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                         <span>Exportar Camada</span>
                         <span style="font-size: 10px; color: #94a3b8;">▶</span>
                     </button>
                     @if (_submenuExportacaoAberto)
                     {
                         <div class="context-submenu-flyout glass-panel">
-                            <button type="button" @onclick="() => { FecharMenuContexto(); AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.AllFeatures); }">
+                            <button type="button" @onclick="async () => { FecharMenuContexto(); await AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.AllFeatures); }">
                                 Todas as Feições
                             </button>
                             <button type="button"
                                     disabled="@(ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu) == 0)"
                                     style="@(ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu) == 0 ? "opacity: 0.45; cursor: not-allowed;" : "")"
                                     title="@(ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu) == 0 ? "Nenhuma feição selecionada nesta camada" : $"Exportar {ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu)} feições selecionadas")"
-                                    @onclick="() => { FecharMenuContexto(); AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.SelectedFeaturesOnly); }">
+                                    @onclick="async () => { FecharMenuContexto(); await AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.SelectedFeaturesOnly); }">
                                 Feições Selecionadas (@ObterContagemFeicoesSelecionadas(camadaSelecionadaMenu))
                             </button>
-                            <button type="button" @onclick="() => { FecharMenuContexto(); AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.CurrentVisibleExtent); }">
+                            <button type="button" @onclick="async () => { FecharMenuContexto(); await AbrirExportacaoComEscopo(camadaSelecionadaMenu, ExportScope.CurrentVisibleExtent); }">
                                 Extensão Visível Atual
                             </button>
                         </div>
@@ -5840,6 +5902,25 @@
         height: 350px;
     }
 
+    .import-modal.export-layer-modal {
+        width: min(760px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+    }
+
+    .export-layer-modal .export-layer-modal-body {
+        display: block;
+        height: auto;
+        max-height: calc(100vh - 110px);
+        overflow-y: auto;
+    }
+
+    .export-layer-modal select.glass-input,
+    .export-layer-modal input.glass-input {
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+    }
+
     .modal-tabs {
         width: 220px;
         background: rgba(0, 0, 0, 0.15);
@@ -6049,6 +6130,10 @@
             position: relative;
             width: 100%;
         }
+        .context-menu .submenu-header-btn[aria-expanded="true"] {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+        }
         .context-submenu-flyout {
             position: absolute;
             left: 98%;
@@ -6211,6 +6296,8 @@
         display: flex;
         flex-direction: column;
         min-width: 200px;
+        max-height: calc(100vh - 16px);
+        overflow-y: auto;
         padding: 6px;
         background: rgba(15, 23, 42, 0.95);
         border: 1px solid rgba(255, 255, 255, 0.15);
@@ -7486,7 +7573,18 @@
     // Variáveis Exportação
     private string exportCamadaOrigem = "";
     private string exportFormatoDriver = "ESRI Shapefile";
-    private int exportEPSG = 4326;
+    private string exportCrsDestino = "EPSG:4326";
+    private string _exportCrsBusca = string.Empty;
+    private string _exportCrsErro = string.Empty;
+    private string _exportCrsCategoria = "Todos";
+    private static readonly (string Key, string Label)[] _exportCrsCategorias =
+    [
+        ("Todos", "Todos"),
+        ("Projetado", "Projetados"),
+        ("Geografico", "Geográficos"),
+        ("Local", "Locais"),
+        ("Composto", "Compostos")
+    ];
     private ExportScope exportEscopo = ExportScope.AllFeatures;
     private bool _submenuExportacaoAberto = false;
     private readonly Dictionary<string, HashSet<long>> _fidsSelecionadosTabela = new(StringComparer.OrdinalIgnoreCase);
@@ -8087,7 +8185,8 @@
     private long SolicitarNovoFrame(
         bool interacaoRapida = false,
         long requisicaoCamera = 0,
-        bool limparPreviaVetorizacaoAoApresentar = false)
+        bool limparPreviaVetorizacaoAoApresentar = false,
+        bool previewInicialAbertura = false)
     {
         if (_server == null) return 0;
         long frameId = System.Threading.Interlocked.Increment(ref _sequenciaFrame);
@@ -8102,13 +8201,17 @@
         string dpi = frameDpi.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         var camera = new MapCameraState(MapService.CameraPanX, MapService.CameraPanY, MapService.CameraZoom);
         string cameraQuery = FormattableString.Invariant($"&panx={camera.PanX:R}&pany={camera.PanY:R}&zoom={camera.Zoom:R}");
-        string url = $"{_server.BaseUrl}mapa/?w={frameWidth}&h={frameHeight}&dpi={dpi}&nav=1&i={(interacaoRapida ? 1 : 0)}&fid={frameId}&t={DateTime.Now.Ticks}{cameraQuery}";
+        string startupQuery = previewInicialAbertura ? "&startup=1" : string.Empty;
+        string url = $"{_server.BaseUrl}mapa/?w={frameWidth}&h={frameHeight}&dpi={dpi}&nav=1&i={(interacaoRapida ? 1 : 0)}&fid={frameId}&t={DateTime.Now.Ticks}{startupQuery}{cameraQuery}";
         object digitizingMatrix = MatrizPreviaVetorizacaoCliente();
+        int framePadding = previewInicialAbertura
+            ? 0
+            : NavigationFramePolicy.Padding(frameWidth, frameHeight, frameDpi);
 
         // Pede ao JS para trocar a imagem sem o Blazor piscar a tela
         InvokeAsync(() => JSRuntime.InvokeVoidAsync(
             "mapEngine.carregarNovoFrame", url, frameId, requisicaoCamera, _server.IsTelemetryEnabled,
-            NavigationFramePolicy.Padding(frameWidth, frameHeight, frameDpi), frameWidth, frameHeight,
+            framePadding, frameWidth, frameHeight,
             camera.PanX, camera.PanY, camera.Zoom, false, digitizingMatrix,
             _digitizingPreviewClearAfterFrameId, _digitizingPreviewClearRevision));
         return frameId;
@@ -8719,8 +8822,138 @@
     private void FecharModalImportacao() { exibirModalImportacao = false; }
     private void TrocarAbaModal(string nomeAba) { AbaModalAtiva = nomeAba; }
 
-    private void AbrirModalExportacao()
+    private async Task CarregarCatalogoCrsExportacaoAsync()
     {
+        if (_tabelaPontosCrsCatalogo.Count > 0) return;
+        try
+        {
+            _tabelaPontosCrsCatalogo = await Task.Run(DelimitedPointTableService.ReadCoordinateReferenceSystems);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Falha ao carregar o catálogo de SRC para exportação: {ex.Message}");
+        }
+    }
+
+    private ICollection<DelimitedPointTableService.CoordinateReferenceSystem> _exportCrsResultados
+    {
+        get
+        {
+            string query = _exportCrsBusca.Trim();
+            return _tabelaPontosCrsCatalogo
+                .Where(crs => _exportCrsCategoria == "Todos" ||
+                              string.Equals(CategoriaCrs(crs.Kind), _exportCrsCategoria, StringComparison.Ordinal))
+                .Where(crs => query.Length == 0 ||
+                              crs.Identifier.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                              crs.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                              crs.Kind.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(crs => OrdemCategoriaCrs(crs.Kind))
+                .ThenByDescending(crs => query.Length > 0 && string.Equals(crs.Identifier, query, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(crs => query.Length > 0 && crs.Identifier.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                .ThenBy(crs => crs.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+    }
+
+    private int ContarCrsCategoria(string categoria) => categoria == "Todos"
+        ? _tabelaPontosCrsCatalogo.Count
+        : _tabelaPontosCrsCatalogo.Count(crs => string.Equals(CategoriaCrs(crs.Kind), categoria, StringComparison.Ordinal));
+
+    private static string CategoriaCrs(string kind) =>
+        kind.StartsWith("Geográfico", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(kind, "Geocêntrico", StringComparison.OrdinalIgnoreCase)
+            ? "Geografico"
+            : kind;
+
+    private static string NomeCategoriaCrs(string kind) => CategoriaCrs(kind) switch
+    {
+        "Geografico" => "GEOGRÁFICO",
+        "Projetado" => "PROJETADO",
+        "Local" => "LOCAL",
+        "Composto" => "COMPOSTO",
+        _ => kind.ToUpperInvariant()
+    };
+
+    private static int OrdemCategoriaCrs(string kind) => CategoriaCrs(kind) switch
+    {
+        "Projetado" => 0,
+        "Geografico" => 1,
+        "Local" => 2,
+        "Composto" => 3,
+        _ => 4
+    };
+
+    private void SelecionarCategoriaCrsExportacao(string categoria) => _exportCrsCategoria = categoria;
+
+    private string RotuloCrsExportacaoSelecionado
+    {
+        get
+        {
+            var crs = _tabelaPontosCrsCatalogo.FirstOrDefault(item =>
+                string.Equals(item.Identifier, exportCrsDestino, StringComparison.OrdinalIgnoreCase));
+            return crs is null ? $"{exportCrsDestino} · SRC do projeto" : $"{crs.Identifier} · {crs.Name}";
+        }
+    }
+
+    private void FiltrarCrsExportacao(ChangeEventArgs args)
+    {
+        _exportCrsBusca = args.Value?.ToString() ?? string.Empty;
+        _exportCrsErro = string.Empty;
+    }
+
+    private void LimparBuscaCrsExportacao()
+    {
+        _exportCrsBusca = string.Empty;
+        _exportCrsErro = string.Empty;
+    }
+
+    private void SelecionarCrsExportacao(DelimitedPointTableService.CoordinateReferenceSystem crs)
+    {
+        exportCrsDestino = crs.Identifier;
+        _exportCrsBusca = string.Empty;
+        _exportCrsErro = string.Empty;
+    }
+
+    private void UsarCrsDigitadoExportacao()
+    {
+        string crs = _exportCrsBusca.Trim();
+        if (crs.Length == 0) return;
+        try
+        {
+            using var spatialReference = SrsFactory.FromUserInput(crs);
+            exportCrsDestino = crs;
+            _exportCrsBusca = string.Empty;
+            _exportCrsErro = string.Empty;
+        }
+        catch
+        {
+            _exportCrsErro = "Identificador não reconhecido pelo PROJ.";
+        }
+    }
+
+    private string ObterCrsProjetoParaExportacao()
+    {
+        if (string.IsNullOrWhiteSpace(MapService.ProjetoSRS)) return "EPSG:4326";
+        try
+        {
+            using var srs = SrsFactory.FromUserInput(MapService.ProjetoSRS);
+            string? authority = srs.GetAuthorityName(null);
+            string? code = srs.GetAuthorityCode(null);
+            if (!string.IsNullOrWhiteSpace(authority) && !string.IsNullOrWhiteSpace(code))
+            {
+                string identifier = $"{authority}:{code}";
+                var catalogEntry = _tabelaPontosCrsCatalogo.FirstOrDefault(crs =>
+                    string.Equals(crs.Identifier, identifier, StringComparison.OrdinalIgnoreCase));
+                if (catalogEntry is not null) return catalogEntry.Identifier;
+            }
+        }
+        catch { }
+        return "EPSG:4326";
+    }
+
+    private async Task AbrirModalExportacao()
+    {
+        await CarregarCatalogoCrsExportacaoAsync();
         Camada? camadaAtivaExportavel = CamadaAtivaVetorialDisponivel &&
             !string.IsNullOrWhiteSpace(CamadaAtivaFerramentas?.CaminhoArquivo)
                 ? CamadaAtivaFerramentas
@@ -8728,6 +8961,10 @@
         Camada? camadaInicialExportacao = camadaAtivaExportavel ?? CamadasAtivas.FirstOrDefault(camada =>
             camada.Tipo == "Vetor" && !camada.PendenteReconexao && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo));
         exportCamadaOrigem = camadaInicialExportacao?.Nome ?? string.Empty;
+        exportCrsDestino = ObterCrsProjetoParaExportacao();
+        _exportCrsBusca = string.Empty;
+        _exportCrsErro = string.Empty;
+        _exportCrsCategoria = "Todos";
         exibirModalExportacao = true;
     }
     private void FecharModalExportacao() { exibirModalExportacao = false; }
@@ -8787,7 +9024,7 @@
             camadaOrig.CaminhoArquivo,
             caminhoDestino,
             exportFormatoDriver,
-            exportEPSG,
+            exportCrsDestino,
             fidsFilter,
             spatialEnvelope);
 
@@ -9916,7 +10153,12 @@
         InvokeAsync(StateHasChanged);
     }
 
-    private void FecharMenuContexto() { mostrarMenuContexto = false; InvokeAsync(StateHasChanged); }
+    private void FecharMenuContexto()
+    {
+        mostrarMenuContexto = false;
+        _submenuExportacaoAberto = false;
+        InvokeAsync(StateHasChanged);
+    }
 
     private async Task BotaoOpcoesClicado(MouseEventArgs e, string nomeCamada)
     {
@@ -10290,14 +10532,15 @@
         StateHasChanged();
     }
 
-    private void AbrirExportacaoComEscopo(string nomeCamada, ExportScope escopo)
+    private async Task AbrirExportacaoComEscopo(string nomeCamada, ExportScope escopo)
     {
+        await CarregarCatalogoCrsExportacaoAsync();
         exportCamadaOrigem = nomeCamada;
         exportEscopo = escopo;
-        if (int.TryParse(new string((MapService.ProjetoSRS ?? "").Where(char.IsDigit).ToArray()), out int parsedEpsg) && parsedEpsg > 0)
-            exportEPSG = parsedEpsg;
-        else
-            exportEPSG = 4326;
+        exportCrsDestino = ObterCrsProjetoParaExportacao();
+        _exportCrsBusca = string.Empty;
+        _exportCrsErro = string.Empty;
+        _exportCrsCategoria = "Todos";
         _submenuExportacaoAberto = false;
         exibirModalExportacao = true;
     }
@@ -11666,7 +11909,8 @@
         long requisicaoCamera = 0,
         double basePanX = double.NaN,
         double basePanY = double.NaN,
-        double baseZoom = double.NaN)
+        double baseZoom = double.NaN,
+        bool previsualizacaoInicialAbertura = false)
     {
         if (!double.IsFinite(deltaX) || !double.IsFinite(deltaY) ||
             !double.IsFinite(scaleMultiplier) || scaleMultiplier <= 0)
@@ -11675,7 +11919,8 @@
         if (requisicaoCamera > 0 && requisicaoCamera <= _ultimaRequisicaoCamera)
         {
             if (requisicaoCamera == _ultimaRequisicaoCamera)
-                SolicitarNovoFrame(interacaoRapida, requisicaoCamera);
+                SolicitarNovoFrame(interacaoRapida, requisicaoCamera,
+                    previewInicialAbertura: interacaoRapida && previsualizacaoInicialAbertura);
             return;
         }
         // Every request is based on the image actually presented in the browser,
@@ -11698,7 +11943,8 @@
         MapService.CameraZoom = novaCamera.Zoom;
 
         _ = SincronizarOverlay(true); // Envia para a sala de espera antes da imagem carregar
-        SolicitarNovoFrame(interacaoRapida, requisicaoCamera);
+        SolicitarNovoFrame(interacaoRapida, requisicaoCamera,
+            previewInicialAbertura: interacaoRapida && previsualizacaoInicialAbertura);
     }
     // Variável que controla a física do íman de desenho
     // Variáveis que controlam os ímanes de desenho simultaneamente

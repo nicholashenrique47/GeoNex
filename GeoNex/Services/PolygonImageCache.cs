@@ -23,6 +23,7 @@ internal sealed class PolygonImageCache : IDisposable
         int Width, int Height, PaintKey? Fill, PaintKey? Stroke);
     private sealed record Entry(Key Key, SKBitmap Image, long Bytes)
     {
+        public Key CurrentKey { get; set; } = Key;
         public long Used;
         public void Dispose() => Image.Dispose();
     }
@@ -31,7 +32,7 @@ internal sealed class PolygonImageCache : IDisposable
     {
         lock (_gate)
         {
-            foreach (string layer in _entries.Where(pair => pair.Value.Key.Context.Revision != revision)
+            foreach (string layer in _entries.Where(pair => pair.Value.CurrentKey.Context.Revision != revision)
                          .Select(pair => pair.Key).ToArray()) Remove(layer);
             Trim(Math.Clamp(budget, 0, 64L * 1024 * 1024));
         }
@@ -63,12 +64,44 @@ internal sealed class PolygonImageCache : IDisposable
             long cost = pixels * 4;
             var key = new Key(context, canvas.TotalMatrix, width, height, Describe(fill), Describe(stroke));
             cancellationToken.ThrowIfCancellationRequested();
-            if (_entries.TryGetValue(layer, out var entry) && entry.Key == key)
+            if (_entries.TryGetValue(layer, out var entry))
             {
-                entry.Used = ++_clock;
-                Composite(canvas, entry);
-                _hits++;
-                return true;
+                if (entry.CurrentKey == key)
+                {
+                    entry.Used = ++_clock;
+                    Composite(canvas, entry);
+                    _hits++;
+                    return true;
+                }
+
+                // Reuse the existing allocated SKBitmap buffer in-place when dimensions match,
+                // avoiding OS virtual memory page-faults (33 MB per 4K layer) on pan/zoom!
+                if (entry.CurrentKey.Width == width && entry.CurrentKey.Height == height)
+                {
+                    try
+                    {
+                        var resources = VectorRuntimeResources.Current;
+                        long workingBudget = Math.Max(budget, resources.PolygonWorkingBytes);
+                        PaintInto(entry.Image, path, fill, stroke, key, workingBudget - _bytes,
+                            resources.Workers, cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        entry.CurrentKey = key;
+                        entry.Used = ++_clock;
+                        _builds++;
+                        Composite(canvas, entry);
+                        return true;
+                    }
+                    catch (OutOfMemoryException)
+                    {
+                        Remove(layer);
+                        return false;
+                    }
+                    catch
+                    {
+                        Remove(layer);
+                        throw;
+                    }
+                }
             }
 
             Remove(layer);
@@ -106,23 +139,28 @@ internal sealed class PolygonImageCache : IDisposable
         {
             if (!bitmap.TryAllocPixels(new SKImageInfo(key.Width, key.Height,
                     SKColorType.Rgba8888, SKAlphaType.Premul))) throw new OutOfMemoryException();
-            if (ParallelPolygonPainter.TryPaint(bitmap, path, fill, stroke, key.Matrix,
-                    workers, spareBytes, token))
-            {
-                bitmap.SetImmutable();
-                return bitmap;
-            }
-            using var canvas = new SKCanvas(bitmap);
-            canvas.Clear(SKColors.Transparent);
-            canvas.SetMatrix(key.Matrix);
-            if (fill != null) canvas.DrawPath(path, fill);
-            token.ThrowIfCancellationRequested();
-            if (stroke != null) canvas.DrawPath(path, stroke);
-            canvas.Flush();
-            bitmap.SetImmutable();
+            PaintInto(bitmap, path, fill, stroke, key, spareBytes, workers, token);
             return bitmap;
         }
         catch { bitmap.Dispose(); throw; }
+    }
+
+    private static void PaintInto(SKBitmap bitmap, SKPath path, SKPaint? fill, SKPaint? stroke, Key key,
+        long spareBytes, int workers, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (ParallelPolygonPainter.TryPaint(bitmap, path, fill, stroke, key.Matrix,
+                workers, spareBytes, token))
+        {
+            return;
+        }
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        canvas.SetMatrix(key.Matrix);
+        if (fill != null) canvas.DrawPath(path, fill);
+        token.ThrowIfCancellationRequested();
+        if (stroke != null) canvas.DrawPath(path, stroke);
+        canvas.Flush();
     }
 
     private static void Composite(SKCanvas canvas, Entry entry)

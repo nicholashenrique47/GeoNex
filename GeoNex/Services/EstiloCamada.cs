@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using SkiaSharp;
 
 namespace GeoNex.Services
 {
@@ -42,6 +45,31 @@ namespace GeoNex.Services
         public string PaletaCategorizada { get; set; } = "ArcMap"; // ArcMap, Pastel, Vivid, ColorBrewer1, Natureza
         public Dictionary<string, string> CoresCategorizadas { get; set; } = new();
         public Dictionary<string, string> RotulosCategorizados { get; set; } = new();
+
+        private static readonly ConcurrentDictionary<string, SKColor> _hexColorCache = new(StringComparer.Ordinal);
+
+        public static SKColor ParseColorFast(string? hex, SKColor fallback)
+        {
+            if (string.IsNullOrEmpty(hex)) return fallback;
+            if (hex.Equals("transparent", StringComparison.OrdinalIgnoreCase)) return SKColors.Transparent;
+            if (_hexColorCache.TryGetValue(hex, out SKColor cached)) return cached;
+            if (!SKColor.TryParse(hex, out SKColor parsed)) parsed = fallback;
+            if (_hexColorCache.Count < 4096) _hexColorCache.TryAdd(hex, parsed);
+            return parsed;
+        }
+
+        public SKColor ObterCorCategorizada(string categoria, byte alphaCalculado = 255)
+        {
+            string corHex = CoresCategorizadas.TryGetValue(categoria, out var configured)
+                ? configured
+                : "#808080";
+            SKColor baseColor = ParseColorFast(corHex, new SKColor(128, 128, 128));
+            if (alphaCalculado < 255 && baseColor != SKColors.Transparent)
+            {
+                baseColor = baseColor.WithAlpha((byte)(baseColor.Alpha * alphaCalculado / 255));
+            }
+            return baseColor;
+        }
 
         // === SIMBOLOGIA GRADUADA (INTERVALOS QUANTITATIVOS) ===
         public MetodoClassificacao MetodoClassificacao { get; set; } = MetodoClassificacao.QuebrasNaturaisJenks;

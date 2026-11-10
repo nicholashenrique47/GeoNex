@@ -256,6 +256,7 @@ namespace GeoNex.Services
                                 SourceFeatureId = sourceFidPtr == null && sourceFidMappingPath is null && sourceFidsAreNative ? i : -1,
                                 EnvelopeWorld = FeatureEnvelope.Empty,
                                 Kind = GeometryKind.Unknown,
+                                GeometryShapeType = shapeType,
                                 DataOffset = recOffset,
                                 LayerName = layerName
                             };
@@ -294,10 +295,32 @@ namespace GeoNex.Services
                             if (shapeType == 1 || shapeType == 11 || shapeType == 21)
                             {
                                 feature.Kind = GeometryKind.Point;
+                                feature.GeometryPointCount = 1;
                                 double x = *(double*)(dataPtr + 4);
                                 double y = *(double*)(dataPtr + 12);
                                 feature.EnvelopeWorld.ExpandToInclude(x, y);
                                 feature.SetCentroidLocalPrecise(x - offsetX, offsetY - y);
+                            }
+                            else if (shapeType == 8 || shapeType == 18 || shapeType == 28) // MultiPoint
+                            {
+                                int contentWords = BinaryPrimitives.ReverseEndianness(*(int*)(recPtr + 4));
+                                long contentBytes = (long)contentWords * 2;
+                                if (contentBytes >= 40 && recOffset <= fileLength - 8 - contentBytes)
+                                {
+                                    int pointCount = *(int*)(dataPtr + 36);
+                                    if (pointCount > 0 && (long)pointCount * 16 <= contentBytes - 40)
+                                    {
+                                        feature.Kind = GeometryKind.Point;
+                                        feature.GeometryPointCount = pointCount;
+                                        double minx = *(double*)(dataPtr + 4);
+                                        double miny = *(double*)(dataPtr + 12);
+                                        double maxx = *(double*)(dataPtr + 20);
+                                        double maxy = *(double*)(dataPtr + 28);
+                                        feature.EnvelopeWorld.Init(minx, maxx, miny, maxy);
+                                        feature.SetCentroidLocalPrecise((minx + maxx) * 0.5 - offsetX,
+                                            offsetY - (miny + maxy) * 0.5);
+                                    }
+                                }
                             }
                             else if (shapeType == 3 || shapeType == 13 || shapeType == 23) // PolyLine
                             {

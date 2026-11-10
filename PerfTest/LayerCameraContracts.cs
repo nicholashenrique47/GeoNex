@@ -25,6 +25,27 @@ internal static class LayerCameraContracts
             Check(layer.Width * scale <= size.Item1 * .801f &&
                 layer.Height * scale <= size.Item2 * .801f, "layer fits visible viewport");
         }
+        string? previousGesturePadding = Environment.GetEnvironmentVariable("GEONEX_GESTURE_PADDING_CSS");
+        string? previousNavigationPadding = Environment.GetEnvironmentVariable("GEONEX_NAVIGATION_PADDING_CSS");
+        try
+        {
+            Environment.SetEnvironmentVariable("GEONEX_GESTURE_PADDING_CSS", null);
+            Environment.SetEnvironmentVariable("GEONEX_NAVIGATION_PADDING_CSS", null);
+            Check(NavigationFramePolicy.GesturePadding(1600, 900, 2f) == 225 &&
+                  NavigationFramePolicy.Padding(1600, 900, 2f) == 128,
+                "gesture previews reserve more reuse margin than settled frames");
+            Environment.SetEnvironmentVariable("GEONEX_GESTURE_PADDING_CSS", "128");
+            Check(NavigationFramePolicy.GesturePadding(1600, 900, 2f) == 128,
+                "gesture padding can be bounded independently");
+            Environment.SetEnvironmentVariable("GEONEX_GESTURE_PADDING_CSS", "512");
+            Check(NavigationFramePolicy.GesturePadding(1600, 900, 2f) == 225,
+                "gesture padding remains bounded by the frame memory budget");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GEONEX_GESTURE_PADDING_CSS", previousGesturePadding);
+            Environment.SetEnvironmentVariable("GEONEX_NAVIGATION_PADDING_CSS", previousNavigationPadding);
+        }
         Check(LayerCameraPolicy.TryFit(layer, layer, 800, 600, out var alone) &&
             alone.Zoom == 1 && alone.PanX == 0 && alone.PanY == 0, "vector-only behavior unchanged");
         Check(!LayerCameraPolicy.TryFit(world, SKRect.Empty, 800, 600, out _), "empty layer rejected");

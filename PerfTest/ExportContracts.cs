@@ -149,11 +149,11 @@ internal static class ExportContracts
 
         var service = new ExportService();
         string shapefile = Path.Combine(root, "actual-output.shp");
-        Assert(service.ExportarVetor("actual-output", source, shapefile, "ESRI Shapefile", 4326),
+        Assert(service.ExportarVetor("actual-output", source, shapefile, "ESRI Shapefile", "EPSG:4326"),
             "real GDAL Shapefile export succeeds through staging");
         foreach (string suffix in new[] { ".shp", ".shx", ".dbf" })
             Assert(File.Exists(Path.ChangeExtension(shapefile, suffix)), $"real Shapefile contains {suffix}");
-        Assert(service.ExportarVetor("actual-output", shapefile, shapefile, "ESRI Shapefile", 4326),
+        Assert(service.ExportarVetor("actual-output", shapefile, shapefile, "ESRI Shapefile", "EPSG:4326"),
             "same-path Shapefile export succeeds through staging");
         using (var reopenedShape = Ogr.Open(shapefile, 0)
             ?? throw new InvalidOperationException("same-path Shapefile did not reopen"))
@@ -163,7 +163,7 @@ internal static class ExportContracts
             Assert(shapeLayer.GetFeatureCount(1) == 1, "same-path Shapefile preserves feature count");
         }
 
-        Assert(service.ExportarVetor("same-path", source, source, "GeoJSON", 4326),
+        Assert(service.ExportarVetor("same-path", source, source, "GeoJSON", "EPSG:4326"),
             "same-path export succeeds through staging");
 
         using var reopened = Ogr.Open(source, 0) ?? throw new InvalidOperationException("same-path output did not reopen");

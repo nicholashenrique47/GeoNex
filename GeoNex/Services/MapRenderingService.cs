@@ -36,6 +36,19 @@ namespace GeoNex.Services
             CssHeight == viewport.CssHeight &&
             PhysicalWidth == viewport.PhysicalWidth &&
             PhysicalHeight == viewport.PhysicalHeight;
+
+        public bool MatchesCss(MapViewportMetrics viewport) =>
+            CssWidth == viewport.CssWidth && CssHeight == viewport.CssHeight;
+
+        public bool MatchesFrame(SKBitmap bitmap) =>
+            CssWidth == Frame.Viewport.CssWidth &&
+            CssHeight == Frame.Viewport.CssHeight &&
+            PhysicalWidth == Frame.Viewport.PhysicalWidth &&
+            PhysicalHeight == Frame.Viewport.PhysicalHeight &&
+            Frame.Viewport.MatchesBitmap(bitmap);
+
+        public bool CoversVisibleViewport(int width, int height) =>
+            CssWidth >= width && CssHeight >= height;
     }
 
     public class DbfField
@@ -43,6 +56,21 @@ namespace GeoNex.Services
         public string Name { get; set; } = "";
         public int Offset { get; set; }
         public int Length { get; set; }
+    }
+
+    public readonly unsafe struct MultiPointCoordinateView
+    {
+        private readonly byte* _xy;
+
+        internal MultiPointCoordinateView(byte* xy, int count)
+        {
+            _xy = xy;
+            Count = count;
+        }
+
+        public int Count { get; }
+        public double X(int index) => (uint)index < (uint)Count ? *(double*)(_xy + index * 16) : double.NaN;
+        public double Y(int index) => (uint)index < (uint)Count ? *(double*)(_xy + index * 16 + 8) : double.NaN;
     }
 
     public unsafe class MemoryMappedShapefile : IDisposable
@@ -98,6 +126,32 @@ namespace GeoNex.Services
                 Accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref _shpPtr);
                 _shpAcquired = true;
             }
+        }
+
+        public MultiPointCoordinateView GetMultiPointCoordinates(CompiledFeature feature)
+        {
+            if (!feature.IsMultiPoint || feature.GeometryPointCount <= 0 ||
+                feature.DataOffset < 100 || feature.DataOffset > FileLength - 48)
+                return default;
+
+            byte* basePtr = ShpPointer;
+            if (basePtr == null) return default;
+            uint words = ((uint)basePtr[feature.DataOffset + 4] << 24) |
+                         ((uint)basePtr[feature.DataOffset + 5] << 16) |
+                         ((uint)basePtr[feature.DataOffset + 6] << 8) |
+                         basePtr[feature.DataOffset + 7];
+            long contentBytes = words * 2L;
+            if (contentBytes < 40 || contentBytes > FileLength - feature.DataOffset - 8)
+                return default;
+
+            byte* data = basePtr + feature.DataOffset + 8;
+            int shapeType = *(int*)data;
+            int pointCount = *(int*)(data + 36);
+            if (shapeType != feature.GeometryShapeType || pointCount != feature.GeometryPointCount ||
+                (long)pointCount * 16 > contentBytes - 40)
+                return default;
+
+            return new MultiPointCoordinateView(data + 40, pointCount);
         }
 
         public bool TryGetRenderPath(SKRect viewport, float zoom, bool interactive, out SKPath? path, bool compact = false)
@@ -764,6 +818,7 @@ namespace GeoNex.Services
         private readonly LeasedResourceRegistry<string, Dataset> _warpedRasterResources = new(StringComparer.Ordinal);
         private readonly LeasedResourceRegistry<string, SKBitmap> _rasterCacheResources = new(StringComparer.Ordinal);
         private readonly LeasedResourceRegistry<string, SKBitmap> _globalCacheResources = new(StringComparer.Ordinal);
+        private readonly LeasedResourceRegistry<string, SKBitmap> _gesturePreviewResources = new(StringComparer.Ordinal);
         public Dictionary<string, SkiaSharp.SKRect> LimitesRasters { get; set; } = new();
 
         public bool TemRaster
@@ -813,6 +868,7 @@ namespace GeoNex.Services
         
         // --- GLOBAL INTERACTION CACHE ---
         private GlobalCacheMetadata _globalCacheMetadata = new(1, 0, 0, 0, 0, 0, 0);
+        private GlobalCacheMetadata _gesturePreviewMetadata;
         private bool _globalCacheIsFinal;
         
         public event Action? OnMapInvalidated;
@@ -981,6 +1037,10 @@ namespace GeoNex.Services
                     bitmap.Dispose();
                     return false;
                 }
+                // Published raster frames are read-only. Marking the bitmap before
+                // sharing it lets SKImage.FromBitmap wrap the pixels instead of
+                // copying the full raster on every online-map presentation.
+                bitmap.SetImmutable();
                 _rasterCacheResources.Publish(layerName, bitmap);
                 _rasterCacheMetadata[layerName] = new RasterCacheMetadata(cacheKey, panX, panY, zoom, frame, rasterDestination);
                 return true;
@@ -1034,8 +1094,27 @@ namespace GeoNex.Services
         {
             lock (_rasterResourceGate)
             {
+                ResourceLease<SKBitmap>? gesture = _gesturePreviewResources.Acquire(GlobalCacheResourceKey);
+                if (gesture != null)
+                {
+                    metadata = _gesturePreviewMetadata;
+                    return gesture;
+                }
                 metadata = _globalCacheMetadata;
                 return _globalCacheResources.Acquire(GlobalCacheResourceKey);
+            }
+        }
+
+        public void PublishGesturePreviewCache(SKBitmap bitmap, double zoom, double panX, double panY,
+            MapViewportMetrics viewport, MapCoordinateFrame frame, long sceneRevision, double cameraZoom)
+        {
+            lock (_rasterResourceGate)
+            {
+                if (sceneRevision != _sceneRevision) { bitmap.Dispose(); return; }
+                _gesturePreviewResources.Publish(GlobalCacheResourceKey, bitmap);
+                _gesturePreviewMetadata = new GlobalCacheMetadata(zoom, panX, panY,
+                    viewport.CssWidth, viewport.CssHeight, viewport.PhysicalWidth,
+                    viewport.PhysicalHeight, frame, cameraZoom);
             }
         }
 
@@ -1057,6 +1136,8 @@ namespace GeoNex.Services
             lock (_rasterResourceGate)
             {
                 if (sceneRevision != _sceneRevision) { bitmap.Dispose(); return; }
+                _gesturePreviewResources.Remove(GlobalCacheResourceKey);
+                _gesturePreviewMetadata = default;
                 _globalCacheResources.Publish(GlobalCacheResourceKey, bitmap);
                 _globalCacheIsFinal = final;
                 _globalCacheMetadata = new GlobalCacheMetadata(
@@ -1093,7 +1174,12 @@ namespace GeoNex.Services
                 if (vectorChanged) System.Threading.Interlocked.Increment(ref _vectorPresentationRevision);
                 System.Threading.Interlocked.Increment(ref _sceneRevision);
                 _globalCacheIsFinal = false;
-                if (vectorChanged) _globalCacheResources.Remove(GlobalCacheResourceKey);
+                if (vectorChanged)
+                {
+                    _globalCacheResources.Remove(GlobalCacheResourceKey);
+                    _gesturePreviewResources.Remove(GlobalCacheResourceKey);
+                    _gesturePreviewMetadata = default;
+                }
             }
         }
 
@@ -1606,6 +1692,7 @@ namespace GeoNex.Services
                 _onlineRasterNames.Clear();
                 _onlineRasterXml.Clear();
                 _globalCacheResources.Dispose();
+                _gesturePreviewResources.Dispose();
                 _rasterCacheResources.Dispose();
                 _warpedRasterResources.Dispose();
                 _rasterResources.Dispose();

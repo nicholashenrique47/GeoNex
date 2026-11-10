@@ -27,9 +27,26 @@ internal static class ProductionMapMetrics
         var serverType = assembly.GetType("GeoNex.Services.LocalMapServer", true)!;
         using var map = (IDisposable)Activator.CreateInstance(mapType)!;
         // Match the on-the-fly projection used when a web basemap is loaded first,
-        // without network I/O. Keep every dataset and the original file untouched.
-        mapType.GetProperty("ProjetoSRS")!.SetValue(map, "EPSG:3857");
+        // without network I/O by default. Overrides let project-backed sources use
+        // the same CRS and local origin stored in their .gnx metadata.
+        string projectCrs = Environment.GetEnvironmentVariable("GEONEX_BENCH_PROJECT_CRS")?.Trim() is { Length: > 0 } configuredCrs
+            ? configuredCrs : "EPSG:3857";
+        double ReadCoordinate(string name)
+        {
+            string? value = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(value)) return 0;
+            if (double.TryParse(value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsed) && double.IsFinite(parsed))
+                return parsed;
+            throw new ArgumentException($"{name} must be a finite invariant-culture number.");
+        }
+        double offsetX = ReadCoordinate("GEONEX_BENCH_OFFSET_X");
+        double offsetY = ReadCoordinate("GEONEX_BENCH_OFFSET_Y");
+        mapType.GetProperty("ProjetoSRS")!.SetValue(map, projectCrs);
+        mapType.GetProperty("OffsetMundoX")!.SetValue(map, offsetX);
+        mapType.GetProperty("OffsetMundoY")!.SetValue(map, offsetY);
         mapType.GetProperty("OffsetMundoDefinido")!.SetValue(map, true);
+        Console.WriteLine(FormattableString.Invariant($"BENCH project_crs={projectCrs} origin={offsetX:R},{offsetY:R}"));
         var project = Activator.CreateInstance(projectType)!;
         var clock = Stopwatch.StartNew();
         MethodInfo compileMethod = projectType.GetMethods()
@@ -88,15 +105,37 @@ internal static class ProductionMapMetrics
                 if (!float.IsFinite(targetScale) || targetScale <= 0) throw new ArgumentOutOfRangeException("GEONEX_BENCH_SCALE");
                 var layers = (System.Collections.IDictionary)mapType.GetProperty("FeaturesPorCamada")!.GetValue(map)!;
                 var features = (System.Collections.IList)layers["benchmark"]!;
-                object focus = features[features.Count / 2]!;
-                var center = (SKPoint)focus.GetType().GetProperty("CentroidLocal")!.GetValue(focus)!;
-                float cx = center.X, cy = center.Y;
+                string? centerXText = Environment.GetEnvironmentVariable("GEONEX_BENCH_CENTER_X");
+                string? centerYText = Environment.GetEnvironmentVariable("GEONEX_BENCH_CENTER_Y");
+                float cx, cy;
+                if (!string.IsNullOrWhiteSpace(centerXText) || !string.IsNullOrWhiteSpace(centerYText))
+                {
+                    if (!double.TryParse(centerXText, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double worldX) ||
+                        !double.TryParse(centerYText, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double worldY) ||
+                        !double.IsFinite(worldX) || !double.IsFinite(worldY))
+                        throw new ArgumentException("GEONEX_BENCH_CENTER_X and _Y must both be finite projected coordinates.");
+                    cx = (float)(worldX - offsetX);
+                    cy = (float)(offsetY - worldY);
+                }
+                else
+                {
+                    object focus = features[features.Count / 2]!;
+                    var center = (SKPoint)focus.GetType().GetProperty("CentroidLocal")!.GetValue(focus)!;
+                    cx = center.X;
+                    cy = center.Y;
+                }
                 var scene = (SKRect)mapType.GetMethod("GetSceneBounds")!.Invoke(map, null)!;
                 var target = new SKRect(cx - 640 / targetScale, cy - 360 / targetScale,
                     cx + 640 / targetScale, cy + 360 / targetScale);
                 if (!LayerCameraPolicy.TryFit(scene, target, 1600, 900, out var camera)) throw new InvalidOperationException("Invalid camera");
-                Console.WriteLine($"HIGH_ZOOM features={features.Count} center={cx},{cy} scale={targetScale} dpi={dpi}");
-                foreach (int sample in Enumerable.Range(0, 7))
+                Console.WriteLine($"HIGH_ZOOM features={features.Count} center={cx},{cy} scale={targetScale} dpi={dpi} scene={scene} target={target} camera={camera}");
+                int sampleCount = int.TryParse(Environment.GetEnvironmentVariable("GEONEX_BENCH_SAMPLES"),
+                    System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture,
+                    out int requestedSamples) ? requestedSamples : 7;
+                if (sampleCount < 1 || sampleCount > 100) throw new ArgumentOutOfRangeException("GEONEX_BENCH_SAMPLES");
+                foreach (int sample in Enumerable.Range(0, sampleCount))
                 {
                     // Emulate repeated online tile publications without network timing noise.
                     bool finalPan = Environment.GetEnvironmentVariable("GEONEX_BENCH_FINAL_PAN") == "1";
@@ -113,9 +152,16 @@ internal static class ProductionMapMetrics
                         $"{url}mapa/?w=1600&h=900&dpi={dpi}&nav=1&i={interactive}&fid={sample + 1}&zoom={camera.Zoom}&panx={camera.PanX + pan}&pany={camera.PanY}"));
                     response.EnsureSuccessStatusCode();
                     byte[] bytes = await response.Content.ReadAsByteArrayAsync();
-                    Console.WriteLine($"HIGH_ZOOM sample={sample} http_ms={clock.Elapsed.TotalMilliseconds:F2} {string.Join(" ", response.Headers.GetValues("Server-Timing"))}");
+                    Console.WriteLine(FormattableString.Invariant(
+                        $"HIGH_ZOOM sample={sample} pan_css={pan:R} camera_pan_x={camera.PanX + pan:R} http_ms={clock.Elapsed.TotalMilliseconds:F2} {string.Join(" ", response.Headers.GetValues("Server-Timing"))}"));
                     using var bitmap = SKBitmap.Decode(bytes) ?? throw new InvalidDataException("Invalid high-zoom PNG");
-                    if (!bitmap.Pixels.Any(p => p.Alpha != 0)) throw new InvalidOperationException("Empty focus area");
+                    int visiblePixels = bitmap.Pixels.Count(p => p.Alpha != 0);
+                    if (visiblePixels == 0)
+                    {
+                        Console.WriteLine($"HIGH_ZOOM empty_frame sample={sample} bytes={bytes.Length}");
+                        if (Environment.GetEnvironmentVariable("GEONEX_BENCH_ALLOW_EMPTY") != "1")
+                            throw new InvalidOperationException("Empty focus area");
+                    }
                     string? frameDirectory = Environment.GetEnvironmentVariable("GEONEX_BENCH_FRAME_DIRECTORY");
                     if (!string.IsNullOrWhiteSpace(frameDirectory))
                     {
@@ -158,51 +204,58 @@ internal static class ProductionMapMetrics
                         object metadata = cacheArgs[0]!;
                         object productionFrame = metadata.GetType().GetProperty("Frame")!.GetValue(metadata)!;
                         var localCenter = (SKPoint)productionFrame.GetType().GetProperty("LocalCenter")!.GetValue(productionFrame)!;
+                        object preciseCenter = productionFrame.GetType().GetProperty("PreciseLocalCenter")!.GetValue(productionFrame)!;
+                        double preciseCenterX = (double)preciseCenter.GetType().GetProperty("X")!.GetValue(preciseCenter)!;
+                        double preciseCenterY = (double)preciseCenter.GetType().GetProperty("Y")!.GetValue(preciseCenter)!;
                         Type localCoordinateType = assembly.GetType("GeoNex.Services.MapLocalCoordinate", true)!;
                         object origin = Activator.CreateInstance(localCoordinateType,
                             (double)localCenter.X, (double)localCenter.Y)!;
                         float scale = Convert.ToSingle(metadata.GetType().GetProperty("Zoom")!.GetValue(metadata),
                             System.Globalization.CultureInfo.InvariantCulture);
-                        Console.WriteLine(FormattableString.Invariant($"HIGH_ZOOM frame_center_x={localCenter.X:R} frame_center_y={localCenter.Y:R} css_scale={scale:R}"));
-                        var viewport = MapViewportMetrics.Create(
-                            (int)metadata.GetType().GetProperty("CssWidth")!.GetValue(metadata)!,
-                            (int)metadata.GetType().GetProperty("CssHeight")!.GetValue(metadata)!, dpi);
-                        var localBounds = MapCoordinateFrame.Create(viewport, SKPoint.Empty, scale).LocalViewportBounds;
-                        using var shapeLease = (IDisposable)mapType.GetMethod("AcquireShapefile")!.Invoke(map, new object[] { "benchmark" })!;
-                        object shape = shapeLease.GetType().GetProperty("Resource")!.GetValue(shapeLease)!;
-                        object?[] pathArgs = { localBounds, origin, scale, false, null, false };
-                        bool pathAvailable = (bool)shape.GetType().GetMethod("TryGetPreciseRenderPath")!.Invoke(shape, pathArgs)!;
-                        if (!pathAvailable && shape.GetType().GetMethod("TryGetProjectedRenderPath") is { } projected)
+                        Console.WriteLine(FormattableString.Invariant(
+                            $"HIGH_ZOOM frame_center_x={preciseCenterX:R} frame_center_y={preciseCenterY:R} legacy_float_center_x={localCenter.X:R} legacy_float_center_y={localCenter.Y:R} css_scale={scale:R}"));
+                        if (paintExperiments || !string.IsNullOrWhiteSpace(frameDirectory))
                         {
-                            object?[] projectedArgs = { localBounds, origin, scale,
-                                mapType.GetProperty("OffsetMundoX")!.GetValue(map), mapType.GetProperty("OffsetMundoY")!.GetValue(map), null, CancellationToken.None };
-                            pathAvailable = (bool)projected.Invoke(shape, projectedArgs)!;
-                            pathArgs[4] = projectedArgs[5];
-                        }
-                        if (pathAvailable)
-                        {
-                            using var path = (SKPath)pathArgs[4]!;
-                            var points = path.Points;
-                            Console.WriteLine($"HIGH_ZOOM path_points={path.PointCount} outside_frame={points.Count(p => !localBounds.Contains(p))} path_bounds={path.Bounds} frame_bounds={localBounds}");
-                            if (!string.IsNullOrWhiteSpace(frameDirectory))
+                            var viewport = MapViewportMetrics.Create(
+                                (int)metadata.GetType().GetProperty("CssWidth")!.GetValue(metadata)!,
+                                (int)metadata.GetType().GetProperty("CssHeight")!.GetValue(metadata)!, dpi);
+                            var localBounds = MapCoordinateFrame.Create(viewport, SKPoint.Empty, scale).LocalViewportBounds;
+                            using var shapeLease = (IDisposable)mapType.GetMethod("AcquireShapefile")!.Invoke(map, new object[] { "benchmark" })!;
+                            object shape = shapeLease.GetType().GetProperty("Resource")!.GetValue(shapeLease)!;
+                            object?[] pathArgs = { localBounds, origin, scale, false, null, false };
+                            bool pathAvailable = (bool)shape.GetType().GetMethod("TryGetPreciseRenderPath")!.Invoke(shape, pathArgs)!;
+                            if (!pathAvailable && shape.GetType().GetMethod("TryGetProjectedRenderPath") is { } projected)
                             {
-                                await File.WriteAllBytesAsync(Path.Combine(frameDirectory, $"path-{sample}.xy"),
-                                    System.Runtime.InteropServices.MemoryMarshal.AsBytes(points.AsSpan()).ToArray());
-                                CapturedPolygonMetrics.Save(path, Path.Combine(frameDirectory, $"path-{sample}.gpath"));
+                                object?[] projectedArgs = { localBounds, origin, scale,
+                                    mapType.GetProperty("OffsetMundoX")!.GetValue(map), mapType.GetProperty("OffsetMundoY")!.GetValue(map), null, CancellationToken.None };
+                                pathAvailable = (bool)projected.Invoke(shape, projectedArgs)!;
+                                pathArgs[4] = projectedArgs[5];
                             }
-                            if (paintExperiments)
+                            if (pathAvailable)
                             {
-                                float physicalScale = scale * viewport.PhysicalScaleX;
-                                if (Environment.GetEnvironmentVariable("GEONEX_BENCH_PAINT_MODE") == "bands")
+                                using var path = (SKPath)pathArgs[4]!;
+                                var points = path.Points;
+                                Console.WriteLine($"HIGH_ZOOM path_points={path.PointCount} outside_frame={points.Count(p => !localBounds.Contains(p))} path_bounds={path.Bounds} frame_bounds={localBounds}");
+                                if (!string.IsNullOrWhiteSpace(frameDirectory))
                                 {
-                                    PolygonBandPainting.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
-                                    continue;
+                                    await File.WriteAllBytesAsync(Path.Combine(frameDirectory, $"path-{sample}.xy"),
+                                        System.Runtime.InteropServices.MemoryMarshal.AsBytes(points.AsSpan()).ToArray());
+                                    CapturedPolygonMetrics.Save(path, Path.Combine(frameDirectory, $"path-{sample}.gpath"));
                                 }
-                                MeasureContourCulling(path, localBounds, bitmap.Width, bitmap.Height, physicalScale);
-                                MeasureContourCulling(path, path.Bounds, bitmap.Width, bitmap.Height, physicalScale, true);
-                                PolygonBandPainting.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
-                                OpenGlPolygonMetrics.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
-                                PolygonPixelFormatMetrics.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                if (paintExperiments)
+                                {
+                                    float physicalScale = scale * viewport.PhysicalScaleX;
+                                    if (Environment.GetEnvironmentVariable("GEONEX_BENCH_PAINT_MODE") == "bands")
+                                    {
+                                        PolygonBandPainting.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                        continue;
+                                    }
+                                    MeasureContourCulling(path, localBounds, bitmap.Width, bitmap.Height, physicalScale);
+                                    MeasureContourCulling(path, path.Bounds, bitmap.Width, bitmap.Height, physicalScale, true);
+                                    PolygonBandPainting.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                    OpenGlPolygonMetrics.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                    PolygonPixelFormatMetrics.Measure(path, bitmap.Width, bitmap.Height, physicalScale);
+                                }
                             }
                         }
                     }
@@ -216,6 +269,7 @@ internal static class ProductionMapMetrics
             }
             long frame = 0;
             string? lastFrameUrl = null, lastPayloadId = null;
+            string interactiveFlag = Environment.GetEnvironmentVariable("GEONEX_BENCH_INTERACTIVE") == "1" ? "1" : "0";
             foreach (int zoom in new[] { 1, 4, 16, 64 })
             {
                 byte[]? expectedPixels = null;
@@ -237,7 +291,7 @@ internal static class ProductionMapMetrics
                     var scene = (SKRect)mapType.GetMethod("GetSceneBounds")!.Invoke(map, null)!;
                     if (!LayerCameraPolicy.TryFit(scene, layerBounds, 1600, 900, out var camera)) throw new InvalidOperationException("Invalid camera");
                     lastFrameUrl = FormattableString.Invariant(
-                        $"{url}mapa/?w=1600&h=900&dpi=1&nav=1&i=0&fid={++frame}&zoom={camera.Zoom * zoom}&panx={camera.PanX * zoom}&pany={camera.PanY * zoom}");
+                        $"{url}mapa/?w=1600&h=900&dpi=1&nav=1&i={interactiveFlag}&fid={++frame}&zoom={camera.Zoom * zoom}&panx={camera.PanX * zoom}&pany={camera.PanY * zoom}");
                     using var response = await client.GetAsync(lastFrameUrl);
                     lastPayloadId = response.Headers.TryGetValues("X-GeoNex-Payload-Id", out var ids) ? ids.Single() : null;
                     response.EnsureSuccessStatusCode();

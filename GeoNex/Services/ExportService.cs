@@ -13,7 +13,7 @@ public class ExportService
         string caminhoShapefileOrigem,
         string caminhoDestino,
         string formatoDriver,
-        int epsgDestino,
+        string crsDestino,
         IReadOnlySet<long>? fidsFilter = null,
         NtsEnvelope? spatialEnvelope = null,
         CancellationToken cancellationToken = default)
@@ -24,7 +24,7 @@ public class ExportService
             ArgumentException.ThrowIfNullOrWhiteSpace(caminhoShapefileOrigem);
             ArgumentException.ThrowIfNullOrWhiteSpace(caminhoDestino);
             ArgumentException.ThrowIfNullOrWhiteSpace(formatoDriver);
-            if (epsgDestino <= 0) throw new ArgumentOutOfRangeException(nameof(epsgDestino));
+            ArgumentException.ThrowIfNullOrWhiteSpace(crsDestino);
             cancellationToken.ThrowIfCancellationRequested();
 
             Ogr.RegisterAll();
@@ -39,11 +39,8 @@ public class ExportService
                 ?? throw new InvalidOperationException("Falha ao abrir a fonte original."))
             using (var layerOrigem = dsOrigem.GetLayerByIndex(0)
                 ?? throw new InvalidOperationException("Camada vetorial nula no arquivo."))
-            using (var srsDestino = new SpatialReference(""))
+            using (var srsDestino = SrsFactory.FromUserInput(crsDestino))
             {
-                EnsureSuccess(srsDestino.ImportFromEPSG(epsgDestino), $"EPSG:{epsgDestino} inválido");
-                srsDestino.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
-
                 var driver = Ogr.GetDriverByName(formatoDriver)
                     ?? throw new InvalidOperationException($"Driver {formatoDriver} não encontrado no GDAL.");
 

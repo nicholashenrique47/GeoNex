@@ -1,9 +1,70 @@
+using System.Globalization;
+
 namespace GeoNex.Services;
 
 public readonly record struct RasterDimensions(int Width, int Height);
 
 public static class RasterRenderingPolicy
 {
+    private const float InteractiveVectorPreviewMaximumDpi = 1.5f;
+    // Mixed ECW/SHP measurements halved first-preview latency at 1 CSS pixel
+    // per output pixel; the settled frame still renders at the requested DPI.
+    private const float InteractiveRasterPreviewMaximumDpi = 1.0f;
+    private const float StartupRasterPreviewMaximumDpi = 0.75f;
+
+    // Gesture frames retain their CSS dimensions while limiting HiDPI work
+    // without excessive loss of detail during zoom gestures.
+    public static float SelectInteractivePreviewDpi(float requestedDpi, bool isInteracting,
+        bool rasterContent = false, bool startupPreview = false)
+    {
+        if (!isInteracting || !float.IsFinite(requestedDpi)) return requestedDpi;
+        float maximumDpi = !rasterContent
+            ? InteractiveVectorPreviewMaximumDpi
+            : startupPreview
+                ? SelectStartupRasterPreviewMaximumDpi()
+                : SelectRasterPreviewMaximumDpi();
+        return Math.Min(requestedDpi, maximumDpi);
+    }
+
+    // A settled frame may be reused during a zoom-in only while its physical
+    // source pixels still resolve the requested preview. Once the old frame
+    // would be enlarged beyond this margin, render a fresh viewport preview.
+    public static bool HasSufficientCachedRasterResolution(double sourceCameraZoom,
+        MapViewportMetrics sourceViewport, double targetCameraZoom,
+        MapViewportMetrics targetViewport, double maximumUpscale = 1.10)
+    {
+        if (!double.IsFinite(sourceCameraZoom) || sourceCameraZoom <= 0 ||
+            !double.IsFinite(targetCameraZoom) || targetCameraZoom <= 0 ||
+            !double.IsFinite(maximumUpscale) || maximumUpscale < 1 ||
+            sourceViewport.PhysicalScaleX <= 0 || sourceViewport.PhysicalScaleY <= 0 ||
+            targetViewport.PhysicalScaleX <= 0 || targetViewport.PhysicalScaleY <= 0)
+            return false;
+
+        double zoomRatio = targetCameraZoom / sourceCameraZoom;
+        double upscaleX = zoomRatio * targetViewport.PhysicalScaleX / sourceViewport.PhysicalScaleX;
+        double upscaleY = zoomRatio * targetViewport.PhysicalScaleY / sourceViewport.PhysicalScaleY;
+        return double.IsFinite(upscaleX) && double.IsFinite(upscaleY) &&
+               upscaleX <= maximumUpscale && upscaleY <= maximumUpscale;
+    }
+
+    private static float SelectRasterPreviewMaximumDpi()
+    {
+        string? configured = Environment.GetEnvironmentVariable("GEONEX_INTERACTIVE_RASTER_PREVIEW_DPI");
+        return float.TryParse(configured, NumberStyles.Float, CultureInfo.InvariantCulture, out float dpi) &&
+               float.IsFinite(dpi) && dpi is >= 0.5f and <= 2f
+            ? dpi
+            : InteractiveRasterPreviewMaximumDpi;
+    }
+
+    private static float SelectStartupRasterPreviewMaximumDpi()
+    {
+        string? configured = Environment.GetEnvironmentVariable("GEONEX_STARTUP_RASTER_PREVIEW_DPI");
+        return float.TryParse(configured, NumberStyles.Float, CultureInfo.InvariantCulture, out float dpi) &&
+               float.IsFinite(dpi) && dpi is >= 0.5f and <= 2f
+            ? dpi
+            : StartupRasterPreviewMaximumDpi;
+    }
+
     // A low-resolution interaction frame must never satisfy a final-quality request.
     public static string CacheKeyForQuality(string cameraKey, bool isInteracting) =>
         cameraKey + (isInteracting ? "|preview" : "|final");

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using SkiaSharp;
@@ -53,96 +54,104 @@ namespace GeoNex.Services
             var bounds = path.Bounds;
             if (bounds.Width <= 0 || bounds.Height <= 0) return centroideFallback;
 
-            SKPoint[]? points = path.Points;
-            if (points == null || points.Length < 3)
+            int pointCount = path.PointCount;
+            if (pointCount < 3)
             {
                 return path.Contains(centroideFallback.X, centroideFallback.Y)
                     ? centroideFallback
                     : new SKPoint(bounds.MidX, bounds.MidY);
             }
 
-            float melhorX = centroideFallback.X;
-            float melhorY = centroideFallback.Y;
-            float melhorDistSq = path.Contains(centroideFallback.X, centroideFallback.Y)
-                ? MinDistanceToSegmentsSquared(points, centroideFallback.X, centroideFallback.Y)
-                : -1f;
-
-            // Se o centroide já possui ampla folga interna (> 22% da menor dimensão), retorna imediatamente
-            float minDim = Math.Min(bounds.Width, bounds.Height);
-            float folgaIdealSq = (minDim * 0.22f) * (minDim * 0.22f);
-            if (melhorDistSq >= folgaIdealSq && melhorDistSq > 0f)
+            SKPoint[] points = ArrayPool<SKPoint>.Shared.Rent(pointCount);
+            try
             {
-                return centroideFallback;
-            }
+                path.GetPoints(points, pointCount);
+                float melhorX = centroideFallback.X;
+                float melhorY = centroideFallback.Y;
+                float melhorDistSq = path.Contains(centroideFallback.X, centroideFallback.Y)
+                    ? MinDistanceToSegmentsSquared(points, pointCount, centroideFallback.X, centroideFallback.Y)
+                    : -1f;
 
-            // Nível 1: Amostragem 5x5 para encontrar a célula de maior distância até a borda
-            float stepX = bounds.Width / 5f;
-            float stepY = bounds.Height / 5f;
-
-            for (int iy = 0; iy < 5; iy++)
-            {
-                float y = bounds.Top + (iy + 0.5f) * stepY;
-                for (int ix = 0; ix < 5; ix++)
+                // Se o centroide já possui ampla folga interna (> 22% da menor dimensão), retorna imediatamente
+                float minDim = Math.Min(bounds.Width, bounds.Height);
+                float folgaIdealSq = (minDim * 0.22f) * (minDim * 0.22f);
+                if (melhorDistSq >= folgaIdealSq && melhorDistSq > 0f)
                 {
-                    float x = bounds.Left + (ix + 0.5f) * stepX;
-                    if (!path.Contains(x, y)) continue;
-
-                    float distSq = MinDistanceToSegmentsSquared(points, x, y);
-                    if (distSq > melhorDistSq)
-                    {
-                        melhorDistSq = distSq;
-                        melhorX = x;
-                        melhorY = y;
-                    }
+                    return centroideFallback;
                 }
-            }
 
-            // Nível 2: Refinamento hierárquico ao redor do melhor candidato
-            if (melhorDistSq >= 0f)
-            {
-                float radiusX = stepX * 0.75f;
-                float radiusY = stepY * 0.75f;
-                for (int pass = 0; pass < 2; pass++)
+                // Nível 1: Amostragem 5x5 para encontrar a célula de maior distância até a borda
+                float stepX = bounds.Width / 5f;
+                float stepY = bounds.Height / 5f;
+
+                for (int iy = 0; iy < 5; iy++)
                 {
-                    float baseBestX = melhorX;
-                    float baseBestY = melhorY;
-                    float subX = radiusX * 0.5f;
-                    float subY = radiusY * 0.5f;
-
-                    for (int dy = -1; dy <= 1; dy++)
+                    float y = bounds.Top + (iy + 0.5f) * stepY;
+                    for (int ix = 0; ix < 5; ix++)
                     {
-                        for (int dx = -1; dx <= 1; dx++)
-                        {
-                            if (dx == 0 && dy == 0) continue;
-                            float nx = baseBestX + dx * subX;
-                            float ny = baseBestY + dy * subY;
-                            if (!path.Contains(nx, ny)) continue;
+                        float x = bounds.Left + (ix + 0.5f) * stepX;
+                        if (!path.Contains(x, y)) continue;
 
-                            float distSq = MinDistanceToSegmentsSquared(points, nx, ny);
-                            if (distSq > melhorDistSq)
-                            {
-                                melhorDistSq = distSq;
-                                melhorX = nx;
-                                melhorY = ny;
-                            }
+                        float distSq = MinDistanceToSegmentsSquared(points, pointCount, x, y);
+                        if (distSq > melhorDistSq)
+                        {
+                            melhorDistSq = distSq;
+                            melhorX = x;
+                            melhorY = y;
                         }
                     }
-
-                    radiusX = subX;
-                    radiusY = subY;
-                    if (Math.Max(radiusX, radiusY) <= precisao) break;
                 }
 
-                return new SKPoint(melhorX, melhorY);
-            }
+                // Nível 2: Refinamento hierárquico ao redor do melhor candidato
+                if (melhorDistSq >= 0f)
+                {
+                    float radiusX = stepX * 0.75f;
+                    float radiusY = stepY * 0.75f;
+                    for (int pass = 0; pass < 2; pass++)
+                    {
+                        float baseBestX = melhorX;
+                        float baseBestY = melhorY;
+                        float subX = radiusX * 0.5f;
+                        float subY = radiusY * 0.5f;
 
-            return centroideFallback;
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                if (dx == 0 && dy == 0) continue;
+                                float nx = baseBestX + dx * subX;
+                                float ny = baseBestY + dy * subY;
+                                if (!path.Contains(nx, ny)) continue;
+
+                                float distSq = MinDistanceToSegmentsSquared(points, pointCount, nx, ny);
+                                if (distSq > melhorDistSq)
+                                {
+                                    melhorDistSq = distSq;
+                                    melhorX = nx;
+                                    melhorY = ny;
+                                }
+                            }
+                        }
+
+                        radiusX = subX;
+                        radiusY = subY;
+                        if (Math.Max(radiusX, radiusY) <= precisao) break;
+                    }
+
+                    return new SKPoint(melhorX, melhorY);
+                }
+
+                return centroideFallback;
+            }
+            finally
+            {
+                ArrayPool<SKPoint>.Shared.Return(points);
+            }
         }
 
-        private static float MinDistanceToSegmentsSquared(SKPoint[] points, float px, float py)
+        private static float MinDistanceToSegmentsSquared(SKPoint[] points, int n, float px, float py)
         {
             float minDistSq = float.MaxValue;
-            int n = points.Length;
             int stride = Math.Max(1, n / 96);
 
             SKPoint prev = points[0];

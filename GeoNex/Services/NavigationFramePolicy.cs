@@ -68,9 +68,25 @@ public static class NavigationFramePolicy
     }
 
     public static int Padding(int width, int height, float dpi)
+        => CalculatePadding(width, height, dpi, 256, "GEONEX_NAVIGATION_PADDING_CSS");
+
+    // Gesture previews keep more room around the visible map so the cached
+    // frame can survive longer drags before it needs another remote RasterIO.
+    public static int GesturePadding(int width, int height, float dpi)
+        => CalculatePadding(width, height, dpi, 512, "GEONEX_GESTURE_PADDING_CSS");
+
+    private static int CalculatePadding(int width, int height, float dpi,
+        int maximumPhysicalPadding, string environmentVariable)
     {
         if (!MapViewportMetrics.TryCreate(width, height, dpi, out _)) return 0;
-        int padding = Math.Min(Math.Min(width, height) / 4, (int)(256 / dpi));
+        int maximumPaddingCss = Math.Min(256, (int)(maximumPhysicalPadding / dpi));
+        string? configuredPadding = Environment.GetEnvironmentVariable(environmentVariable);
+        if (configuredPadding == null && environmentVariable == "GEONEX_GESTURE_PADDING_CSS")
+            configuredPadding = Environment.GetEnvironmentVariable("GEONEX_NAVIGATION_PADDING_CSS");
+        if (int.TryParse(configuredPadding, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out int requestedPadding))
+            maximumPaddingCss = Math.Min(maximumPaddingCss, Math.Clamp(requestedPadding, 0, 256));
+        int padding = Math.Min(Math.Min(width, height) / 4, maximumPaddingCss);
         // Limit the persistent CPU/GPU image footprint on large/HiDPI displays.
         while (padding > 0 && (!MapViewportMetrics.TryCreate(width + padding * 2,
                    height + padding * 2, dpi, out var padded) ||
@@ -101,6 +117,31 @@ public static class NavigationFramePolicy
                 p.X > maxW || p.Y > maxH)
                 return false;
         }
+        return true;
+    }
+
+    // Reusing a settled raster for a pure whole-pixel pan preserves every source
+    // sample. Reject scale changes and fractional translations so this cannot
+    // silently replace a fresh GDAL resample with a softer approximation.
+    public static bool TryReuseWholePixelPan(MapCoordinateFrame source, MapCoordinateFrame target,
+        int visibleWidth, int visibleHeight, out SKMatrix sourcePixelsToTarget)
+    {
+        sourcePixelsToTarget = SKMatrix.Identity;
+        if (source.Viewport != target.Viewport ||
+            source.LocalToCssMatrix.SkewX != 0 || source.LocalToCssMatrix.SkewY != 0 ||
+            target.LocalToCssMatrix.SkewX != 0 || target.LocalToCssMatrix.SkewY != 0)
+            return false;
+
+        SKMatrix matrix = RasterPreviewMatrix(source, source.Viewport.PhysicalWidth,
+            source.Viewport.PhysicalHeight, target);
+        if (Math.Abs(matrix.ScaleX - 1f) > 0.00001f || Math.Abs(matrix.ScaleY - 1f) > 0.00001f ||
+            Math.Abs(matrix.SkewX) > 0.00001f || Math.Abs(matrix.SkewY) > 0.00001f ||
+            Math.Abs(matrix.TransX - MathF.Round(matrix.TransX)) > 0.001f ||
+            Math.Abs(matrix.TransY - MathF.Round(matrix.TransY)) > 0.001f)
+            return false;
+
+        if (!TryReuse(source, target, visibleWidth, visibleHeight, out sourcePixelsToTarget))
+            return false;
         return true;
     }
 }

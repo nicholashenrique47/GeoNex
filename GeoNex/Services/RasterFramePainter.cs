@@ -4,6 +4,51 @@ namespace GeoNex.Services;
 
 internal static class RasterFramePainter
 {
+    public static void DrawTransformedRegion(SKSurface surface, SKBitmap bitmap, SKRect destination,
+        SKMatrix sourceToTarget, CancellationToken token, bool interacting, int? requestedWorkers = null)
+    {
+        token.ThrowIfCancellationRequested();
+        var canvas = surface.Canvas;
+        canvas.ResetMatrix();
+        int maxDefaultWorkers = Math.Clamp(HardwareGovernor.Topology.PerformanceCores, 4, 8);
+        int workers = requestedWorkers ?? ((long)canvas.DeviceClipBounds.Width * canvas.DeviceClipBounds.Height >= 1024 * 1024
+            ? Math.Min(maxDefaultWorkers, VectorRuntimeResources.Current.Workers) : 1);
+        workers = Math.Clamp(workers, 1, 8);
+        if (Environment.GetEnvironmentVariable("GEONEX_RASTER_PARALLEL_COMPOSITE") == "0") workers = 1;
+        using var pixels = workers > 1 && canvas.IsClipRect ? surface.PeekPixels() : null;
+        bitmap.SetImmutable();
+        var clip = canvas.DeviceClipBounds;
+        if (pixels != null && pixels.GetPixels() != IntPtr.Zero)
+        {
+            canvas.Flush();
+            Parallel.For(0, workers, new ParallelOptions
+            {
+                CancellationToken = token,
+                MaxDegreeOfParallelism = workers
+            }, band =>
+            {
+                int top = Math.Max(clip.Top, pixels.Height * band / workers);
+                int bottom = Math.Min(clip.Bottom, pixels.Height * (band + 1) / workers);
+                if (bottom <= top || clip.Right <= clip.Left) return;
+                using var target = SKSurface.Create(pixels.Info, pixels.GetPixels(), pixels.RowBytes)
+                    ?? throw new OutOfMemoryException();
+                target.Canvas.ClipRect(new SKRect(clip.Left, top, clip.Right, bottom), SKClipOperation.Intersect, false);
+                target.Canvas.SetMatrix(sourceToTarget);
+                using var paint = new SKPaint
+                    { FilterQuality = interacting ? SKFilterQuality.Medium : SKFilterQuality.High, IsAntialias = true };
+                target.Canvas.DrawBitmap(bitmap, destination, paint);
+            });
+            token.ThrowIfCancellationRequested();
+            return;
+        }
+
+        using var serialPaint = new SKPaint
+            { FilterQuality = interacting ? SKFilterQuality.Medium : SKFilterQuality.High, IsAntialias = true };
+        canvas.SetMatrix(sourceToTarget);
+        try { canvas.DrawBitmap(bitmap, destination, serialPaint); }
+        finally { canvas.ResetMatrix(); }
+    }
+
     public static void DrawRegion(SKSurface surface, SKBitmap bitmap, SKRect destination,
         CancellationToken token, bool interacting, int? requestedWorkers = null)
     {

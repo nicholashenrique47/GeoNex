@@ -79,7 +79,7 @@ namespace GeoNex.Services
             // New in-memory features have no SHP record. Their actual envelopes
             // must be supplied; reading offset zero would silently omit them.
             bool useProjectedBounds = shapefile == null || shapefile.TransformLocal != null ||
-                features.Any(feature => feature.DataOffset < 100);
+                features.Any(feature => feature.DataOffset < 100 || feature.IsMultiPoint);
             try
             {
                 double[]? projectedBounds = useProjectedBounds

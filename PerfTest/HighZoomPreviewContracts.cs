@@ -1,5 +1,6 @@
 using System.Reflection;
 using GeoNex.Services;
+using OSGeo.GDAL;
 using SkiaSharp;
 
 internal static class HighZoomPreviewContracts
@@ -11,6 +12,12 @@ internal static class HighZoomPreviewContracts
         var mapType = assembly.GetType("GeoNex.Services.MapRenderingService", true)!;
         var serverType = assembly.GetType("GeoNex.Services.LocalMapServer", true)!;
         using var map = (IDisposable)Activator.CreateInstance(mapType)!;
+        using (var memoryDriver = Gdal.GetDriverByName("MEM") ?? throw new InvalidOperationException("GDAL MEM driver unavailable"))
+        {
+            Dataset syntheticRaster = memoryDriver.Create("", 1, 1, 1, DataType.GDT_Byte, []);
+            mapType.GetMethod("PublishRaster")!.Invoke(map, new object?[] { "preview-test-raster", syntheticRaster, null });
+            ((IList<string>)mapType.GetProperty("OrdemCamadas")!.GetValue(map)!).Add("preview-test-raster");
+        }
         object server = Activator.CreateInstance(serverType, map)!;
         serverType.GetMethod("Start")!.Invoke(server, null);
         try
@@ -33,7 +40,10 @@ internal static class HighZoomPreviewContracts
                     canvas.DrawRect(100, 100, 40, 50, fill);
                     canvas.DrawRect(142, 100, 40, 50, fill); // Visible gap cannot collapse during cache reuse.
                 }
-                SKColor[] expected = bitmap.Pixels;
+                using var referenceBitmap = new SKBitmap(bitmap.Info);
+                using (var referenceCanvas = new SKCanvas(referenceBitmap))
+                    referenceCanvas.DrawBitmap(bitmap, 0, 0);
+                SKColor[] expected = PreviewPixels(referenceBitmap, frame, scale, dpi, 0, 0);
                 var revision = (long)mapType.GetProperty("SceneRevision")!.GetValue(map)!;
                 // Reflection converts frame/viewport to the production assembly's value types.
                 var viewportType = assembly.GetType("GeoNex.Services.MapViewportMetrics", true)!;
@@ -51,7 +61,11 @@ internal static class HighZoomPreviewContracts
                     using var response = await client.GetAsync(query).WaitAsync(TimeSpan.FromSeconds(2));
                     response.EnsureSuccessStatusCode();
                     using var decoded = SKBitmap.Decode(await response.Content.ReadAsByteArrayAsync());
-                    if (!decoded.Pixels.SequenceEqual(expected)) throw new InvalidOperationException("High-zoom identity preview changed pixels");
+                    var previewViewport = MapViewportMetrics.Create(viewport.CssWidth, viewport.CssHeight,
+                        RasterRenderingPolicy.SelectInteractivePreviewDpi(dpi, true, rasterContent: true));
+                    if (decoded.Width != previewViewport.PhysicalWidth || decoded.Height != previewViewport.PhysicalHeight ||
+                        !decoded.Pixels.SequenceEqual(expected))
+                        throw new InvalidOperationException($"High-zoom identity preview changed pixels or used unexpected resolution: actual={decoded.Width}x{decoded.Height}, expected={previewViewport.PhysicalWidth}x{previewViewport.PhysicalHeight}, pixelMatch={decoded.Pixels.SequenceEqual(expected)}");
                     long hits = (long)serverType.GetProperty("EncodedFrameCacheHits")!.GetValue(server)!;
                     using var repeated = await client.GetAsync(query).WaitAsync(TimeSpan.FromSeconds(2));
                     repeated.EnsureSuccessStatusCode();
@@ -62,19 +76,33 @@ internal static class HighZoomPreviewContracts
                     hits++;
                     using var shifted = await client.GetAsync(query.Replace("panx=0", "panx=64")).WaitAsync(TimeSpan.FromSeconds(2));
                     using var moved = SKBitmap.Decode(await shifted.Content.ReadAsByteArrayAsync());
-                    int shift = (int)(64 * dpi);
+                    SKColor[] expectedShift = PreviewPixels(referenceBitmap, frame, scale, dpi, 64, 0);
                     var pixels = moved.Pixels;
-                    for (int y = 0; y < moved.Height; y++)
-                    for (int x = shift; x < moved.Width; x++)
-                        if (pixels[y * moved.Width + x] != expected[y * moved.Width + x - shift])
-                            throw new InvalidOperationException("High-zoom pan misaligned cached polygons");
+                    if (!pixels.SequenceEqual(expectedShift))
+                        throw new InvalidOperationException("High-zoom pan preview changed pixels");
                     if ((long)serverType.GetProperty("EncodedFrameCacheHits")!.GetValue(server)! != hits)
                         throw new InvalidOperationException("Moving preview entered identity PNG cache");
+                    // The cache is rebased after each preview so a long gesture can
+                    // continue beyond the original overscan while the full renderer is locked.
+                    using var chainedPan = await client.GetAsync(query.Replace("panx=0", "panx=128"))
+                        .WaitAsync(TimeSpan.FromSeconds(2));
+                    chainedPan.EnsureSuccessStatusCode();
+                    using var chainedImage = SKBitmap.Decode(await chainedPan.Content.ReadAsByteArrayAsync());
+                    if (chainedImage.Width != decoded.Width || chainedImage.Height != decoded.Height ||
+                        !chainedImage.Pixels.Any(pixel => pixel.Alpha != 0))
+                        throw new InvalidOperationException("Rebased preview did not continue a long pan");
+                    using var returnedPan = await client.GetAsync(query.Replace("panx=0", "panx=32"))
+                        .WaitAsync(TimeSpan.FromSeconds(2));
+                    returnedPan.EnsureSuccessStatusCode();
+                    using var returnedPanImage = SKBitmap.Decode(await returnedPan.Content.ReadAsByteArrayAsync());
+                    SKColor[] expectedReturnedPan = PreviewPixels(referenceBitmap, frame, scale, dpi, 32, 0);
+                    if (!returnedPanImage.Pixels.SequenceEqual(expectedReturnedPan))
+                        throw new InvalidOperationException("Preview reused a lower-resolution gesture frame while the settled image still covered the pan");
                     // Replace the image at the same camera/revision: camera identity
                     // must never substitute for validating all output pixels.
                     var replacement = new SKBitmap(viewport.PhysicalWidth, viewport.PhysicalHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
                     replacement.Erase(new SKColor(81, 23, 147, 93)); replacement.SetImmutable();
-                    expected = replacement.Pixels;
+                    expected = PreviewPixels(replacement, frame, scale, dpi, 0, 0);
                     mapType.GetMethod("PublishGlobalCache")!.Invoke(map,
                         new object[] { replacement, scale, 0f, 0f, productionViewport, productionFrame, revision, 1f });
                     using var replaced = await client.GetAsync(query).WaitAsync(TimeSpan.FromSeconds(2));
@@ -155,8 +183,31 @@ internal static class HighZoomPreviewContracts
                     ?? throw new InvalidOperationException("Final request did not return a valid PNG");
             }
             finally { heldPreviewGate.Release(); }
-            Console.WriteLine("High zoom preview: PASS (busy scene/preview gates, canceled obsolete waiters, final bypasses preview gate, exact pixels/gap, identity PNG reuse, moving preview bypass, same-camera replacement, pan, DPI 1/2, scales 4/64, raster arrival retains preview but invalidates final, edits discard both)");
+            mapType.GetMethod("RemoveRaster")!.Invoke(map, new object[] { "preview-test-raster" });
+            Console.WriteLine("High zoom preview: PASS (busy scene/preview gates, canceled obsolete waiters, final bypasses preview gate, exact pixels/gap, identity PNG reuse, moving preview bypass, same-camera replacement, pan, high-resolution raster-source reuse, DPI 1/2, scales 4/64, raster arrival retains preview but invalidates final, edits discard both)");
         }
         finally { serverType.GetMethod("Stop")!.Invoke(server, null); }
+    }
+
+    private static SKColor[] PreviewPixels(SKBitmap source, MapCoordinateFrame sourceFrame,
+        float scale, float requestedDpi, double panX, double panY)
+    {
+        var viewport = MapViewportMetrics.Create(sourceFrame.Viewport.CssWidth,
+            sourceFrame.Viewport.CssHeight,
+            RasterRenderingPolicy.SelectInteractivePreviewDpi(requestedDpi, true, rasterContent: true));
+        var rebased = NavigationFramePolicy.RebasePrecisely(sourceFrame, scale,
+            new MapCameraState(0, 0, 1), new MapCameraState(panX, panY, 1));
+        var target = MapCoordinateFrame.CreatePrecise(viewport, rebased.PreciseLocalCenter,
+            rebased.LocalToCssMatrix.ScaleX);
+        if (!NavigationFramePolicy.TryReuse(sourceFrame, target, 400, 300, out var matrix))
+            throw new InvalidOperationException("Test preview frame was not reusable");
+        using var bitmap = new SKBitmap(viewport.PhysicalWidth, viewport.PhysicalHeight,
+            SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        canvas.SetMatrix(matrix);
+        using var sourceImage = SKImage.FromBitmap(source) ?? throw new OutOfMemoryException();
+        canvas.DrawImage(sourceImage, 0, 0, new SKSamplingOptions(SKFilterMode.Linear));
+        return bitmap.Pixels;
     }
 }

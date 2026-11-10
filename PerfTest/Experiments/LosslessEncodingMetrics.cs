@@ -22,8 +22,8 @@ internal static class LosslessEncodingMetrics
         Console.WriteLine($"LOSSLESS size={bitmap.Width}x{bitmap.Height} premultiplied_colors={colors.Count} opaque={opaque}");
         using var opaquePixels = new SKPixmap(pixels.Info.WithAlphaType(SKAlphaType.Opaque), pixels.GetPixels(), pixels.RowBytes);
         string[] modes = opaque
-            ? ["png", "png0", "opaque0", "opaque1", "opaque3", "opaque6", "palette"]
-            : ["png", "png0", "palette"];
+            ? ["png", "png0", "none1", "sub1", "opaque0", "opaque1", "opaque3", "opaque6", "palette"]
+            : ["png", "png0", "none1", "sub1", "palette"];
         var samples = modes.ToDictionary(m => m, _ => new List<(double Encode, double Total, long Size, int Delta)>());
         byte[] expected = bitmap.Bytes;
         for (int round = 0; round < 5; round++)
@@ -34,6 +34,8 @@ internal static class LosslessEncodingMetrics
             {
                 "palette" => ExactPalettePngEncoder.TryEncode(pixels, 16L * 1024 * 1024, default),
                 "png0" => MapFrameEncoding.EncodePng(image, 0),
+                "none1" => pixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.None, 1)),
+                "sub1" => pixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 1)),
                 "opaque0" => opaquePixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 0)),
                 "opaque1" => opaquePixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 1)),
                 "opaque3" => opaquePixels.Encode(new SKPngEncoderOptions(SKPngEncoderFilterFlags.Sub, 3)),

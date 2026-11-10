@@ -281,34 +281,129 @@ namespace GeoNex.Services
                 !double.TryParse(q["pany"], NumberStyles.Float, CultureInfo.InvariantCulture, out double panY) ||
                 !double.TryParse(q["zoom"], NumberStyles.Float, CultureInfo.InvariantCulture, out double zoom) ||
                 !double.IsFinite(panX) || !double.IsFinite(panY) || !double.IsFinite(zoom) || zoom <= 0) return false;
-            int padding = NavigationFramePolicy.Padding(width, height, dpi);
-            var viewport = MapViewportMetrics.Create(width + padding * 2, height + padding * 2, dpi);
-            using var lease = _mapService.AcquireGlobalPreviewCache(out var metadata);
-            if (lease == null || !metadata.Matches(viewport) || !viewport.MatchesBitmap(lease.Resource) ||
-                metadata.Zoom <= 0 || metadata.CameraZoom <= 0) return false;
-            var target = NavigationFramePolicy.RebasePrecisely(metadata.Frame, (float)metadata.Zoom,
-                new MapCameraState(metadata.PanX, metadata.PanY, metadata.CameraZoom),
-                new MapCameraState(panX, panY, zoom));
-            // The frame already contains geometry built around a precise local origin.
-            // Reuse composes camera deltas in double precision, so high zoom is safe.
-            if (!NavigationFramePolicy.TryReuse(metadata.Frame, target, width, height, out var matrix)) return false;
+            bool startupPreview = q["startup"] == "1";
+            int padding = startupPreview ? 0 : NavigationFramePolicy.GesturePadding(width, height, dpi);
+            int paddedWidth = width + padding * 2, paddedHeight = height + padding * 2;
+            bool rasterContent = _mapService.OrdemCamadas.Any(_mapService.HasRaster);
+            float previewDpi = RasterRenderingPolicy.SelectInteractivePreviewDpi(
+                dpi, true, rasterContent, startupPreview);
+            var viewport = MapViewportMetrics.Create(paddedWidth, paddedHeight, previewDpi);
+            ResourceLease<SKBitmap>? sourceLease = null;
+            GlobalCacheMetadata metadata = default;
+            MapCoordinateFrame target = default;
+            SKMatrix matrix = SKMatrix.Identity;
+            bool sourcePrepared = false;
+
+            if (rasterContent)
+            {
+                sourceLease = _mapService.AcquireGlobalCache(out metadata);
+                sourcePrepared = TryPrepareCachedPreviewSource(sourceLease, metadata, viewport,
+                    width, height, panX, panY, zoom, out target, out matrix) &&
+                    RasterRenderingPolicy.HasSufficientCachedRasterResolution(
+                        metadata.CameraZoom, metadata.Frame.Viewport, zoom, viewport);
+
+                // A final frame is the sharpest source while the preview remains
+                // inside its resolution envelope. Once a large zoom-in would
+                // magnify its pixels, prefer a newer gesture render or let GDAL
+                // render the current viewport before the image gets visibly soft.
+                if (!sourcePrepared)
+                {
+                    sourceLease?.Dispose();
+                    sourceLease = _mapService.AcquireGlobalPreviewCache(out metadata);
+                    sourcePrepared = TryPrepareCachedPreviewSource(sourceLease, metadata, viewport,
+                        width, height, panX, panY, zoom, out target, out matrix) &&
+                        RasterRenderingPolicy.HasSufficientCachedRasterResolution(
+                            metadata.CameraZoom, metadata.Frame.Viewport, zoom, viewport);
+                }
+                if (!sourcePrepared) sourceLease?.Dispose();
+            }
+            else
+            {
+                sourceLease = _mapService.AcquireGlobalPreviewCache(out metadata);
+                sourcePrepared = TryPrepareCachedPreviewSource(sourceLease, metadata, viewport,
+                    width, height, panX, panY, zoom, out target, out matrix);
+                if (!sourcePrepared) sourceLease?.Dispose();
+            }
+            if (!sourcePrepared) return false;
+            using var lease = sourceLease ?? throw new InvalidOperationException(
+                "Prepared preview has no cached source image.");
             token.ThrowIfCancellationRequested();
             trace?.MarkDequeued();
-            trace?.Configure(width, height, dpi, true, 0);
+            trace?.Configure(width, height, previewDpi, true, 0);
             _previewPixels.Maintain(Environment.GetEnvironmentVariable("GEONEX_PREVIEW_BUFFER") == "0"
                 ? 0
                 : VectorRuntimeResources.Current.CacheBytes / 8);
             SKImage preview;
             using (trace?.Measure("draw", "__global_cache__"))
-                preview = CachedPreviewImage.Create(lease.Resource, matrix, token, _previewPixels);
+                preview = CachedPreviewImage.Create(lease.Resource, matrix, token, _previewPixels,
+                    viewport.PhysicalWidth, viewport.PhysicalHeight);
             using var image = preview;
+            // Keep this source frame stable across consecutive cache-only pans.
+            // Publishing each shifted result would compound transparent borders
+            // until the reused preview gradually lost visible map coverage.
             context.Response.AppendHeader("Access-Control-Allow-Origin", "*");
             context.Response.AppendHeader("Cache-Control", "no-store");
             trace?.MarkRenderReady();
             WriteEncodedFrame(image, context.Response, true, token, generation, trace, navigation: true,
-                cacheIdentityPreview: matrix.Equals(SKMatrix.Identity),
-                rasterContent: _mapService.OrdemCamadas.Any(_mapService.HasRaster));
+                cacheIdentityPreview: panX == metadata.PanX && panY == metadata.PanY &&
+                    zoom == metadata.CameraZoom,
+                rasterContent: rasterContent);
             return true;
+        }
+
+        private static bool TryPrepareCachedPreviewSource(ResourceLease<SKBitmap>? lease,
+            GlobalCacheMetadata metadata, MapViewportMetrics targetViewport,
+            int visibleWidth, int visibleHeight, double panX, double panY, double zoom,
+            out MapCoordinateFrame target, out SKMatrix sourcePixelsToTarget)
+        {
+            target = default;
+            sourcePixelsToTarget = SKMatrix.Identity;
+            if (lease == null || !metadata.MatchesFrame(lease.Resource) ||
+                !metadata.CoversVisibleViewport(visibleWidth, visibleHeight) ||
+                metadata.Zoom <= 0 || metadata.CameraZoom <= 0)
+                return false;
+
+            var rebased = NavigationFramePolicy.RebasePrecisely(metadata.Frame, (float)metadata.Zoom,
+                new MapCameraState(metadata.PanX, metadata.PanY, metadata.CameraZoom),
+                new MapCameraState(panX, panY, zoom));
+            target = MapCoordinateFrame.CreatePrecise(targetViewport, rebased.PreciseLocalCenter,
+                rebased.LocalToCssMatrix.ScaleX);
+            // The frame already contains geometry built around a precise local origin.
+            // Reuse composes camera deltas in double precision, so high zoom is safe.
+            return NavigationFramePolicy.TryReuse(metadata.Frame, target, visibleWidth, visibleHeight,
+                out sourcePixelsToTarget);
+        }
+
+        private static bool TryPrepareSettledRasterPan(SKBitmap bitmap, RasterCacheMetadata metadata,
+            MapCoordinateFrame target, int visibleWidth, int visibleHeight,
+            out SKMatrix sourcePixelsToTarget)
+        {
+            sourcePixelsToTarget = SKMatrix.Identity;
+            if (metadata.Frame is not MapCoordinateFrame source)
+                return false;
+            if (source.Viewport != target.Viewport)
+                return false;
+
+            if (metadata.RasterDestination is SKRect destination)
+            {
+                // RasterIO maps the world extent into physical pixels with
+                // double-to-float conversion; a nominal full-frame rectangle
+                // may protrude by a fraction of one pixel.
+                const float destinationTolerance = 1f;
+                if (destination.Width <= 0 || destination.Height <= 0 ||
+                    destination.Left < -destinationTolerance ||
+                    destination.Top < -destinationTolerance ||
+                    destination.Right > source.Viewport.PhysicalWidth + destinationTolerance ||
+                    destination.Bottom > source.Viewport.PhysicalHeight + destinationTolerance)
+                    return false;
+            }
+            else if (!source.Viewport.MatchesBitmap(bitmap))
+            {
+                return false;
+            }
+
+            return NavigationFramePolicy.TryReuseWholePixelPan(source, target,
+                visibleWidth, visibleHeight, out sourcePixelsToTarget);
         }
 
         private void ProcessarRequisicao(
@@ -387,9 +482,9 @@ namespace GeoNex.Services
                     req.QueryString["dpi"] ?? "1.0",
                     NumberStyles.Float,
                     CultureInfo.InvariantCulture,
-                    out float dpi);
+                    out float requestedDpi);
                 if (!validWidth || !validHeight || !validDpi ||
-                    !MapViewportMetrics.TryCreate(cssWidth, cssHeight, dpi, out MapViewportMetrics viewport))
+                    !MapViewportMetrics.TryCreate(cssWidth, cssHeight, requestedDpi, out _))
                 {
                     res.StatusCode = (int)HttpStatusCode.BadRequest;
                     res.Close();
@@ -397,13 +492,22 @@ namespace GeoNex.Services
                     return;
                 }
 
+                // Keep the requested DPI for the final image and CSS padding, but
+                // interactive renderer fallbacks use the same measured DPI cap as
+                // the zero-render cache preview path.
                 int visibleWidth = cssWidth, visibleHeight = cssHeight;
+                bool startupPreview = !isPrint && req.QueryString["i"] == "1" &&
+                    req.QueryString["startup"] == "1";
+                float dpi = RasterRenderingPolicy.SelectInteractivePreviewDpi(
+                    requestedDpi, !isPrint && req.QueryString["i"] == "1", rasterContent, startupPreview);
                 int navigationPadding = !isPrint && req.QueryString["nav"] == "1"
-                    ? NavigationFramePolicy.Padding(cssWidth, cssHeight, dpi)
+                    ? (startupPreview ? 0 : req.QueryString["i"] == "1"
+                        ? NavigationFramePolicy.GesturePadding(cssWidth, cssHeight, requestedDpi)
+                        : NavigationFramePolicy.Padding(cssWidth, cssHeight, requestedDpi))
                     : 0;
                 cssWidth += navigationPadding * 2;
                 cssHeight += navigationPadding * 2;
-                viewport = MapViewportMetrics.Create(cssWidth, cssHeight, dpi);
+                MapViewportMetrics viewport = MapViewportMetrics.Create(cssWidth, cssHeight, dpi);
                 float faseSelecao = float.Parse(req.QueryString["phase"] ?? "0",
                     System.Globalization.CultureInfo.InvariantCulture);
                 float panOffsetX = float.Parse(req.QueryString["ox"] ?? "0",
@@ -582,8 +686,15 @@ namespace GeoNex.Services
                             : null;
                     if (globalCacheLease != null &&
                         (isInteracting || zoomReal == globalCacheMetadata.Zoom) &&
-                        globalCacheMetadata.Matches(viewport) &&
-                        viewport.MatchesBitmap(globalCacheLease.Resource) &&
+                        (isInteracting
+                            ? globalCacheMetadata.MatchesFrame(globalCacheLease.Resource) &&
+                              globalCacheMetadata.CoversVisibleViewport(visibleWidth, visibleHeight)
+                            : globalCacheMetadata.Matches(viewport) &&
+                              viewport.MatchesBitmap(globalCacheLease.Resource)) &&
+                        (!rasterContent || !isInteracting ||
+                         RasterRenderingPolicy.HasSufficientCachedRasterResolution(
+                             globalCacheMetadata.CameraZoom, globalCacheMetadata.Frame.Viewport,
+                             cameraZoom, viewport)) &&
                         NavigationFramePolicy.TryReuse(globalCacheMetadata.Frame, coordinateFrame,
                             visibleWidth, visibleHeight, out var globalMatrix))
                     {
@@ -798,6 +909,24 @@ namespace GeoNex.Services
                                     }
                                 }
                             }
+                            // A same-scale, whole-physical-pixel pan can reuse the
+                            // settled ECW window without another UNC read. Restrict
+                            // this to covered final-quality frames; fractional pans,
+                            // zooms and previews still go through the normal renderer.
+                            else if (!hasRotation && rasterCacheImg != null &&
+                                     !rasterCacheMetadata.CacheKey.EndsWith("|preview", StringComparison.Ordinal) &&
+                                     rasterCacheMetadata.Zoom == zoomReal &&
+                                     Environment.GetEnvironmentVariable("GEONEX_SETTLED_RASTER_PIXEL_PAN") != "0" &&
+                                     TryPrepareSettledRasterPan(rasterCacheImg, rasterCacheMetadata,
+                                         coordinateFrame, visibleWidth, visibleHeight,
+                                         out var rasterPanMatrix))
+                            {
+                                SKRect rasterDestination = rasterCacheMetadata.RasterDestination ??
+                                    new SKRect(0, 0, physicalWidth, physicalHeight);
+                                using (trace?.Measure("draw", camadaAtual))
+                                    RasterFramePainter.DrawTransformedRegion(surface, rasterCacheImg,
+                                        rasterDestination, rasterPanMatrix, cancellationToken, interacting: false);
+                            }
                             else
                             {
                                 // Raster e vetor usam exatamente o mesmo viewport local. Antes,
@@ -862,8 +991,12 @@ namespace GeoNex.Services
                                 }
                                 else if (isInteracting)
                                 {
+                                    // Interactive raster reads still honor the shared
+                                    // frame budget, but no longer hard-cap every preview
+                                    // to 1024x1024 regardless of the display resolution.
                                     RasterDimensions interactiveDimensions = RasterRenderingPolicy.FitDimensions(
-                                        warpW, warpH, Math.Min(maximumFramePixels, 1024L * 1024), 1024);
+                                        warpW, warpH,
+                                        Math.Min(maximumFramePixels, (long)physicalWidth * physicalHeight));
                                     warpW = interactiveDimensions.Width;
                                     warpH = interactiveDimensions.Height;
                                 }
@@ -1006,9 +1139,14 @@ namespace GeoNex.Services
 
                                                 int[] listaBandas = RasterDatasetPolicy.GetCachedRgbaBandMap(vrtDs);
                                                 int numBandas = listaBandas.Length;
+                                                RasterPaletteColor[]? paletteColors = RasterDatasetPolicy.GetCachedPalette(vrtDs);
+                                                bool expandGray = RasterDatasetPolicy.RequiresGrayExpansion(vrtDs);
+                                                bool expandGrayAlpha = RasterDatasetPolicy.RequiresGrayAlphaExpansion(vrtDs);
 
                                                 SKBitmap? tileBitmap = new SKBitmap(dstW, dstH, SKColorType.Rgba8888,
-                                                    SKAlphaType.Premul);
+                                                    paletteColors != null || expandGrayAlpha || numBandas == 4
+                                                        ? SKAlphaType.Unpremul
+                                                        : SKAlphaType.Premul);
                                                 try
                                                 {
                                                     IntPtr tilePtr = tileBitmap.GetPixels();
@@ -1039,16 +1177,34 @@ namespace GeoNex.Services
                                                             using (trace?.Measure("io", camadaAtual))
                                                             {
                                                                 cancellationToken.ThrowIfCancellationRequested();
+                                                                int pixelSpace = expandGray ||
+                                                                                 (paletteColors != null && numBandas == 1)
+                                                                    ? 1 : 4;
                                                                 vrtDs.ReadRaster(srcX, srcY, srcW, srcH,
                                                                     tilePtr, dstW, dstH, DataType.GDT_Byte,
                                                                     numBandas, listaBandas,
-                                                                    4, dstW * 4, 1, extraArg);
+                                                                    pixelSpace, dstW * pixelSpace, 1, extraArg);
                                                             }
                                                         }
 
                                                         cancellationToken.ThrowIfCancellationRequested();
 
-                                                        if (numBandas == 3)
+                                                        if (paletteColors != null)
+                                                        {
+                                                            RasterDatasetPolicy.ExpandPaletteInPlace(tilePtr, dstW, dstH,
+                                                                tileBitmap.RowBytes, paletteColors, numBandas == 2);
+                                                        }
+                                                        else if (expandGray)
+                                                        {
+                                                            RasterDatasetPolicy.ExpandGrayInPlace(tilePtr, dstW, dstH,
+                                                                tileBitmap.RowBytes);
+                                                        }
+                                                        else if (expandGrayAlpha)
+                                                        {
+                                                            RasterDatasetPolicy.ExpandGrayAlphaInPlace(tilePtr, dstW, dstH,
+                                                                tileBitmap.RowBytes);
+                                                        }
+                                                        else if (numBandas == 3)
                                                         {
                                                             HardwareGovernor.FillOpaqueAlphaSimd(tilePtr, dstW, dstH, dstW * 4);
                                                         }
@@ -1161,9 +1317,14 @@ namespace GeoNex.Services
                                         {
                                             int[] listaBandas = RasterDatasetPolicy.GetCachedRgbaBandMap(memDs);
                                             int numBandas = listaBandas.Length;
+                                            RasterPaletteColor[]? paletteColors = RasterDatasetPolicy.GetCachedPalette(memDs);
+                                            bool expandGray = RasterDatasetPolicy.RequiresGrayExpansion(memDs);
+                                            bool expandGrayAlpha = RasterDatasetPolicy.RequiresGrayAlphaExpansion(memDs);
 
                                             using var rasterBitmap = new SKBitmap(warpW, warpH, SKColorType.Rgba8888,
-                                                SKAlphaType.Premul);
+                                                paletteColors != null || expandGrayAlpha || numBandas == 4
+                                                    ? SKAlphaType.Unpremul
+                                                    : SKAlphaType.Premul);
                                             using (var tmpCanvas = new SKCanvas(rasterBitmap))
                                             {
                                                 tmpCanvas.Clear(new SKColor(0, 0, 0, 0));
@@ -1172,11 +1333,30 @@ namespace GeoNex.Services
                                             IntPtr ptr = rasterBitmap.GetPixels();
                                             if (ptr != IntPtr.Zero)
                                             {
+                                                int pixelSpace = expandGray ||
+                                                                 (paletteColors != null && numBandas == 1)
+                                                    ? 1 : 4;
                                                 using (trace?.Measure("io", camadaAtual))
                                                     memDs.ReadRaster(0, 0, warpW, warpH, ptr, warpW, warpH,
-                                                        DataType.GDT_Byte, numBandas, listaBandas, 4, warpW * 4, 1);
+                                                        DataType.GDT_Byte, numBandas, listaBandas,
+                                                        pixelSpace, warpW * pixelSpace, 1);
 
-                                                if (numBandas == 3)
+                                                if (paletteColors != null)
+                                                {
+                                                    RasterDatasetPolicy.ExpandPaletteInPlace(ptr, warpW, warpH,
+                                                        rasterBitmap.RowBytes, paletteColors, numBandas == 2);
+                                                }
+                                                else if (expandGray)
+                                                {
+                                                    RasterDatasetPolicy.ExpandGrayInPlace(ptr, warpW, warpH,
+                                                        rasterBitmap.RowBytes);
+                                                }
+                                                else if (expandGrayAlpha)
+                                                {
+                                                    RasterDatasetPolicy.ExpandGrayAlphaInPlace(ptr, warpW, warpH,
+                                                        rasterBitmap.RowBytes);
+                                                }
+                                                else if (numBandas == 3)
                                                 {
                                                     HardwareGovernor.FillOpaqueAlphaSimd(ptr, warpW, warpH, warpW * 4);
                                                 }
@@ -1238,10 +1418,10 @@ namespace GeoNex.Services
 
                             SKColor corBorda = estiloCamada.CorBorda == "transparent"
                                 ? SKColors.Transparent
-                                : SKColor.Parse(estiloCamada.CorBorda);
+                                : EstiloCamada.ParseColorFast(estiloCamada.CorBorda, SKColors.Black);
                             SKColor corFill = estiloCamada.CorPreenchimento == "transparent"
                                 ? SKColors.Transparent
-                                : SKColor.Parse(estiloCamada.CorPreenchimento);
+                                : EstiloCamada.ParseColorFast(estiloCamada.CorPreenchimento, SKColors.Gray);
 
                             // Aplica opacidade diretamente nas cores para evitar o overhead e bugs do SaveLayer
                             if (alphaCalculado < 255)
@@ -1265,7 +1445,7 @@ namespace GeoNex.Services
 
                             if (!string.IsNullOrEmpty(estiloCamada.PadraoPreenchimento) && estiloCamada.PadraoPreenchimento != "Solido")
                             {
-                                SKColor corHach = SKColor.TryParse(estiloCamada.CorHachura, out var ch) ? ch : corBorda;
+                                SKColor corHach = EstiloCamada.ParseColorFast(estiloCamada.CorHachura, corBorda);
                                 pincelDinamicoFill.Shader = CartographicPatternFactory.ObterShaderHachura(
                                     estiloCamada.PadraoPreenchimento,
                                     corFill,
@@ -1279,6 +1459,9 @@ namespace GeoNex.Services
                             float espessuraCalculadaLinha = estiloCamada.EspessuraLinha / zoomReal;
                             float espessuraCalculadaBorda = estiloCamada.EspessuraBorda / zoomReal;
                             pincelDinamicoBorda.StrokeWidth = espessuraCalculadaBorda;
+                            bool bordaFina = isInteracting || (estiloCamada.EspessuraBorda * viewport.PixelScale) <= 1.5f;
+                            pincelDinamicoBorda.StrokeJoin = bordaFina ? SKStrokeJoin.Miter : SKStrokeJoin.Round;
+                            pincelDinamicoBorda.StrokeMiter = 2.0f;
 
                             if (estiloCamada.TipoLinha != "Solid")
                             {
@@ -1341,7 +1524,7 @@ namespace GeoNex.Services
                                     : _mapService.OffsetMundoY - renderViewport.Bottom;
                                 double maxY = precisionOrigin
                                     ? _mapService.OffsetMundoY - preciseCurrentCenter.Y - preciseViewport.Top
-                                    : renderViewport.Top + _mapService.OffsetMundoY;
+                                    : _mapService.OffsetMundoY - renderViewport.Top;
                                 var envelopeView = new NetTopologySuite.Geometries.Envelope(minX, maxX, minY, maxY);
                                 using ResourceLease<MemoryMappedShapefile>? shapefileLease =
                                     _mapService.AcquireShapefile(camadaAtual);
@@ -1568,42 +1751,141 @@ namespace GeoNex.Services
 
                                             using (trace?.Measure("draw", camadaAtual))
                                             {
-                                                foreach (var f in feicoesList)
+                                                SKMatrix activePointMatrix = precisionOrigin
+                                                    ? centeredFrame.LocalToPhysicalMatrix
+                                                    : matriz;
+                                                float baseRadiusPx = (estiloCamada.Tamanho > 0 ? estiloCamada.Tamanho : 4f) * viewport.PixelScale;
+                                                float strokeWidthPx = (estiloCamada.EspessuraBorda > 0 ? estiloCamada.EspessuraBorda : 1f) * viewport.PixelScale;
+                                                SKColor? borderSpriteColor = hasBorder ? pincelDinamicoBorda.Color : null;
+                                                (SKImage? fixedSprite, float fixedHalf) = !usarTamanhoProp
+                                                    ? CartographicPatternFactory.ObterSpriteMarcadorFisico(
+                                                        estiloCamada.FormaMarcador,
+                                                        baseRadiusPx,
+                                                        estiloCamada.RotacaoMarcador,
+                                                        pincelDinamicoFill.Color,
+                                                        borderSpriteColor,
+                                                        strokeWidthPx)
+                                                    : (null, 0f);
+
+                                                if (fixedSprite != null && rotation == 0f)
                                                 {
-                                                    cancellationToken.ThrowIfCancellationRequested();
-                                                    SKPoint point = precisionOrigin
-                                                        ? new SKPoint(
-                                                            (float)(f.CentroidLocalPrecise.X - preciseCurrentCenter.X),
-                                                            (float)(f.CentroidLocalPrecise.Y - preciseCurrentCenter.Y))
-                                                        : f.CentroidLocal;
-
-                                                    float featureRadius = radius;
-                                                    if (usarTamanhoProp && dbfFieldProp != null)
+                                                    canvas.SetMatrix(SKMatrix.Identity);
+                                                    foreach (var f in feicoesList)
                                                     {
-                                                        string? strVal = shp!.ReadDbfString(f.FID, dbfFieldProp.Offset, dbfFieldProp.Length);
-                                                        if (!string.IsNullOrWhiteSpace(strVal) &&
-                                                            double.TryParse(strVal, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double val))
+                                                        cancellationToken.ThrowIfCancellationRequested();
+                                                        if (f.IsMultiPoint && shp != null)
                                                         {
-                                                            double t = Math.Clamp((val - vMinProp) / vDeltaProp, 0.0, 1.0);
-                                                            if (metodoEscalaProp == "Flannery")
-                                                                t = Math.Pow(t, 0.57);
-                                                            else if (metodoEscalaProp == "RaizQuadrada")
-                                                                t = Math.Sqrt(t);
-                                                            else if (metodoEscalaProp == "Logaritmica")
-                                                                t = Math.Log(1.0 + t * 9.0) / 2.302585;
+                                                            MultiPointCoordinateView coordinates = shp.GetMultiPointCoordinates(f);
+                                                            var transform = shp.TransformLocal?.Value;
+                                                            double[]? projectedCoordinate = transform == null ? null : new double[3];
+                                                            for (int pointIndex = 0; pointIndex < coordinates.Count; pointIndex++)
+                                                            {
+                                                                if ((pointIndex & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+                                                                if (!TryMapMultiPointLocalPoint(coordinates, pointIndex, transform,
+                                                                        projectedCoordinate, _mapService.OffsetMundoX,
+                                                                        _mapService.OffsetMundoY, precisionOrigin,
+                                                                        preciseCurrentCenter, out SKPoint localPoint))
+                                                                    continue;
+                                                                if (pointIndex == 0 && Diagnostics.IsEnabled)
+                                                                    Diagnostics.LogFirstFeature(
+                                                                        projectedCoordinate?[0] ?? coordinates.X(pointIndex),
+                                                                        projectedCoordinate?[1] ?? coordinates.Y(pointIndex),
+                                                                        localPoint.X, localPoint.Y, coordinates.Count);
+                                                                SKPoint screenPoint = activePointMatrix.MapPoint(localPoint);
+                                                                canvas.DrawImage(fixedSprite, screenPoint.X - fixedHalf,
+                                                                    screenPoint.Y - fixedHalf);
+                                                            }
+                                                            continue;
+                                                        }
 
-                                                            featureRadius = (float)(rMinProp + t * (rMaxProp - rMinProp)) / zoomReal;
+                                                        SKPoint localPt = precisionOrigin
+                                                            ? new SKPoint(
+                                                                (float)(f.CentroidLocalPrecise.X - preciseCurrentCenter.X),
+                                                                (float)(f.CentroidLocalPrecise.Y - preciseCurrentCenter.Y))
+                                                            : f.CentroidLocal;
+                                                        SKPoint screenPt = activePointMatrix.MapPoint(localPt);
+                                                        canvas.DrawImage(fixedSprite, screenPt.X - fixedHalf, screenPt.Y - fixedHalf);
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    foreach (var f in feicoesList)
+                                                    {
+                                                        cancellationToken.ThrowIfCancellationRequested();
+                                                        SKPoint point = precisionOrigin
+                                                            ? new SKPoint(
+                                                                (float)(f.CentroidLocalPrecise.X - preciseCurrentCenter.X),
+                                                                (float)(f.CentroidLocalPrecise.Y - preciseCurrentCenter.Y))
+                                                            : f.CentroidLocal;
+
+                                                        float featureRadius = radius;
+                                                        if (usarTamanhoProp && dbfFieldProp != null)
+                                                        {
+                                                            double val = f.CachedProportionalValue;
+                                                            if (f.CachedProportionalFieldOffset != dbfFieldProp.Offset)
+                                                            {
+                                                                val = double.NaN;
+                                                                string? strVal = shp!.ReadDbfString(f.FID, dbfFieldProp.Offset, dbfFieldProp.Length);
+                                                                if (!string.IsNullOrWhiteSpace(strVal) &&
+                                                                    double.TryParse(strVal, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsedVal))
+                                                                {
+                                                                    val = parsedVal;
+                                                                }
+                                                                f.CachedProportionalValue = val;
+                                                                f.CachedProportionalFieldOffset = dbfFieldProp.Offset;
+                                                            }
+
+                                                            if (!double.IsNaN(val))
+                                                            {
+                                                                double t = Math.Clamp((val - vMinProp) / vDeltaProp, 0.0, 1.0);
+                                                                if (metodoEscalaProp == "Flannery")
+                                                                    t = Math.Pow(t, 0.57);
+                                                                else if (metodoEscalaProp == "RaizQuadrada")
+                                                                    t = Math.Sqrt(t);
+                                                                else if (metodoEscalaProp == "Logaritmica")
+                                                                    t = Math.Log(1.0 + t * 9.0) / 2.302585;
+
+                                                                featureRadius = (float)(rMinProp + t * (rMaxProp - rMinProp)) / zoomReal;
+                                                            }
+                                                        }
+
+                                                        if (f.IsMultiPoint && shp != null)
+                                                        {
+                                                            MultiPointCoordinateView coordinates = shp.GetMultiPointCoordinates(f);
+                                                            var transform = shp.TransformLocal?.Value;
+                                                            double[]? projectedCoordinate = transform == null ? null : new double[3];
+                                                            for (int pointIndex = 0; pointIndex < coordinates.Count; pointIndex++)
+                                                            {
+                                                                if ((pointIndex & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+                                                                if (!TryMapMultiPointLocalPoint(coordinates, pointIndex, transform,
+                                                                        projectedCoordinate, _mapService.OffsetMundoX,
+                                                                        _mapService.OffsetMundoY, precisionOrigin,
+                                                                        preciseCurrentCenter, out SKPoint localPoint))
+                                                                    continue;
+                                                                if (pointIndex == 0 && Diagnostics.IsEnabled)
+                                                                    Diagnostics.LogFirstFeature(
+                                                                        projectedCoordinate?[0] ?? coordinates.X(pointIndex),
+                                                                        projectedCoordinate?[1] ?? coordinates.Y(pointIndex),
+                                                                        localPoint.X, localPoint.Y, coordinates.Count);
+                                                                CartographicPatternFactory.DesenharMarcador(
+                                                                    canvas, localPoint, featureRadius,
+                                                                    estiloCamada.FormaMarcador,
+                                                                    estiloCamada.RotacaoMarcador,
+                                                                    ptPaint, hasBorder ? ptBorder : null);
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            CartographicPatternFactory.DesenharMarcador(
+                                                                canvas,
+                                                                point,
+                                                                featureRadius,
+                                                                estiloCamada.FormaMarcador,
+                                                                estiloCamada.RotacaoMarcador,
+                                                                ptPaint,
+                                                                hasBorder ? ptBorder : null);
                                                         }
                                                     }
-
-                                                    CartographicPatternFactory.DesenharMarcador(
-                                                        canvas,
-                                                        point,
-                                                        featureRadius,
-                                                        estiloCamada.FormaMarcador,
-                                                        estiloCamada.RotacaoMarcador,
-                                                        ptPaint,
-                                                        hasBorder ? ptBorder : null);
                                                 }
                                             }
 
@@ -1746,10 +2028,15 @@ namespace GeoNex.Services
                                                     }
                                                     else if (kind == GeoNex.Services.GeometryKind.Line)
                                                     {
-                                                        if (!estiloCamada.BordaTransparente && zoomReal > 0.0005f)
-                                                            canvas.DrawPath(batchPath, lineOuter);
+                                                        bool drawOuterCasing = !estiloCamada.BordaTransparente &&
+                                                                               zoomReal > 0.0005f &&
+                                                                               (estiloCamada.PreenchimentoTransparente ||
+                                                                                (espessuraCalculadaBorda > espessuraCalculadaLinha * 1.05f &&
+                                                                                 lineOuter.Color != lineInner.Color));
+                                                        bool drawInnerLine = !estiloCamada.PreenchimentoTransparente;
+                                                        if (drawOuterCasing) canvas.DrawPath(batchPath!, lineOuter);
                                                         cancellationToken.ThrowIfCancellationRequested();
-                                                        canvas.DrawPath(batchPath, lineInner);
+                                                        if (drawInnerLine) canvas.DrawPath(batchPath!, lineInner);
                                                     }
                                                 }
                                             }
@@ -1778,6 +2065,7 @@ namespace GeoNex.Services
                                     canvas.SetMatrix(matriz);
                                     string? activePolygonCategory = null;
                                     SKPath? polygonFillBatch = null;
+                                    SKPath? polygonStrokeBatch = null;
                                     float borderCullSizeCat = isInteracting ? 25f : 10f;
 
                                     void FlushPolygonFillBatch()
@@ -1793,11 +2081,6 @@ namespace GeoNex.Services
 
                                     try
                                     {
-                                        // A borda precisa respeitar a ordem original dos chunks:
-                                        // um preenchimento adiado poderia cobrir a borda de um
-                                        // polígono anterior. O batching continua seguro quando
-                                        // a camada não desenha bordas.
-                                        bool batchPolygonFills = estiloCamada.BordaTransparente;
                                         var items = categorizedPathQueryBuffer.Items;
                                         for (int cIdx = 0; cIdx < items.Count; ++cIdx)
                                         {
@@ -1808,13 +2091,7 @@ namespace GeoNex.Services
                                                     StringComparison.Ordinal))
                                             {
                                                 FlushPolygonFillBatch();
-                                                string corHex =
-                                                    estiloCamada.CoresCategorizadas.TryGetValue(nomeCategoria,
-                                                        out var configuredColor)
-                                                        ? configuredColor
-                                                        : "#808080";
-                                                SKColor corBase = SKColor.Parse(corHex);
-                                                pincelDinamicoFill.Color = corBase;
+                                                pincelDinamicoFill.Color = estiloCamada.ObterCorCategorizada(nomeCategoria, alphaCalculado);
                                                 activePolygonCategory = nomeCategoria;
                                             }
 
@@ -1824,29 +2101,32 @@ namespace GeoNex.Services
 
                                             if (!estiloCamada.PreenchimentoTransparente)
                                             {
-                                                bool pequeno = larguraNoEcra < 10f && alturaNoEcra < 10f;
-                                                if (pequeno || !batchPolygonFills)
-                                                {
-                                                    pincelDinamicoFill.IsAntialias = false;
-                                                    canvas.DrawPath(polyPathFragmento, pincelDinamicoFill);
-                                                    pincelDinamicoFill.IsAntialias = true;
-                                                }
-                                                else
-                                                {
-                                                    polygonFillBatch ??= new SKPath { FillType = SKPathFillType.EvenOdd };
-                                                    polygonFillBatch.AddPath(polyPathFragmento);
-                                                }
+                                                polygonFillBatch ??= new SKPath { FillType = SKPathFillType.EvenOdd };
+                                                polygonFillBatch.AddPath(polyPathFragmento);
                                             }
 
-                                            // FAST-PATH LOD
+                                            // FAST-PATH LOD: acumula todas as bordas da camada num único batch
+                                            // desenhado por cima dos preenchimentos categorizados (padrão cartográfico QGIS Symbol Levels).
                                             if (!estiloCamada.BordaTransparente && larguraNoEcra >= borderCullSizeCat &&
                                                 alturaNoEcra >= borderCullSizeCat)
-                                                canvas.DrawPath(polyPathFragmento, pincelDinamicoBorda);
+                                            {
+                                                polygonStrokeBatch ??= new SKPath { FillType = SKPathFillType.Winding };
+                                                polygonStrokeBatch.AddPath(polyPathFragmento);
+                                            }
+                                        }
+
+                                        FlushPolygonFillBatch();
+
+                                        if (polygonStrokeBatch != null)
+                                        {
+                                            cancellationToken.ThrowIfCancellationRequested();
+                                            canvas.DrawPath(polygonStrokeBatch, pincelDinamicoBorda);
                                         }
                                     }
                                     finally
                                     {
                                         FlushPolygonFillBatch();
+                                        polygonStrokeBatch?.Dispose();
                                     }
                                 }
                             }
@@ -1861,9 +2141,9 @@ namespace GeoNex.Services
                                     using var lineOuter = new SKPaint
                                     {
                                         Style = SKPaintStyle.Stroke,
-                                        StrokeJoin = SKStrokeJoin.Round,
+                                        StrokeJoin = bordaFina ? SKStrokeJoin.Miter : SKStrokeJoin.Round,
                                         StrokeCap = SKStrokeCap.Round,
-                                        IsAntialias = true,
+                                        IsAntialias = suavizar,
                                         Color = pincelDinamicoBorda.Color,
                                         StrokeWidth = espessuraCalculadaBorda,
                                         PathEffect = pincelDinamicoBorda.PathEffect
@@ -1871,9 +2151,9 @@ namespace GeoNex.Services
                                     using var lineInner = new SKPaint
                                     {
                                         Style = SKPaintStyle.Stroke,
-                                        StrokeJoin = SKStrokeJoin.Round,
+                                        StrokeJoin = bordaFina ? SKStrokeJoin.Miter : SKStrokeJoin.Round,
                                         StrokeCap = SKStrokeCap.Round,
-                                        IsAntialias = true,
+                                        IsAntialias = suavizar,
                                         Color = pincelDinamicoFill.Color,
                                         BlendMode = SKBlendMode.SrcOver,
                                         StrokeWidth = espessuraCalculadaLinha,
@@ -1884,6 +2164,9 @@ namespace GeoNex.Services
                                     canvas.SetMatrix(matriz);
                                     string? activeLineCategory = null;
                                     var lineItems = categorizedPathQueryBuffer.Items;
+                                    bool drawCatLineOuter = !estiloCamada.BordaTransparente &&
+                                                            (estiloCamada.PreenchimentoTransparente ||
+                                                             espessuraCalculadaBorda > espessuraCalculadaLinha * 1.05f);
                                     for (int cIdx = 0; cIdx < lineItems.Count; ++cIdx)
                                     {
                                         if ((cIdx & 31) == 0) cancellationToken.ThrowIfCancellationRequested();
@@ -1891,16 +2174,11 @@ namespace GeoNex.Services
                                         string nomeCategoria = chunk.Category;
                                         if (!string.Equals(activeLineCategory, nomeCategoria, StringComparison.Ordinal))
                                         {
-                                            string corHex =
-                                                estiloCamada.CoresCategorizadas.TryGetValue(nomeCategoria,
-                                                    out var configuredColor)
-                                                    ? configuredColor
-                                                    : "#808080";
-                                            lineInner.Color = SKColor.Parse(corHex);
+                                            lineInner.Color = estiloCamada.ObterCorCategorizada(nomeCategoria, alphaCalculado);
                                             activeLineCategory = nomeCategoria;
                                         }
 
-                                        if (!estiloCamada.BordaTransparente) canvas.DrawPath(chunk.Path, lineOuter);
+                                        if (drawCatLineOuter) canvas.DrawPath(chunk.Path, lineOuter);
                                         if (!estiloCamada.PreenchimentoTransparente)
                                             canvas.DrawPath(chunk.Path, lineInner);
                                     }
@@ -1976,9 +2254,18 @@ namespace GeoNex.Services
                         trace,
                         cancellationToken);
 
-                    // Retain one scene image for gestures even while online pixels are
-                    // pending. Only a completed render may satisfy a final request.
-                    if (!isInteracting && !isPrint && rotation == 0 && panOffsetX == 0 && panOffsetY == 0)
+                    // Keep a full-resolution raster refresh as the new gesture base.
+                    // The next small pan can then return to the cheap cache path
+                    // without repeatedly enlarging the older settled image.
+                    bool publishGesturePreview = isInteracting && rasterContent && !isPrint &&
+                        rotation == 0 && panOffsetX == 0 && panOffsetY == 0 &&
+                        req.QueryString["nav"] == "1" && req.QueryString["i"] == "1" &&
+                        !deferOnline && !onlinePending;
+                    bool publishSettledScene = !isInteracting && !isPrint &&
+                        rotation == 0 && panOffsetX == 0 && panOffsetY == 0;
+                    // Only a completed render may satisfy a final request. A gesture
+                    // frame is kept separately and can never replace the final cache.
+                    if (publishSettledScene || publishGesturePreview)
                     {
                         long sceneCacheStarted = Stopwatch.GetTimestamp();
                         // The writable target may use rented external pixels. The
@@ -1987,10 +2274,59 @@ namespace GeoNex.Services
                         SKBitmap? snapshot = new SKBitmap(info);
                         try
                         {
-                            if (!surface.ReadPixels(info, snapshot.GetPixels(), snapshot.RowBytes, 0, 0))
+                            using var pixmap = surface.PeekPixels();
+                            nint srcBase = pixmap != null ? pixmap.GetPixels() : 0;
+                            nint dstBase = snapshot.GetPixels();
+                            if (pixmap != null && srcBase != 0 && dstBase != 0 &&
+                                pixmap.Width == info.Width && pixmap.Height == info.Height &&
+                                info.Width * info.Height >= 512 * 512)
+                            {
+                                int copyHeight = info.Height;
+                                int srcStride = pixmap.RowBytes;
+                                int dstStride = snapshot.RowBytes;
+                                long rowBytesToCopy = Math.Min(srcStride, dstStride);
+                                int copyWorkers = Math.Clamp(HardwareGovernor.Topology.PerformanceCores, 2, 8);
+                                int rowsPerBand = (copyHeight + copyWorkers - 1) / copyWorkers;
+                                Parallel.For(0, copyWorkers, band =>
+                                {
+                                    int y0 = band * rowsPerBand;
+                                    int y1 = Math.Min(copyHeight, y0 + rowsPerBand);
+                                    if (y0 >= y1) return;
+                                    unsafe
+                                    {
+                                        if (srcStride == dstStride)
+                                        {
+                                            long totalBytes = (long)(y1 - y0) * dstStride;
+                                            Buffer.MemoryCopy(
+                                                (byte*)srcBase + (long)y0 * srcStride,
+                                                (byte*)dstBase + (long)y0 * dstStride,
+                                                totalBytes,
+                                                totalBytes);
+                                        }
+                                        else
+                                        {
+                                            for (int y = y0; y < y1; y++)
+                                            {
+                                                Buffer.MemoryCopy(
+                                                    (byte*)srcBase + (long)y * srcStride,
+                                                    (byte*)dstBase + (long)y * dstStride,
+                                                    dstStride,
+                                                    rowBytesToCopy);
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            else if (!surface.ReadPixels(info, dstBase, snapshot.RowBytes, 0, 0))
+                            {
                                 throw new InvalidOperationException("Cannot copy the base map into the scene cache.");
+                            }
                             snapshot.SetImmutable();
-                            if (!deferOnline && !onlinePending)
+                            if (publishGesturePreview)
+                                _mapService.PublishGesturePreviewCache(snapshot, zoomReal,
+                                    cameraPanX, cameraPanY, viewport, coordinateFrame,
+                                    sceneRevision, cameraZoom);
+                            else if (!deferOnline && !onlinePending)
                                 _mapService.PublishGlobalCache(snapshot, zoomReal, cameraPanX, cameraPanY,
                                     viewport, coordinateFrame, sceneRevision, cameraZoom);
                             else
@@ -2354,10 +2690,10 @@ namespace GeoNex.Services
                         SKFontStyleWidth.Normal,
                         inclinacaoFonte) ?? SKTypeface.Default;
 
-                    SKColor corTexto = SKColor.TryParse(estiloCamada.CorTextoRotulo, out var ct) ? ct : SKColors.White;
+                    SKColor corTexto = EstiloCamada.ParseColorFast(estiloCamada.CorTextoRotulo, SKColors.White);
                     corTexto = corTexto.WithAlpha((byte)(Math.Clamp(estiloCamada.OpacidadeRotulo, 0f, 1f) * 255));
 
-                    SKColor corHalo = SKColor.TryParse(estiloCamada.CorHaloRotulo, out var ch) ? ch : SKColors.Black;
+                    SKColor corHalo = EstiloCamada.ParseColorFast(estiloCamada.CorHaloRotulo, SKColors.Black);
                     corHalo = corHalo.WithAlpha((byte)(Math.Clamp(estiloCamada.OpacidadeHaloRotulo, 0f, 1f) * 255));
 
                     float textSizePx = Math.Max(6f, estiloCamada.TamanhoTextoRotulo * viewport.PixelScale);
@@ -2563,6 +2899,48 @@ namespace GeoNex.Services
             {
                 canvas.SetMatrix(matrizAnterior);
             }
+        }
+
+        private static bool TryMapMultiPointLocalPoint(
+            MultiPointCoordinateView coordinates,
+            int pointIndex,
+            OSGeo.OSR.CoordinateTransformation? transform,
+            double[]? projectedCoordinate,
+            double offsetX,
+            double offsetY,
+            bool precisionOrigin,
+            MapLocalCoordinate preciseCenter,
+            out SKPoint localPoint)
+        {
+            double x = coordinates.X(pointIndex);
+            double y = coordinates.Y(pointIndex);
+            if (transform != null && projectedCoordinate != null)
+            {
+                projectedCoordinate[0] = x;
+                projectedCoordinate[1] = y;
+                projectedCoordinate[2] = 0;
+                transform.TransformPoint(projectedCoordinate);
+                x = projectedCoordinate[0];
+                y = projectedCoordinate[1];
+            }
+
+            double localX = x - offsetX;
+            double localY = offsetY - y;
+            if (precisionOrigin)
+            {
+                localX -= preciseCenter.X;
+                localY -= preciseCenter.Y;
+            }
+            if (!double.IsFinite(localX) || !double.IsFinite(localY) ||
+                localX < -float.MaxValue || localX > float.MaxValue ||
+                localY < -float.MaxValue || localY > float.MaxValue)
+            {
+                localPoint = default;
+                return false;
+            }
+
+            localPoint = new SKPoint((float)localX, (float)localY);
+            return true;
         }
 
         public void Stop()

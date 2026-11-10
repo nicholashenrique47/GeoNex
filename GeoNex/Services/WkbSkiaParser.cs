@@ -63,6 +63,9 @@ namespace GeoNex.Services
         public long FID; // Usado para Lazy Loading dos Atributos
         public long SourceFeatureId = -1; // FID da fonte de origem quando a camada está em cache
         public GeometryKind Kind;
+        public int GeometryShapeType;
+        public int GeometryPointCount;
+        public bool IsMultiPoint => GeometryShapeType is 8 or 18 or 28;
         public SKPath? Path;
         public long DataOffset; // Offset de 64 bits: SHP pode ultrapassar o limite de 2 GB
         private MapLocalCoordinate _centroidLocalPrecise;
@@ -91,6 +94,8 @@ namespace GeoNex.Services
         public string? FormattedLabelTransform;
         public float CachedUnitTextWidth;
         public int CachedTextStyleHash;
+        public double CachedProportionalValue = double.NaN;
+        public int CachedProportionalFieldOffset = -1;
         private MapLocalCoordinate _labelAnchorPrecise;
         private float _labelAngleDegrees;
         private byte _labelGeometryState; // 0 = não calculado, 1 = básico, 2 = Polylabel/Arc-Length
@@ -122,12 +127,15 @@ namespace GeoNex.Services
                 }
                 else if (Path != null && Path.PointCount >= 2)
                 {
-                    SKPoint[] pts = Path.Points;
-                    int midIdx = pts.Length / 2;
-                    anchor = new MapLocalCoordinate(pts[midIdx].X, pts[midIdx].Y);
+                    int ptCount = Path.PointCount;
+                    int midIdx = ptCount / 2;
+                    SKPoint midPt = Path.GetPoint(midIdx);
+                    anchor = new MapLocalCoordinate(midPt.X, midPt.Y);
                     int p0 = Math.Max(0, midIdx - 1);
-                    int p1 = Math.Min(pts.Length - 1, midIdx + 1);
-                    ang = LabelPlacementEngine.CalcularAnguloComAutoFlip(pts[p0].X, pts[p0].Y, pts[p1].X, pts[p1].Y);
+                    int p1 = Math.Min(ptCount - 1, midIdx + 1);
+                    SKPoint pt0 = Path.GetPoint(p0);
+                    SKPoint pt1 = Path.GetPoint(p1);
+                    ang = LabelPlacementEngine.CalcularAnguloComAutoFlip(pt0.X, pt0.Y, pt1.X, pt1.Y);
                 }
 
                 _labelAnchorPrecise = anchor;

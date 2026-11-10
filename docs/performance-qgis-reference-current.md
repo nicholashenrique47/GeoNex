@@ -89,3 +89,53 @@ mudança ainda não foi implementada nesta rodada.
 $env:QT_QPA_PLATFORM = 'offscreen'
 & 'C:/Program Files/QGIS 4.2.0/bin/python-qgis.bat' 'PerfTest/QgisRenderMetrics.py' 'C:/Users/Windows 10/Desktop/SHP S/LOTEAMENTOS_LOTES/LOTES.shp' --center-x -5408820.5 --center-y -2984029 --width 3712 --height 2312 --scale 128 --samples 7 --stroke-width 2 --style geonex --no-simplification
 ```
+
+## Revalidação de pan alinhado — 09/11/2026
+
+A comparação anterior usava sete vistas diferentes no QGIS e apenas três
+deslocamentos repetidos no GeoNex; também não registrava claramente a DPI física
+e o CRS de destino. O ensaio foi repetido no `LOTES.shp` atual (77.146 feições),
+em EPSG:3857, centro `(-5408820.5, -2984029)`, escala 128 px/unidade (64 CSS px
+com DPI 2), imagens de 3712×2312 e sete amostras por processo com a sequência de
+pan `0, 32, 64, 0, 32, 64, 0` CSS px. Foram feitas três rodadas por motor;
+excluída a primeira amostra de cada processo, restaram 18 quadros aquecidos por
+configuração. Ambos os renders cobriram conteúdo da camada.
+
+| Caminho aquecido | Render p50 / p95 | PNG p50 / p95 | Render + PNG p50 / p95 |
+|---|---:|---:|---:|
+| QGIS, simplificação desligada | 66,9 / 70,6 ms | — | — |
+| QGIS, simplificação padrão | 72,3 / 88,1 ms | — | — |
+| GeoNex, etapa `render` | 22,7 / 25,5 ms | — | — |
+| GeoNex, subetapa `draw` | 9,7 / 11,3 ms | — | — |
+| GeoNex, resposta HTTP completa | 35,0 / 42,0 ms | incluído | incluído |
+
+Uma rodada QGIS adicional, com simplificação desligada e PNG em memória,
+mediu PNG p50/p95 de 199,1/209,6 ms e render+PNG de 264,4/277,0 ms. Esse encode
+é diagnóstico: não representa a apresentação nativa do QGIS.
+
+Os p50/p95 usam as seis amostras após a primeira em cada uma das três rodadas;
+o p95 usa nearest-rank. Os dois motores renderizaram o
+mesmo tamanho físico e a mesma série de posições, mas a semântica de estilo e a
+organização do trabalho ainda diferem: o QGIS desenha símbolos por feição e o
+GeoNex agrega paths. O render QGIS não inclui PNG no tempo puro; codificar PNG
+serve apenas como referência de transporte e não representa a pintura nativa do
+canvas QGIS. Portanto, o resultado sustenta uma diferença de tempo neste ensaio
+de render: a etapa completa de render GeoNex foi cerca de 2,9× mais rápida que o
+QGIS sem simplificação e 3,2× mais rápida que o QGIS com configuração padrão.
+O `draw` isolado do GeoNex foi mais rápido ainda, mas não deve ser comparado
+sozinho com o job QGIS, que também inclui busca e preparação de feições. Isso não
+prova vantagem geral de interface ou equivalência visual.
+
+A escala de pan de 4 CSS px foi descartada: no GeoNex, os sete PNGs ficaram
+byte a byte idênticos por quantização do centro em coordenadas `float`. Com
+32 CSS px, o centro registrado e os quadros variaram. O harness GeoNex agora
+registra `pan_css`, `camera_pan_x` e o centro preciso junto do centro legado
+`float`, para detectar futuras medições em que o deslocamento não chegou à
+imagem.
+
+Comando alinhado:
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+& 'C:/Program Files/QGIS 4.2.0/bin/python-qgis.bat' 'PerfTest/QgisRenderMetrics.py' 'C:/Users/Windows 10/Desktop/SHP S/LOTEAMENTOS_LOTES/LOTES.shp' --center-x -5408820.5 --center-y -2984029 --crs EPSG:3857 --width 3712 --height 2312 --scale 128 --samples 7 --pan-step 32 --pan-repeat 3 --stroke-width 2 --style geonex --no-simplification --measure-png
+```
