@@ -3892,6 +3892,26 @@ document.addEventListener('keydown', function (event) {
 
     const key = event.key.toLowerCase();
     const elementTarget = target instanceof Element ? target : null;
+
+    const tableWorkstation = document.querySelector('.modern-attribute-workstation');
+    if (tableWorkstation) {
+        if (event.ctrlKey && !event.altKey && !event.metaKey && (key === 'e' || key === 's' || key === 'i')) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!event.repeat) {
+                engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', 'ctrl+' + key, engine.lastPointerClientX, engine.lastPointerClientY)
+                    .catch(err => console.warn('Erro atalho tabela:', err));
+            }
+            return;
+        }
+        if (key === 'escape' && !elementTarget?.closest('.gis-dialog-modal')) {
+            event.preventDefault();
+            event.stopPropagation();
+            engine.dotNetHelper.invokeMethodAsync('ProcessarTecladoGlobal', 'escape', engine.lastPointerClientX, engine.lastPointerClientY)
+                .catch(err => console.warn('Erro atalho fechar tabela:', err));
+            return;
+        }
+    }
     const drawing = ['AquisicaoPoligono', 'AquisicaoLinha', 'AquisicaoPonto'].includes(engine.ferramentaAtual) ||
         !!document.querySelector('.geonex-ui.is-digitizing');
     const hasModifier = event.ctrlKey || event.altKey || event.metaKey || event.shiftKey;
@@ -3916,11 +3936,12 @@ document.addEventListener('keydown', function (event) {
     if (drawing && insideHud && key === 'enter') return;
     const cogoShortcut = drawing && key === 'tab' && !hasModifier && !insideDialog && !insideMenu && !insideTextField && !insideHud;
     const coordinateShortcut = drawing && key === 'f6' && !hasModifier && !insideDialog && !insideMenu;
+    const quickDistanceShortcut = drawing && key === 'd' && !hasModifier && !insideDialog && !insideMenu && !insideTextField;
 
-    // Tab e F6 pertencem à vetorização mesmo com o foco retido em um botão
-    // da barra de ferramentas. Dentro de campos e dos próprios HUDs, Tab segue
-    // navegando pelos controles como de costume.
-    if (cogoShortcut || coordinateShortcut) {
+    // Tab, F6 e D pertencem à vetorização mesmo com o foco retido em um botão
+    // da barra de ferramentas. Dentro de campos e dos próprios HUDs, seguem
+    // o comportamento padrão de digitação.
+    if (cogoShortcut || coordinateShortcut || quickDistanceShortcut) {
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
@@ -3993,7 +4014,7 @@ function reposicionarHudFlutuante() {
         return;
     }
 
-    for (const id of ['hud-f6', 'hud-cogo']) {
+    for (const id of ['hud-f6', 'hud-cogo', 'hud-distancia-rapida']) {
         const el = document.getElementById(id);
         if (!el) continue;
         el.style.maxHeight = '';

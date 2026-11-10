@@ -1,5 +1,6 @@
 using GeoNex.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using Microsoft.Maui.Devices;
 using Microsoft.Maui.Storage;
@@ -619,6 +620,7 @@ public partial class Home
     {
         if (_coordenadaAbsolutaTravada) DestravarCoordenadaAbsoluta(solicitarRedesenho: false);
         _mostrarInputCogo = _mostrarInputAbsoluto = _focoCogoPendente = _focoCoordenadaPendente = false;
+        _mostrarInputDistanciaRapida = _focoDistanciaRapidaPendente = false;
     }
 
     private void FecharEntradaCogo() { _mostrarInputCogo = _focoCogoPendente = false; _hudPosicaoPendente = true; }
@@ -744,6 +746,101 @@ public partial class Home
         JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirRestricaoDistanciaAquisicao",
             ativa, raio, MapService.TravaModoFixo);
         if (!PreviaVetorizacaoClienteAtiva) SolicitarNovoFrame(interacaoRapida: true);
+    }
+
+    private void AbrirInputDistanciaRapida(double clientX = double.NaN, double clientY = double.NaN)
+    {
+        if (double.IsFinite(clientX) && double.IsFinite(clientY) && clientX >= 0 && clientY >= 0)
+        {
+            _hudDistanciaX = Math.Max(12, Math.Min(clientX + 14, _larguraTela - 290));
+            _hudDistanciaY = Math.Max(64, Math.Min(clientY + 14, _alturaTela - 150));
+        }
+        else
+        {
+            _hudDistanciaX = Math.Max(12, Math.Min(_hudX + 20, _larguraTela - 290));
+            _hudDistanciaY = Math.Max(64, Math.Min(_hudY + 20, _alturaTela - 150));
+        }
+
+        if (_restricaoDistanciaMetros > 0 && string.IsNullOrWhiteSpace(_distanciaRapidaTexto))
+        {
+            _distanciaRapidaTexto = _restricaoDistanciaMetros.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        _mostrarInputDistanciaRapida = true;
+        _focoDistanciaRapidaPendente = true;
+        _mostrarMenuContexto = false;
+        StateHasChanged();
+    }
+
+    private void FecharInputDistanciaRapida()
+    {
+        _mostrarInputDistanciaRapida = false;
+        _focoDistanciaRapidaPendente = false;
+        _focoMapaPendente = true;
+        StateHasChanged();
+    }
+
+    private void AplicarDistanciaRapida()
+    {
+        if (string.IsNullOrWhiteSpace(_distanciaRapidaTexto))
+        {
+            FecharInputDistanciaRapida();
+            return;
+        }
+
+        string textoLimpo = _distanciaRapidaTexto.Replace(',', '.').Trim();
+        if (double.TryParse(textoLimpo, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double distMetros) && distMetros > 0)
+        {
+            try
+            {
+                _restricaoDistanciaMetros = distMetros;
+                double gridUnits = MapService.Measurements.MetresToGridUnits(distMetros, MapService.ProjetoSRS);
+                MapService.TravaDistanciaValor = gridUnits;
+                MapService.TravaDistanciaAtiva = true;
+                MapService.TravaModoFixo = true;
+                _snapAquisicaoIntersecao = true;
+                _mostrarInputDistanciaRapida = false;
+                _focoDistanciaRapidaPendente = false;
+                _focoMapaPendente = true;
+
+                AtualizarRestricaoDistanciaCliente();
+                SolicitarNovoFrame(interacaoRapida: true);
+
+                if (MapService.PontosAquisicao.Count > 0)
+                    mensagemVetorizacao = $"Raio de {distMetros:N2} m ativo (snap na interseção ligado). Esc remove o raio.";
+                else
+                    mensagemVetorizacao = $"Raio de {distMetros:N2} m fixado. Insira o primeiro vértice no mapa.";
+            }
+            catch (Exception ex)
+            {
+                mensagemVetorizacao = $"Erro ao definir raio: {ex.Message}";
+            }
+        }
+        else
+        {
+            mensagemVetorizacao = "Informe uma distância numérica válida maior que zero.";
+        }
+        StateHasChanged();
+    }
+
+    private void LimparTravaDistancia()
+    {
+        MapService.TravaDistanciaAtiva = false;
+        _mostrarInputDistanciaRapida = false;
+        _focoDistanciaRapidaPendente = false;
+        _focoMapaPendente = true;
+        AtualizarRestricaoDistanciaCliente();
+        SolicitarNovoFrame(interacaoRapida: true);
+        mensagemVetorizacao = "Raio de distância desativado.";
+        StateHasChanged();
+    }
+
+    private void TratarTecladoInputDistanciaRapida(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            FecharInputDistanciaRapida();
+        }
     }
     private bool _medicaoConcluida;
     private bool _medicaoFalhou;
@@ -1092,7 +1189,7 @@ public partial class Home
             MapService.TravaDistanciaValor, MapService.TravaModoFixo);
     }
     private bool _snapAquisicaoMeio;
-    private bool _snapAquisicaoIntersecao;
+    private bool _snapAquisicaoIntersecao = true;
     private bool _modoOrtogonalAquisicao;
     private bool _snapMedicaoAresta;
     private bool _snapMedicaoMeio;
