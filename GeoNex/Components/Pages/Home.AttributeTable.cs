@@ -101,46 +101,25 @@ public partial class Home
 
     private async Task AbrirTabela(string nomeCamada)
     {
-        _attributeIsLoading = true;
-        nomeCamadaAtiva = nomeCamada;
-        exibirTabelaAtributos = true;
-        _tabelaMinimizada = false;
-        JSRuntime.InvokeVoidAsyncSafe("geonexTableWindow.onTableOpened");
-        _attributePageIndex = 0;
-        _attributeSearchQuery = string.Empty;
-        _filtroViewportAtivo = false;
-        _filtroApenasSelecionados = false;
-        _mostrarGavetaEstatisticas = false;
-        _estatisticasResultado = null;
-        _attributeTxManager.Clear();
+        if (string.IsNullOrWhiteSpace(nomeCamada)) return;
 
-        StateHasChanged();
+        var camada = CamadasAtivas.FirstOrDefault(c => string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase));
+        string? caminho = camada?.CaminhoArquivo;
 
-        try
+        AttributeSession.DefinirCamadaAtiva(nomeCamada, caminho);
+
+#if WINDOWS || MACCATALYST
+        var win = new Window(new AttributeTablePage(nomeCamada))
         {
-            var camada = CamadasAtivas.FirstOrDefault(c => string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase));
-            if (camada != null && !string.IsNullOrEmpty(camada.CaminhoArquivo) && File.Exists(camada.CaminhoArquivo))
-            {
-                _attributeProvider?.Dispose();
-                _attributeProvider = new OgrAttributeDataProvider(camada.CaminhoArquivo, nomeCamada);
-                await _attributeProvider.InitializeAsync();
-                _attributeTableColumns = _attributeProvider.Columns;
-                await CarregarPaginaTabelaAsync();
-            }
-            else
-            {
-                _attributeStatusMessage = "Camada sem arquivo físico vetorial compatível.";
-            }
-        }
-        catch (Exception ex)
-        {
-            _attributeStatusMessage = $"Erro ao carregar dados: {ex.Message}";
-        }
-        finally
-        {
-            _attributeIsLoading = false;
-            await InvokeAsync(StateHasChanged);
-        }
+            Title = $"Tabela de Atributos — {nomeCamada} - GeoNex",
+            Width = 1120,
+            Height = 720
+        };
+        Application.Current?.OpenWindow(win);
+#else
+        Application.Current?.MainPage?.DisplayAlert("Aviso", "Múltiplas janelas só estão disponíveis no Desktop.", "OK");
+#endif
+        await Task.CompletedTask;
     }
 
     private void FecharTabela()

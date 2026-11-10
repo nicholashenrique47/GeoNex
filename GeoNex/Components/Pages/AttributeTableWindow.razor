@@ -1,0 +1,1059 @@
+﻿@page "/attributetable"
+@using System.Globalization
+@using System.Text
+@using GeoNex.Services
+@using GeoNex.Services.Attributes
+@using GeoNex.Services.ExpressionEngine
+@implements IDisposable
+@inject AttributeTableSessionService AttributeSession
+@inject MapRenderingService MapService
+@inject ProjetoService ProjetoService
+@inject RasterService RasterService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Tabela de Atributos — @(_nomeCamadaAtiva ?? "GeoNex")</PageTitle>
+
+<div class="standalone-attribute-container" @onkeydown="TratarTecladoLocal">
+    <!-- BARRA SUPERIOR DA WORKSTATION STANDALONE -->
+    <header class="window-topbar">
+        <div class="topbar-left">
+            <svg class="topbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="18" height="18">
+                <path d="M3.75 3v18h16.5V3H3.75zm0 5.25h16.5M3.75 13.5h16.5M9.75 3v18M15.75 3v18"/>
+            </svg>
+            <span class="topbar-title">TABELA DE ATRIBUTOS</span>
+            
+            <!-- SELETOR DE CAMADA ATIVA -->
+            <div class="layer-selector-group">
+                <select class="gis-select layer-select" value="@_nomeCamadaAtiva" @onchange="OnCamadaSelecionadaChanged">
+                    @if (ObterListaCamadasVetoriais().Count == 0)
+                    {
+                        <option value="">Nenhuma camada vetorial carregada</option>
+                    }
+                    else
+                    {
+                        @foreach (var c in ObterListaCamadasVetoriais())
+                        {
+                            <option value="@c">@c</option>
+                        }
+                    }
+                </select>
+            </div>
+
+            <!-- STATUS DE EDIÇÃO -->
+            @if (_attributeProvider?.IsEditing == true)
+            {
+                <span class="status-pill editing">EDITANDO</span>
+            }
+            else
+            {
+                <span class="status-pill ready">SOMENTE LEITURA</span>
+            }
+        </div>
+
+        <div class="topbar-right">
+            <!-- MÉTRICAS DE REGISTROS -->
+            <div class="metrics-pill">
+                <span>Total: <strong>@(_attributeProvider?.TotalRowCount ?? 0)</strong></span>
+                <span class="sep">|</span>
+                <span>Filtrados: <strong>@(_attributeProvider?.FilteredRowCount ?? 0)</strong></span>
+                <span class="sep">|</span>
+                <span>Selecionados: <strong class="highlight">@_selectedFids.Count</strong></span>
+            </div>
+        </div>
+    </header>
+
+    <!-- TOOLBAR DA TABELA (PADRÃO QGIS / ARCGIS PRO) -->
+    <div class="table-toolbar">
+        <div class="toolbar-group">
+            <button type="button" class="btn-gis-tool @(_attributeProvider?.IsEditing == true ? "is-editing" : "")"
+                    title="Alternar Modo de Edição (Ctrl+E)"
+                    @onclick="AlternarModoEdicaoAsync">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+                </svg>
+                <span>@(_attributeProvider?.IsEditing == true ? "Editando" : "Editar")</span>
+            </button>
+
+            <button type="button" class="btn-gis-tool primary"
+                    disabled="@(_attributeProvider?.IsEditing != true || !_attributeProvider.HasPendingModifications)"
+                    title="Salvar Alterações (Ctrl+S)"
+                    @onclick="SalvarEdicoesAsync">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M3 4.5A1.5 1.5 0 014.5 3h11.586a1.5 1.5 0 011.06.44l3.414 3.414a1.5 1.5 0 01.44 1.06V19.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 19.5V4.5zm4.5 0v4.5h9V4.5h-9zm0 15h9v-6h-9v6z"/>
+                </svg>
+                <span>Salvar</span>
+            </button>
+
+            <button type="button" class="btn-gis-tool icon-only"
+                    disabled="@(_attributeProvider?.IsEditing != true || !_txManager.CanUndo)"
+                    title="Desfazer (Ctrl+Z)"
+                    @onclick="DesfazerEdicaoAsync">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+                </svg>
+            </button>
+
+            <button type="button" class="btn-gis-tool icon-only"
+                    disabled="@(_attributeProvider?.IsEditing != true || !_txManager.CanRedo)"
+                    title="Refazer (Ctrl+Y)"
+                    @onclick="RefazerEdicaoAsync">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group">
+            <button type="button" class="btn-gis-tool icon-only"
+                    title="Inverter Seleção"
+                    @onclick="InverterSelecao">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
+                </svg>
+            </button>
+
+            <button type="button" class="btn-gis-tool icon-only"
+                    disabled="@(_selectedFids.Count == 0)"
+                    title="Desmarcar Tudo (Esc)"
+                    @onclick="LimparSelecao">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <circle cx="12" cy="12" r="9"/>
+                    <path d="m4.93 4.93 14.14 14.14"/>
+                </svg>
+            </button>
+
+            <button type="button" class="btn-gis-tool"
+                    disabled="@(_selectedFids.Count == 0)"
+                    title="Zoom para Feições Selecionadas no Mapa"
+                    @onclick="ZoomParaSelecao">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path d="m21 21-4.35-4.35M11 8v6M8 11h6"/>
+                </svg>
+                <span>Zoom Seleção</span>
+            </button>
+
+            <button type="button" class="btn-gis-tool @(_filtroApenasSelecionados ? "active" : "")"
+                    title="Filtrar apenas registros selecionados"
+                    @onclick="AlternarFiltroApenasSelecionadosAsync">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span>Selecionados</span>
+            </button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group">
+            <button type="button" class="btn-gis-tool"
+                    title="Calculadora de Campos (Ctrl+I)"
+                    @onclick="AbrirCalculadoraCampos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <path d="M7 8h10M7 12h2m4 0h4M7 16h2m4 0h4"/>
+                </svg>
+                <span>Calculadora</span>
+            </button>
+
+            <button type="button" class="btn-gis-tool icon-only"
+                    title="Adicionar Novo Campo"
+                    @onclick="AbrirAdicionarColuna">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+            </button>
+
+            <button type="button" class="btn-gis-tool icon-only"
+                    title="Exportar Tabela para CSV"
+                    @onclick="ExportarCsvAsync">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- BUSCA RÁPIDA -->
+        <div class="toolbar-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input type="text" placeholder="Filtrar registros..."
+                   @bind="_searchQuery" @bind:event="oninput"
+                   @onkeydown="@(async (e) => { if (e.Key == "Enter") await AplicarBuscaAsync(); })" />
+            @if (!string.IsNullOrEmpty(_searchQuery))
+            {
+                <button type="button" class="btn-clear-search" @onclick="LimparBuscaAsync">✕</button>
+            }
+        </div>
+    </div>
+
+    <!-- CORPO DA TABELA VIRTUALIZADA COM LRU CACHE -->
+    <div class="table-grid-area custom-scrollbar">
+        @if (_isLoading)
+        {
+            <div class="table-loading-bar"><div class="loading-indeterminate"></div></div>
+        }
+
+        <table class="gis-grid">
+            <thead>
+                <tr>
+                    <!-- PINNED SELECTION HEADER -->
+                    <th class="th-pinned th-selection">
+                        <input type="checkbox"
+                               checked="@(_tableRows.Count > 0 && _selectedFids.Count >= _tableRows.Count)"
+                               @onchange="AlternarSelecionarTudo" />
+                    </th>
+
+                    @foreach (var col in _tableColumns)
+                    {
+                        <th class="@(col.IsPrimaryKey ? "th-pinned th-fid" : "")" @onclick="() => OrdenarPorColunaAsync(col.Name)">
+                            <div class="th-content">
+                                <span class="th-type-tag">@(col.DataType switch { AttributeDataType.Integer or AttributeDataType.Int64 => "123", AttributeDataType.Real => "0.0", AttributeDataType.Date => "DATA", _ => "ABC" })</span>
+                                <span class="th-name">@col.Name</span>
+                                @if (_attributeProvider?.SortColumn == col.Name)
+                                {
+                                    <span class="th-sort-indicator">@(_attributeProvider.SortAscending ? "▲" : "▼")</span>
+                                }
+                                <button type="button" class="th-menu-btn" title="Estatísticas de @col.Name"
+                                        @onclick:stopPropagation="true"
+                                        @onclick="() => AbrirEstatisticasColunaAsync(col.Name)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                                        <path d="M3 13h4v8H3zM10 8h4v13h-4zM17 3h4v18h-4z"/>
+                                    </svg>
+                                </button>
+                                @if (!col.IsPrimaryKey && _attributeProvider?.IsEditing == true)
+                                {
+                                    <button type="button" class="th-drop-btn" title="Excluir Coluna @col.Name"
+                                            @onclick:stopPropagation="true"
+                                            @onclick="() => ConfirmarExcluirColunaAsync(col.Name)">
+                                        ✕
+                                    </button>
+                                }
+                            </div>
+                        </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @for (int rIdx = 0; rIdx < _tableRows.Count; rIdx++)
+                {
+                    var row = _tableRows[rIdx];
+                    long rowFid = row.FID;
+                    bool isSel = _selectedFids.Contains(rowFid);
+
+                    <tr class="@(isSel ? "row-selected" : "") @(row.State == RowState.Modified ? "row-dirty" : "")"
+                        @ondblclick="() => ZoomParaLinhaFid(rowFid)">
+                        
+                        <td class="td-pinned td-selection" @onclick:stopPropagation="true">
+                            <input type="checkbox"
+                                   checked="@isSel"
+                                   @onchange="() => ToggleSelecaoLinha(rowFid)" />
+                        </td>
+
+                        @for (int cIdx = 0; cIdx < _tableColumns.Count; cIdx++)
+                        {
+                            var col = _tableColumns[cIdx];
+                            object? cellVal = cIdx < row.Values.Length ? row.Values[cIdx] : null;
+
+                            if (col.IsPrimaryKey)
+                            {
+                                <td class="td-pinned td-fid">
+                                    <div class="fid-cell">
+                                        <span>@rowFid</span>
+                                        <button type="button" class="btn-micro" title="Centralizar no Mapa" @onclick:stopPropagation="true" @onclick="() => PanParaLinhaFid(rowFid)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg>
+                                        </button>
+                                        <button type="button" class="btn-micro" title="Piscar Feição (Blink)" @onclick:stopPropagation="true" @onclick="() => BlinkLinhaFid(rowFid)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><circle cx="12" cy="12" r="6"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            }
+                            else if (_attributeProvider?.IsEditing == true && !col.IsReadOnly)
+                            {
+                                <td class="cell-editable">
+                                    <input class="cell-input"
+                                           value="@(cellVal?.ToString() ?? "")"
+                                           @onchange="@(async (e) => await AtualizarCelulaAsync(rowFid, col.Name, e.Value, cellVal))" />
+                                </td>
+                            }
+                            else
+                            {
+                                <td>
+                                    <span class="cell-text @(cellVal == null ? "null-value" : "")">
+                                        @(cellVal?.ToString() ?? "NULL")
+                                    </span>
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @if (_tableRows.Count == 0 && !_isLoading)
+        {
+            <div class="empty-notice">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="32" height="32">
+                    <circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>
+                </svg>
+                <p>Nenhum registro encontrado para a camada ou filtro informado.</p>
+            </div>
+        }
+    </div>
+
+    <!-- GAVETA DE ESTATÍSTICAS -->
+    @if (_mostrarEstatisticas && _estatisticas != null)
+    {
+        <aside class="stats-drawer">
+            <div class="stats-header">
+                <strong>ESTATÍSTICAS DA COLUNA: <span>@_colunaEstatisticas</span></strong>
+                <button type="button" class="btn-close-stats" @onclick="() => _mostrarEstatisticas = false">✕</button>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card"><small>CONTAGEM</small><strong>@_estatisticas.TotalCount</strong></div>
+                <div class="stat-card"><small>NULOS</small><strong>@_estatisticas.NullCount</strong></div>
+                <div class="stat-card"><small>DISTINTOS</small><strong>@_estatisticas.DistinctCount</strong></div>
+                @if (_estatisticas.MinValue.HasValue)
+                {
+                    <div class="stat-card"><small>MÍNIMO</small><strong>@_estatisticas.MinValue.Value.ToString("N4")</strong></div>
+                    <div class="stat-card"><small>MÁXIMO</small><strong>@_estatisticas.MaxValue.Value.ToString("N4")</strong></div>
+                    <div class="stat-card"><small>SOMA</small><strong>@_estatisticas.SumValue.Value.ToString("N4")</strong></div>
+                    <div class="stat-card"><small>MÉDIA</small><strong>@_estatisticas.MeanValue.Value.ToString("N4")</strong></div>
+                    <div class="stat-card"><small>DESVIO PADRÃO</small><strong>@_estatisticas.StdDevValue.Value.ToString("N4")</strong></div>
+                }
+            </div>
+        </aside>
+    }
+
+    <!-- FOOTER DA TABELA -->
+    <footer class="window-footer">
+        <div class="footer-left">
+            @if (!string.IsNullOrEmpty(_statusMessage))
+            {
+                <span class="status-msg">@_statusMessage</span>
+            }
+        </div>
+
+        <div class="footer-pagination">
+            <button type="button" class="btn-page" disabled="@(_pageIndex <= 0)" @onclick="() => IrParaPagina(0)" title="Primeira Página">«</button>
+            <button type="button" class="btn-page" disabled="@(_pageIndex <= 0)" @onclick="() => IrParaPagina(_pageIndex - 1)" title="Página Anterior">‹</button>
+            <span class="page-indicator">Página <strong>@(_pageIndex + 1)</strong> de @Math.Max(1, _totalPages)</span>
+            <button type="button" class="btn-page" disabled="@(_pageIndex >= _totalPages - 1)" @onclick="() => IrParaPagina(_pageIndex + 1)" title="Próxima Página">›</button>
+            <button type="button" class="btn-page" disabled="@(_pageIndex >= _totalPages - 1)" @onclick="() => IrParaPagina(_totalPages - 1)" title="Última Página">»</button>
+        </div>
+    </footer>
+</div>
+
+<!-- MODAL CALCULADORA DE CAMPOS -->
+@if (_mostrarModalCalc)
+{
+    <div class="modal-backdrop" @onclick="() => _mostrarModalCalc = false">
+        <div class="modal-dialog calc-dialog" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Calculadora de Campos — @_nomeCamadaAtiva</h3>
+                <button type="button" class="btn-close-modal" @onclick="() => _mostrarModalCalc = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="calc-options">
+                    <label><input type="radio" name="calcMode" checked="@(!_calcCriarNovaCol)" @onchange="() => _calcCriarNovaCol = false" /> Atualizar campo existente:</label>
+                    <select class="gis-select" disabled="@_calcCriarNovaCol" @bind="_calcColDestino">
+                        @foreach (var c in _tableColumns.Where(x => !x.IsPrimaryKey))
+                        {
+                            <option value="@c.Name">@c.Name (@c.DataType)</option>
+                        }
+                    </select>
+
+                    <label><input type="radio" name="calcMode" checked="@_calcCriarNovaCol" @onchange="() => _calcCriarNovaCol = true" /> Criar novo campo:</label>
+                    <div class="new-col-row">
+                        <input type="text" class="gis-input" placeholder="Nome do novo campo" disabled="@(!_calcCriarNovaCol)" @bind="_calcNovaColNome" />
+                        <select class="gis-select" disabled="@(!_calcCriarNovaCol)" @bind="_calcNovaColTipo">
+                            <option value="@AttributeDataType.Real">Decimal (Real)</option>
+                            <option value="@AttributeDataType.Integer">Inteiro (Integer)</option>
+                            <option value="@AttributeDataType.String">Texto (String)</option>
+                            <option value="@AttributeDataType.Date">Data (Date)</option>
+                        </select>
+                    </div>
+                    <label class="calc-check" style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:#cbd5e1;">
+                        <input type="checkbox" @bind="_calcApenasSelecionados" disabled="@(_selectedFids.Count == 0)" />
+                        Atualizar apenas as @_selectedFids.Count feição(ões) selecionada(s)
+                    </label>
+                </div>
+
+                <div class="calc-editor-row">
+                    <div class="calc-vars-col">
+                        <small>VARIÁVEIS GEOMÉTRICAS</small>
+                        <div class="pill-group">
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$area")'>$area</button>
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$area_ha")'>$area_ha</button>
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$perimeter")'>$perimeter</button>
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$length")'>$length</button>
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$x")'>$x</button>
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$y")'>$y</button>
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$id")'>$id</button>
+                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$rownum")'>$rownum</button>
+                        </div>
+
+                        <small>CAMPOS DA TABELA</small>
+                        <div class="pill-group fields-group">
+                            @foreach (var col in _tableColumns)
+                            {
+                                <button type="button" class="btn-pill field-pill" @onclick='() => InserirTokenCalculadora($"\"{col.Name}\"")'>@col.Name</button>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="calc-main-col">
+                        <label>Expressão de Cálculo:</label>
+                        <textarea class="calc-textarea" @bind="_calcExpressao" @bind:event="oninput" @onkeyup="AtualizarPreviaCalc"></textarea>
+                        
+                        <div class="calc-preview">
+                            <small>PRÉ-VISUALIZAÇÃO DO PRIMEIRO REGISTRO:</small>
+                            <div class="preview-result @(_calcErro != null ? "error" : "")">
+                                @(_calcErro != null ? _calcErro : (_calcPrevia ?? "—"))
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-modal secondary" @onclick="() => _mostrarModalCalc = false">Cancelar</button>
+                <button type="button" class="btn-modal primary" disabled="@(_calcErro != null || string.IsNullOrWhiteSpace(_calcExpressao))" @onclick="ExecutarCalculadoraAsync">Calcular e Aplicar</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- MODAL ADICIONAR COLUNA -->
+@if (_mostrarModalAddCol)
+{
+    <div class="modal-backdrop" @onclick="() => _mostrarModalAddCol = false">
+        <div class="modal-dialog small-dialog" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Adicionar Novo Campo</h3>
+                <button type="button" class="btn-close-modal" @onclick="() => _mostrarModalAddCol = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-field">
+                    <label>Nome do Campo:</label>
+                    <input type="text" class="gis-input" @bind="_novaColNome" placeholder="Ex: AREA_HA, COD_IMOVEL" />
+                </div>
+                <div class="form-field">
+                    <label>Tipo de Dado:</label>
+                    <select class="gis-select" @bind="_novaColTipo">
+                        <option value="@AttributeDataType.String">Texto (String)</option>
+                        <option value="@AttributeDataType.Real">Número Decimal (Real)</option>
+                        <option value="@AttributeDataType.Integer">Número Inteiro (Integer)</option>
+                        <option value="@AttributeDataType.Date">Data (Date)</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label>Comprimento:</label>
+                    <input type="number" class="gis-input" @bind="_novaColTamanho" min="1" max="254" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-modal secondary" @onclick="() => _mostrarModalAddCol = false">Cancelar</button>
+                <button type="button" class="btn-modal primary" disabled="@(string.IsNullOrWhiteSpace(_novaColNome))" @onclick="ExecutarAdicionarColunaAsync">Adicionar Campo</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string? _nomeCamadaAtiva;
+    private IAttributeDataProvider? _attributeProvider;
+    private IReadOnlyList<AttributeRow> _tableRows = Array.Empty<AttributeRow>();
+    private IReadOnlyList<AttributeColumnDefinition> _tableColumns = Array.Empty<AttributeColumnDefinition>();
+    private AttributeTransactionManager _txManager = new(100);
+    private HashSet<long> _selectedFids = new();
+
+    private int _pageIndex = 0;
+    private int _pageSize = 100;
+    private int _totalPages => _attributeProvider != null && _attributeProvider.FilteredRowCount > 0
+        ? (int)Math.Ceiling((double)_attributeProvider.FilteredRowCount / _pageSize)
+        : 1;
+
+    private bool _isLoading = false;
+    private string _searchQuery = string.Empty;
+    private string? _statusMessage;
+    private bool _filtroApenasSelecionados = false;
+
+    // Estatísticas
+    private bool _mostrarEstatisticas = false;
+    private string? _colunaEstatisticas;
+    private ColumnStatistics? _estatisticas;
+
+    // Calculadora
+    private bool _mostrarModalCalc = false;
+    private bool _calcCriarNovaCol = false;
+    private bool _calcApenasSelecionados = false;
+    private string _calcColDestino = string.Empty;
+    private string _calcNovaColNome = string.Empty;
+    private AttributeDataType _calcNovaColTipo = AttributeDataType.Real;
+    private string _calcExpressao = string.Empty;
+    private string? _calcPrevia;
+    private string? _calcErro;
+
+    // Adicionar Coluna
+    private bool _mostrarModalAddCol = false;
+    private string _novaColNome = string.Empty;
+    private AttributeDataType _novaColTipo = AttributeDataType.String;
+    private int _novaColTamanho = 50;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AttributeSession.OnCamadaAtivaAlterada += TratarCamadaAlterada;
+        AttributeSession.OnSelecaoAlteradaPeloMapa += TratarSelecaoMapa;
+
+        _nomeCamadaAtiva = AttributeSession.CamadaAtivaNome ?? ObterListaCamadasVetoriais().FirstOrDefault();
+        if (!string.IsNullOrEmpty(_nomeCamadaAtiva))
+        {
+            await CarregarCamadaAsync(_nomeCamadaAtiva);
+        }
+    }
+
+    private void TratarCamadaAlterada()
+    {
+        InvokeAsync(async () =>
+        {
+            if (AttributeSession.CamadaAtivaNome != null && AttributeSession.CamadaAtivaNome != _nomeCamadaAtiva)
+            {
+                await CarregarCamadaAsync(AttributeSession.CamadaAtivaNome);
+            }
+        });
+    }
+
+    private void TratarSelecaoMapa(string camada, IReadOnlySet<long> fids)
+    {
+        if (string.Equals(camada, _nomeCamadaAtiva, StringComparison.OrdinalIgnoreCase))
+        {
+            InvokeAsync(() =>
+            {
+                _selectedFids = new HashSet<long>(fids);
+                StateHasChanged();
+            });
+        }
+    }
+
+    private List<string> ObterListaCamadasVetoriais()
+    {
+        var lista = new List<string>();
+        if (ProjetoService.ProjetoAtual?.Camadas != null)
+        {
+            foreach (var c in ProjetoService.ProjetoAtual.Camadas)
+            {
+                if (c.Tipo == "Vetor" && !string.IsNullOrWhiteSpace(c.Nome))
+                {
+                    lista.Add(c.Nome);
+                }
+            }
+        }
+        foreach (var kv in MapService.FeaturesPorCamada)
+        {
+            if (!lista.Contains(kv.Key)) lista.Add(kv.Key);
+        }
+        return lista;
+    }
+
+    private async Task OnCamadaSelecionadaChanged(ChangeEventArgs e)
+    {
+        string? nova = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(nova))
+        {
+            await CarregarCamadaAsync(nova);
+        }
+    }
+
+    private async Task CarregarCamadaAsync(string nomeCamada)
+    {
+        _isLoading = true;
+        _nomeCamadaAtiva = nomeCamada;
+        _pageIndex = 0;
+        _searchQuery = string.Empty;
+        _filtroApenasSelecionados = false;
+        _mostrarEstatisticas = false;
+        _txManager.Clear();
+        StateHasChanged();
+
+        try
+        {
+            string? caminho = AttributeSession.CamadaAtivaCaminho;
+            if (string.IsNullOrEmpty(caminho))
+            {
+                var camada = ProjetoService.ProjetoAtual?.Camadas.FirstOrDefault(c => string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase));
+                caminho = camada?.CaminhoFonteOriginal;
+            }
+
+            if (!string.IsNullOrEmpty(caminho) && File.Exists(caminho))
+            {
+                _attributeProvider?.Dispose();
+                _attributeProvider = new OgrAttributeDataProvider(caminho, nomeCamada);
+                await _attributeProvider.InitializeAsync();
+                _tableColumns = _attributeProvider.Columns;
+                await CarregarPaginaAsync();
+            }
+            else
+            {
+                _statusMessage = "Arquivo da camada não localizado no disco.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Erro: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CarregarPaginaAsync()
+    {
+        if (_attributeProvider == null) return;
+        _isLoading = true;
+        try
+        {
+            int start = _pageIndex * _pageSize;
+            _tableRows = await _attributeProvider.GetRowsAsync(start, _pageSize);
+            _tableColumns = _attributeProvider.Columns;
+        }
+        finally
+        {
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task IrParaPagina(int idx)
+    {
+        int max = Math.Max(0, _totalPages - 1);
+        _pageIndex = Math.Clamp(idx, 0, max);
+        await CarregarPaginaAsync();
+    }
+
+    private async Task AplicarBuscaAsync()
+    {
+        if (_attributeProvider == null) return;
+        _pageIndex = 0;
+        if (string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            await _attributeProvider.SetFilterAsync(null);
+        }
+        else
+        {
+            string q = _searchQuery.Trim();
+            var textCols = _tableColumns
+                .Where(c => c.DataType == AttributeDataType.String)
+                .Take(6)
+                .Select(c => $"\"{c.Name}\" LIKE '%{q}%'");
+            string filter = string.Join(" OR ", textCols);
+            if (!string.IsNullOrEmpty(filter)) await _attributeProvider.SetFilterAsync(filter);
+        }
+        await CarregarPaginaAsync();
+    }
+
+    private async Task LimparBuscaAsync()
+    {
+        _searchQuery = string.Empty;
+        if (_attributeProvider != null)
+        {
+            _pageIndex = 0;
+            await _attributeProvider.SetFilterAsync(null);
+            await CarregarPaginaAsync();
+        }
+    }
+
+    private async Task OrdenarPorColunaAsync(string col)
+    {
+        if (_attributeProvider == null) return;
+        bool asc = _attributeProvider.SortColumn == col ? !_attributeProvider.SortAscending : true;
+        await _attributeProvider.SetSortingAsync(col, asc);
+        _pageIndex = 0;
+        await CarregarPaginaAsync();
+    }
+
+    private async Task AlternarModoEdicaoAsync()
+    {
+        if (_attributeProvider == null) return;
+        if (_attributeProvider.IsEditing)
+        {
+            if (_attributeProvider.HasPendingModifications)
+            {
+                bool salvar = await JSRuntime.InvokeAsync<bool>("confirm", "Deseja salvar as alterações pendentes no arquivo?");
+                if (salvar) await SalvarEdicoesAsync();
+                else await _attributeProvider.RollbackTransactionAsync();
+            }
+            else
+            {
+                await _attributeProvider.RollbackTransactionAsync();
+            }
+        }
+        else
+        {
+            await _attributeProvider.BeginTransactionAsync();
+        }
+        await CarregarPaginaAsync();
+    }
+
+    private async Task SalvarEdicoesAsync()
+    {
+        if (_attributeProvider == null) return;
+        try
+        {
+            _isLoading = true;
+            await _attributeProvider.CommitTransactionAsync();
+            _txManager.Clear();
+            _statusMessage = "Alterações salvas com sucesso.";
+            await CarregarPaginaAsync();
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Erro ao salvar: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task DesfazerEdicaoAsync()
+    {
+        if (_attributeProvider == null || !_txManager.CanUndo) return;
+        if (_txManager.Undo(_attributeProvider))
+        {
+            await CarregarPaginaAsync();
+        }
+    }
+
+    private async Task RefazerEdicaoAsync()
+    {
+        if (_attributeProvider == null || !_txManager.CanRedo) return;
+        if (_txManager.Redo(_attributeProvider))
+        {
+            await CarregarPaginaAsync();
+        }
+    }
+
+    private async Task AtualizarCelulaAsync(long fid, string col, object? novo, object? antigo)
+    {
+        if (_attributeProvider == null) return;
+        _txManager.RecordEdit(fid, col, antigo, novo);
+        await _attributeProvider.SetCellValueAsync(fid, col, novo);
+        await CarregarPaginaAsync();
+    }
+
+    private void ToggleSelecaoLinha(long fid)
+    {
+        if (_selectedFids.Contains(fid)) _selectedFids.Remove(fid);
+        else _selectedFids.Add(fid);
+
+        if (_nomeCamadaAtiva != null)
+        {
+            AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
+        }
+    }
+
+    private void AlternarSelecionarTudo()
+    {
+        if (_selectedFids.Count >= _tableRows.Count && _tableRows.Count > 0)
+        {
+            _selectedFids.Clear();
+        }
+        else
+        {
+            foreach (var r in _tableRows) _selectedFids.Add(r.FID);
+        }
+        if (_nomeCamadaAtiva != null)
+        {
+            AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
+        }
+    }
+
+    private void InverterSelecao()
+    {
+        var novos = new HashSet<long>();
+        foreach (var r in _tableRows)
+        {
+            if (!_selectedFids.Contains(r.FID)) novos.Add(r.FID);
+        }
+        _selectedFids = novos;
+        if (_nomeCamadaAtiva != null)
+        {
+            AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
+        }
+    }
+
+    private void LimparSelecao()
+    {
+        _selectedFids.Clear();
+        if (_nomeCamadaAtiva != null)
+        {
+            AttributeSession.NotificarSelecaoTabela(_nomeCamadaAtiva, _selectedFids);
+        }
+    }
+
+    private void ZoomParaLinhaFid(long fid)
+    {
+        if (_nomeCamadaAtiva != null)
+        {
+            AttributeSession.SolicitarZoomFeicao(_nomeCamadaAtiva, fid);
+        }
+    }
+
+    private void PanParaLinhaFid(long fid)
+    {
+        if (_nomeCamadaAtiva != null)
+        {
+            AttributeSession.SolicitarPanFeicao(_nomeCamadaAtiva, fid);
+        }
+    }
+
+    private void BlinkLinhaFid(long fid)
+    {
+        if (_nomeCamadaAtiva != null)
+        {
+            AttributeSession.SolicitarBlinkFeicao(_nomeCamadaAtiva, fid);
+        }
+    }
+
+    private void ZoomParaSelecao()
+    {
+        if (_nomeCamadaAtiva != null && _selectedFids.Count > 0)
+        {
+            // Pede zoom da primeira feição selecionada
+            AttributeSession.SolicitarZoomFeicao(_nomeCamadaAtiva, _selectedFids.First());
+        }
+    }
+
+    private async Task AlternarFiltroApenasSelecionadosAsync()
+    {
+        _filtroApenasSelecionados = !_filtroApenasSelecionados;
+        if (_attributeProvider == null) return;
+        _pageIndex = 0;
+        if (_filtroApenasSelecionados)
+        {
+            if (_selectedFids.Count > 0)
+            {
+                string idList = string.Join(",", _selectedFids.Take(1000));
+                await _attributeProvider.SetFilterAsync($"FID IN ({idList})");
+            }
+            else
+            {
+                await _attributeProvider.SetFilterAsync("1=0");
+            }
+        }
+        else
+        {
+            await _attributeProvider.SetFilterAsync(null);
+        }
+        await CarregarPaginaAsync();
+    }
+
+    private async Task AbrirEstatisticasColunaAsync(string col)
+    {
+        if (_attributeProvider == null) return;
+        _colunaEstatisticas = col;
+        _mostrarEstatisticas = true;
+        _estatisticas = null;
+        StateHasChanged();
+        try
+        {
+            _estatisticas = await _attributeProvider.GetColumnStatisticsAsync(col);
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Estatísticas: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+
+    private async Task ConfirmarExcluirColunaAsync(string col)
+    {
+        if (_attributeProvider == null) return;
+        bool conf = await JSRuntime.InvokeAsync<bool>("confirm", $"Deseja excluir a coluna '{col}'?");
+        if (!conf) return;
+        try
+        {
+            _isLoading = true;
+            await _attributeProvider.DropColumnAsync(col);
+            await CarregarPaginaAsync();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void AbrirCalculadoraCampos()
+    {
+        _calcColDestino = _tableColumns.FirstOrDefault(c => !c.IsPrimaryKey)?.Name ?? "";
+        _calcExpressao = "";
+        _calcPrevia = null;
+        _calcErro = null;
+        _mostrarModalCalc = true;
+    }
+
+    private void InserirTokenCalculadora(string token)
+    {
+        _calcExpressao += " " + token + " ";
+        AtualizarPreviaCalc();
+    }
+
+    private void AtualizarPreviaCalc()
+    {
+        if (string.IsNullOrWhiteSpace(_calcExpressao))
+        {
+            _calcPrevia = null;
+            _calcErro = null;
+            return;
+        }
+        try
+        {
+            var ast = ExpressionParser.Parse(_calcExpressao);
+            var row = _tableRows.FirstOrDefault();
+            var dict = new Dictionary<string, object?>();
+            if (row != null)
+            {
+                for (int i = 0; i < _tableColumns.Count; i++)
+                {
+                    if (i < row.Values.Length) dict[_tableColumns[i].Name] = row.Values[i];
+                }
+            }
+            var ctx = new FeatureEvaluationContext(row?.FID ?? 1, 1, dict, null);
+            var res = ast.Evaluate(ctx);
+            _calcPrevia = res?.ToString() ?? "NULL";
+            _calcErro = null;
+        }
+        catch (Exception ex)
+        {
+            _calcErro = ex.Message;
+            _calcPrevia = null;
+        }
+    }
+
+    private async Task ExecutarCalculadoraAsync()
+    {
+        if (_attributeProvider == null || string.IsNullOrWhiteSpace(_calcExpressao)) return;
+        try
+        {
+            _isLoading = true;
+            string destCol = _calcCriarNovaCol ? _calcNovaColNome.Trim().ToUpperInvariant() : _calcColDestino;
+            if (_calcCriarNovaCol)
+            {
+                await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(destCol, _calcNovaColTipo, 50, 4));
+            }
+            var ast = ExpressionParser.Parse(_calcExpressao);
+            long rowCount = 0;
+            await _attributeProvider.CalculateColumnAsync(destCol, (fid, attrs) =>
+            {
+                long r = Interlocked.Increment(ref rowCount);
+                var ctx = new FeatureEvaluationContext(fid, r, attrs, null);
+                return ast.Evaluate(ctx);
+            }, _calcApenasSelecionados ? _selectedFids : null);
+            _mostrarModalCalc = false;
+            _statusMessage = $"Campo '{destCol}' calculado com sucesso.";
+            await CarregarPaginaAsync();
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Erro no cálculo: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void AbrirAdicionarColuna()
+    {
+        _novaColNome = "";
+        _novaColTipo = AttributeDataType.String;
+        _novaColTamanho = 50;
+        _mostrarModalAddCol = true;
+    }
+
+    private async Task ExecutarAdicionarColunaAsync()
+    {
+        if (_attributeProvider == null || string.IsNullOrWhiteSpace(_novaColNome)) return;
+        try
+        {
+            _isLoading = true;
+            string name = _novaColNome.Trim().ToUpperInvariant();
+            await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(name, _novaColTipo, _novaColTamanho, 0));
+            _mostrarModalAddCol = false;
+            _statusMessage = $"Coluna '{name}' criada.";
+            await CarregarPaginaAsync();
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Erro ao adicionar campo: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ExportarCsvAsync()
+    {
+        if (_attributeProvider == null) return;
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(";", _tableColumns.Select(c => $"\"{c.Name}\"")));
+            int total = (int)_attributeProvider.FilteredRowCount;
+            int batch = 256;
+            for (int i = 0; i < total; i += batch)
+            {
+                var rows = await _attributeProvider.GetRowsAsync(i, Math.Min(batch, total - i));
+                foreach (var r in rows)
+                {
+                    sb.AppendLine(string.Join(";", r.Values.Select(v => $"\"{v?.ToString()?.Replace("\"", "\"\"") ?? ""}\"")));
+                }
+            }
+            string csv = sb.ToString();
+            string fileName = $"{_nomeCamadaAtiva}_atributos_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+            await JSRuntime.InvokeVoidAsync("geonexDownloadText", csv, fileName);
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Erro ao exportar CSV: {ex.Message}";
+        }
+    }
+
+    private async Task TratarTecladoLocal(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey && e.Key.ToLower() == "e")
+        {
+            await AlternarModoEdicaoAsync();
+        }
+        else if (e.CtrlKey && e.Key.ToLower() == "s" && _attributeProvider?.IsEditing == true)
+        {
+            await SalvarEdicoesAsync();
+        }
+        else if (e.CtrlKey && e.Key.ToLower() == "z" && _attributeProvider?.IsEditing == true)
+        {
+            await DesfazerEdicaoAsync();
+        }
+        else if (e.CtrlKey && e.Key.ToLower() == "y" && _attributeProvider?.IsEditing == true)
+        {
+            await RefazerEdicaoAsync();
+        }
+        else if (e.CtrlKey && e.Key.ToLower() == "i")
+        {
+            AbrirCalculadoraCampos();
+        }
+    }
+
+    public void Dispose()
+    {
+        AttributeSession.OnCamadaAtivaAlterada -= TratarCamadaAlterada;
+        AttributeSession.OnSelecaoAlteradaPeloMapa -= TratarSelecaoMapa;
+        _attributeProvider?.Dispose();
+    }
+}

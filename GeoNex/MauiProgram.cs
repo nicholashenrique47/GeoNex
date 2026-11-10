@@ -39,6 +39,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<MapRenderingService>();
         builder.Services.AddSingleton<ExportService>();
         builder.Services.AddSingleton<WindowCloseCoordinator>();
+        builder.Services.AddSingleton<GeoNex.Services.Attributes.AttributeTableSessionService>();
 
         // Serviços de Topografia, Geodésia e Certificação SIGEF/INCRA
         builder.Services.AddSingleton<TopografiaProcessingService>();

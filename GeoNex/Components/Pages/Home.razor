@@ -6,6 +6,7 @@
 @inject GeoNex.Services.MapRenderingService MapService
 @inject GeoNex.Services.ExportService ExportService
 @inject GeoNex.Services.WindowCloseCoordinator WindowCloseCoordinator
+@inject GeoNex.Services.Attributes.AttributeTableSessionService AttributeSession
 @using SkiaSharp
 @using SkiaSharp.Views.Blazor
 @using ProjNet.CoordinateSystems
@@ -1834,563 +1835,6 @@
 
     </main>
 
-    @if (exibirTabelaAtributos)
-    {
-        @if (_tabelaMinimizada)
-        {
-            <div class="qgis-minimized-window-bar">
-                <div class="qgis-minimized-badge" @onclick="RestaurarJanelaTabela" title="Restaurar Tabela de Atributos">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="win-app-icon" width="16" height="16">
-                        <path d="M3.75 3v18h16.5V3H3.75zm0 5.25h16.5M3.75 13.5h16.5M9.75 3v18M15.75 3v18"/>
-                    </svg>
-                    <span>Tabela: <strong>@nomeCamadaAtiva</strong> (@(_attributeProvider?.TotalRowCount ?? 0) feições)</span>
-                    <button type="button" class="btn-win-ctrl-mini" title="Restaurar Janela" @onclick:stopPropagation="true" @onclick="RestaurarJanelaTabela">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
-                    </button>
-                    <button type="button" class="btn-win-ctrl-mini close" title="Fechar Tabela" @onclick:stopPropagation="true" @onclick="FecharTabela">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                    </button>
-                </div>
-            </div>
-        }
-        else
-        {
-            <div id="geonex-attribute-window"
-                 class="qgis-attribute-window modern-attribute-workstation @(_tabelaModoJanela ? "mode-floating" : "mode-docked") @(_tabelaMaximizada ? "is-maximized" : "")"
-                 style="@(_tabelaModoJanela && !_tabelaMaximizada ? $"left: {_janelaX}px; top: {_janelaY}px; width: {_janelaLargura}px; height: {_janelaAltura}px;" : "")">
-
-                <!-- BARRA DE TÍTULO DA JANELA (ESTILO NATIVO QGIS COM DRAG & DBLCLICK MAXIMIZE) -->
-                <div class="window-titlebar"
-                     onpointerdown="window.geonexTableWindow.startDrag(event)"
-                     @ondblclick="AlternarMaximizarJanelaTabela">
-                    <div class="win-title-left">
-                        <svg class="win-app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
-                            <path d="M3.75 3v18h16.5V3H3.75zm0 5.25h16.5M3.75 13.5h16.5M9.75 3v18M15.75 3v18"/>
-                        </svg>
-                        <span class="win-title-text">
-                            Tabela de Atributos — <strong class="layer-title-name">@nomeCamadaAtiva</strong>
-                            <span class="win-title-metrics">:: Feições: @(_attributeProvider?.TotalRowCount ?? 0) (Filtradas: @(_attributeProvider?.FilteredRowCount ?? 0), Selecionadas: @(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva)))</span>
-                        </span>
-                    </div>
-
-                    <div class="win-title-actions">
-                        <!-- Acoplar / Desacoplar (Dock/Undock) -->
-                        <button type="button" class="btn-win-ctrl"
-                                title="@(_tabelaModoJanela ? "Acoplar tabela na parte inferior" : "Desacoplar para janela separada (Padrão QGIS)")"
-                                @onclick="AlternarModoJanelaTabela">
-                            @if (_tabelaModoJanela)
-                            {
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
-                                    <path d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3"/>
-                                </svg>
-                            }
-                            else
-                            {
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
-                                    <path d="M9 3H4a1 1 0 00-1 1v16a1 1 0 001 1h16a1 1 0 001-1v-5m-9-3l9-9m0 0h-6m6 0v6"/>
-                                </svg>
-                            }
-                        </button>
-
-                        @if (_tabelaModoJanela)
-                        {
-                            <!-- Minimizar -->
-                            <button type="button" class="btn-win-ctrl"
-                                    title="Minimizar janela"
-                                    @onclick="MinimizarJanelaTabela">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-                                    <path d="M5 19h14"/>
-                                </svg>
-                            </button>
-
-                            <!-- Maximizar / Restaurar -->
-                            <button type="button" class="btn-win-ctrl"
-                                    title="@(_tabelaMaximizada ? "Restaurar tamanho" : "Maximizar janela")"
-                                    @onclick="AlternarMaximizarJanelaTabela">
-                                @if (_tabelaMaximizada)
-                                {
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
-                                        <path d="M8 4H4a1 1 0 00-1 1v11a1 1 0 001 1h4m12-4v4a1 1 0 01-1 1h-4m5-13h-7a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V5a1 1 0 00-1-1z"/>
-                                    </svg>
-                                }
-                                else
-                                {
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
-                                        <rect x="4" y="4" width="16" height="16" rx="1"/>
-                                    </svg>
-                                }
-                            </button>
-                        }
-
-                        <!-- Fechar Janela -->
-                        <button type="button" class="btn-win-ctrl btn-win-close"
-                                title="Fechar Janela (Esc)"
-                                @onclick="FecharTabela">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-                                <path d="M18 6L6 18M6 6l12 12"/>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                @if (_tabelaModoJanela && !_tabelaMaximizada)
-                {
-                    <!-- RESIZE HANDLES (8 DIREÇÕES) -->
-                    <div class="win-resize-handle handle-n" onpointerdown="window.geonexTableWindow.startResize(event, 'n')"></div>
-                    <div class="win-resize-handle handle-s" onpointerdown="window.geonexTableWindow.startResize(event, 's')"></div>
-                    <div class="win-resize-handle handle-e" onpointerdown="window.geonexTableWindow.startResize(event, 'e')"></div>
-                    <div class="win-resize-handle handle-w" onpointerdown="window.geonexTableWindow.startResize(event, 'w')"></div>
-                    <div class="win-resize-handle handle-nw" onpointerdown="window.geonexTableWindow.startResize(event, 'nw')"></div>
-                    <div class="win-resize-handle handle-ne" onpointerdown="window.geonexTableWindow.startResize(event, 'ne')"></div>
-                    <div class="win-resize-handle handle-sw" onpointerdown="window.geonexTableWindow.startResize(event, 'sw')"></div>
-                    <div class="win-resize-handle handle-se" onpointerdown="window.geonexTableWindow.startResize(event, 'se')"></div>
-                }
-
-                <!-- TOP WORKSTATION TOOLBAR (ZERO EMOJIS, 100% CLEAN PROFESSIONAL VECTOR SVG ICONS) -->
-            <div class="table-header modern-toolbar">
-                <div class="toolbar-left-group">
-                    <span class="toolbar-title" title="@nomeCamadaAtiva">TABELA: <strong>@nomeCamadaAtiva</strong></span>
-                    
-                    <div class="toolbar-btn-group">
-                        <button type="button" class="btn-gis-tool @(_attributeProvider?.IsEditing == true ? "is-editing" : "")"
-                                title="Alternar Modo de Edição (Ctrl+E)"
-                                @onclick="AlternarModoEdicaoTabelaAsync">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
-                            </svg>
-                            <span>@(_attributeProvider?.IsEditing == true ? "Editando" : "Editar")</span>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool primary"
-                                disabled="@(_attributeProvider?.IsEditing != true || !_attributeProvider.HasPendingModifications)"
-                                title="Salvar Alterações no Arquivo (Ctrl+S)"
-                                @onclick="SalvarEdicoesTabelaAsync">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 4.5A1.5 1.5 0 014.5 3h11.586a1.5 1.5 0 011.06.44l3.414 3.414a1.5 1.5 0 01.44 1.06V19.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 19.5V4.5zm4.5 0v4.5h9V4.5h-9zm0 15h9v-6h-9v6z"/>
-                            </svg>
-                            <span>Salvar</span>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool icon-only"
-                                disabled="@(_attributeProvider?.IsEditing != true || !_attributeTxManager.CanUndo)"
-                                title="Desfazer (Ctrl+Z)"
-                                @onclick="DesfazerEdicaoTabelaAsync">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
-                            </svg>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool icon-only"
-                                disabled="@(_attributeProvider?.IsEditing != true || !_attributeTxManager.CanRedo)"
-                                title="Refazer (Ctrl+Y)"
-                                @onclick="RefazerEdicaoTabelaAsync">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3"/>
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div class="toolbar-separator"></div>
-
-                    <!-- SELEÇÃO E NAVEGAÇÃO ESPACIAL -->
-                    <div class="toolbar-btn-group">
-                        <button type="button" class="btn-gis-tool icon-only"
-                                title="Inverter Seleção"
-                                @onclick="() => InverterSelecaoTabela(nomeCamadaAtiva)">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
-                            </svg>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool icon-only"
-                                disabled="@(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) == 0)"
-                                title="Desmarcar Tudo (Esc)"
-                                @onclick="() => LimparSelecaoTabela(nomeCamadaAtiva)">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
-                            </svg>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool"
-                                disabled="@(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) == 0)"
-                                title="Zoom para Feições Selecionadas"
-                                @onclick="() => ZoomParaFeicoesSelecionadasAsync(nomeCamadaAtiva)">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6"/>
-                            </svg>
-                            <span>Zoom Seleção</span>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool @(_filtroViewportAtivo ? "active" : "")"
-                                title="Filtrar feições visíveis no mapa (Viewport Filter)"
-                                @onclick="AlternarFiltroViewportTabelaAsync">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                            </svg>
-                            <span>Visíveis</span>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool @(_filtroApenasSelecionados ? "active" : "")"
-                                title="Mostrar apenas registros selecionados"
-                                @onclick="AlternarFiltroApenasSelecionadosAsync">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                            <span>Selecionados</span>
-                        </button>
-                    </div>
-
-                    <div class="toolbar-separator"></div>
-
-                    <!-- ENGENHARIA E CÁLCULO DE DADOS -->
-                    <div class="toolbar-btn-group">
-                        <button type="button" class="btn-gis-tool"
-                                title="Calculadora de Campos (Ctrl+I)"
-                                @onclick="AbrirCalculadoraCampos">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4.5 3.75A1.5 1.5 0 003 5.25v13.5A1.5 1.5 0 004.5 20.25h15a1.5 1.5 0 001.5-1.5V5.25a1.5 1.5 0 00-1.5-1.5h-15zM6.75 7.5h10.5v2.25H6.75V7.5zm1.5 5.25h1.5v1.5h-1.5v-1.5zm4.5 0h1.5v1.5h-1.5v-1.5zm-4.5 3h1.5v1.5h-1.5v-1.5zm4.5 0h1.5v1.5h-1.5v-1.5zm4.5-3h1.5v4.5h-1.5v-4.5z"/>
-                            </svg>
-                            <span>Calculadora</span>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool icon-only"
-                                title="Adicionar Novo Campo"
-                                @onclick="AbrirAdicionarColuna">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 4.5v15m7.5-7.5h-15"/>
-                            </svg>
-                        </button>
-
-                        <button type="button" class="btn-gis-tool icon-only"
-                                title="Exportar Tabela para CSV"
-                                @onclick="() => ExportarTabelaCsvAsync(apenasSelecionados: false)">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="toolbar-right-group">
-                    <!-- BUSCA RÁPIDA -->
-                    <div class="table-search-shell">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
-                            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                        </svg>
-                        <input type="text" placeholder="Filtrar registros..."
-                               @bind="_attributeSearchQuery" @bind:event="oninput"
-                               @onkeydown="@(async (e) => { if (e.Key == "Enter") await AplicarBuscaTabelaAsync(); })" />
-                        @if (!string.IsNullOrEmpty(_attributeSearchQuery))
-                        {
-                            <button type="button" class="btn-search-clear" @onclick="LimparBuscaTabelaAsync">✕</button>
-                        }
-                    </div>
-
-                    <button class="close-btn" title="Fechar Tabela (Esc)" @onclick="FecharTabela">✕</button>
-                </div>
-            </div>
-
-            <!-- TABELA VIRTUALIZADA / ALTA PERFORMANCE -->
-            <div class="table-wrapper custom-scrollbar">
-                @if (_attributeIsLoading)
-                {
-                    <div class="table-loading-bar"><div class="loading-indeterminate"></div></div>
-                }
-                <table>
-                    <thead>
-                        <tr>
-                            <!-- PINNED SELECTION COLUMN -->
-                            <th class="th-pinned th-selection">
-                                <input type="checkbox"
-                                       checked="@(_attributeTableRows.Count > 0 && ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) == _attributeTableRows.Count)"
-                                       @onchange="() => AlternarSelecionarTudoTabela(nomeCamadaAtiva)" />
-                            </th>
-                            @foreach (var col in _attributeTableColumns)
-                            {
-                                <th class="@(col.IsPrimaryKey ? "th-pinned th-fid" : "")" @onclick="() => OrdenarPorColunaAsync(col.Name)">
-                                    <div class="th-content">
-                                        <span class="th-type-tag">@(col.DataType switch { AttributeDataType.Integer or AttributeDataType.Int64 => "123", AttributeDataType.Real => "0.0", AttributeDataType.Date => "DATA", _ => "ABC" })</span>
-                                        <span class="th-name">@col.Name</span>
-                                        @if (_attributeProvider?.SortColumn == col.Name)
-                                        {
-                                            <span class="th-sort-indicator">@(_attributeProvider.SortAscending ? "▲" : "▼")</span>
-                                        }
-                                        <button type="button" class="th-menu-btn" title="Estatísticas de @col.Name"
-                                                @onclick:stopPropagation="true"
-                                                @onclick="() => AbrirEstatisticasColunaAsync(col.Name)">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                                                <path d="M3 13h4v8H3zM10 8h4v13h-4zM17 3h4v18h-4z"/>
-                                            </svg>
-                                        </button>
-                                        @if (!col.IsPrimaryKey && _attributeProvider?.IsEditing == true)
-                                        {
-                                            <button type="button" class="th-drop-btn" title="Excluir Coluna @col.Name"
-                                                    @onclick:stopPropagation="true"
-                                                    @onclick="() => ConfirmarExcluirColunaAsync(col.Name)">
-                                                ✕
-                                            </button>
-                                        }
-                                    </div>
-                                </th>
-                            }
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @for (int rIdx = 0; rIdx < _attributeTableRows.Count; rIdx++)
-                        {
-                            var row = _attributeTableRows[rIdx];
-                            long rowFid = row.FID;
-                            bool isSel = ObterFidsSelecionadosCamada(nomeCamadaAtiva).Contains(rowFid);
-
-                            <tr class="@(isSel ? "row-selected" : "") @(row.State == RowState.Modified ? "row-dirty" : "")"
-                                @ondblclick="() => ZoomParaLinhaFidAsync(rowFid)">
-                                
-                                <td class="td-pinned td-selection" @onclick:stopPropagation="true">
-                                    <input type="checkbox"
-                                           checked="@isSel"
-                                           @onchange="() => ToggleSelecaoLinhaFid(rowFid)" />
-                                </td>
-
-                                @for (int cIdx = 0; cIdx < _attributeTableColumns.Count; cIdx++)
-                                {
-                                    var col = _attributeTableColumns[cIdx];
-                                    object? cellVal = cIdx < row.Values.Length ? row.Values[cIdx] : null;
-
-                                    if (col.IsPrimaryKey)
-                                    {
-                                        <td class="td-pinned td-fid">
-                                            <div class="fid-cell">
-                                                <span>@rowFid</span>
-                                                <button type="button" class="btn-micro-pan" title="Centralizar Feição" @onclick:stopPropagation="true" @onclick="() => CentralizarFeicaoNoMapaAsync(rowFid)">
-                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg>
-                                                </button>
-                                                <button type="button" class="btn-micro-blink" title="Piscar Feição (Blink)" @onclick:stopPropagation="true" @onclick="() => PiscarFeicaoNoMapaAsync(rowFid)">
-                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><path d="M12 3v2m6.364.386l-1.591 1.591M21 12h-2m-.386 6.364l-1.591-1.591M12 19v2m-4.773-4.227l-1.591 1.591M5 12H3m4.227-4.773L5.636 5.636M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    }
-                                    else if (_attributeProvider?.IsEditing == true && !col.IsReadOnly)
-                                    {
-                                        <td class="cell-editable">
-                                            <input class="cell-input"
-                                                   value="@(cellVal?.ToString() ?? "")"
-                                                   @onchange="@(async (e) => await AtualizarCelulaTabelaAsync(rowFid, col.Name, e.Value, cellVal))" />
-                                        </td>
-                                    }
-                                    else
-                                    {
-                                        <td class="cell-readonly @(col.DataType is AttributeDataType.Real or AttributeDataType.Integer or AttributeDataType.Int64 ? "text-right mono" : "")">
-                                            @(cellVal?.ToString() ?? "")
-                                        </td>
-                                    }
-                                }
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- GAVETA DE ESTATÍSTICAS RÁPIDAS -->
-            @if (_mostrarGavetaEstatisticas && _estatisticasResultado != null)
-            {
-                <div class="stats-drawer">
-                    <div class="stats-header">
-                        <span>ESTATÍSTICAS: <strong>@_estatisticasResultado.ColumnName</strong> (@_estatisticasResultado.DataType)</span>
-                        <button type="button" class="btn-close-stats" @onclick="() => _mostrarGavetaEstatisticas = false">✕</button>
-                    </div>
-                    <div class="stats-grid">
-                        <div class="stat-item"><small>Total</small><strong>@_estatisticasResultado.TotalCount.ToString("N0")</strong></div>
-                        <div class="stat-item"><small>Nulos</small><strong>@_estatisticasResultado.NullCount.ToString("N0")</strong></div>
-                        <div class="stat-item"><small>Únicos</small><strong>@_estatisticasResultado.DistinctCount.ToString("N0")</strong></div>
-                        @if (_estatisticasResultado.MinValue.HasValue)
-                        {
-                            <div class="stat-item"><small>Mínimo</small><strong>@_estatisticasResultado.MinValue.Value.ToString("N2")</strong></div>
-                            <div class="stat-item"><small>Máximo</small><strong>@_estatisticasResultado.MaxValue.Value.ToString("N2")</strong></div>
-                            <div class="stat-item"><small>Soma</small><strong>@_estatisticasResultado.SumValue?.ToString("N2")</strong></div>
-                            <div class="stat-item"><small>Média</small><strong>@_estatisticasResultado.MeanValue?.ToString("N2")</strong></div>
-                            <div class="stat-item"><small>Desvio Padrão</small><strong>@_estatisticasResultado.StdDevValue?.ToString("N2")</strong></div>
-                        }
-                    </div>
-                </div>
-            }
-
-            <!-- FOOTER COM PAGINAÇÃO E TELEMETRIA -->
-            <div class="table-footer-status">
-                <div class="footer-left">
-                    <span class="status-badge total">Total: @(_attributeProvider?.TotalRowCount.ToString("N0") ?? "0")</span>
-                    @if (_attributeProvider?.FilteredRowCount != _attributeProvider?.TotalRowCount)
-                    {
-                        <span class="status-badge filtered">Filtradas: @(_attributeProvider?.FilteredRowCount.ToString("N0"))</span>
-                    }
-                    <span class="status-badge selected @(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva) > 0 ? "has-selection" : "")">
-                        Selecionadas: @ObterContagemFeicoesSelecionadas(nomeCamadaAtiva).ToString("N0")
-                    </span>
-                    @if (!string.IsNullOrEmpty(_attributeStatusMessage))
-                    {
-                        <span class="status-feedback">@_attributeStatusMessage</span>
-                    }
-                </div>
-
-                <!-- CONTROLES DE PAGINAÇÃO -->
-                <div class="footer-pagination">
-                    <button type="button" class="btn-page" disabled="@(_attributePageIndex <= 0)" @onclick="() => IrParaPaginaTabela(0)" title="Primeira Página">«</button>
-                    <button type="button" class="btn-page" disabled="@(_attributePageIndex <= 0)" @onclick="() => IrParaPaginaTabela(_attributePageIndex - 1)" title="Página Anterior">‹</button>
-                    <span class="page-indicator">Página <strong>@(_attributePageIndex + 1)</strong> de @Math.Max(1, _attributeTotalPages)</span>
-                    <button type="button" class="btn-page" disabled="@(_attributePageIndex >= _attributeTotalPages - 1)" @onclick="() => IrParaPaginaTabela(_attributePageIndex + 1)" title="Próxima Página">›</button>
-                    <button type="button" class="btn-page" disabled="@(_attributePageIndex >= _attributeTotalPages - 1)" @onclick="() => IrParaPaginaTabela(_attributeTotalPages - 1)" title="Última Página">»</button>
-                </div>
-            </div>
-        </div>
-        }
-    }
-
-    <!-- MODAL CALCULADORA DE CAMPOS AVANÇADA -->
-    @if (_mostrarModalCalculadora)
-    {
-        <div class="gis-modal-backdrop" @onclick="FecharCalculadoraCampos">
-            <div class="gis-modal-window field-calculator-modal" @onclick:stopPropagation="true">
-                <header class="gis-modal-header">
-                    <div class="modal-title-group">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="20" height="20">
-                            <path d="M4.5 3.75A1.5 1.5 0 003 5.25v13.5A1.5 1.5 0 004.5 20.25h15a1.5 1.5 0 001.5-1.5V5.25a1.5 1.5 0 00-1.5-1.5h-15zM6.75 7.5h10.5v2.25H6.75V7.5zm1.5 5.25h1.5v1.5h-1.5v-1.5zm4.5 0h1.5v1.5h-1.5v-1.5zm-4.5 3h1.5v1.5h-1.5v-1.5zm4.5 0h1.5v1.5h-1.5v-1.5zm4.5-3h1.5v4.5h-1.5v-4.5z"/>
-                        </svg>
-                        <h3>Calculadora de Campos</h3>
-                    </div>
-                    <button type="button" class="close-btn" @onclick="FecharCalculadoraCampos">✕</button>
-                </header>
-
-                <div class="gis-modal-body">
-                    <!-- TARGET FIELD SPEC -->
-                    <div class="calc-target-selector">
-                        <label class="calc-radio-label">
-                            <input type="radio" name="calcTargetMode" checked="@(!_calcCriarNovaColuna)" @onchange="() => _calcCriarNovaColuna = false" />
-                            <span>Atualizar campo existente:</span>
-                        </label>
-                        <select class="gis-select" disabled="@_calcCriarNovaColuna" @bind="_calcColunaDestino">
-                            @foreach (var c in _attributeTableColumns.Where(x => !x.IsPrimaryKey))
-                            {
-                                <option value="@c.Name">@c.Name (@c.DataType)</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="calc-target-selector">
-                        <label class="calc-radio-label">
-                            <input type="radio" name="calcTargetMode" checked="@_calcCriarNovaColuna" @onchange="() => _calcCriarNovaColuna = true" />
-                            <span>Criar novo campo:</span>
-                        </label>
-                        <div class="calc-new-field-row">
-                            <input type="text" class="gis-input" placeholder="NOME_CAMPO" disabled="@(!_calcCriarNovaColuna)" @bind="_calcNovaColunaNome" />
-                            <select class="gis-select" disabled="@(!_calcCriarNovaColuna)" @bind="_calcNovaColunaTipo">
-                                <option value="@AttributeDataType.Real">Decimal (Real / Double)</option>
-                                <option value="@AttributeDataType.Integer">Inteiro (Integer)</option>
-                                <option value="@AttributeDataType.String">Texto (String)</option>
-                                <option value="@AttributeDataType.Date">Data (Date)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="calc-scope-check">
-                        <label>
-                            <input type="checkbox" @bind="_calcApenasSelecionados" />
-                            <span>Aplicar apenas a <strong>@ObterContagemFeicoesSelecionadas(nomeCamadaAtiva)</strong> feições selecionadas</span>
-                        </label>
-                    </div>
-
-                    <!-- EXPRESSION EDITOR -->
-                    <div class="calc-expression-panel">
-                        <div class="calc-quick-tokens">
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "$area"; AtualizarPreviaCalculadora(); }'>$area (m²)</button>
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "$area_ha"; AtualizarPreviaCalculadora(); }'>$area_ha</button>
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "$perimeter"; AtualizarPreviaCalculadora(); }'>$perimeter</button>
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "$x"; AtualizarPreviaCalculadora(); }'>$x</button>
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "$y"; AtualizarPreviaCalculadora(); }'>$y</button>
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "round("; AtualizarPreviaCalculadora(); }'>round()</button>
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "concat("; AtualizarPreviaCalculadora(); }'>concat()</button>
-                            <button type="button" class="btn-token" @onclick='() => { _calcExpressao += "upper("; AtualizarPreviaCalculadora(); }'>upper()</button>
-                        </div>
-
-                        <label class="calc-label">Expressão:</label>
-                        <textarea class="calc-textarea" rows="4" placeholder="Exemplo: round($area / 10000, 4) ou concat(MUNICIPIO, ' - ', UF)"
-                                  @bind="_calcExpressao" @bind:event="oninput" @onkeyup="AtualizarPreviaCalculadora"></textarea>
-
-                        <!-- PREVIEW AND ERRORS -->
-                        <div class="calc-feedback-box @(_calcErroExpressao != null ? "has-error" : "")">
-                            @if (_calcErroExpressao != null)
-                            {
-                                <span class="calc-error-text">⚠️ @_calcErroExpressao</span>
-                            }
-                            else
-                            {
-                                <span class="calc-preview-text">Amostra de saída: <strong>@(_calcPreviaResultado ?? "...")</strong></span>
-                            }
-                        </div>
-                    </div>
-                </div>
-
-                <footer class="gis-modal-footer">
-                    <button type="button" class="btn-cancel" @onclick="FecharCalculadoraCampos">Cancelar</button>
-                    <button type="button" class="btn-save" disabled="@(_calcErroExpressao != null || string.IsNullOrWhiteSpace(_calcExpressao))"
-                            @onclick="ExecutarCalculadoraCamposAsync">
-                        Executar Cálculo
-                    </button>
-                </footer>
-            </div>
-        </div>
-    }
-
-    <!-- MODAL ADICIONAR COLUNA (DDL) -->
-    @if (_mostrarModalAddColuna)
-    {
-        <div class="gis-modal-backdrop" @onclick="FecharAdicionarColuna">
-            <div class="gis-modal-window add-column-modal" @onclick:stopPropagation="true">
-                <header class="gis-modal-header">
-                    <h3>Adicionar Novo Campo</h3>
-                    <button type="button" class="close-btn" @onclick="FecharAdicionarColuna">✕</button>
-                </header>
-                <div class="gis-modal-body">
-                    <div class="form-group">
-                        <label>Nome do Campo (máx. 10 caracteres para Shapefile):</label>
-                        <input type="text" class="gis-input" maxlength="10" placeholder="EXEMPLO" @bind="_novaColNome" />
-                    </div>
-                    <div class="form-group">
-                        <label>Tipo de Dado:</label>
-                        <select class="gis-select" @bind="_novaColTipo">
-                            <option value="@AttributeDataType.String">Texto (String)</option>
-                            <option value="@AttributeDataType.Real">Ponto Flutuante (Double / Real)</option>
-                            <option value="@AttributeDataType.Integer">Número Inteiro (Integer)</option>
-                            <option value="@AttributeDataType.Date">Data (Date)</option>
-                        </select>
-                    </div>
-                    @if (_novaColTipo == AttributeDataType.String)
-                    {
-                        <div class="form-group">
-                            <label>Comprimento máximo (bytes):</label>
-                            <input type="number" class="gis-input" min="1" max="254" @bind="_novaColTamanho" />
-                        </div>
-                    }
-                    @if (_novaColTipo == AttributeDataType.Real)
-                    {
-                        <div class="form-group">
-                            <label>Precisão decimal (casas após a vírgula):</label>
-                            <input type="number" class="gis-input" min="0" max="8" @bind="_novaColPrecisao" />
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(_novaColErro))
-                    {
-                        <div class="alert-error">@_novaColErro</div>
-                    }
-                </div>
-                <footer class="gis-modal-footer">
-                    <button type="button" class="btn-cancel" @onclick="FecharAdicionarColuna">Cancelar</button>
-                    <button type="button" class="btn-save" disabled="@string.IsNullOrWhiteSpace(_novaColNome)" @onclick="ExecutarAdicionarColunaAsync">
-                        Criar Campo
-                    </button>
-                </footer>
-            </div>
-        </div>
-    }
 
     <!-- RODAPÉ DE TELEMETRIA -->
     <footer class="bottom-status-bar">
@@ -8549,6 +7993,12 @@
         AtualizarIndicadorAutosave(ProjetoService.ProjetoAtual);
         _mostrarTelaInicialProjeto = !ProjetoService.TemProjetoAberto;
 
+        // Sincronização em tempo real com a Janela Separada da Tabela de Atributos
+        AttributeSession.OnRequisicaoZoomFeicao += AoSolicitarZoomDaTabela;
+        AttributeSession.OnRequisicaoPanFeicao += AoSolicitarPanDaTabela;
+        AttributeSession.OnRequisicaoBlinkFeicao += AoSolicitarBlinkDaTabela;
+        AttributeSession.OnSelecaoAlteradaPelaTabela += AoAlterarSelecaoPelaTabela;
+
         // === PREVENÇÃO DO BUG DO F5 ===
         // Zera a memória do servidor C# sempre que a UI é recarregada
         MapService.PontosAquisicao.Clear();
@@ -8704,10 +8154,46 @@
         SolicitarNovoFrame();
     }
 
+
+    private void AoSolicitarZoomDaTabela(string camada, long fid)
+    {
+        InvokeAsync(async () => await ZoomParaLinhaFidAsync(fid));
+    }
+
+    private void AoSolicitarPanDaTabela(string camada, long fid)
+    {
+        InvokeAsync(async () => await CentralizarFeicaoNoMapaAsync(fid));
+    }
+
+    private void AoSolicitarBlinkDaTabela(string camada, long fid)
+    {
+        InvokeAsync(async () => await PiscarFeicaoNoMapaAsync(fid));
+    }
+
+    private void AoAlterarSelecaoPelaTabela(string camada, IReadOnlySet<long> fids)
+    {
+        InvokeAsync(() =>
+        {
+            if (!_fidsSelecionadosTabela.TryGetValue(camada, out var set))
+            {
+                set = new HashSet<long>();
+                _fidsSelecionadosTabela[camada] = set;
+            }
+            set.Clear();
+            foreach (var id in fids) set.Add(id);
+            SincronizarSelecaoTabelaComMapa(camada);
+            StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
         _renderDisposed = true;
         WindowCloseCoordinator.CloseRequested -= AoSolicitarFechamentoNativo;
+        AttributeSession.OnRequisicaoZoomFeicao -= AoSolicitarZoomDaTabela;
+        AttributeSession.OnRequisicaoPanFeicao -= AoSolicitarPanDaTabela;
+        AttributeSession.OnRequisicaoBlinkFeicao -= AoSolicitarBlinkDaTabela;
+        AttributeSession.OnSelecaoAlteradaPelaTabela -= AoAlterarSelecaoPelaTabela;
         MapService.OnMapInvalidated -= AgendarRedesenhoAposInvalidacao;
         _autosaveProjetoCts?.Cancel();
         MapService.ClientRenderedDigitizingPreview = false;
@@ -11255,6 +10741,7 @@
     {
         if (string.IsNullOrWhiteSpace(nomeCamada)) return;
         var fids = ObterFidsSelecionadosCamada(nomeCamada);
+        AttributeSession.NotificarSelecaoMapa(nomeCamada, fids);
 
         _vectorFeatureEditSelection.RemoveAll(k => string.Equals(k.LayerName, nomeCamada, StringComparison.OrdinalIgnoreCase));
 
