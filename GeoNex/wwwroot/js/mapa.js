@@ -4169,3 +4169,151 @@ window.geonexDownloadText = function (text, filename) {
         return false;
     }
 };
+
+// =========================================================================
+// GEONEX ATTRIBUTE TABLE WINDOW MANAGER (QGIS-STYLE STANDALONE WINDOW)
+// Provides 60fps hardware-accelerated pointer drag, 8-directional resize,
+// window centering, and maximize/restore state handling.
+// =========================================================================
+window.geonexTableWindow = {
+    isDragging: false,
+    isResizing: false,
+    resizeDir: '',
+    startX: 0,
+    startY: 0,
+    startLeft: 0,
+    startTop: 0,
+    startWidth: 0,
+    startHeight: 0,
+
+    initWindow: function () {
+        const win = document.getElementById('geonex-attribute-window');
+        if (!win || win.classList.contains('mode-docked') || win.classList.contains('is-maximized')) return;
+        if (!win.dataset.initialized) {
+            const vpW = window.innerWidth;
+            const vpH = window.innerHeight;
+            const w = Math.min(1100, Math.max(680, Math.round(vpW * 0.82)));
+            const h = Math.min(680, Math.max(420, Math.round(vpH * 0.72)));
+            const x = Math.max(16, Math.round((vpW - w) / 2));
+            const y = Math.max(24, Math.round((vpH - h) / 2));
+            win.style.left = x + 'px';
+            win.style.top = y + 'px';
+            win.style.width = w + 'px';
+            win.style.height = h + 'px';
+            win.dataset.initialized = 'true';
+        }
+    },
+
+    onTableOpened: function () {
+        requestAnimationFrame(() => {
+            window.geonexTableWindow.initWindow();
+        });
+    },
+
+    startDrag: function (e) {
+        if (e.target.closest('button, input, select, textarea, .btn-win-ctrl, .th-actions, a')) return;
+        const win = document.getElementById('geonex-attribute-window');
+        if (!win || win.classList.contains('is-maximized') || win.classList.contains('mode-docked')) return;
+
+        e.preventDefault();
+        const header = e.currentTarget;
+        try { header.setPointerCapture(e.pointerId); } catch (_) { }
+
+        const rect = win.getBoundingClientRect();
+        this.isDragging = true;
+        this.startX = e.clientX;
+        this.startY = e.clientY;
+        this.startLeft = rect.left;
+        this.startTop = rect.top;
+
+        const onMove = (moveEvent) => {
+            if (!this.isDragging) return;
+            const dx = moveEvent.clientX - this.startX;
+            const dy = moveEvent.clientY - this.startY;
+            const newLeft = Math.max(0, Math.min(window.innerWidth - 120, this.startLeft + dx));
+            const newTop = Math.max(0, Math.min(window.innerHeight - 60, this.startTop + dy));
+            win.style.left = Math.round(newLeft) + 'px';
+            win.style.top = Math.round(newTop) + 'px';
+        };
+
+        const onUp = (upEvent) => {
+            this.isDragging = false;
+            header.removeEventListener('pointermove', onMove);
+            header.removeEventListener('pointerup', onUp);
+            header.removeEventListener('pointercancel', onUp);
+            try { header.releasePointerCapture(e.pointerId); } catch (_) { }
+        };
+
+        header.addEventListener('pointermove', onMove);
+        header.addEventListener('pointerup', onUp);
+        header.addEventListener('pointercancel', onUp);
+    },
+
+    startResize: function (e, dir) {
+        const win = document.getElementById('geonex-attribute-window');
+        if (!win || win.classList.contains('is-maximized') || win.classList.contains('mode-docked')) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        const handle = e.currentTarget;
+        try { handle.setPointerCapture(e.pointerId); } catch (_) { }
+
+        const rect = win.getBoundingClientRect();
+        this.isResizing = true;
+        this.resizeDir = dir;
+        this.startX = e.clientX;
+        this.startY = e.clientY;
+        this.startLeft = rect.left;
+        this.startTop = rect.top;
+        this.startWidth = rect.width;
+        this.startHeight = rect.height;
+
+        const minW = 500;
+        const minH = 300;
+
+        const onMove = (moveEvent) => {
+            if (!this.isResizing) return;
+            const dx = moveEvent.clientX - this.startX;
+            const dy = moveEvent.clientY - this.startY;
+
+            let newW = this.startWidth;
+            let newH = this.startHeight;
+            let newL = this.startLeft;
+            let newT = this.startTop;
+
+            if (dir.includes('e')) newW = Math.max(minW, this.startWidth + dx);
+            if (dir.includes('s')) newH = Math.max(minH, this.startHeight + dy);
+            if (dir.includes('w')) {
+                const possibleW = this.startWidth - dx;
+                if (possibleW >= minW) {
+                    newW = possibleW;
+                    newL = this.startLeft + dx;
+                }
+            }
+            if (dir.includes('n')) {
+                const possibleH = this.startHeight - dy;
+                if (possibleH >= minH) {
+                    newH = possibleH;
+                    newT = this.startTop + dy;
+                }
+            }
+
+            win.style.width = Math.round(newW) + 'px';
+            win.style.height = Math.round(newH) + 'px';
+            win.style.left = Math.round(newL) + 'px';
+            win.style.top = Math.round(newT) + 'px';
+        };
+
+        const onUp = (upEvent) => {
+            this.isResizing = false;
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            handle.removeEventListener('pointercancel', onUp);
+            try { handle.releasePointerCapture(e.pointerId); } catch (_) { }
+        };
+
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+        handle.addEventListener('pointercancel', onUp);
+    }
+};

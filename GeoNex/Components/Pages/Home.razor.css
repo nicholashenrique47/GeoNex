@@ -2430,3 +2430,272 @@ thead th:hover .th-actions {
 .calc-preview-card.error pre {
     color: #f87171;
 }
+
+/* =========================================================================
+   QGIS-STYLE STANDALONE ATTRIBUTE WINDOW
+   Full desktop floating window with drag, 8-way resize, maximize, minimize,
+   and dock/undock support.
+   ========================================================================= */
+
+.qgis-attribute-window {
+    display: flex;
+    flex-direction: column;
+    background: #0b141e;
+    overflow: hidden;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #e2eaf1;
+}
+
+.qgis-attribute-window.mode-floating {
+    position: fixed !important;
+    z-index: 4500;
+    border: 1px solid #32475e;
+    border-radius: 8px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(16px);
+    min-width: 500px;
+    min-height: 300px;
+}
+
+.qgis-attribute-window.mode-docked {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 380px !important;
+    width: 100% !important;
+    border-top: 2px solid #29415a !important;
+    border-radius: 0 !important;
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.65) !important;
+    z-index: 3400;
+}
+
+.qgis-attribute-window.is-maximized {
+    top: 8px !important;
+    left: 8px !important;
+    width: calc(100vw - 16px) !important;
+    height: calc(100vh - 16px) !important;
+    border-radius: 6px !important;
+    z-index: 4800 !important;
+}
+
+/* Barra de Título (QGIS Native Style) */
+.window-titlebar {
+    height: 34px;
+    min-height: 34px;
+    padding: 0 8px 0 12px;
+    background: linear-gradient(180deg, #162434 0%, #101c29 100%);
+    border-bottom: 1px solid #21364d;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.window-titlebar:active {
+    cursor: grabbing;
+}
+
+.win-title-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.win-app-icon {
+    color: #70e2bf;
+    flex-shrink: 0;
+}
+
+.win-title-text {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #cbd5e1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.layer-title-name {
+    color: #70e2bf;
+    font-weight: 700;
+}
+
+.win-title-metrics {
+    font-size: 11px;
+    color: #8fa5ba;
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.win-title-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.btn-win-ctrl {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #9ab1c4;
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.btn-win-ctrl:hover {
+    background: #1d2d3e;
+    color: #ffffff;
+    border-color: #314b68;
+}
+
+.btn-win-ctrl.btn-win-close:hover {
+    background: #b91c1c !important;
+    color: #ffffff !important;
+    border-color: #ef4444 !important;
+}
+
+/* Resize Handles */
+.win-resize-handle {
+    position: absolute;
+    z-index: 4510;
+}
+
+.handle-n {
+    top: -3px;
+    left: 8px;
+    right: 8px;
+    height: 8px;
+    cursor: n-resize;
+}
+
+.handle-s {
+    bottom: -3px;
+    left: 8px;
+    right: 8px;
+    height: 8px;
+    cursor: s-resize;
+}
+
+.handle-e {
+    top: 8px;
+    bottom: 8px;
+    right: -3px;
+    width: 8px;
+    cursor: e-resize;
+}
+
+.handle-w {
+    top: 8px;
+    bottom: 8px;
+    left: -3px;
+    width: 8px;
+    cursor: w-resize;
+}
+
+.handle-nw {
+    top: -3px;
+    left: -3px;
+    width: 12px;
+    height: 12px;
+    cursor: nw-resize;
+}
+
+.handle-ne {
+    top: -3px;
+    right: -3px;
+    width: 12px;
+    height: 12px;
+    cursor: ne-resize;
+}
+
+.handle-sw {
+    bottom: -3px;
+    left: -3px;
+    width: 12px;
+    height: 12px;
+    cursor: sw-resize;
+}
+
+.handle-se {
+    bottom: -3px;
+    right: -3px;
+    width: 14px;
+    height: 14px;
+    cursor: se-resize;
+}
+
+/* Minimized Window Taskbar Badge */
+.qgis-minimized-window-bar {
+    position: fixed;
+    bottom: 12px;
+    left: 16px;
+    z-index: 4600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.qgis-minimized-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    background: #111e2b;
+    border: 1px solid #2a435e;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+    cursor: pointer;
+    color: #e2eaf1;
+    font-size: 11.5px;
+    transition: all 0.15s ease;
+}
+
+.qgis-minimized-badge:hover {
+    background: #17283a;
+    border-color: #70e2bf;
+}
+
+.qgis-minimized-badge strong {
+    color: #70e2bf;
+}
+
+.btn-win-ctrl-mini {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: #9bb0c3;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.12s ease;
+}
+
+.btn-win-ctrl-mini:hover {
+    background: #22374e;
+    color: #ffffff;
+}
+
+.btn-win-ctrl-mini.close:hover {
+    background: #b91c1c;
+    color: #ffffff;
+}

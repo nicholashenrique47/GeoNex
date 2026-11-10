@@ -1836,8 +1836,117 @@
 
     @if (exibirTabelaAtributos)
     {
-        <div class="glass-panel attribute-table-container modern-attribute-workstation">
-            <!-- TOP WORKSTATION TOOLBAR (ZERO EMOJIS, 100% CLEAN PROFESSIONAL VECTOR SVG ICONS) -->
+        @if (_tabelaMinimizada)
+        {
+            <div class="qgis-minimized-window-bar">
+                <div class="qgis-minimized-badge" @onclick="RestaurarJanelaTabela" title="Restaurar Tabela de Atributos">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="win-app-icon" width="16" height="16">
+                        <path d="M3.75 3v18h16.5V3H3.75zm0 5.25h16.5M3.75 13.5h16.5M9.75 3v18M15.75 3v18"/>
+                    </svg>
+                    <span>Tabela: <strong>@nomeCamadaAtiva</strong> (@(_attributeProvider?.TotalRowCount ?? 0) feições)</span>
+                    <button type="button" class="btn-win-ctrl-mini" title="Restaurar Janela" @onclick:stopPropagation="true" @onclick="RestaurarJanelaTabela">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
+                    </button>
+                    <button type="button" class="btn-win-ctrl-mini close" title="Fechar Tabela" @onclick:stopPropagation="true" @onclick="FecharTabela">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div id="geonex-attribute-window"
+                 class="qgis-attribute-window modern-attribute-workstation @(_tabelaModoJanela ? "mode-floating" : "mode-docked") @(_tabelaMaximizada ? "is-maximized" : "")"
+                 style="@(_tabelaModoJanela && !_tabelaMaximizada ? $"left: {_janelaX}px; top: {_janelaY}px; width: {_janelaLargura}px; height: {_janelaAltura}px;" : "")">
+
+                <!-- BARRA DE TÍTULO DA JANELA (ESTILO NATIVO QGIS COM DRAG & DBLCLICK MAXIMIZE) -->
+                <div class="window-titlebar"
+                     onpointerdown="window.geonexTableWindow.startDrag(event)"
+                     @ondblclick="AlternarMaximizarJanelaTabela">
+                    <div class="win-title-left">
+                        <svg class="win-app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+                            <path d="M3.75 3v18h16.5V3H3.75zm0 5.25h16.5M3.75 13.5h16.5M9.75 3v18M15.75 3v18"/>
+                        </svg>
+                        <span class="win-title-text">
+                            Tabela de Atributos — <strong class="layer-title-name">@nomeCamadaAtiva</strong>
+                            <span class="win-title-metrics">:: Feições: @(_attributeProvider?.TotalRowCount ?? 0) (Filtradas: @(_attributeProvider?.FilteredRowCount ?? 0), Selecionadas: @(ObterContagemFeicoesSelecionadas(nomeCamadaAtiva)))</span>
+                        </span>
+                    </div>
+
+                    <div class="win-title-actions">
+                        <!-- Acoplar / Desacoplar (Dock/Undock) -->
+                        <button type="button" class="btn-win-ctrl"
+                                title="@(_tabelaModoJanela ? "Acoplar tabela na parte inferior" : "Desacoplar para janela separada (Padrão QGIS)")"
+                                @onclick="AlternarModoJanelaTabela">
+                            @if (_tabelaModoJanela)
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+                                    <path d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3"/>
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+                                    <path d="M9 3H4a1 1 0 00-1 1v16a1 1 0 001 1h16a1 1 0 001-1v-5m-9-3l9-9m0 0h-6m6 0v6"/>
+                                </svg>
+                            }
+                        </button>
+
+                        @if (_tabelaModoJanela)
+                        {
+                            <!-- Minimizar -->
+                            <button type="button" class="btn-win-ctrl"
+                                    title="Minimizar janela"
+                                    @onclick="MinimizarJanelaTabela">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                                    <path d="M5 19h14"/>
+                                </svg>
+                            </button>
+
+                            <!-- Maximizar / Restaurar -->
+                            <button type="button" class="btn-win-ctrl"
+                                    title="@(_tabelaMaximizada ? "Restaurar tamanho" : "Maximizar janela")"
+                                    @onclick="AlternarMaximizarJanelaTabela">
+                                @if (_tabelaMaximizada)
+                                {
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+                                        <path d="M8 4H4a1 1 0 00-1 1v11a1 1 0 001 1h4m12-4v4a1 1 0 01-1 1h-4m5-13h-7a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V5a1 1 0 00-1-1z"/>
+                                    </svg>
+                                }
+                                else
+                                {
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+                                        <rect x="4" y="4" width="16" height="16" rx="1"/>
+                                    </svg>
+                                }
+                            </button>
+                        }
+
+                        <!-- Fechar Janela -->
+                        <button type="button" class="btn-win-ctrl btn-win-close"
+                                title="Fechar Janela (Esc)"
+                                @onclick="FecharTabela">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                                <path d="M18 6L6 18M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                @if (_tabelaModoJanela && !_tabelaMaximizada)
+                {
+                    <!-- RESIZE HANDLES (8 DIREÇÕES) -->
+                    <div class="win-resize-handle handle-n" onpointerdown="window.geonexTableWindow.startResize(event, 'n')"></div>
+                    <div class="win-resize-handle handle-s" onpointerdown="window.geonexTableWindow.startResize(event, 's')"></div>
+                    <div class="win-resize-handle handle-e" onpointerdown="window.geonexTableWindow.startResize(event, 'e')"></div>
+                    <div class="win-resize-handle handle-w" onpointerdown="window.geonexTableWindow.startResize(event, 'w')"></div>
+                    <div class="win-resize-handle handle-nw" onpointerdown="window.geonexTableWindow.startResize(event, 'nw')"></div>
+                    <div class="win-resize-handle handle-ne" onpointerdown="window.geonexTableWindow.startResize(event, 'ne')"></div>
+                    <div class="win-resize-handle handle-sw" onpointerdown="window.geonexTableWindow.startResize(event, 'sw')"></div>
+                    <div class="win-resize-handle handle-se" onpointerdown="window.geonexTableWindow.startResize(event, 'se')"></div>
+                }
+
+                <!-- TOP WORKSTATION TOOLBAR (ZERO EMOJIS, 100% CLEAN PROFESSIONAL VECTOR SVG ICONS) -->
             <div class="table-header modern-toolbar">
                 <div class="toolbar-left-group">
                     <span class="toolbar-title" title="@nomeCamadaAtiva">TABELA: <strong>@nomeCamadaAtiva</strong></span>
@@ -2133,6 +2242,7 @@
                 </div>
             </div>
         </div>
+        }
     }
 
     <!-- MODAL CALCULADORA DE CAMPOS AVANÇADA -->

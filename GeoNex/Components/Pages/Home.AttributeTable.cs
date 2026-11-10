@@ -57,11 +57,55 @@ public partial class Home
     private bool _filtroViewportAtivo = false;
     private bool _filtroApenasSelecionados = false;
 
+    // =========================================================================
+    // ESTADO DA JANELA SEPARADA (PADRÃO QGIS)
+    // =========================================================================
+    private bool _tabelaModoJanela = true;
+    private bool _tabelaMaximizada = false;
+    private bool _tabelaMinimizada = false;
+    private double _janelaX = 80;
+    private double _janelaY = 50;
+    private double _janelaLargura = 1060;
+    private double _janelaAltura = 620;
+
+    private void AlternarModoJanelaTabela()
+    {
+        _tabelaModoJanela = !_tabelaModoJanela;
+        _tabelaMaximizada = false;
+        StateHasChanged();
+        if (_tabelaModoJanela)
+        {
+            JSRuntime.InvokeVoidAsyncSafe("geonexTableWindow.onTableOpened");
+        }
+    }
+
+    private void AlternarMaximizarJanelaTabela()
+    {
+        if (!_tabelaModoJanela) return;
+        _tabelaMaximizada = !_tabelaMaximizada;
+        StateHasChanged();
+    }
+
+    private void MinimizarJanelaTabela()
+    {
+        _tabelaMinimizada = true;
+        StateHasChanged();
+    }
+
+    private void RestaurarJanelaTabela()
+    {
+        _tabelaMinimizada = false;
+        StateHasChanged();
+        JSRuntime.InvokeVoidAsyncSafe("geonexTableWindow.onTableOpened");
+    }
+
     private async Task AbrirTabela(string nomeCamada)
     {
         _attributeIsLoading = true;
         nomeCamadaAtiva = nomeCamada;
         exibirTabelaAtributos = true;
+        _tabelaMinimizada = false;
+        JSRuntime.InvokeVoidAsyncSafe("geonexTableWindow.onTableOpened");
         _attributePageIndex = 0;
         _attributeSearchQuery = string.Empty;
         _filtroViewportAtivo = false;
