@@ -347,7 +347,6 @@
             <button type="button" class="btn-page" disabled="@(_pageIndex >= _totalPages - 1)" @onclick="() => IrParaPagina(_totalPages - 1)" title="Última Página">»</button>
         </div>
     </footer>
-</div>
 
 <!-- MODAL CALCULADORA DE CAMPOS -->
 @if (_mostrarModalCalc)
@@ -463,6 +462,7 @@
         </div>
     </div>
 }
+</div>
 
 @code {
     private string? _nomeCamadaAtiva;
@@ -932,17 +932,38 @@
 
     private async Task AbrirCalculadoraCampos()
     {
-        _calcColDestino = _tableColumns.FirstOrDefault(c => !c.IsPrimaryKey)?.Name ?? "";
+        var firstNonPk = _tableColumns.FirstOrDefault(c => !c.IsPrimaryKey);
+        if (firstNonPk != null)
+        {
+            _calcColDestino = firstNonPk.Name;
+            _calcCriarNovaCol = false;
+        }
+        else
+        {
+            _calcColDestino = "";
+            _calcCriarNovaCol = true;
+        }
+        _calcNovaColNome = "NOVO_CAMPO";
         _calcExpressao = "$area";
         _calcPrevia = null;
         _calcErro = null;
         _mostrarModalCalc = true;
+        StateHasChanged();
+
         _sampleGeom = null;
         if (_tableRows.Count > 0 && _attributeProvider != null)
         {
-            _sampleGeom = await _attributeProvider.GetGeometryAsync(_tableRows[0].FID);
+            try
+            {
+                _sampleGeom = await _attributeProvider.GetGeometryAsync(_tableRows[0].FID);
+            }
+            catch
+            {
+                _sampleGeom = null;
+            }
         }
         AtualizarPreviaCalc();
+        StateHasChanged();
     }
 
     private void InserirTokenCalculadora(string token)
@@ -989,6 +1010,10 @@
         try
         {
             _isLoading = true;
+            if (!_attributeProvider.IsEditing)
+            {
+                await _attributeProvider.BeginTransactionAsync();
+            }
             string destCol = _calcCriarNovaCol ? _calcNovaColNome.Trim().ToUpperInvariant() : _calcColDestino;
             if (string.IsNullOrWhiteSpace(destCol))
             {
@@ -1032,6 +1057,7 @@
         _novaColTipo = AttributeDataType.String;
         _novaColTamanho = 50;
         _mostrarModalAddCol = true;
+        StateHasChanged();
     }
 
     private async Task ExecutarAdicionarColunaAsync()
