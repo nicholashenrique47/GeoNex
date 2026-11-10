@@ -595,7 +595,7 @@
 }
 
 .calc-dialog {
-    width: 720px;
+    width: 860px;
     max-width: 95vw;
 }
 
@@ -683,7 +683,7 @@
 
 .calc-editor-row {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 290px 1fr;
     gap: 12px;
 }
 
@@ -695,7 +695,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 280px;
+    max-height: 360px;
     overflow-y: auto;
 }
 
@@ -805,4 +805,69 @@
 
 .gis-input:focus, .gis-select:focus {
     border-color: #38bdf8;
+}
+
+/* ENHANCED CALCULATOR PILLS & FORM */
+.col-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.field-sublabel {
+    font-size: 10px;
+    font-weight: 700;
+    color: #9cb0c2;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.new-col-grid {
+    display: grid;
+    grid-template-columns: 2fr 2fr 1fr 1fr;
+    gap: 8px;
+    align-items: end;
+}
+
+.btn-pill.geom-pill {
+    color: #70e2bf;
+    border-color: #1f4a3f;
+    background: #0d251f;
+}
+.btn-pill.geom-pill:hover {
+    background: #153b32;
+    color: #a7f3d0;
+}
+
+.btn-pill.op-pill {
+    color: #fcd34d;
+    border-color: #4a3818;
+    background: #251c0d;
+    font-weight: bold;
+    min-width: 22px;
+    text-align: center;
+}
+.btn-pill.op-pill:hover {
+    background: #3a2b14;
+    color: #fde68a;
+}
+
+.btn-pill.func-pill {
+    color: #c084fc;
+    border-color: #3b2054;
+    background: #1e102b;
+}
+.btn-pill.func-pill:hover {
+    background: #2e1942;
+    color: #e9d5ff;
+}
+
+.btn-pill.field-pill {
+    color: #93c5fd;
+    border-color: #1e3a5f;
+    background: #0f1e33;
+}
+.btn-pill.field-pill:hover {
+    background: #172d4d;
+    color: #bfdbfe;
 }

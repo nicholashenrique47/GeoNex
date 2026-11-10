@@ -368,14 +368,29 @@
                     </select>
 
                     <label><input type="radio" name="calcMode" checked="@_calcCriarNovaCol" @onchange="() => _calcCriarNovaCol = true" /> Criar novo campo:</label>
-                    <div class="new-col-row">
-                        <input type="text" class="gis-input" placeholder="Nome do novo campo" disabled="@(!_calcCriarNovaCol)" @bind="_calcNovaColNome" />
-                        <select class="gis-select" disabled="@(!_calcCriarNovaCol)" @bind="_calcNovaColTipo">
-                            <option value="@AttributeDataType.Real">Decimal (Real)</option>
-                            <option value="@AttributeDataType.Integer">Inteiro (Integer)</option>
-                            <option value="@AttributeDataType.String">Texto (String)</option>
-                            <option value="@AttributeDataType.Date">Data (Date)</option>
-                        </select>
+                    <div class="new-col-grid">
+                        <div class="col-field">
+                            <label class="field-sublabel">Nome:</label>
+                            <input type="text" class="gis-input" placeholder="Ex: COORD_X" disabled="@(!_calcCriarNovaCol)" @bind="_calcNovaColNome" />
+                        </div>
+                        <div class="col-field">
+                            <label class="field-sublabel">Tipo:</label>
+                            <select class="gis-select" disabled="@(!_calcCriarNovaCol)" @bind="_calcNovaColTipo" @bind:after="OnTipoNovaColCalcChanged">
+                                <option value="@AttributeDataType.Real">Número Decimal (Real)</option>
+                                <option value="@AttributeDataType.Integer">Número Inteiro (Integer)</option>
+                                <option value="@AttributeDataType.Int64">Inteiro Longo (Int64)</option>
+                                <option value="@AttributeDataType.String">Texto (String)</option>
+                                <option value="@AttributeDataType.Date">Data (Date)</option>
+                            </select>
+                        </div>
+                        <div class="col-field">
+                            <label class="field-sublabel">Comprimento:</label>
+                            <input type="number" class="gis-input" min="1" max="254" disabled="@(!_calcCriarNovaCol)" @bind="_calcNovaColTamanho" title="Tamanho / largura total (máx 254)" />
+                        </div>
+                        <div class="col-field">
+                            <label class="field-sublabel">Precisão:</label>
+                            <input type="number" class="gis-input" min="0" max="15" disabled="@(!_calcCriarNovaCol || _calcNovaColTipo != AttributeDataType.Real)" @bind="_calcNovaColPrecisao" @bind:after="AtualizarPreviaCalc" title="Casas decimais (somente para Real)" />
+                        </div>
                     </div>
                     <label class="calc-check" style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:#cbd5e1;">
                         <input type="checkbox" @bind="_calcApenasSelecionados" disabled="@(_selectedFids.Count == 0)" />
@@ -385,23 +400,69 @@
 
                 <div class="calc-editor-row">
                     <div class="calc-vars-col">
-                        <small>VARIÁVEIS GEOMÉTRICAS</small>
+                        <small>GEOMETRIA ($)</small>
                         <div class="pill-group">
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$area")'>$area</button>
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$area_ha")'>$area_ha</button>
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$perimeter")'>$perimeter</button>
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$length")'>$length</button>
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$x")'>$x</button>
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$y")'>$y</button>
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$id")'>$id</button>
-                            <button type="button" class="btn-pill" @onclick='() => InserirTokenCalculadora("$rownum")'>$rownum</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$area")' title="Área em m²">$area</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$area_ha")' title="Área em Hectares">$area_ha</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$perimeter")' title="Perímetro em metros">$perimeter</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$length")' title="Comprimento da linha">$length</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$x")' title="Coordenada X (ponto ou centroide)">$x</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$y")' title="Coordenada Y (ponto ou centroide)">$y</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$centroid_x")' title="Centroide X">$centroid_x</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$centroid_y")' title="Centroide Y">$centroid_y</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$geometry_type")' title="Tipo de Geometria">$geometry_type</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$num_points")' title="Número de Vértices">$num_points</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$id")' title="ID da Feição (FID)">$id</button>
+                            <button type="button" class="btn-pill geom-pill" @onclick='() => InserirTokenCalculadora("$rownum")' title="Número da Linha">$rownum</button>
+                        </div>
+
+                        <small>OPERADORES</small>
+                        <div class="pill-group">
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("+")'>+</button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("-")'>-</button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("*")'>*</button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("/")'>/</button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("^")'>^</button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("%")'>%</button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("(")'> ( </button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora(")")'> ) </button>
+                            <button type="button" class="btn-pill op-pill" @onclick='() => InserirTokenCalculadora("||")'>||</button>
+                        </div>
+
+                        <small>MATEMÁTICA</small>
+                        <div class="pill-group">
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("round(")' title="Arredondar: round(valor, n)">round()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("floor(")' title="Arredondar para baixo">floor()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("ceil(")' title="Arredondar para cima">ceil()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("abs(")' title="Valor Absoluto">abs()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("sqrt(")' title="Raiz Quadrada">sqrt()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("clamp(")' title="Limitar valor entre min e max">clamp()</button>
+                        </div>
+
+                        <small>TEXTO & STRINGS</small>
+                        <div class="pill-group">
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("concat(")' title="Concatenar strings: concat(a, b, ...)">concat()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("upper(")' title="Converter para Maiúsculas">upper()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("lower(")' title="Converter para Minúsculas">lower()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("trim(")' title="Remover Espaços">trim()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("substr(")' title="Sub-cadeia: substr(texto, inicio, tamanho)">substr()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("replace(")' title="Substituir texto">replace()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("lpad(")' title="Preencher com zeros: lpad(texto, tam, '0')">lpad()</button>
+                        </div>
+
+                        <small>LÓGICA & DATA</small>
+                        <div class="pill-group">
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("if(")' title="Condicional: if(condicao, verdadeiro, falso)">if()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("coalesce(")' title="Retorna o primeiro valor não nulo">coalesce()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("now()")' title="Data e hora atual">now()</button>
+                            <button type="button" class="btn-pill func-pill" @onclick='() => InserirTokenCalculadora("today()")' title="Data de hoje">today()</button>
                         </div>
 
                         <small>CAMPOS DA TABELA</small>
                         <div class="pill-group fields-group">
                             @foreach (var col in _tableColumns)
                             {
-                                <button type="button" class="btn-pill field-pill" @onclick='() => InserirTokenCalculadora($"\"{col.Name}\"")'>@col.Name</button>
+                                <button type="button" class="btn-pill field-pill" @onclick='() => InserirTokenCalculadora($"\"{col.Name}\"")' title="@col.DataType">@col.Name</button>
                             }
                         </div>
                     </div>
@@ -443,16 +504,23 @@
                 </div>
                 <div class="form-field">
                     <label>Tipo de Dado:</label>
-                    <select class="gis-select" @bind="_novaColTipo">
+                    <select class="gis-select" @bind="_novaColTipo" @bind:after="OnTipoNovaColAddChanged">
                         <option value="@AttributeDataType.String">Texto (String)</option>
                         <option value="@AttributeDataType.Real">Número Decimal (Real)</option>
                         <option value="@AttributeDataType.Integer">Número Inteiro (Integer)</option>
+                        <option value="@AttributeDataType.Int64">Número Inteiro Longo (Int64)</option>
                         <option value="@AttributeDataType.Date">Data (Date)</option>
                     </select>
                 </div>
-                <div class="form-field">
-                    <label>Comprimento:</label>
-                    <input type="number" class="gis-input" @bind="_novaColTamanho" min="1" max="254" />
+                <div class="form-row-2col" style="display:flex; gap:10px;">
+                    <div class="form-field" style="flex:1;">
+                        <label>Comprimento:</label>
+                        <input type="number" class="gis-input" @bind="_novaColTamanho" min="1" max="254" title="Tamanho / largura total (máx 254)" />
+                    </div>
+                    <div class="form-field" style="flex:1;">
+                        <label>Precisão (decimais):</label>
+                        <input type="number" class="gis-input" @bind="_novaColPrecisao" min="0" max="15" disabled="@(_novaColTipo != AttributeDataType.Real)" title="Casas decimais (somente para Real)" />
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -495,6 +563,8 @@
     private string _calcColDestino = string.Empty;
     private string _calcNovaColNome = string.Empty;
     private AttributeDataType _calcNovaColTipo = AttributeDataType.Real;
+    private int _calcNovaColTamanho = 20;
+    private int _calcNovaColPrecisao = 4;
     private string _calcExpressao = string.Empty;
     private string? _calcPrevia;
     private string? _calcErro;
@@ -505,6 +575,64 @@
     private string _novaColNome = string.Empty;
     private AttributeDataType _novaColTipo = AttributeDataType.String;
     private int _novaColTamanho = 50;
+    private int _novaColPrecisao = 0;
+
+    private void OnTipoNovaColCalcChanged()
+    {
+        switch (_calcNovaColTipo)
+        {
+            case AttributeDataType.Real:
+                _calcNovaColTamanho = 20;
+                _calcNovaColPrecisao = 4;
+                break;
+            case AttributeDataType.Integer:
+                _calcNovaColTamanho = 10;
+                _calcNovaColPrecisao = 0;
+                break;
+            case AttributeDataType.Int64:
+                _calcNovaColTamanho = 18;
+                _calcNovaColPrecisao = 0;
+                break;
+            case AttributeDataType.Date:
+            case AttributeDataType.DateTime:
+                _calcNovaColTamanho = 10;
+                _calcNovaColPrecisao = 0;
+                break;
+            default:
+                _calcNovaColTamanho = 50;
+                _calcNovaColPrecisao = 0;
+                break;
+        }
+        AtualizarPreviaCalc();
+    }
+
+    private void OnTipoNovaColAddChanged()
+    {
+        switch (_novaColTipo)
+        {
+            case AttributeDataType.Real:
+                _novaColTamanho = 20;
+                _novaColPrecisao = 4;
+                break;
+            case AttributeDataType.Integer:
+                _novaColTamanho = 10;
+                _novaColPrecisao = 0;
+                break;
+            case AttributeDataType.Int64:
+                _novaColTamanho = 18;
+                _novaColPrecisao = 0;
+                break;
+            case AttributeDataType.Date:
+            case AttributeDataType.DateTime:
+                _novaColTamanho = 10;
+                _novaColPrecisao = 0;
+                break;
+            default:
+                _novaColTamanho = 50;
+                _novaColPrecisao = 0;
+                break;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -994,7 +1122,23 @@
             }
             var ctx = new FeatureEvaluationContext(row?.FID ?? 1, 1, dict, _sampleGeom);
             var res = ast.Evaluate(ctx);
-            _calcPrevia = res != null ? string.Format(CultureInfo.InvariantCulture, "{0}", res) : "NULL";
+            if (res != null)
+            {
+                int prevPrec = _calcCriarNovaCol ? _calcNovaColPrecisao : (_tableColumns.FirstOrDefault(c => c.Name == _calcColDestino)?.Precision ?? 4);
+                bool isRealTarget = (_calcCriarNovaCol && _calcNovaColTipo == AttributeDataType.Real) || (_tableColumns.FirstOrDefault(c => c.Name == _calcColDestino)?.DataType == AttributeDataType.Real);
+                if (isRealTarget && double.TryParse(res.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double num))
+                {
+                    _calcPrevia = num.ToString("F" + Math.Clamp(prevPrec, 0, 15), CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    _calcPrevia = string.Format(CultureInfo.InvariantCulture, "{0}", res);
+                }
+            }
+            else
+            {
+                _calcPrevia = "NULL";
+            }
             _calcErro = null;
         }
         catch (Exception ex)
@@ -1024,9 +1168,13 @@
             if (_calcCriarNovaCol)
             {
                 if (destCol.Length > 10) destCol = destCol[..10];
-                await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(destCol, _calcNovaColTipo, 50, 4));
+                await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(destCol, _calcNovaColTipo, _calcNovaColTamanho, _calcNovaColPrecisao));
                 _tableColumns = _attributeProvider.Columns;
             }
+
+            int precisao = _calcCriarNovaCol ? _calcNovaColPrecisao : (_tableColumns.FirstOrDefault(c => c.Name == destCol)?.Precision ?? 4);
+            var colDef = _tableColumns.FirstOrDefault(c => c.Name == destCol);
+            bool isReal = (_calcCriarNovaCol && _calcNovaColTipo == AttributeDataType.Real) || (colDef?.DataType == AttributeDataType.Real);
 
             var ast = ExpressionParser.Parse(_calcExpressao);
             long rowCount = 0;
@@ -1034,7 +1182,12 @@
             {
                 long r = Interlocked.Increment(ref rowCount);
                 var ctx = new FeatureEvaluationContext(fid, r, attrs, geom);
-                return ast.Evaluate(ctx);
+                var val = ast.Evaluate(ctx);
+                if (isReal && val != null && double.TryParse(val.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double dVal))
+                {
+                    return Math.Round(dVal, Math.Clamp(precisao, 0, 15));
+                }
+                return val;
             }, _calcApenasSelecionados ? _selectedFids : null);
 
             _mostrarModalCalc = false;
@@ -1056,6 +1209,7 @@
         _novaColNome = "";
         _novaColTipo = AttributeDataType.String;
         _novaColTamanho = 50;
+        _novaColPrecisao = 0;
         _mostrarModalAddCol = true;
         StateHasChanged();
     }
@@ -1068,9 +1222,9 @@
             _isLoading = true;
             string name = _novaColNome.Trim().ToUpperInvariant();
             if (name.Length > 10) name = name[..10];
-            await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(name, _novaColTipo, _novaColTamanho, 0));
+            await _attributeProvider.AddColumnAsync(new AttributeColumnDefinition(name, _novaColTipo, _novaColTamanho, _novaColPrecisao));
             _mostrarModalAddCol = false;
-            _statusMessage = $"Coluna '{name}' criada com sucesso.";
+            _statusMessage = $"Coluna '{name}' criada com sucesso (Tipo: {_novaColTipo}, Tam: {_novaColTamanho}, Prec: {_novaColPrecisao}).";
             _tableColumns = _attributeProvider.Columns;
             await CarregarPaginaAsync();
         }
