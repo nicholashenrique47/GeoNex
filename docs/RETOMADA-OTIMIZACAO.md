@@ -1,6 +1,6 @@
 # Relatório de Retomada e Otimizações de Desempenho (GeoNex vs QGIS)
 
-Data: 10 de Novembro de 2026
+Data: 10 de Novembro de 2026 (Atualizado em 11 de Novembro de 2026)
 
 ## 1. Contexto da Retomada
 Continuação do trabalho iniciado pelo Codex para otimizar os componentes críticos de renderização do **GeoNex** visando superar o QGIS em throughput e latência perceptível, preservando exatidão estrita de pixels e conformidade com todos os contratos de `PerfTest`.
@@ -39,7 +39,24 @@ O Codex havia implementado:
 
 ---
 
-## 3. Resultados dos Contratos e Testes de Regressão
+## 3. Caixa de Ferramentas de Geoprocessamento (Fases 1 e 2)
+Integrada e sincronizada através de [`GeoNex/Components/Pages/Home.Geoprocessing.cs`](file:///C:/Users/Windows%2010/Desktop/GeoNex-main/GeoNex/Components/Pages/Home.Geoprocessing.cs) e [`GeoNex/Services/GeoprocessingEngine.cs`](file:///C:/Users/Windows%2010/Desktop/GeoNex-main/GeoNex/Services/GeoprocessingEngine.cs), cobrindo 9 categorias e 24+ algoritmos espaciais validados com Shapefiles reais:
+
+1. **Superposição Topológica (Overlay)**: Recortar (Clip), Intersecção com fusão de tabelas, Diferença (Erase), Diferença Simétrica (XOR), União Plena e Atualização (Patch).
+2. **Agregação e Fusão**: Dissolver Geometrias (global e por atributo).
+3. **Geometrias Construtivas**: Zonas de Amortecimento (Buffer) com terminações retas/curvas, Envoltória Convexa (Convex Hull), Centroides e Polo de Inacessibilidade (Polylabel).
+4. **Proximidade e Relevo**: Triangulação de Delaunay (TIN), Polígonos de Voronoi (Thiessen) e Vizinho Mais Próximo (Clark-Evans).
+5. **Generalização Cartográfica**: Douglas-Peucker topológico, Visvalingam-Whyatt e Suavização de Chaikin.
+6. **Decomposição e Conversão**: Explodir Multipartes, Agrupar por Atributo, Polígonos para Linhas, Poligonização de Linhas (Polygonizer) e Extração Analítica de Vértices.
+7. **Segmentação Linear e Partição**: Quebra em nós/intersecções, Estaqueamento por comprimento e Partição de polígonos por linhas delimitadoras.
+8. **Malhas Espaciais e Amostragem**: Grades Cartesianas (Grids), Grades Hexagonais (Hexbins), Amostragem Poisson Disk e Amostragem Regular.
+9. **Estatísticas Zonais & Joins**: Contagem e soma de pontos em polígonos, Densidade linear e Junção Espacial Avançada (Spatial Join).
+
+- **Validação de Testes (`GeoprocessingCore`)**: **18 módulos e 386 asserções com 100% de sucesso**.
+
+---
+
+## 4. Resultados dos Contratos e Testes de Regressão
 
 Todos os testes foram executados na compilação `Release` (`net10.0` / `win-x64`) com 0 erros:
 - `--vector-resource-contracts`: **PASS** (210 perfis de hardware validados)
@@ -52,7 +69,7 @@ Todos os testes foram executados na compilação `Release` (`net10.0` / `win-x64
 
 ---
 
-## 4. Binário Executável Gerado
+## 5. Binário Executável Gerado
 
 - **Caminho do Executável**: [`GeoNex/bin/Release/net10.0-windows10.0.19041.0/win-x64/GeoNex.exe`](file:///C:/Users/Windows%2010/Desktop/GeoNex-main/GeoNex/bin/Release/net10.0-windows10.0.19041.0/win-x64/GeoNex.exe)
 - **Modo**: `Release` (WinUI / .NET MAUI unpackaged, win-x64)
