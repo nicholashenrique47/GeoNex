@@ -8054,8 +8054,7 @@
         {
             selecionadosEntrada = _vectorFeatureEditSelection
                 .Where(k => string.Equals(k.LayerName, _geoCamadaEntrada, StringComparison.OrdinalIgnoreCase))
-                .Select(k => k.SourceFeatureId >= 0 ? k.SourceFeatureId : k.FeatureId)
-                .Where(id => id >= 0)
+                .Select(k => (long)(k.SourceFeatureId >= 0 ? k.SourceFeatureId : k.FeatureId))
                 .ToHashSet();
 
             if (selecionadosEntrada.Count == 0)
@@ -8070,8 +8069,7 @@
         {
             selecionadosSobreposicao = _vectorFeatureEditSelection
                 .Where(k => string.Equals(k.LayerName, _geoCamadaSobreposicao, StringComparison.OrdinalIgnoreCase))
-                .Select(k => k.SourceFeatureId >= 0 ? k.SourceFeatureId : k.FeatureId)
-                .Where(id => id >= 0)
+                .Select(k => (long)(k.SourceFeatureId >= 0 ? k.SourceFeatureId : k.FeatureId))
                 .ToHashSet();
 
             if (selecionadosSobreposicao.Count == 0)
@@ -8080,6 +8078,17 @@
                 return;
             }
         }
+
+        IReadOnlyList<NetTopologySuite.Features.IFeature>? edicoesEntrada =
+            MapService.FeicoesOriginais.TryGetValue(camadaEntradaObj.Nome, out var listaPendentesEntrada)
+                ? listaPendentesEntrada.ToList()
+                : null;
+
+        IReadOnlyList<NetTopologySuite.Features.IFeature>? edicoesSobreposicao =
+            !string.IsNullOrWhiteSpace(_geoCamadaSobreposicao) &&
+            MapService.FeicoesOriginais.TryGetValue(_geoCamadaSobreposicao, out var listaPendentesSec)
+                ? listaPendentesSec.ToList()
+                : null;
 
         _geoprocessamentoExecutando = true;
         _abaAtivaDialogoGeo = "Log";
@@ -8146,7 +8155,10 @@
                 selecionadosEntrada,
                 selecionadosSobreposicao,
                 progresso,
-                _geoCts.Token);
+                _geoCts.Token,
+                edicoesEntrada,
+                edicoesSobreposicao,
+                MapService.ProjetoSRS);
 
             if (res.Sucesso)
             {
@@ -8159,8 +8171,9 @@
                     string nomeCamadaRes = System.IO.Path.GetFileNameWithoutExtension(res.CaminhoCamadaGerada);
                     string caminhoAntigo = caminhoArquivoVetor;
                     caminhoArquivoVetor = res.CaminhoCamadaGerada;
-                    await AdicionarVetorAoMapa(nomeCamadaRes);
+                    await AdicionarVetorAoMapa(nomeCamadaRes, enquadrarCamada: false);
                     caminhoArquivoVetor = caminhoAntigo;
+                    SolicitarNovoFrame();
                 }
             }
             else
@@ -8335,10 +8348,8 @@
             }
 
             // 3. Configura a Matriz Espacial (O ficheiro .prj)
-            OSGeo.OSR.SpatialReference srs = new OSGeo.OSR.SpatialReference("");
-            if (novaCamadaCrs.Contains("31982")) srs.ImportFromEPSG(31982); // UTM 22S
-            else srs.ImportFromEPSG(4326); // Decimal Geográfico
-            srs.MorphToESRI();
+            string crsInput = !string.IsNullOrWhiteSpace(novaCamadaCrs) ? novaCamadaCrs : MapService.ProjetoSRS;
+            using OSGeo.OSR.SpatialReference srs = SrsFactory.FromUserInput(crsInput);
             // 4. Mapeia a Arquitetura da Geometria do OGR
             OSGeo.OGR.wkbGeometryType wkbTipo = novaCamadaGeometria switch
             {
@@ -9663,7 +9674,7 @@
         catch (Exception ex) { await JSRuntime.InvokeVoidAsync("alert", $"Erro ao selecionar arquivo vetorial: {ex.Message}"); }
     }
 
-    private async Task AdicionarVetorAoMapa(string? nomeCamada = null, bool propagarErros = false)
+    private async Task AdicionarVetorAoMapa(string? nomeCamada = null, bool propagarErros = false, bool enquadrarCamada = true)
     {
         string? nomeReservado = null;
         string caminhoFonte = caminhoArquivoVetor;
@@ -9766,7 +9777,10 @@
                 _camadaBaseProjeto = nomeArquivo;
 
             SincronizarHierarquia(solicitarFrame: false);
-            await EnquadrarCamadaAsync(nomeArquivo);
+            if (enquadrarCamada)
+            {
+                await EnquadrarCamadaAsync(nomeArquivo);
+            }
             StateHasChanged();
         }
         catch (Exception ex)
@@ -13303,7 +13317,7 @@
 
     float escalaAutoFit; float midX, midY;
 
-    if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
+    if (limitesTotais.IsEmpty || limitesTotais.Width < 1e-7f || limitesTotais.Height < 1e-7f)
     {
         escalaAutoFit = _ultimaEscalaUI > 0 ? _ultimaEscalaUI : 1f;
         midX = _ultimoMidXUI; midY = _ultimoMidYUI;

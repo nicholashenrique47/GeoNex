@@ -42,7 +42,10 @@ namespace GeoNex.Services
             HashSet<long>? selecionadosEntrada = null,
             HashSet<long>? selecionadosSobreposicao = null,
             IProgress<GeoprocessingProgress>? progresso = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            IReadOnlyList<IFeature>? edicoesEmMemoriaEntrada = null,
+            IReadOnlyList<IFeature>? edicoesEmMemoriaSobreposicao = null,
+            string? srsProjeto = null)
         {
             ArgumentNullException.ThrowIfNull(parametros);
             if (string.IsNullOrWhiteSpace(caminhoArquivoEntrada) || !File.Exists(caminhoArquivoEntrada))
@@ -67,15 +70,45 @@ namespace GeoNex.Services
 
                     Ogr.RegisterAll();
 
-                    // 1. Carregar Feições de Entrada e SRS
+                    // 1. Carregar Feições de Entrada e SRS (mesclando edições e novas feições em memória)
                     var (feicoesEntrada, srsEntrada) = CarregarFeicoesDeShapefile(
                         caminhoArquivoEntrada,
-                        parametros.ApenasSelecionadasEntrada ? selecionadosEntrada : null);
+                        parametros.ApenasSelecionadasEntrada ? selecionadosEntrada : null,
+                        targetSrs: null,
+                        edicoesEmMemoria: edicoesEmMemoriaEntrada,
+                        srsProjeto: srsProjeto);
 
                     if (feicoesEntrada.Count == 0)
                     {
                         return new GeoprocessingResult(false, 0, null, "A camada de entrada não possui feições válidas para processamento.");
                     }
+
+                    // Se a camada de entrada estiver em CRS geográfico (graus, ex: EPSG:4326 ou EPSG:4674),
+                    // reprojetamos temporariamente para UTM métrico local para que distâncias/áreas em metros
+                    // funcionem sem distorção ou offset.
+                    using SpatialReference? srsProcessamento = (srsEntrada != null && srsEntrada.IsGeographic() == 1)
+                        ? CriarSrsUtmLocal(feicoesEntrada)
+                        : null;
+                    SpatialReference? srsAlvoOperacao = srsProcessamento ?? srsEntrada;
+                    using CoordinateTransformation? toMetric = (srsEntrada != null && srsProcessamento != null)
+                        ? new CoordinateTransformation(srsEntrada, srsProcessamento)
+                        : null;
+                    using CoordinateTransformation? fromMetric = (srsEntrada != null && srsProcessamento != null)
+                        ? new CoordinateTransformation(srsProcessamento, srsEntrada)
+                        : null;
+
+                    if (toMetric != null)
+                    {
+                        feicoesEntrada = ReprojetarListaFeicoes(feicoesEntrada, toMetric);
+                    }
+
+                    (List<IFeature> Feicoes, SpatialReference? Srs) CarregarCamadaSecundaria() =>
+                        CarregarFeicoesDeShapefile(
+                            caminhoArquivoSobreposicao!,
+                            parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null,
+                            srsAlvoOperacao,
+                            edicoesEmMemoriaSobreposicao,
+                            srsProjeto);
 
                     List<IFeature> feicoesResultado;
 
@@ -88,10 +121,7 @@ namespace GeoNex.Services
                                 return new GeoprocessingResult(false, 0, null, "A camada de máscara de recorte não foi especificada ou não existe.");
 
                             progresso?.Report(new GeoprocessingProgress(0.15, "Carregando camada de máscara de recorte...", 0, feicoesEntrada.Count));
-                            var (feicoesMascara, srsMascara) = CarregarFeicoesDeShapefile(
-                                caminhoArquivoSobreposicao,
-                                parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null,
-                                srsEntrada);
+                            var (feicoesMascara, srsMascara) = CarregarCamadaSecundaria();
 
                             if (feicoesMascara.Count == 0)
                                 return new GeoprocessingResult(false, 0, null, "A camada de máscara de recorte não contém feições válidas.");
@@ -113,10 +143,7 @@ namespace GeoNex.Services
                                 return new GeoprocessingResult(false, 0, null, "A segunda camada para intersecção não foi especificada.");
 
                             progresso?.Report(new GeoprocessingProgress(0.15, "Carregando segunda camada para intersecção...", 0, feicoesEntrada.Count));
-                            var (feicoesB, _) = CarregarFeicoesDeShapefile(
-                                caminhoArquivoSobreposicao,
-                                parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null,
-                                srsEntrada);
+                            var (feicoesB, _) = CarregarCamadaSecundaria();
 
                             if (feicoesB.Count == 0)
                                 return new GeoprocessingResult(false, 0, null, "A segunda camada não contém feições válidas.");
@@ -131,10 +158,7 @@ namespace GeoNex.Services
                                 return new GeoprocessingResult(false, 0, null, "A camada de subtração não foi especificada.");
 
                             progresso?.Report(new GeoprocessingProgress(0.15, "Carregando camada de subtração...", 0, feicoesEntrada.Count));
-                            var (feicoesSub, _) = CarregarFeicoesDeShapefile(
-                                caminhoArquivoSobreposicao,
-                                parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null,
-                                srsEntrada);
+                            var (feicoesSub, _) = CarregarCamadaSecundaria();
 
                             var geomsSub = feicoesSub.Select(f => f.Geometry).Where(g => g != null && !g.IsEmpty).ToList();
                             var mascaraSubtracao = CascadedPolygonUnion.Union(geomsSub);
@@ -196,7 +220,7 @@ namespace GeoNex.Services
                             Geometry? mascara = null;
                             if (!string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) && File.Exists(caminhoArquivoSobreposicao))
                             {
-                                var (fMasc, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                                var (fMasc, _) = CarregarCamadaSecundaria();
                                 mascara = CascadedPolygonUnion.Union(fMasc.Select(f => f.Geometry).Where(g => g != null).ToList());
                             }
                             feicoesResultado = ProximityTessellationAlgorithms.ExecutarVoronoi(
@@ -235,7 +259,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A segunda camada é obrigatória para Diferença Simétrica.");
 
-                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                            var (feicoesB, _) = CarregarCamadaSecundaria();
                             feicoesResultado = AdvancedOverlayAlgorithms.ExecutarDiferencaSimetrica(feicoesEntrada, feicoesB, progresso, ct);
                             break;
                         }
@@ -245,7 +269,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A segunda camada é obrigatória para União Plena.");
 
-                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                            var (feicoesB, _) = CarregarCamadaSecundaria();
                             feicoesResultado = AdvancedOverlayAlgorithms.ExecutarUniaoPlena(feicoesEntrada, feicoesB, progresso, ct);
                             break;
                         }
@@ -255,7 +279,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada prioritária (patch) é obrigatória para Atualização.");
 
-                            var (feicoesB, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                            var (feicoesB, _) = CarregarCamadaSecundaria();
                             feicoesResultado = AdvancedOverlayAlgorithms.ExecutarAtualizacaoCamadas(feicoesEntrada, feicoesB, progresso, ct);
                             break;
                         }
@@ -348,7 +372,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de linhas de corte é obrigatória.");
 
-                            var (feicoesLinhas, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                            var (feicoesLinhas, _) = CarregarCamadaSecundaria();
                             feicoesResultado = LinearSegmentationAlgorithms.ExecutarParticaoPoligonosPorLinhas(feicoesEntrada, feicoesLinhas, progresso, ct);
                             break;
                         }
@@ -398,7 +422,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de pontos é obrigatória para contagem zonal.");
 
-                            var (feicoesPontos, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                            var (feicoesPontos, _) = CarregarCamadaSecundaria();
                             feicoesResultado = ZonalStatisticsAlgorithms.ExecutarContagemPontosPoligono(
                                 feicoesEntrada,
                                 feicoesPontos,
@@ -413,7 +437,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de linhas é obrigatória para densidade linear.");
 
-                            var (feicoesLinhas, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                            var (feicoesLinhas, _) = CarregarCamadaSecundaria();
                             feicoesResultado = ZonalStatisticsAlgorithms.ExecutarDensidadeLinearPoligonos(
                                 feicoesEntrada,
                                 feicoesLinhas,
@@ -427,7 +451,7 @@ namespace GeoNex.Services
                             if (string.IsNullOrWhiteSpace(caminhoArquivoSobreposicao) || !File.Exists(caminhoArquivoSobreposicao))
                                 return new GeoprocessingResult(false, 0, null, "A camada de junção é obrigatória para Spatial Join.");
 
-                            var (feicoesJuncao, _) = CarregarFeicoesDeShapefile(caminhoArquivoSobreposicao, parametros.ApenasSelecionadasSobreposicao ? selecionadosSobreposicao : null, srsEntrada);
+                            var (feicoesJuncao, _) = CarregarCamadaSecundaria();
                             feicoesResultado = ZonalStatisticsAlgorithms.ExecutarSpatialJoinAvancado(
                                 feicoesEntrada,
                                 feicoesJuncao,
@@ -445,6 +469,11 @@ namespace GeoNex.Services
                     if (feicoesResultado.Count == 0)
                     {
                         return new GeoprocessingResult(false, 0, null, "A operação foi concluída, mas nenhuma feição resultante foi gerada (resultado vazio).");
+                    }
+
+                    if (fromMetric != null)
+                    {
+                        feicoesResultado = ReprojetarListaFeicoes(feicoesResultado, fromMetric);
                     }
 
                     // 3. Persistência em Shapefile
@@ -475,10 +504,52 @@ namespace GeoNex.Services
         /// <summary>
         /// Carrega feições de um arquivo Shapefile com suporte a reprojeção automática e filtro de IDs.
         /// </summary>
+        private static SpatialReference? CriarSrsUtmLocal(IReadOnlyList<IFeature> feicoes)
+        {
+            if (feicoes.Count == 0) return null;
+            var env = new Envelope();
+            foreach (var f in feicoes)
+            {
+                if (f.Geometry != null && !f.Geometry.IsEmpty)
+                    env.ExpandToInclude(f.Geometry.EnvelopeInternal);
+            }
+            if (env.IsNull) return null;
+            double lon = (env.MinX + env.MaxX) * 0.5;
+            double lat = (env.MinY + env.MaxY) * 0.5;
+            if (double.IsNaN(lon) || double.IsNaN(lat) || Math.Abs(lon) > 180.0 || Math.Abs(lat) > 90.0)
+                return null;
+            int zone = Math.Clamp((int)Math.Floor((lon + 180.0) / 6.0) + 1, 1, 60);
+            int epsg = lat < 0 ? 32700 + zone : 32600 + zone;
+            return SrsFactory.FromEPSG(epsg);
+        }
+
+        private static List<IFeature> ReprojetarListaFeicoes(IReadOnlyList<IFeature> feicoes, CoordinateTransformation transform)
+        {
+            var wktWriter = new WKTWriter();
+            var wktReader = new WKTReader();
+            var resultado = new List<IFeature>(feicoes.Count);
+            foreach (var f in feicoes)
+            {
+                if (f.Geometry == null || f.Geometry.IsEmpty) continue;
+                string wkt = wktWriter.Write(f.Geometry);
+                using var ogrGeom = OgrGeometry.CreateFromWkt(wkt);
+                if (ogrGeom == null || ogrGeom.IsEmpty()) continue;
+                ogrGeom.Transform(transform);
+                ogrGeom.ExportToWkt(out string wktOut);
+                if (string.IsNullOrWhiteSpace(wktOut)) continue;
+                var ntsOut = wktReader.Read(wktOut);
+                if (ntsOut == null || ntsOut.IsEmpty) continue;
+                resultado.Add(new NtsFeature(ntsOut, f.Attributes ?? new AttributesTable()));
+            }
+            return resultado;
+        }
+
         public static (List<IFeature> Feicoes, SpatialReference? Srs) CarregarFeicoesDeShapefile(
             string caminhoShp,
             HashSet<long>? idsSelecionados = null,
-            SpatialReference? targetSrs = null)
+            SpatialReference? targetSrs = null,
+            IReadOnlyList<IFeature>? edicoesEmMemoria = null,
+            string? srsProjeto = null)
         {
             var feicoes = new List<IFeature>();
             using var ds = Ogr.Open(caminhoShp, 0);
@@ -488,8 +559,22 @@ namespace GeoNex.Services
             if (layer == null) return (feicoes, null);
 
             var srs = layer.GetSpatialRef();
-            CoordinateTransformation? transform = null;
+            if (srs != null)
+            {
+                srs.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+            }
+            else
+            {
+                string prjPath = Path.ChangeExtension(caminhoShp, ".prj");
+                if (File.Exists(prjPath))
+                {
+                    string wktPrj = File.ReadAllText(prjPath);
+                    if (!string.IsNullOrWhiteSpace(wktPrj))
+                        srs = SrsFactory.FromUserInput(wktPrj);
+                }
+            }
 
+            CoordinateTransformation? transform = null;
             if (srs != null && targetSrs != null && srs.IsSame(targetSrs, null) != 1)
             {
                 srs.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
@@ -497,7 +582,52 @@ namespace GeoNex.Services
                 transform = new CoordinateTransformation(srs, targetSrs);
             }
 
+            var srsEfetivo = targetSrs ?? srs;
+            using var srsProjObj = !string.IsNullOrWhiteSpace(srsProjeto)
+                ? SrsFactory.FromUserInput(srsProjeto)
+                : null;
+            using var transformProjToEffective = (srsProjObj != null && srsEfetivo != null && srsProjObj.IsSame(srsEfetivo, null) != 1)
+                ? new CoordinateTransformation(srsProjObj, srsEfetivo)
+                : null;
+
+            var idsDeletadosEmMemoria = new HashSet<long>();
+            var edicoesExistentesPorFid = new Dictionary<long, IFeature>();
+            var novasFeicoesEmMemoria = new List<(long TempFid, IFeature Feature)>();
+
+            if (edicoesEmMemoria is { Count: > 0 })
+            {
+                long fallbackTempFid = -1;
+                foreach (var pending in edicoesEmMemoria)
+                {
+                    if (pending is null || VectorEditPersistenceService.IsPersisted(pending))
+                        continue;
+
+                    if (VectorEditPersistenceService.IsDeletionPending(pending))
+                    {
+                        if (VectorEditPersistenceService.TryGetExistingFeatureId(pending, out long delFid) && delFid >= 0)
+                            idsDeletadosEmMemoria.Add(delFid);
+                        continue;
+                    }
+
+                    if (VectorEditPersistenceService.IsNewFeature(pending))
+                    {
+                        long tempFid = fallbackTempFid--;
+                        if (pending.Attributes != null && pending.Attributes.Exists("_SYS_TEMP_FID") &&
+                            long.TryParse(pending.Attributes["_SYS_TEMP_FID"]?.ToString(), out long parsedTempFid))
+                        {
+                            tempFid = parsedTempFid;
+                        }
+                        novasFeicoesEmMemoria.Add((tempFid, pending));
+                    }
+                    else if (VectorEditPersistenceService.TryGetExistingFeatureId(pending, out long editFid) && editFid >= 0)
+                    {
+                        edicoesExistentesPorFid[editFid] = pending;
+                    }
+                }
+            }
+
             var wktReader = new WKTReader();
+            var wktWriter = new WKTWriter();
             using var defn = layer.GetLayerDefn();
             int fieldCount = defn.GetFieldCount();
             layer.ResetReading();
@@ -508,8 +638,35 @@ namespace GeoNex.Services
                 if (ogrFeature == null) break;
 
                 long fid = ogrFeature.GetFID();
+                if (idsDeletadosEmMemoria.Contains(fid))
+                    continue;
                 if (idsSelecionados != null && !idsSelecionados.Contains(fid))
                     continue;
+
+                if (edicoesExistentesPorFid.TryGetValue(fid, out var pendingEdit) &&
+                    pendingEdit.Geometry != null &&
+                    !pendingEdit.Geometry.IsEmpty)
+                {
+                    var geomEdit = pendingEdit.Geometry.Copy();
+                    if (transformProjToEffective != null)
+                    {
+                        string wktIn = wktWriter.Write(geomEdit);
+                        using var ogrIn = OgrGeometry.CreateFromWkt(wktIn);
+                        if (ogrIn != null && !ogrIn.IsEmpty())
+                        {
+                            ogrIn.Transform(transformProjToEffective);
+                            ogrIn.ExportToWkt(out string wktOut);
+                            if (!string.IsNullOrWhiteSpace(wktOut))
+                                geomEdit = wktReader.Read(wktOut);
+                        }
+                    }
+
+                    if (geomEdit != null && !geomEdit.IsEmpty)
+                    {
+                        feicoes.Add(new NtsFeature(geomEdit, CopiarAtributosLimpos(pendingEdit.Attributes)));
+                        continue;
+                    }
+                }
 
                 using var ogrGeom = ogrFeature.GetGeometryRef()?.Clone();
                 if (ogrGeom == null || ogrGeom.IsEmpty()) continue;
@@ -551,8 +708,51 @@ namespace GeoNex.Services
                 feicoes.Add(new NtsFeature(ntsGeom, attrs));
             }
 
+            bool temSelecaoNegativa = idsSelecionados != null && idsSelecionados.Any(id => id < 0);
+            foreach (var (tempFid, pendingNew) in novasFeicoesEmMemoria)
+            {
+                if (idsSelecionados != null && !idsSelecionados.Contains(tempFid) && !temSelecaoNegativa)
+                    continue;
+                if (pendingNew.Geometry == null || pendingNew.Geometry.IsEmpty)
+                    continue;
+
+                var geomNew = pendingNew.Geometry.Copy();
+                if (transformProjToEffective != null)
+                {
+                    string wktIn = wktWriter.Write(geomNew);
+                    using var ogrIn = OgrGeometry.CreateFromWkt(wktIn);
+                    if (ogrIn != null && !ogrIn.IsEmpty())
+                    {
+                        ogrIn.Transform(transformProjToEffective);
+                        ogrIn.ExportToWkt(out string wktOut);
+                        if (!string.IsNullOrWhiteSpace(wktOut))
+                            geomNew = wktReader.Read(wktOut);
+                    }
+                }
+
+                if (geomNew != null && !geomNew.IsEmpty)
+                {
+                    feicoes.Add(new NtsFeature(geomNew, CopiarAtributosLimpos(pendingNew.Attributes)));
+                }
+            }
+
             transform?.Dispose();
             return (feicoes, srs);
+        }
+
+        private static AttributesTable CopiarAtributosLimpos(IAttributesTable? source)
+        {
+            var attrs = new AttributesTable();
+            if (source == null) return attrs;
+            foreach (var name in source.GetNames())
+            {
+                if (string.IsNullOrWhiteSpace(name) ||
+                    name.StartsWith("_SYS_", StringComparison.OrdinalIgnoreCase) ||
+                    name.StartsWith("__geonex_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                attrs.Add(name, source[name]);
+            }
+            return attrs;
         }
 
         /// <summary>

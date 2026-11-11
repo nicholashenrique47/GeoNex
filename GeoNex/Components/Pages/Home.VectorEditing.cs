@@ -123,11 +123,11 @@ public partial class Home
         _selectedVectorVertexDisplayIndex >= 0 && _selectedVectorVertexDisplayIndex < _selectedVectorVertices.Count &&
         _vectorVertexCoordinateX.HasValue && _vectorVertexCoordinateY.HasValue;
     private bool CanRepairSelectedVectorGeometry => !_vectorEditOperationInProgress && SelectedVectorFeatureState is
-        { IsDeleted: false, IsNewFeature: false } && _vectorGeometryValidationMessage is not null;
+        { IsDeleted: false } && _vectorGeometryValidationMessage is not null;
     private bool CanCutSelectedVectorGeometry => !_vectorEditOperationInProgress && SelectedVectorFeatureState is
         { IsDeleted: false, Current: Polygon or MultiPolygon or LineString or MultiLineString };
     private bool CanEditSelectedPolygonRings => !_vectorEditOperationInProgress && SelectedVectorFeatureState is
-        { IsDeleted: false, IsNewFeature: false, Current: Polygon or MultiPolygon };
+        { IsDeleted: false, Current: Polygon or MultiPolygon };
     private bool VetorizacaoAvancadaAtiva => _modoAvancadoVetorizacao &&
         (FerramentaDesenhoAtiva || _ferramentaAtiva == ModoFerramenta.EdicaoVertice);
     private int NumeroEncaixesEdicaoAtivos =>
@@ -1360,7 +1360,7 @@ public partial class Home
 
     private async Task RepararGeometriaSelecionadaAsync()
     {
-        if (SelectedVectorFeatureState is not { IsDeleted: false, IsNewFeature: false } state ||
+        if (SelectedVectorFeatureState is not { IsDeleted: false } state ||
             _vectorGeometryValidationMessage is null)
             return;
 
@@ -1399,8 +1399,11 @@ public partial class Home
 
             if (repairedParts.Length > 1)
             {
-                AttributesTable sourceAttributes = VectorGeometryEditingService.ReadAttributes(
-                    layer.CaminhoArquivo, state.Key.SourceFeatureId);
+                IAttributesTable sourceAttributes = state.PendingFeature?.Attributes is { Count: > 0 } existingAttrs
+                    ? existingAttrs
+                    : state.IsNewFeature
+                        ? new AttributesTable()
+                        : VectorGeometryEditingService.ReadAttributes(layer.CaminhoArquivo, state.Key.SourceFeatureId);
                 foreach (Geometry part in repairedParts.Skip(1))
                 {
                     var attributes = new AttributesTable();
