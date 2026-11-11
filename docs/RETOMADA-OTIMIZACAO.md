@@ -49,3 +49,11 @@ Todos os testes foram executados na compilação `Release` (`net10.0` / `win-x64
 - `--raster-contracts` & `--raster-frame-painter-contracts`: **PASS** (192 casos, fidelidade visual delta <= 1)
 - `--online-transport-contracts` & `--online-progressive-contracts`: **PASS** (zero requisições HTTP redundantes no cache revisitado)
 - `--frame-encoding-contracts`: **PASS**
+
+---
+
+## 4. Binário Executável Gerado
+
+- **Caminho do Executável**: [`GeoNex/bin/Release/net10.0-windows10.0.19041.0/win-x64/GeoNex.exe`](file:///C:/Users/Windows%2010/Desktop/GeoNex-main/GeoNex/bin/Release/net10.0-windows10.0.19041.0/win-x64/GeoNex.exe)
+- **Modo**: `Release` (WinUI / .NET MAUI unpackaged, win-x64)
+- **Status da Compilação**: 0 Erros
