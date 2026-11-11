@@ -424,7 +424,8 @@ public class ProjetoService
                 srsOrigem = System.IO.File.ReadAllText(caminhoPrj);
             }
 
-            if (!mapService.OffsetMundoDefinido || mapService.HasOnlyOnlineBasemap)
+            bool extValido = (ext.MaxX - ext.MinX) > 1e-9 || (ext.MaxY - ext.MinY) > 1e-9 || Math.Abs(ext.MinX) > 1e-9 || Math.Abs(ext.MinY) > 1e-9;
+            if ((!mapService.OffsetMundoDefinido || mapService.HasOnlyOnlineBasemap) && extValido)
             {
                 mapService.DefinirOffset(ext.MinX, ext.MaxX, ext.MinY, ext.MaxY);
                 // O primeiro layer define o Mestre de Projeção (Project CRS)
