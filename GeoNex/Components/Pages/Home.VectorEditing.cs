@@ -68,7 +68,7 @@ public partial class Home
     private double? _vectorVertexCoordinateY;
     private bool _insertVectorVertexMode;
     private bool _snapVectorEditVertices = true;
-    private bool _snapVectorEditEdges;
+    private bool _snapVectorEditEdges = true;
     private bool _snapVectorEditMidpoints;
     private bool _snapVectorEditIntersections;
     private bool _propagateSelectedSharedVertices;
@@ -544,10 +544,13 @@ public partial class Home
             _draggedVectorVertexOriginal = new Coordinate(draggedVertex.X, draggedVertex.Y);
             _geometryAtDragStart = state.Current;
             _geometryDragPreview = state.Current;
-            JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditDragging", true);
-            JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.iniciarArrasteVerticeEdicao",
-                nearest, pointerStart?.X ?? draggedVertex.X - MapService.OffsetMundoX,
-                pointerStart?.Y ?? MapService.OffsetMundoY - draggedVertex.Y);
+            if (!FerramentaEdicaoVetorialNoCliente())
+            {
+                JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditDragging", true);
+                JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.iniciarArrasteVerticeEdicao",
+                    nearest, pointerStart?.X ?? draggedVertex.X - MapService.OffsetMundoX,
+                    pointerStart?.Y ?? MapService.OffsetMundoY - draggedVertex.Y);
+            }
             MapService.DefinirIndiceVerticeEdicao(nearest);
         }
         else if (_vectorMoveFeatureMode && _draggedVectorVertex is null && !_draggingWholeVectorFeature &&
@@ -597,7 +600,12 @@ public partial class Home
             }
             return;
         }
-        if (_draggedVectorVertex is not { } address || _geometryAtDragStart is not { } origin) return;
+        if (_draggedVectorVertex is not { } address || _geometryAtDragStart is not { } origin)
+        {
+            if (_vectorEditPointerPressed && !_vectorMoveFeatureMode && _selectedVectorVertices.Count < 10_000)
+                _ = AjustarCursorSnapEdicao(cursor, matrix);
+            return;
+        }
 
         try
         {
@@ -634,13 +642,54 @@ public partial class Home
     }
 
     [JSInvokable]
-    public async Task FinalizarArrasteVerticeEdicaoAsync(double clientX, double clientY)
+    public async Task FinalizarArrasteVerticeEdicaoAsync(
+        double clientX, double clientY, int clientDraggedVertexIndex = -1,
+        double? startImageX = null, double? startImageY = null)
     {
         _vectorEditPointerPressed = false;
         _vectorEditPlacementArmed = false;
         _vectorEditCommitOnRelease = false;
         JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditPlacementArmed", false);
         JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditDragging", false);
+        if (_selectedVectorFeatureForEdit is { } activeKey &&
+            _vectorFeatureEditStates.TryGetValue(activeKey, out var activeState) &&
+            !_draggingWholeVectorFeature && _draggedVectorVertex is null)
+        {
+            if (!_vectorMoveFeatureMode &&
+                clientDraggedVertexIndex >= 0 && clientDraggedVertexIndex < _selectedVectorVertices.Count)
+            {
+                VectorGeometryEditingService.Vertex draggedVertex = _selectedVectorVertices[clientDraggedVertexIndex];
+                _draggedVectorVertexDisplayIndex = clientDraggedVertexIndex;
+                _draggedVectorVertex = draggedVertex.Address;
+                if (!_selectedVectorVertexAddresses.Contains(draggedVertex.Address))
+                {
+                    _selectedVectorVertexAddresses.Clear();
+                    _selectedVectorVertexAddresses.Add(draggedVertex.Address);
+                }
+                _draggedVectorVertexAddresses = _selectedVectorVertexAddresses.ToArray();
+                _draggedVectorVertexOriginal = new Coordinate(draggedVertex.X, draggedVertex.Y);
+                _geometryAtDragStart = activeState.Current;
+                _geometryDragPreview = activeState.Current;
+            }
+            else if (_vectorMoveFeatureMode && startImageX is { } sx && startImageY is { } sy)
+            {
+                double[]? startDisplayedMatrix = null;
+                try
+                {
+                    startDisplayedMatrix = await JSRuntime.InvokeAsync<double[]>(
+                        "GeoNexGraphics.obterMatrizApresentada", Array.Empty<object?>());
+                }
+                catch { }
+                SKMatrix startMatrix = UsarMatrizApresentada(startDisplayedMatrix, ObterMatrizMatematica());
+                if (TentarMapearPontoTelaParaLocal(sx, sy, startDisplayedMatrix, startMatrix, out SKPoint mappedFeatureStart))
+                {
+                    _draggingWholeVectorFeature = true;
+                    _wholeFeatureDragStart = mappedFeatureStart;
+                    _geometryAtDragStart = activeState.Current;
+                    _geometryDragPreview = activeState.Current;
+                }
+            }
+        }
         if ((!_draggingWholeVectorFeature && _draggedVectorVertex is null) || _geometryAtDragStart is not { } before ||
             _selectedVectorFeatureForEdit is not { } key || !_vectorFeatureEditStates.TryGetValue(key, out var state))
         {
@@ -654,6 +703,7 @@ public partial class Home
         Geometry? after = _geometryDragPreview;
         double? sharedVertexDeltaX = null;
         double? sharedVertexDeltaY = null;
+        bool geometryPublished = false;
         try
         {
             try
@@ -737,6 +787,7 @@ public partial class Home
                     {
                         await AplicarAcoesGeometriaAsync(actions, forward: true);
                         RegistrarAcoesEdicao(actions);
+                        geometryPublished = true;
                         _vectorEditMessage = $"Nó compartilhado movido em {actions.Count} feições; use Desfazer para reverter o grupo.";
                         return;
                     }
@@ -745,6 +796,7 @@ public partial class Home
 
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(key, before, after);
+            geometryPublished = true;
             _vectorEditMessage = $"Geometria da feição {key.FeatureId} alterada · salve as edições para gravar na fonte.";
         }
         catch (Exception ex)
@@ -755,9 +807,109 @@ public partial class Home
         {
             _vectorEditOperationInProgress = false;
             LimparEstadoArrasteVertice();
-            if (_selectedVectorFeatureForEdit == key && _vectorFeatureEditStates.TryGetValue(key, out var selected))
+            if (!geometryPublished && _selectedVectorFeatureForEdit == key && _vectorFeatureEditStates.TryGetValue(key, out var selected))
                 AtualizarOverlayEdicaoVetorial(selected.Current, -1);
-            SolicitarNovoFrame();
+            if (geometryPublished)
+                SolicitarNovoFrame(interacaoRapida: true);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public async Task InserirEMoverVerticeArestaAsync(
+        double edgeImageX,
+        double edgeImageY,
+        double releaseClientX,
+        double releaseClientY,
+        bool moverParaDestino,
+        double[]? displayedMatrix = null)
+    {
+        _vectorEditPointerPressed = false;
+        _vectorEditPlacementArmed = false;
+        _vectorEditCommitOnRelease = false;
+        JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditPlacementArmed", false);
+        JSRuntime.InvokeVoidAsyncSafe("mapEngine.setVertexEditDragging", false);
+        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { IsDeleted: false } state)
+        {
+            LimparEstadoArrasteVertice();
+            return;
+        }
+
+        SKMatrix matrix = UsarMatrizApresentada(displayedMatrix, ObterMatrizMatematica());
+        if (!TentarMapearPontoTelaParaLocal(edgeImageX, edgeImageY, displayedMatrix, matrix, out SKPoint localEdgePoint))
+        {
+            LimparEstadoArrasteVertice();
+            return;
+        }
+
+        double insertWorldX = localEdgePoint.X + MapService.OffsetMundoX;
+        double insertWorldY = MapService.OffsetMundoY - localEdgePoint.Y;
+        double pixelScale = Math.Max(0.0001, Math.Abs(matrix.ScaleX));
+
+        if (!moverParaDestino)
+        {
+            await InserirVerticeSelecionadoAsync(insertWorldX, insertWorldY, pixelScale, armarReposicionamento: false);
+            return;
+        }
+
+        Geometry before = state.Current;
+        _vectorEditOperationInProgress = true;
+        _vectorEditMessage = "Inserindo e posicionando novo vértice…";
+        bool geometryPublished = false;
+        try
+        {
+            double tolerance = 14d / pixelScale;
+            VectorGeometryEditingService.VertexInsertion insertion =
+                await Task.Run(() => VectorGeometryEditingService.InsertVertexAtPoint(before, insertWorldX, insertWorldY, tolerance));
+            Geometry after = insertion.Geometry;
+            try
+            {
+                ImagePointerPoint pointer = await JSRuntime.InvokeAsync<ImagePointerPoint>(
+                    "mapEngine.obterPontoImagem", CancellationToken.None, new object?[] { releaseClientX, releaseClientY });
+                if (TentarMapearPontoTelaParaLocal(pointer.x, pointer.y, displayedMatrix, matrix, out SKPoint finalLocal))
+                {
+                    finalLocal = AjustarCursorSnapEdicao(finalLocal, matrix);
+                    double targetWorldX = finalLocal.X + MapService.OffsetMundoX;
+                    double targetWorldY = MapService.OffsetMundoY - finalLocal.Y;
+                    after = await Task.Run(() =>
+                        VectorGeometryEditingService.MoveVertex(insertion.Geometry, insertion.Address, targetWorldX, targetWorldY));
+                }
+            }
+            catch (Exception ex) when (ex is Microsoft.JSInterop.JSException or InvalidOperationException)
+            {
+            }
+
+            await PublicarGeometriaEdicaoAsync(state, after);
+            RegistrarAcaoGeometria(state.Key, before, after);
+            geometryPublished = true;
+            int displayIndex = -1;
+            for (int i = 0; i < _selectedVectorVertices.Count; i++)
+            {
+                if (_selectedVectorVertices[i].Address == insertion.Address)
+                {
+                    displayIndex = i;
+                    break;
+                }
+            }
+            if (displayIndex >= 0)
+            {
+                SelecionarVerticeEdicao(displayIndex, [insertion.Address]);
+            }
+            _hoveredVectorVertexDisplayIndex = displayIndex;
+            _vectorEditMessage = $"Novo vértice inserido e posicionado na feição {state.Key.SourceFeatureId} · salve para gravar na fonte.";
+        }
+        catch (Exception ex)
+        {
+            _vectorEditMessage = $"Não foi possível inserir o vértice: {MensagemPostgisSegura(ex)}";
+        }
+        finally
+        {
+            _vectorEditOperationInProgress = false;
+            LimparEstadoArrasteVertice();
+            if (!geometryPublished && _selectedVectorFeatureForEdit == state.Key)
+                AtualizarOverlayEdicaoVetorial(state.Current, -1);
+            if (geometryPublished)
+                SolicitarNovoFrame(interacaoRapida: true);
             await InvokeAsync(StateHasChanged);
         }
     }

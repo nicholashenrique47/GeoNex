@@ -1545,15 +1545,13 @@ window.mapEngine = {
                 this.atualizarSelecaoOverlay([...this.featureSelectionPolygon, { x: e.clientX, y: e.clientY }]);
             if (!isPanPointer && !isTouchPan) return;
         }
-        if (this.ferramentaAtual === 'EdicaoVertice' && !this.featureSelectionMode && this.pointerIds.has(e.pointerId) &&
-            !this.vertexEditDragging && !this.vertexEditPlacementArmed && !this.vertexMoveFeatureMode) {
-            const distance = Math.hypot(e.clientX - this.startX, e.clientY - this.startY);
-            if (distance > 10) {
-                this.vertexSelectionGesture = true;
-                this.atualizarSelecaoOverlay([
-                    { x: this.startX, y: this.startY }, { x: e.clientX, y: this.startY },
-                    { x: e.clientX, y: e.clientY }, { x: this.startX, y: e.clientY }
-                ]);
+        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexEdgeInsertGesture &&
+            this.vertexEdgeInsertGesture.pointerId === e.pointerId) {
+            const distance = Math.hypot(
+                e.clientX - this.vertexEdgeInsertGesture.startClientX,
+                e.clientY - this.vertexEdgeInsertGesture.startClientY);
+            if (distance > 3) {
+                this.vertexEdgeInsertGesture.dragged = true;
             }
         }
         if (e.pointerType === 'touch' && this.activeTouches.has(e.pointerId)) {
@@ -1707,9 +1705,38 @@ window.mapEngine = {
         this.startY = e.clientY;
         this.clickStartTime = performance.now();
         this.vertexSelectionGesture = false;
+        this.vertexEdgeInsertGesture = null;
+        this.vertexDraggedIndex = -1;
         this.vertexEditPointerStart = this.ferramentaAtual === 'EdicaoVertice'
             ? this.obterPontoImagem(e.clientX, e.clientY)
             : null;
+        if (this.ferramentaAtual === 'EdicaoVertice' && !this.featureSelectionMode &&
+            !this.spaceKeyPressed && e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey &&
+            this.vertexEditPointerStart && window.GeoNexGraphics) {
+            if (!this.vertexMoveFeatureMode) {
+                const hit = window.GeoNexGraphics.obterAlvoEdicaoNoPonto(
+                    this.vertexEditPointerStart.x, this.vertexEditPointerStart.y);
+                if (hit?.type === 'vertex') {
+                    this.vertexEditDragging = true;
+                    this.vertexDraggedIndex = hit.vertexIndex;
+                    window.GeoNexGraphics.iniciarArrasteVerticeEdicao(hit.vertexIndex, hit.localX, hit.localY);
+                } else if (hit?.type === 'edge') {
+                    this.vertexEdgeInsertGesture = {
+                        pointerId: e.pointerId,
+                        startClientX: e.clientX,
+                        startClientY: e.clientY,
+                        edgeImageX: hit.imageX,
+                        edgeImageY: hit.imageY,
+                        localX: hit.localX,
+                        localY: hit.localY,
+                        vA: hit.vA,
+                        vB: hit.vB,
+                        dragged: false
+                    };
+                    window.GeoNexGraphics.iniciarArrasteInsercaoAresta(hit.localX, hit.localY, hit.vA, hit.vB);
+                }
+            }
+        }
 
         if (e.pointerType === 'touch') {
             this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1799,10 +1826,13 @@ window.mapEngine = {
             this.identifyGesture = null;
             this.featureSelectionGesture = null;
             this.vertexSelectionGesture = false;
+            this.vertexEdgeInsertGesture = null;
+            this.vertexDraggedIndex = -1;
             this.limparSelecaoOverlay();
             this.vertexEditDragging = false;
             this.vertexEditPlacementArmed = false;
             this.vertexEditPointerStart = null;
+            if (window.GeoNexGraphics) window.GeoNexGraphics.finalizarArrasteEdicaoVetorial();
             this.isDragging = false;
             this.panCandidate = false;
             this.panPointerId = null;
@@ -1841,19 +1871,51 @@ window.mapEngine = {
             }
         }
 
-        if (this.ferramentaAtual === 'EdicaoVertice' && (this.vertexEditDragging || this.vertexEditPlacementArmed) && e.button === 0) {
+        if (this.ferramentaAtual === 'EdicaoVertice' && this.vertexEdgeInsertGesture && e.button === 0) {
+            const gesture = this.vertexEdgeInsertGesture;
+            this.vertexEdgeInsertGesture = null;
             this.vertexEditDragging = false;
             this.vertexEditPlacementArmed = false;
             this.vertexSelectionGesture = false;
+            this.vertexDraggedIndex = -1;
             this.limparSelecaoOverlay();
             this.vertexEditPointerStart = null;
             this.resetToolPointer();
+            if (window.GeoNexGraphics) window.GeoNexGraphics.finalizarArrasteEdicaoVetorial();
+            const moved = gesture.dragged ||
+                Math.hypot(e.clientX - gesture.startClientX, e.clientY - gesture.startClientY) > 3;
+            const displayedMatrix = window.GeoNexGraphics ? window.GeoNexGraphics.obterMatrizApresentada() : null;
             if (this.dotNetHelper) {
-                this.dotNetHelper.invokeMethodAsync('FinalizarArrasteVerticeEdicaoAsync', e.clientX, e.clientY)
-                    .catch(err => console.warn('Erro ao finalizar arraste vertice:', err));
+                this.dotNetHelper.invokeMethodAsync('InserirEMoverVerticeArestaAsync',
+                    gesture.edgeImageX, gesture.edgeImageY, e.clientX, e.clientY, moved, displayedMatrix)
+                    .catch(err => console.warn('Erro ao inserir vertice na aresta:', err));
             }
             this.scheduleRender();
             return;
+        }
+
+        if (this.ferramentaAtual === 'EdicaoVertice' && (this.vertexEditDragging || this.vertexEditPlacementArmed) && e.button === 0) {
+            const dragDistance = Math.hypot(e.clientX - this.startX, e.clientY - this.startY);
+            const wasClickOnVertex = !this.vertexEditPlacementArmed && !this.vertexMoveFeatureMode && dragDistance <= 3;
+            const draggedIndex = Number.isInteger(this.vertexDraggedIndex) ? this.vertexDraggedIndex : -1;
+            const startPoint = this.vertexEditPointerStart;
+            this.vertexEditDragging = false;
+            this.vertexEditPlacementArmed = false;
+            this.vertexSelectionGesture = false;
+            this.vertexDraggedIndex = -1;
+            this.limparSelecaoOverlay();
+            if (window.GeoNexGraphics) window.GeoNexGraphics.finalizarArrasteEdicaoVetorial();
+            if (!wasClickOnVertex) {
+                this.vertexEditPointerStart = null;
+                this.resetToolPointer();
+                if (this.dotNetHelper) {
+                    this.dotNetHelper.invokeMethodAsync('FinalizarArrasteVerticeEdicaoAsync',
+                        e.clientX, e.clientY, draggedIndex, startPoint?.x ?? null, startPoint?.y ?? null)
+                        .catch(err => console.warn('Erro ao finalizar arraste vertice:', err));
+                }
+                this.scheduleRender();
+                return;
+            }
         }
 
         if (this.featureSelectionMode && this.featureSelectionGesture) {
@@ -1890,26 +1952,6 @@ window.mapEngine = {
 
 
 
-        if (this.ferramentaAtual === 'EdicaoVertice' && !this.featureSelectionMode && this.vertexSelectionGesture && !this.vertexMoveFeatureMode &&
-            !this.vertexEditDragging && e.button === 0 && this.dotNetHelper) {
-            this.vertexSelectionGesture = false;
-            const points = [{ x: this.startX, y: this.startY }, { x: e.clientX, y: this.startY },
-                { x: e.clientX, y: e.clientY }, { x: this.startX, y: e.clientY }]
-                .flatMap(point => {
-                    const imagePoint = this.obterPontoImagem(point.x, point.y);
-                    return [imagePoint.x, imagePoint.y];
-                });
-            const displayedMatrix = window.GeoNexGraphics
-                ? window.GeoNexGraphics.obterMatrizApresentada()
-                : null;
-            this.dotNetHelper.invokeMethodAsync('ProcessarSelecaoVerticesPorRetangulo', points, displayedMatrix,
-                e.shiftKey, e.ctrlKey || e.metaKey)
-                .catch(err => console.warn('Erro ao selecionar vÃ©rtices:', err));
-            this.limparSelecaoOverlay();
-            this.vertexEditPointerStart = null;
-            this.resetToolPointer();
-            return;
-        }
 
         if (e.pointerType === 'touch' && (this.isPinching || this.touchGestureMoved)) {
             this.isPinching = false;
@@ -2906,6 +2948,61 @@ window.GeoNexGraphics = {
             ctx.strokeStyle = 'rgba(255,191,71,.95)';
             ctx.lineWidth = 3.2 / mapScale;
             ctx.stroke();
+        } else if (drag?.mode === 'edge-insert' && targetLocal) {
+            const vA = this._obterVerticePreviaEdicao(primary, drag.vA);
+            const vB = this._obterVerticePreviaEdicao(primary, drag.vB);
+            if (vA && vB) {
+                ctx.beginPath();
+                ctx.moveTo(vA.x, vA.y);
+                ctx.lineTo(targetLocal.x, targetLocal.y);
+                ctx.lineTo(vB.x, vB.y);
+                ctx.strokeStyle = 'rgba(255,191,71,.95)';
+                ctx.lineWidth = 3.2 / mapScale;
+                ctx.stroke();
+
+                const r = 4.6 / mapScale;
+                ctx.beginPath();
+                ctx.arc(targetLocal.x, targetLocal.y, r + 1.2 / mapScale, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(13,26,36,.55)';
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(targetLocal.x, targetLocal.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255,191,71,.92)';
+                ctx.fill();
+                ctx.lineWidth = 1.5 / mapScale;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+            }
+        } else if (!drag && this._hoveredEdgeCandidate) {
+            const cand = this._hoveredEdgeCandidate;
+            const vA = this._obterVerticePreviaEdicao(primary, cand.vA);
+            const vB = this._obterVerticePreviaEdicao(primary, cand.vB);
+            if (vA && vB) {
+                ctx.beginPath();
+                ctx.moveTo(vA.x, vA.y);
+                ctx.lineTo(vB.x, vB.y);
+                ctx.strokeStyle = 'rgba(255,191,71,.88)';
+                ctx.lineWidth = 3.0 / mapScale;
+                ctx.stroke();
+            }
+            const crossRadius = 6.2 / mapScale;
+            const arm = 3.8 / mapScale;
+            ctx.beginPath();
+            ctx.arc(cand.localX, cand.localY, crossRadius, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(15,23,42,.82)';
+            ctx.fill();
+            ctx.lineWidth = 1.6 / mapScale;
+            ctx.strokeStyle = '#fbbf24';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(cand.localX - arm, cand.localY);
+            ctx.lineTo(cand.localX + arm, cand.localY);
+            ctx.moveTo(cand.localX, cand.localY - arm);
+            ctx.lineTo(cand.localX, cand.localY + arm);
+            ctx.lineWidth = 2.0 / mapScale;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
         }
 
         const maxHandles = Math.max(500, Math.min(1800, Math.round(canvas.clientWidth * canvas.clientHeight / 700)));
@@ -3009,17 +3106,17 @@ window.GeoNexGraphics = {
                     ctx.stroke();
                 }
             }
-        } else {
+        } else if (!edicaoAtiva) {
             ctx.beginPath();
-            ctx.arc(cursor.x, cursor.y, (edicaoAtiva ? 6.5 : 3.5) / mapScale, 0, Math.PI * 2);
-            ctx.fillStyle = edicaoAtiva ? 'rgba(34,211,184,.18)' : '#f8fafc';
+            ctx.arc(cursor.x, cursor.y, 3.5 / mapScale, 0, Math.PI * 2);
+            ctx.fillStyle = '#f8fafc';
             ctx.fill();
             ctx.beginPath();
             ctx.arc(cursor.x, cursor.y, 3.5 / mapScale, 0, Math.PI * 2);
-            ctx.fillStyle = edicaoAtiva ? 'rgba(34,211,184,.68)' : '#f8fafc';
+            ctx.fillStyle = '#f8fafc';
             ctx.fill();
             ctx.lineWidth = 1.6 / mapScale;
-            ctx.strokeStyle = edicaoAtiva ? 'rgba(255,255,255,.78)' : '#2563eb';
+            ctx.strokeStyle = '#2563eb';
             ctx.stroke();
         }
         ctx.restore();
@@ -3685,6 +3782,19 @@ window.GeoNexGraphics = {
             : null;
         this._snap = null;
         this._medicaoSnapTipo = null;
+        if (this._edicaoPreview && !this._edicaoPreviewDrag) {
+            const hit = this._mouse ? this._calcularAlvoHoverEdicao(this._mouse) : null;
+            if (hit?.type === 'vertex') {
+                this._edicaoPreview.activeVertexIndex = hit.vertexIndex;
+                this._hoveredEdgeCandidate = null;
+            } else if (hit?.type === 'edge') {
+                this._edicaoPreview.activeVertexIndex = -1;
+                this._hoveredEdgeCandidate = hit;
+            } else {
+                this._edicaoPreview.activeVertexIndex = -1;
+                this._hoveredEdgeCandidate = null;
+            }
+        }
         this._agendarCursorMedicao();
     },
 
@@ -3693,16 +3803,108 @@ window.GeoNexGraphics = {
         pointerSequence = Number(pointerSequence) || 0;
         if (pointerSequence > 0 && pointerSequence < this._edicaoPointerSequence) return;
         if (pointerSequence > 0) this._edicaoPointerSequence = pointerSequence;
-        this._mouse = Number.isFinite(mx) && Number.isFinite(my) ? { x: mx, y: my } : null;
+        if (!this._mouse && Number.isFinite(mx) && Number.isFinite(my))
+            this._mouse = { x: mx, y: my };
         this._snap = Number.isFinite(sx) && Number.isFinite(sy) ? { x: sx, y: sy } : null;
         this._medicaoSnapTipo = this._snap ? snapTipo : null;
-        if (this._edicaoPreview && Number.isInteger(activeVertexIndex))
+        if (this._edicaoPreview && Number.isInteger(activeVertexIndex) &&
+            !this._edicaoPreviewDrag && !this._hoveredEdgeCandidate)
             this._edicaoPreview.activeVertexIndex = activeVertexIndex;
         this._agendarCursorMedicao();
     },
 
+    _calcularAlvoHoverEdicao: function (imagePoint) {
+        const preview = this._edicaoPreview;
+        if (!preview || !imagePoint) return null;
+        const primary = preview.features?.[preview.primaryFeatureIndex];
+        if (!primary || !primary.vertexCount) return null;
+        const local = this._pontoImagemParaLocalEdicao(imagePoint);
+        if (!local) return null;
+        const [a, b, c, d] = this._aquisicao.matriz;
+        const mapScale = Math.max(1e-8, (Math.hypot(a, b) + Math.hypot(c, d)) / 2);
+
+        const vertexTolerance = 10 / mapScale;
+        const vertexTolSq = vertexTolerance * vertexTolerance;
+        let nearestVertex = -1;
+        let nearestVertexDistSq = vertexTolSq;
+        const verts = primary.vertices;
+        for (let i = 0; i < primary.vertexCount; i++) {
+            const vx = verts[i * 2];
+            const vy = verts[i * 2 + 1];
+            const dx = local.x - vx;
+            const dy = local.y - vy;
+            const distSq = dx * dx + dy * dy;
+            if (distSq <= nearestVertexDistSq) {
+                nearestVertexDistSq = distSq;
+                nearestVertex = i;
+            }
+        }
+        if (nearestVertex >= 0) {
+            const vx = verts[nearestVertex * 2];
+            const vy = verts[nearestVertex * 2 + 1];
+            const img = this._pontoLocalParaImagemEdicao({ x: vx, y: vy });
+            return {
+                type: 'vertex',
+                vertexIndex: nearestVertex,
+                localX: vx,
+                localY: vy,
+                imageX: img.x,
+                imageY: img.y
+            };
+        }
+
+        const segments = primary.segments;
+        if (!segments || segments.length < 2) return null;
+        const edgeTolerance = 11 / mapScale;
+        const edgeTolSq = edgeTolerance * edgeTolerance;
+        let bestDistSq = edgeTolSq;
+        let bestEdge = null;
+        for (let i = 0; i + 1 < segments.length; i += 2) {
+            const vA = segments[i];
+            const vB = segments[i + 1];
+            if (vA < 0 || vB < 0 || vA >= primary.vertexCount || vB >= primary.vertexCount) continue;
+            const ax = verts[vA * 2];
+            const ay = verts[vA * 2 + 1];
+            const bx = verts[vB * 2];
+            const by = verts[vB * 2 + 1];
+            const abx = bx - ax;
+            const aby = by - ay;
+            const lenSq = abx * abx + aby * aby;
+            if (lenSq <= 1e-20) continue;
+            const t = Math.max(0, Math.min(1, ((local.x - ax) * abx + (local.y - ay) * aby) / lenSq));
+            const projX = ax + t * abx;
+            const projY = ay + t * aby;
+            const dx = local.x - projX;
+            const dy = local.y - projY;
+            const distSq = dx * dx + dy * dy;
+            if (distSq <= bestDistSq) {
+                bestDistSq = distSq;
+                bestEdge = { vA, vB, localX: projX, localY: projY };
+            }
+        }
+        if (bestEdge) {
+            const img = this._pontoLocalParaImagemEdicao({ x: bestEdge.localX, y: bestEdge.localY });
+            return {
+                type: 'edge',
+                vA: bestEdge.vA,
+                vB: bestEdge.vB,
+                localX: bestEdge.localX,
+                localY: bestEdge.localY,
+                imageX: img.x,
+                imageY: img.y
+            };
+        }
+        return null;
+    },
+
+    obterAlvoEdicaoNoPonto: function (imageX, imageY) {
+        if (!Number.isFinite(imageX) || !Number.isFinite(imageY)) return null;
+        return this._calcularAlvoHoverEdicao({ x: imageX, y: imageY });
+    },
+
     definirPreviaEdicaoVetorial: function (preview) {
         this._edicaoPreview = preview && Array.isArray(preview.features) ? preview : null;
+        this._hoveredEdgeCandidate = null;
         if (this._edicaoPreview && typeof Path2D === 'function') {
             for (const feature of this._edicaoPreview.features) {
                 const path2D = new Path2D();
@@ -3710,6 +3912,7 @@ window.GeoNexGraphics = {
                 const vertexCount = sourceVertices.length;
                 const vertexNeighbours = new Int32Array(vertexCount * 2);
                 vertexNeighbours.fill(-1);
+                const segmentPairs = [];
                 for (const path of feature.paths || []) {
                     const points = path.points || [];
                     if (points.length === 0) continue;
@@ -3728,10 +3931,14 @@ window.GeoNexGraphics = {
                         const next = i + 1 < uniqueCount ? points[i + 1] : path.closed ? points[0] : null;
                         vertexNeighbours[vertexIndex * 2] = previous?.vertexIndex ?? -1;
                         vertexNeighbours[vertexIndex * 2 + 1] = next?.vertexIndex ?? -1;
+                        if (next && Number.isInteger(next.vertexIndex) && next.vertexIndex !== vertexIndex) {
+                            segmentPairs.push(vertexIndex, next.vertexIndex);
+                        }
                     }
                 }
                 feature.path2D = path2D;
                 feature.vertexNeighbours = vertexNeighbours;
+                feature.segments = new Int32Array(segmentPairs);
                 const packedVertices = new Float64Array(vertexCount * 2);
                 for (let i = 0; i < vertexCount; i++) {
                     packedVertices[i * 2] = sourceVertices[i].x;
@@ -3768,6 +3975,20 @@ window.GeoNexGraphics = {
         this._edicaoPreviewDrag = {
             mode: 'vertex', start,
             movingVertices: moving.map(indices => new Set(Array.isArray(indices) ? indices : []))
+        };
+        this._hoveredEdgeCandidate = null;
+        this._agendarCursorMedicao();
+    },
+
+    iniciarArrasteInsercaoAresta: function (startX, startY, vA, vB) {
+        if (!this._edicaoPreview || !Number.isFinite(startX) || !Number.isFinite(startY)) return;
+        this._edicaoPreview.activeVertexIndex = -1;
+        this._hoveredEdgeCandidate = null;
+        this._edicaoPreviewDrag = {
+            mode: 'edge-insert',
+            start: { x: startX, y: startY },
+            vA: Number.isInteger(vA) ? vA : -1,
+            vB: Number.isInteger(vB) ? vB : -1
         };
         this._agendarCursorMedicao();
     },

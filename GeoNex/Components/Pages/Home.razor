@@ -781,49 +781,55 @@
                 }
             }
         </div>
-        @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Vetorização" && FerramentaDesenhoAtiva)
+        @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Vetorização")
         {
             <div class="command-ribbon-settings" aria-label="Parâmetros vetoriais sempre visíveis">
-                <section class="command-ribbon-setting-group" aria-label="Construção">
-                    <span>CONSTRUÇÃO</span>
-                    <label>Geometria<select class="gis-select" @bind="ModoConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)"><option value="@ConstructionMode.Vertices">Vértices</option><option value="@ConstructionMode.Rectangle">Retângulo</option><option value="@ConstructionMode.OrientedRectangle">Retângulo orientado</option><option value="@ConstructionMode.Circle">Círculo</option><option value="@ConstructionMode.Ellipse">Elipse</option><option value="@ConstructionMode.RegularPolygon">Polígono regular</option></select></label>
-                    @if (ModoConstrucao == ConstructionMode.RegularPolygon)
-                    {
-                        <label>Lados<select class="gis-select" @bind="LadosConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">@for (int sides = 3; sides <= 32; sides++) { <option value="@sides">@sides</option> }</select></label>
-                    }
+                <section class="command-ribbon-setting-group" aria-label="Encaixes e Snaps">
+                    <span>ENCAIXES E SNAPS</span>
+                    <label class="check"><input type="checkbox" @bind="SnapVerticesAtivo" />Vértices</label>
+                    <label class="check"><input type="checkbox" @bind="SnapArestasAtivo" />Arestas</label>
+                    <label class="check"><input type="checkbox" @bind="SnapMeiosAtivo" />Meio das arestas</label>
+                    <label class="check"><input type="checkbox" @bind="SnapIntersecoesAtivo" />Interseções</label>
+                    <label class="check" title="Restringe ângulos a 90° durante o desenho (F8)"><input type="checkbox" @bind="_modoOrtogonalAquisicao" />Ortogonal (90°)</label>
+                    <label class="check" title="Move junto os vértices coincidentes das feições selecionadas"><input type="checkbox" @bind="_propagateSelectedSharedVertices" />Propagar nós compartilhados</label>
+                    <label>Tolerância<select class="gis-select" @bind="ToleranciaSnapPixels"><option value="6">6 px</option><option value="10">10 px</option><option value="15">15 px</option><option value="20">20 px</option><option value="30">30 px</option></select></label>
                 </section>
-
-            </div>
-        }
-        @if (string.IsNullOrWhiteSpace(_ribbonCommandSearch) && _activeRibbonTab == "Vetorização" && (_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode))
-        {
-            <div class="command-ribbon-settings" aria-label="Parâmetros de edição vetorial">
-                @if (SelectedVectorFeatureState is not null)
+                @if (FerramentaDesenhoAtiva)
                 {
-                <section class="command-ribbon-setting-group" aria-label="Coordenadas do vértice">
-                    <span>VÉRTICE · COORDENADAS DO SRC</span>
-                    <label>X<input type="number" step="any" @bind="_vectorVertexCoordinateX" @bind:event="oninput" /></label>
-                    <label>Y<input type="number" step="any" @bind="_vectorVertexCoordinateY" @bind:event="oninput" /></label>
-                    <button type="button" class="command-ribbon-mini primary" disabled="@(!CanApplyVectorVertexCoordinates)" @onclick="AplicarCoordenadasVerticeAsync">Aplicar XY</button>
-                </section>
-                <section class="command-ribbon-setting-group" aria-label="Transformações">
-                    <span>TRANSFORMAÇÕES</span>
-                    <label>ΔX<input type="number" step="any" @bind="_vectorMoveDeltaX" /></label>
-                    <label>ΔY<input type="number" step="any" @bind="_vectorMoveDeltaY" /></label>
-                    <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="AplicarDeslocamentoPrecisoAsync">Deslocar</button>
-                    <label>Ângulo<input type="number" step="any" @bind="_vectorRotationDegrees" /></label>
-                    <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="RotacionarFeicaoAsync">Rotacionar</button>
-                    <label>Escala<input type="number" min="0.000001" step="any" @bind="_vectorScaleFactor" /></label>
-                    <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="EscalarFeicaoAsync">Escalar</button>
-                    <label>Tolerância<input type="number" min="0.000001" step="any" @bind="_vectorSimplificationTolerance" /></label>
-                    <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="SimplificarFeicaoAsync">Simplificar</button>
-                    @if (SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString)
-                    {
-                        <label>Offset<input type="number" min="0.000001" step="any" @bind="_vectorOffsetDistance" /></label>
-                    }
-                </section>
+                    <section class="command-ribbon-setting-group" aria-label="Construção">
+                        <span>CONSTRUÇÃO</span>
+                        <label>Geometria<select class="gis-select" @bind="ModoConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)"><option value="@ConstructionMode.Vertices">Vértices</option><option value="@ConstructionMode.Rectangle">Retângulo</option><option value="@ConstructionMode.OrientedRectangle">Retângulo orientado</option><option value="@ConstructionMode.Circle">Círculo</option><option value="@ConstructionMode.Ellipse">Elipse</option><option value="@ConstructionMode.RegularPolygon">Polígono regular</option></select></label>
+                        @if (ModoConstrucao == ConstructionMode.RegularPolygon)
+                        {
+                            <label>Lados<select class="gis-select" @bind="LadosConstrucao" disabled="@(MapService.PontosAquisicao.Count > 0)">@for (int sides = 3; sides <= 32; sides++) { <option value="@sides">@sides</option> }</select></label>
+                        }
+                    </section>
                 }
-
+                @if ((_ferramentaAtiva == ModoFerramenta.EdicaoVertice || _vectorCutMode || _vectorRingMode || _vectorReshapeMode) && SelectedVectorFeatureState is not null)
+                {
+                    <section class="command-ribbon-setting-group" aria-label="Coordenadas do vértice">
+                        <span>VÉRTICE · COORDENADAS DO SRC</span>
+                        <label>X<input type="number" step="any" @bind="_vectorVertexCoordinateX" @bind:event="oninput" /></label>
+                        <label>Y<input type="number" step="any" @bind="_vectorVertexCoordinateY" @bind:event="oninput" /></label>
+                        <button type="button" class="command-ribbon-mini primary" disabled="@(!CanApplyVectorVertexCoordinates)" @onclick="AplicarCoordenadasVerticeAsync">Aplicar XY</button>
+                    </section>
+                    <section class="command-ribbon-setting-group" aria-label="Transformações">
+                        <span>TRANSFORMAÇÕES</span>
+                        <label>ΔX<input type="number" step="any" @bind="_vectorMoveDeltaX" /></label>
+                        <label>ΔY<input type="number" step="any" @bind="_vectorMoveDeltaY" /></label>
+                        <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="AplicarDeslocamentoPrecisoAsync">Deslocar</button>
+                        <label>Ângulo<input type="number" step="any" @bind="_vectorRotationDegrees" /></label>
+                        <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="RotacionarFeicaoAsync">Rotacionar</button>
+                        <label>Escala<input type="number" min="0.000001" step="any" @bind="_vectorScaleFactor" /></label>
+                        <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="EscalarFeicaoAsync">Escalar</button>
+                        <label>Tolerância<input type="number" min="0.000001" step="any" @bind="_vectorSimplificationTolerance" /></label>
+                        <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="SimplificarFeicaoAsync">Simplificar</button>
+                        @if (SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.LineString or NetTopologySuite.Geometries.MultiLineString)
+                        {
+                            <label>Offset<input type="number" min="0.000001" step="any" @bind="_vectorOffsetDistance" /></label>
+                        }
+                    </section>
+                }
             </div>
         }
         <footer class="command-ribbon-status" role="status" aria-live="polite">
@@ -7503,7 +7509,10 @@
                 // Vetorização - Encaixes e Snaps
                 new("Vetorização", "Encaixes e Snaps", "Atrair vértices", "⌖", "snap magnetico vertice encaixe", "Ativa ou desativa a captura magnética em vértices.", true, CreateRibbonCommand(AlternarSnapVertices), _snapAquisicaoVertice),
                 new("Vetorização", "Encaixes e Snaps", "Atrair arestas", "∿", "snap magnetico aresta segmento encaixe", "Ativa ou desativa a atração magnética em arestas.", true, CreateRibbonCommand(AlternarSnapArestas), _snapAquisicaoAresta),
+                new("Vetorização", "Encaixes e Snaps", "Meio das arestas", "◈", "snap magnetico meio ponto medio aresta", "Ativa ou desativa a captura no ponto médio das arestas.", true, CreateRibbonCommand(AlternarSnapMeios), _snapAquisicaoMeio),
+                new("Vetorização", "Encaixes e Snaps", "Interseções", "✕", "snap magnetico intersecao cruzamento", "Ativa ou desativa a captura em interseções de segmentos.", true, CreateRibbonCommand(AlternarSnapIntersecoes), _snapAquisicaoIntersecao),
                 new("Vetorização", "Encaixes e Snaps", "Modo ortogonal", "∟", "ortogonal angulo reto 90 f8", "Restringe os ângulos de desenho a múltiplos retos de 90 graus (F8).", true, CreateRibbonCommand(AlternarModoOrtogonal), _modoOrtogonalAquisicao),
+                new("Vetorização", "Encaixes e Snaps", "Propagar nós", "⛓", "topologia propagar vertices compartilhados", "Move em conjunto os vértices compartilhados entre feições selecionadas.", true, CreateRibbonCommand(AlternarPropagarVerticesCompartilhados), _propagateSelectedSharedVertices),
                 new("Vetorização", "Operações", "Dividir feição", "╱", "cortar dividir geometria linha", "Inicia o corte da feição selecionada.", CanCutSelectedVectorGeometry, CreateRibbonCommand(PrepararCorteGeometria)),
                 new("Vetorização", "Operações", "Adicionar anel interno", "◎", "furo poligono anel", "Desenha um anel interno no polígono selecionado.", CanEditSelectedPolygonRings, CreateRibbonCommand(PrepararAdicaoAnel)),
                 new("Vetorização", "Operações", "Remodelar borda", "⌁", "reshape redesenhar borda poligono", "Redesenha parte da borda da feição selecionada.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.Polygon or NetTopologySuite.Geometries.MultiPolygon, CreateRibbonCommand(PrepararRemodelagemGeometria)),
@@ -7554,7 +7563,10 @@
                         "Selecionar feições" => _vectorFeatureSelectionMode,
                         "Atrair vértices" => _snapAquisicaoVertice,
                         "Atrair arestas" => _snapAquisicaoAresta,
+                        "Meio das arestas" => _snapAquisicaoMeio,
+                        "Interseções" => _snapAquisicaoIntersecao,
                         "Modo ortogonal" => _modoOrtogonalAquisicao,
+                        "Propagar nós" => _propagateSelectedSharedVertices,
                         _ => null
                     },
                     IsEnabled = command.Label == "Identificar feições" ? true : command.IsEnabled
@@ -11247,23 +11259,79 @@
         else SolicitarNovoFrame();
     }
 
+    private bool SnapVerticesAtivo
+    {
+        get => _snapAquisicaoVertice;
+        set
+        {
+            _snapAquisicaoVertice = value;
+            _snapVectorEditVertices = value;
+        }
+    }
+
+    private bool SnapArestasAtivo
+    {
+        get => _snapAquisicaoAresta;
+        set
+        {
+            _snapAquisicaoAresta = value;
+            _snapVectorEditEdges = value;
+        }
+    }
+
+    private bool SnapMeiosAtivo
+    {
+        get => _snapAquisicaoMeio;
+        set
+        {
+            _snapAquisicaoMeio = value;
+            _snapVectorEditMidpoints = value;
+        }
+    }
+
+    private bool SnapIntersecoesAtivo
+    {
+        get => _snapAquisicaoIntersecao;
+        set
+        {
+            _snapAquisicaoIntersecao = value;
+            _snapVectorEditIntersections = value;
+        }
+    }
+
     private void AlternarSnapVertices()
     {
-        _snapAquisicaoVertice = !_snapAquisicaoVertice;
-        _snapVectorEditVertices = _snapAquisicaoVertice;
+        SnapVerticesAtivo = !SnapVerticesAtivo;
         StateHasChanged();
     }
 
     private void AlternarSnapArestas()
     {
-        _snapAquisicaoAresta = !_snapAquisicaoAresta;
-        _snapVectorEditEdges = _snapAquisicaoAresta;
+        SnapArestasAtivo = !SnapArestasAtivo;
+        StateHasChanged();
+    }
+
+    private void AlternarSnapMeios()
+    {
+        SnapMeiosAtivo = !SnapMeiosAtivo;
+        StateHasChanged();
+    }
+
+    private void AlternarSnapIntersecoes()
+    {
+        SnapIntersecoesAtivo = !SnapIntersecoesAtivo;
         StateHasChanged();
     }
 
     private void AlternarModoOrtogonal()
     {
         _modoOrtogonalAquisicao = !_modoOrtogonalAquisicao;
+        StateHasChanged();
+    }
+
+    private void AlternarPropagarVerticesCompartilhados()
+    {
+        _propagateSelectedSharedVertices = !_propagateSelectedSharedVertices;
         StateHasChanged();
     }
 
@@ -12255,13 +12323,12 @@
                     {
                         if (SelecionarVerticeNoPonto(ptMundo, matriz, add: false))
                         {
-                            ArmarReposicionamentoVerticeSelecionado();
                             await InvokeAsync(StateHasChanged);
                             break;
                         }
 
-                        // QGIS Style: ao clicar sobre a aresta da feição ativa, insere o vértice imediatamente e arma o reposicionamento
-                        if (await InserirVerticeSelecionadoAsync(xMundo, yMundo, escalaEdicao, armarReposicionamento: true))
+                        // QGIS Style: ao clicar sobre a aresta da feição ativa, insere o vértice imediatamente
+                        if (await InserirVerticeSelecionadoAsync(xMundo, yMundo, escalaEdicao, armarReposicionamento: false))
                         {
                             await InvokeAsync(StateHasChanged);
                             break;
@@ -12388,7 +12455,7 @@
                     if (usarCoordenadaAbsoluta || !PreviaVetorizacaoClienteAtiva) SolicitarNovoFrame();
                     break;
             }
-            if (_ferramentaAtiva is ModoFerramenta.EdicaoVertice or ModoFerramenta.Identificacao)
+            if (_ferramentaAtiva == ModoFerramenta.Identificacao || (_ferramentaAtiva == ModoFerramenta.EdicaoVertice && !MapService.ClientRenderedVectorEditOverlay))
                 SolicitarNovoFrame(interacaoRapida: true);
             await InvokeAsync(StateHasChanged);
         }

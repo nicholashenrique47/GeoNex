@@ -1503,7 +1503,8 @@ namespace GeoNex.Services
                 IndicesVerticesEdicaoSelecionados = Array.Empty<int>();
                 IndiceVerticeEdicaoAtivo = indiceAtivo;
             }
-            RequestOverlayRedraw();
+            if (!ClientRenderedVectorEditOverlay)
+                RequestOverlayRedraw();
         }
 
         public void DefinirIndiceVerticeEdicao(int indiceAtivo)
@@ -1513,7 +1514,8 @@ namespace GeoNex.Services
                 if (IndiceVerticeEdicaoAtivo == indiceAtivo) return;
                 IndiceVerticeEdicaoAtivo = indiceAtivo;
             }
-            RequestOverlayRedraw();
+            if (!ClientRenderedVectorEditOverlay)
+                RequestOverlayRedraw();
         }
 
         public void DefinirIndicesVerticesEdicaoSelecionados(IEnumerable<int> indices)
@@ -1525,7 +1527,8 @@ namespace GeoNex.Services
                 if (IndicesVerticesEdicaoSelecionados.SequenceEqual(selected)) return;
                 IndicesVerticesEdicaoSelecionados = selected;
             }
-            RequestOverlayRedraw();
+            if (!ClientRenderedVectorEditOverlay)
+                RequestOverlayRedraw();
         }
 
         public void LimparOverlayEdicao() => DefinirOverlayEdicao((SKPath?)null, Array.Empty<SKPoint>());
