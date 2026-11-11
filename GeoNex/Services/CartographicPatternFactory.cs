@@ -1,16 +1,16 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.IO;
 using SkiaSharp;
 
 namespace GeoNex.Services
 {
     /// <summary>
-    /// Fábrica de alta performance para Marcadores Vetoriais e Padrões de Hachura Cartográfica.
-    /// Projetada com disciplina zero-allocation para garantir 60 FPS contínuos no motor de mapa.
+    /// Fábrica otimizada para geração e cache de texturas cartográficas (Hachuras) e Marcadores Geométricos (Pontos)
+    /// com suporte a aceleração gráfica por hardware SkiaSharp (padrão QGIS / ArcGIS Pro / OGC SLD).
     /// </summary>
     public static class CartographicPatternFactory
     {
-        // Cache estático thread-safe para Shaders de Hachura
         private static readonly ConcurrentDictionary<string, SKShader> _shaderCache = new();
 
         private readonly record struct MarkerSpriteKey(
@@ -28,10 +28,25 @@ namespace GeoNex.Services
         private static readonly SKPath _pathQuadrado;
         private static readonly SKPath _pathLosango;
         private static readonly SKPath _pathTriangulo;
+        private static readonly SKPath _pathTrianguloInvertido;
         private static readonly SKPath _pathCruz;
         private static readonly SKPath _pathX;
         private static readonly SKPath _pathEstrela;
         private static readonly SKPath _pathPentagono;
+        private static readonly SKPath _pathHexagono;
+        private static readonly SKPath _pathMarcoIncra;
+        private static readonly SKPath _pathAlvoTarget;
+        private static readonly SKPath _pathPontoCotado;
+        private static readonly SKPath _pathPino;
+        private static readonly SKPath _pathQuadradoCruz;
+        private static readonly SKPath _pathMarcoGeodesicoQGIS;
+        private static readonly SKPath _pathEstacaoTopograficaQGIS;
+        private static readonly SKPath _pathTorreEnergiaQGIS;
+        private static readonly SKPath _pathPosteEnergiaQGIS;
+        private static readonly SKPath _pathPocoAguaQGIS;
+        private static readonly SKPath _pathArvoreFlorestalQGIS;
+        private static readonly SKPath _pathEdificacaoSedeQGIS;
+        private static readonly SKPath _pathVerticeTriangulacaoQGIS;
 
         static CartographicPatternFactory()
         {
@@ -53,6 +68,13 @@ namespace GeoNex.Services
             _pathTriangulo.LineTo(1.0f, 0.85f);
             _pathTriangulo.LineTo(-1.0f, 0.85f);
             _pathTriangulo.Close();
+
+            // 3b. Triângulo Invertido (Piquete / Estaca)
+            _pathTrianguloInvertido = new SKPath();
+            _pathTrianguloInvertido.MoveTo(0f, 1.15f);
+            _pathTrianguloInvertido.LineTo(1.0f, -0.85f);
+            _pathTrianguloInvertido.LineTo(-1.0f, -0.85f);
+            _pathTrianguloInvertido.Close();
 
             // 4. Cruz Cartográfica (+)
             _pathCruz = new SKPath();
@@ -102,6 +124,121 @@ namespace GeoNex.Services
                 else _pathPentagono.LineTo(x, y);
             }
             _pathPentagono.Close();
+
+            // 8. Hexágono Regular
+            _pathHexagono = new SKPath();
+            for (int i = 0; i < 6; i++)
+            {
+                double angle = -Math.PI / 2.0 + (i * 2.0 * Math.PI / 6.0);
+                float x = (float)(1.1f * Math.Cos(angle));
+                float y = (float)(1.1f * Math.Sin(angle));
+                if (i == 0) _pathHexagono.MoveTo(x, y);
+                else _pathHexagono.LineTo(x, y);
+            }
+            _pathHexagono.Close();
+
+            // 9. Marco INCRA (SIGEF) - Círculo com Cruzeta
+            _pathMarcoIncra = new SKPath();
+            _pathMarcoIncra.AddCircle(0f, 0f, 0.95f, SKPathDirection.Clockwise);
+            _pathMarcoIncra.MoveTo(-1.25f, 0f); _pathMarcoIncra.LineTo(1.25f, 0f);
+            _pathMarcoIncra.MoveTo(0f, -1.25f); _pathMarcoIncra.LineTo(0f, 1.25f);
+
+            // 10. Alvo / Target / GNSS - Anéis Concêntricos
+            _pathAlvoTarget = new SKPath();
+            _pathAlvoTarget.AddCircle(0f, 0f, 1.05f, SKPathDirection.Clockwise);
+            _pathAlvoTarget.AddCircle(0f, 0f, 0.45f, SKPathDirection.Clockwise);
+
+            // 11. Ponto Cotado - Centro com Mira
+            _pathPontoCotado = new SKPath();
+            _pathPontoCotado.AddCircle(0f, 0f, 0.35f, SKPathDirection.Clockwise);
+            _pathPontoCotado.MoveTo(-1.25f, 0f); _pathPontoCotado.LineTo(1.25f, 0f);
+            _pathPontoCotado.MoveTo(0f, -1.25f); _pathPontoCotado.LineTo(0f, 1.25f);
+
+            // 12. Pino de Localização / POI
+            _pathPino = new SKPath();
+            _pathPino.MoveTo(0f, 1.15f);
+            _pathPino.CubicTo(0.7f, 0.35f, 0.85f, -0.2f, 0.85f, -0.5f);
+            _pathPino.ArcTo(new SKRect(-0.85f, -1.35f, 0.85f, 0.35f), 0f, -180f, false);
+            _pathPino.CubicTo(-0.85f, -0.2f, -0.7f, 0.35f, 0f, 1.15f);
+            _pathPino.Close();
+            _pathPino.AddCircle(0f, -0.5f, 0.32f, SKPathDirection.CounterClockwise);
+
+            // 13. Vértice Geodésico Quadrado com Cruz
+            _pathQuadradoCruz = new SKPath();
+            _pathQuadradoCruz.AddRect(new SKRect(-0.85f, -0.85f, 0.85f, 0.85f));
+            _pathQuadradoCruz.MoveTo(-1.1f, 0f); _pathQuadradoCruz.LineTo(1.1f, 0f);
+            _pathQuadradoCruz.MoveTo(0f, -1.1f); _pathQuadradoCruz.LineTo(0f, 1.1f);
+
+            // 14. Marco Geodésico Bicolor QGIS (Círculo com Mira e 2 Quadrantes)
+            _pathMarcoGeodesicoQGIS = new SKPath();
+            _pathMarcoGeodesicoQGIS.AddCircle(0f, 0f, 1.0f, SKPathDirection.Clockwise);
+            _pathMarcoGeodesicoQGIS.MoveTo(0f, 0f); _pathMarcoGeodesicoQGIS.ArcTo(new SKRect(-1f, -1f, 1f, 1f), 0f, 90f, false); _pathMarcoGeodesicoQGIS.Close();
+            _pathMarcoGeodesicoQGIS.MoveTo(0f, 0f); _pathMarcoGeodesicoQGIS.ArcTo(new SKRect(-1f, -1f, 1f, 1f), 180f, 90f, false); _pathMarcoGeodesicoQGIS.Close();
+            _pathMarcoGeodesicoQGIS.MoveTo(-1.3f, 0f); _pathMarcoGeodesicoQGIS.LineTo(1.3f, 0f);
+            _pathMarcoGeodesicoQGIS.MoveTo(0f, -1.3f); _pathMarcoGeodesicoQGIS.LineTo(0f, 1.3f);
+
+            // 15. Estação Total / Teodolito QGIS (Tripé de Campo + Instrumento)
+            _pathEstacaoTopograficaQGIS = new SKPath();
+            _pathEstacaoTopograficaQGIS.MoveTo(-0.1f, -0.2f); _pathEstacaoTopograficaQGIS.LineTo(-0.85f, 1.15f);
+            _pathEstacaoTopograficaQGIS.MoveTo(0f, -0.2f); _pathEstacaoTopograficaQGIS.LineTo(0f, 1.15f);
+            _pathEstacaoTopograficaQGIS.MoveTo(0.1f, -0.2f); _pathEstacaoTopograficaQGIS.LineTo(0.85f, 1.15f);
+            _pathEstacaoTopograficaQGIS.AddRect(new SKRect(-0.35f, -0.65f, 0.35f, -0.2f));
+            _pathEstacaoTopograficaQGIS.MoveTo(-0.75f, -0.85f); _pathEstacaoTopograficaQGIS.LineTo(0.75f, -0.85f);
+            _pathEstacaoTopograficaQGIS.MoveTo(0f, -0.65f); _pathEstacaoTopograficaQGIS.LineTo(0f, -1.05f);
+
+            // 16. Torre de Transmissão de Energia QGIS
+            _pathTorreEnergiaQGIS = new SKPath();
+            _pathTorreEnergiaQGIS.MoveTo(-0.75f, 1.15f); _pathTorreEnergiaQGIS.LineTo(-0.25f, -0.6f);
+            _pathTorreEnergiaQGIS.LineTo(0f, -1.15f);
+            _pathTorreEnergiaQGIS.LineTo(0.25f, -0.6f); _pathTorreEnergiaQGIS.LineTo(0.75f, 1.15f);
+            _pathTorreEnergiaQGIS.MoveTo(-0.95f, -0.55f); _pathTorreEnergiaQGIS.LineTo(0.95f, -0.55f);
+            _pathTorreEnergiaQGIS.MoveTo(-0.75f, -0.15f); _pathTorreEnergiaQGIS.LineTo(0.75f, -0.15f);
+            _pathTorreEnergiaQGIS.MoveTo(-0.55f, 0.55f); _pathTorreEnergiaQGIS.LineTo(0.55f, 0.1f);
+            _pathTorreEnergiaQGIS.MoveTo(0.55f, 0.55f); _pathTorreEnergiaQGIS.LineTo(-0.55f, 0.1f);
+
+            // 17. Poste de Rede / Iluminação QGIS
+            _pathPosteEnergiaQGIS = new SKPath();
+            _pathPosteEnergiaQGIS.MoveTo(0f, 1.15f); _pathPosteEnergiaQGIS.LineTo(0f, -1.05f);
+            _pathPosteEnergiaQGIS.MoveTo(-0.85f, -0.7f); _pathPosteEnergiaQGIS.LineTo(0.85f, -0.7f);
+            _pathPosteEnergiaQGIS.AddCircle(-0.85f, -0.7f, 0.15f, SKPathDirection.Clockwise);
+            _pathPosteEnergiaQGIS.AddCircle(0.85f, -0.7f, 0.15f, SKPathDirection.Clockwise);
+
+            // 18. Poço Artesiano / Nascente QGIS
+            _pathPocoAguaQGIS = new SKPath();
+            _pathPocoAguaQGIS.AddCircle(0f, 0f, 1.1f, SKPathDirection.Clockwise);
+            _pathPocoAguaQGIS.AddCircle(0f, 0f, 0.75f, SKPathDirection.Clockwise);
+            _pathPocoAguaQGIS.MoveTo(0f, -0.55f);
+            _pathPocoAguaQGIS.CubicTo(0.35f, -0.15f, 0.45f, 0.2f, 0.45f, 0.35f);
+            _pathPocoAguaQGIS.ArcTo(new SKRect(-0.45f, -0.1f, 0.45f, 0.65f), 0f, 180f, false);
+            _pathPocoAguaQGIS.CubicTo(-0.45f, 0.2f, -0.35f, -0.15f, 0f, -0.55f);
+            _pathPocoAguaQGIS.Close();
+
+            // 19. Árvore / Floresta / Vegetação QGIS
+            _pathArvoreFlorestalQGIS = new SKPath();
+            _pathArvoreFlorestalQGIS.AddRect(new SKRect(-0.15f, 0.4f, 0.15f, 1.15f));
+            _pathArvoreFlorestalQGIS.AddCircle(0f, -0.4f, 0.55f, SKPathDirection.Clockwise);
+            _pathArvoreFlorestalQGIS.AddCircle(-0.45f, 0.05f, 0.45f, SKPathDirection.Clockwise);
+            _pathArvoreFlorestalQGIS.AddCircle(0.45f, 0.05f, 0.45f, SKPathDirection.Clockwise);
+
+            // 20. Edificação / Sede da Fazenda QGIS
+            _pathEdificacaoSedeQGIS = new SKPath();
+            _pathEdificacaoSedeQGIS.MoveTo(-0.85f, 0.05f);
+            _pathEdificacaoSedeQGIS.LineTo(0f, -0.95f);
+            _pathEdificacaoSedeQGIS.LineTo(0.85f, 0.05f);
+            _pathEdificacaoSedeQGIS.LineTo(0.7f, 0.05f);
+            _pathEdificacaoSedeQGIS.LineTo(0.7f, 1.1f);
+            _pathEdificacaoSedeQGIS.LineTo(-0.7f, 1.1f);
+            _pathEdificacaoSedeQGIS.LineTo(-0.7f, 0.05f);
+            _pathEdificacaoSedeQGIS.Close();
+            _pathEdificacaoSedeQGIS.AddRect(new SKRect(-0.2f, 0.55f, 0.2f, 1.1f));
+
+            // 21. Vértice de Triangulação Geodésica QGIS
+            _pathVerticeTriangulacaoQGIS = new SKPath();
+            _pathVerticeTriangulacaoQGIS.MoveTo(0f, -1.15f);
+            _pathVerticeTriangulacaoQGIS.LineTo(1.05f, 0.85f);
+            _pathVerticeTriangulacaoQGIS.LineTo(-1.05f, 0.85f);
+            _pathVerticeTriangulacaoQGIS.Close();
+            _pathVerticeTriangulacaoQGIS.AddCircle(0f, -0.1f, 0.3f, SKPathDirection.Clockwise);
         }
 
         /// <summary>
@@ -145,45 +282,29 @@ namespace GeoNex.Services
                         break;
 
                     case "DiagonalDireita":
-                        // Linha diagonal principal de (0, size) até (size, 0) e cantos para emenda contínua
                         c.DrawLine(-tileSize / 2f, tileSize / 2f, tileSize / 2f, -tileSize / 2f, paintHachura);
                         c.DrawLine(0, tileSize, tileSize, 0, paintHachura);
                         c.DrawLine(tileSize / 2f, tileSize * 1.5f, tileSize * 1.5f, tileSize / 2f, paintHachura);
                         break;
 
                     case "DiagonalEsquerda":
-                        // Linha diagonal invertida de (0, 0) até (size, size)
                         c.DrawLine(-tileSize / 2f, tileSize / 2f, tileSize / 2f, tileSize * 1.5f, paintHachura);
                         c.DrawLine(0, 0, tileSize, tileSize, paintHachura);
                         c.DrawLine(tileSize / 2f, -tileSize / 2f, tileSize * 1.5f, tileSize / 2f, paintHachura);
                         break;
 
-                    case "DiagonalCruzada":
-                        // Cruzamento das duas diagonais (Crosshatch clássico)
-                        c.DrawLine(-tileSize / 2f, tileSize / 2f, tileSize / 2f, -tileSize / 2f, paintHachura);
-                        c.DrawLine(0, tileSize, tileSize, 0, paintHachura);
-                        c.DrawLine(tileSize / 2f, tileSize * 1.5f, tileSize * 1.5f, tileSize / 2f, paintHachura);
-
-                        c.DrawLine(-tileSize / 2f, tileSize / 2f, tileSize / 2f, tileSize * 1.5f, paintHachura);
+                    case "Cruzada":
                         c.DrawLine(0, 0, tileSize, tileSize, paintHachura);
-                        c.DrawLine(tileSize / 2f, -tileSize / 2f, tileSize * 1.5f, tileSize / 2f, paintHachura);
+                        c.DrawLine(0, tileSize, tileSize, 0, paintHachura);
                         break;
 
                     case "Pontilhado":
-                        using (var dotPaint = new SKPaint
-                        {
-                            Style = SKPaintStyle.Fill,
-                            Color = corHachura,
-                            IsAntialias = true
-                        })
-                        {
-                            float dotRadius = Math.Max(1.5f, tileSize / 6f);
-                            c.DrawCircle(tileSize / 2f, tileSize / 2f, dotRadius, dotPaint);
-                            c.DrawCircle(0, 0, dotRadius, dotPaint);
-                            c.DrawCircle(tileSize, 0, dotRadius, dotPaint);
-                            c.DrawCircle(0, tileSize, dotRadius, dotPaint);
-                            c.DrawCircle(tileSize, tileSize, dotRadius, dotPaint);
-                        }
+                        paintHachura.Style = SKPaintStyle.Fill;
+                        c.DrawCircle(tileSize / 2f, tileSize / 2f, Math.Max(1.5f, tileSize / 8f), paintHachura);
+                        c.DrawCircle(0, 0, Math.Max(1.5f, tileSize / 8f), paintHachura);
+                        c.DrawCircle(tileSize, 0, Math.Max(1.5f, tileSize / 8f), paintHachura);
+                        c.DrawCircle(0, tileSize, Math.Max(1.5f, tileSize / 8f), paintHachura);
+                        c.DrawCircle(tileSize, tileSize, Math.Max(1.5f, tileSize / 8f), paintHachura);
                         break;
 
                     default:
@@ -238,7 +359,7 @@ namespace GeoNex.Services
                 float r = k.DiameterSubPx * 0.25f;
                 float sw = k.StrokeSubPx * 0.25f;
                 float padding = Math.Max(3f, sw + 2.5f);
-                int halfDim = (int)Math.Ceiling(r * 1.25f + padding);
+                int halfDim = (int)Math.Ceiling(r * 1.35f + padding);
                 int dim = Math.Max(8, halfDim * 2);
                 float center = dim * 0.5f;
 
@@ -258,7 +379,7 @@ namespace GeoNex.Services
                     {
                         Style = SKPaintStyle.Stroke,
                         Color = new SKColor(k.StrokeColor),
-                        StrokeWidth = Math.Max(1f, sw) / r,
+                        StrokeWidth = Math.Max(1f, sw),
                         IsAntialias = true,
                         StrokeJoin = SKStrokeJoin.Round,
                         StrokeCap = SKStrokeCap.Round
@@ -270,7 +391,6 @@ namespace GeoNex.Services
                     c.DrawCircle(center, center, r, fp);
                     if (sp != null)
                     {
-                        sp.StrokeWidth = Math.Max(1f, sw);
                         c.DrawCircle(center, center, r, sp);
                     }
                 }
@@ -312,10 +432,25 @@ namespace GeoNex.Services
                 "Quadrado" => _pathQuadrado,
                 "Losango" or "Diamante" => _pathLosango,
                 "Triangulo" => _pathTriangulo,
+                "TrianguloInvertido" => _pathTrianguloInvertido,
                 "Cruz" => _pathCruz,
                 "X" => _pathX,
                 "Estrela" => _pathEstrela,
                 "Pentagono" => _pathPentagono,
+                "Hexagono" => _pathHexagono,
+                "MarcoINCRA" => _pathMarcoIncra,
+                "AlvoTarget" => _pathAlvoTarget,
+                "PontoCotado" => _pathPontoCotado,
+                "PinoLocalizacao" or "Pin" => _pathPino,
+                "QuadradoCruz" => _pathQuadradoCruz,
+                "MarcoGeodesicoQGIS" => _pathMarcoGeodesicoQGIS,
+                "EstacaoTopograficaQGIS" => _pathEstacaoTopograficaQGIS,
+                "TorreEnergiaQGIS" => _pathTorreEnergiaQGIS,
+                "PosteEnergiaQGIS" => _pathPosteEnergiaQGIS,
+                "PocoAguaQGIS" => _pathPocoAguaQGIS,
+                "ArvoreFlorestalQGIS" => _pathArvoreFlorestalQGIS,
+                "EdificacaoSedeQGIS" => _pathEdificacaoSedeQGIS,
+                "VerticeTriangulacaoQGIS" => _pathVerticeTriangulacaoQGIS,
                 _ => null
             };
 
@@ -337,7 +472,10 @@ namespace GeoNex.Services
             canvas.DrawPath(pathBase, fillPaint);
             if (strokePaint != null)
             {
+                float oldWidth = strokePaint.StrokeWidth;
+                strokePaint.StrokeWidth = Math.Max(0.5f, oldWidth / Math.Max(0.1f, raio));
                 canvas.DrawPath(pathBase, strokePaint);
+                strokePaint.StrokeWidth = oldWidth;
             }
 
             canvas.Restore();

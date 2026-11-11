@@ -143,7 +143,7 @@ namespace GeoNex.Services
                     attrsExt.Add("ORIG_FID", i + 1);
                     attrsExt.Add("RING_TYPE", "EXTERIOR");
                     attrsExt.Add("RING_IDX", 0);
-                    resultado.Add(new Feature(poly.ExteriorRing, attrsExt));
+                    resultado.Add(new Feature(poly.Factory.CreateLineString(poly.ExteriorRing.CoordinateSequence), attrsExt));
 
                     for (int r = 0; r < poly.NumInteriorRings; r++)
                     {
@@ -155,7 +155,7 @@ namespace GeoNex.Services
                         attrsInt.Add("ORIG_FID", i + 1);
                         attrsInt.Add("RING_TYPE", "INTERIOR");
                         attrsInt.Add("RING_IDX", r + 1);
-                        resultado.Add(new Feature(poly.GetInteriorRingN(r), attrsInt));
+                        resultado.Add(new Feature(poly.Factory.CreateLineString(poly.GetInteriorRingN(r).CoordinateSequence), attrsInt));
                     }
                 }
 

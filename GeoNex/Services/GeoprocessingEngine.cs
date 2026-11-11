@@ -581,7 +581,7 @@ namespace GeoNex.Services
             wkbGeometryType geomTypeOgr = primeiraGeom switch
             {
                 Point or MultiPoint => wkbGeometryType.wkbPoint,
-                LineString or MultiLineString => wkbGeometryType.wkbLineString,
+                LineString or MultiLineString or LinearRing => wkbGeometryType.wkbLineString,
                 _ => wkbGeometryType.wkbPolygon
             };
 
@@ -624,7 +624,10 @@ namespace GeoNex.Services
                 var f = feicoes[i];
                 if (f.Geometry == null || f.Geometry.IsEmpty) continue;
 
-                string wkt = wktWriter.Write(f.Geometry);
+                var geomParaSalvar = f.Geometry is LinearRing lr 
+                    ? (f.Geometry.Factory?.CreateLineString(lr.CoordinateSequence) ?? new LineString(lr.Coordinates)) 
+                    : f.Geometry;
+                string wkt = wktWriter.Write(geomParaSalvar);
                 using var ogrGeom = OgrGeometry.CreateFromWkt(wkt);
                 if (ogrGeom == null) continue;
 
@@ -641,7 +644,12 @@ namespace GeoNex.Services
                         {
                             var val = f.Attributes[nome];
                             if (val != null)
-                                ogrFeat.SetField(fieldIdx, val.ToString());
+                            {
+                                if (val is IFormattable formattable)
+                                    ogrFeat.SetField(fieldIdx, formattable.ToString(null, CultureInfo.InvariantCulture));
+                                else
+                                    ogrFeat.SetField(fieldIdx, val.ToString());
+                            }
                             else
                                 ogrFeat.SetFieldNull(fieldIdx);
                         }

@@ -18,7 +18,7 @@ public static class DigitizingCursor
             ? (float)tolerance : 0;
     }
 
-    /// <summary>Distance constraints limit the cursor to a radius locus while allowing magnetic snapping to intersecting features.</summary>
+    /// <summary>Distance constraints take precedence over snap and use project units.</summary>
     public static Result Resolve(
         SKPoint cursor,
         SKMatrix localToScreen,
@@ -58,23 +58,6 @@ public static class DigitizingCursor
                     (float)(start.X + dx / length * distance),
                     (float)(start.Y + dy / length * distance));
             }
-
-            float tol = WorldTolerance(localToScreen, tolerancePixels);
-            if (tol > 0 && (vertices || edges || midpoints || intersections))
-            {
-                SKPoint? snapCandidate = findSnap(cursor, tol, vertices, edges);
-                if (snapCandidate is SKPoint snapPt)
-                {
-                    double snapDx = (double)snapPt.X - start.X;
-                    double snapDy = (double)snapPt.Y - start.Y;
-                    double snapDist = Math.Sqrt(snapDx * snapDx + snapDy * snapDy);
-                    if (Math.Abs(snapDist - distance) <= tol * 1.5 || (!fixedDistance && snapDist <= distance + tol))
-                    {
-                        return new(snapPt, snapPt);
-                    }
-                }
-            }
-
             return new(cursor, null);
         }
 

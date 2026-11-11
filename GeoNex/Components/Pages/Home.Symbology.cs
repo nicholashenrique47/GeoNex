@@ -17,7 +17,68 @@ public partial class Home
     // === CATÁLOGOS CARTOGRÁFICOS DISPONÍVEIS ===
     public static readonly string[] FormasMarcadorDisponiveis =
     [
-        "Circulo", "Quadrado", "Losango", "Triangulo", "Cruz", "X", "Estrela", "Pentagono"
+        "Circulo", "Quadrado", "Losango", "Triangulo", "TrianguloInvertido",
+        "Cruz", "X", "Estrela", "Pentagono", "Hexagono",
+        "MarcoINCRA", "MarcoGeodesicoQGIS", "EstacaoTopograficaQGIS",
+        "VerticeTriangulacaoQGIS", "AlvoTarget", "PontoCotado", "PinoLocalizacao",
+        "TorreEnergiaQGIS", "PosteEnergiaQGIS", "PocoAguaQGIS", "ArvoreFlorestalQGIS", "EdificacaoSedeQGIS"
+    ];
+
+    private string categoriaMarcadorAtiva = "Todos";
+
+    public static readonly string[] CategoriasMarcadorDisponiveis =
+    [
+        "Todos", "Topografia", "Infraestrutura", "Meio Ambiente", "Geometria"
+    ];
+
+    public static string ObterCategoriaForma(string forma)
+    {
+        return forma switch
+        {
+            "MarcoINCRA" or "MarcoGeodesicoQGIS" or "EstacaoTopograficaQGIS" or "VerticeTriangulacaoQGIS" or "AlvoTarget" or "PontoCotado" or "TrianguloInvertido" => "Topografia",
+            "TorreEnergiaQGIS" or "PosteEnergiaQGIS" or "EdificacaoSedeQGIS" => "Infraestrutura",
+            "ArvoreFlorestalQGIS" or "PocoAguaQGIS" or "PinoLocalizacao" => "Meio Ambiente",
+            _ => "Geometria"
+        };
+    }
+
+    public static string ObterNomeLegivelForma(string forma)
+    {
+        return forma switch
+        {
+            "MarcoINCRA" => "Marco INCRA",
+            "MarcoGeodesicoQGIS" => "Marco Geodésico",
+            "EstacaoTopograficaQGIS" => "Estação Total",
+            "VerticeTriangulacaoQGIS" => "Vértice Triang.",
+            "AlvoTarget" => "Alvo GNSS",
+            "PontoCotado" => "Ponto Cotado",
+            "PinoLocalizacao" => "Pino / Sede",
+            "TorreEnergiaQGIS" => "Torre Energia",
+            "PosteEnergiaQGIS" => "Poste Rede",
+            "PocoAguaQGIS" => "Poço / Água",
+            "ArvoreFlorestalQGIS" => "Árvore / APP",
+            "EdificacaoSedeQGIS" => "Edificação",
+            "TrianguloInvertido" => "Piquete",
+            _ => forma
+        };
+    }
+
+    public record PresetEstiloPonto(string Nome, string Forma, string CorFill, string CorBorda, float Tamanho, float EspessuraBorda);
+
+    public static readonly PresetEstiloPonto[] PresetsTopografia =
+    [
+        new("Marco INCRA (M)", "MarcoINCRA", "#0ea5e9", "#0284c7", 9f, 1.8f),
+        new("Marco Geodésico", "MarcoGeodesicoQGIS", "#0f172a", "#38bdf8", 10f, 2.0f),
+        new("Estação Total", "EstacaoTopograficaQGIS", "#f59e0b", "#d97706", 11f, 1.6f),
+        new("Vértice Triang.", "VerticeTriangulacaoQGIS", "#dc2626", "#ffffff", 9f, 1.8f),
+        new("Base GNSS / RTK", "AlvoTarget", "#10b981", "#047857", 9f, 2.0f),
+        new("Ponto Cotado", "PontoCotado", "#38bdf8", "#0369a1", 8f, 1.5f),
+        new("Piquete de Campo", "TrianguloInvertido", "#fbbf24", "#78350f", 8f, 1.5f),
+        new("Torre / Linha", "TorreEnergiaQGIS", "#64748b", "#334155", 11f, 1.6f),
+        new("Árvore / Florestal", "ArvoreFlorestalQGIS", "#15803d", "#166534", 11f, 1.5f),
+        new("Poço / Nascente", "PocoAguaQGIS", "#0284c7", "#0369a1", 10f, 1.8f),
+        new("Sede / Construção", "EdificacaoSedeQGIS", "#b45309", "#78350f", 10f, 1.5f),
+        new("Pino de Interesse", "PinoLocalizacao", "#ec4899", "#be185d", 11f, 1.5f)
     ];
 
     public static readonly string[] PadroesHachuraDisponiveis =
@@ -92,10 +153,11 @@ public partial class Home
     private bool usarPoloInacessibilidade = true;
     private float tamanhoMinimoFeicaoPixels = 32f;
 
-    // Feedback UI
+    // Feedback UI e Modos de Visualização
     private string statusFeedbackEstilo = "";
     private bool statusEstiloSucesso = true;
     private bool _carregandoClassificacao = false;
+    private bool previewFundoClaro = false;
 
     // === MÉTODOS DE SINCRONIZAÇÃO E CONTROLE ===
     private void SincronizarCamposEstiloParaUIAvancado(EstiloCamada estilo)
@@ -269,6 +331,88 @@ public partial class Home
         estilo.EscalaMinimaRotulo = escalaMinimaRotulo;
 
         SalvarCamposUIParaEstiloAvancado(estilo);
+    }
+
+    public string ObterTipoGeometriaCamada(string camada)
+    {
+        if (string.IsNullOrEmpty(camada)) return "VETOR";
+        if (MapService.PontosPorCamada.ContainsKey(camada)) return "PONTO";
+        if (MapService.LinhasPorCamada.ContainsKey(camada)) return "LINHA";
+        if (MapService.VetoresPorCamada.ContainsKey(camada)) return "POLÍGONO";
+        return "VETOR";
+    }
+
+    public static string ObterCssGradienteRampa(string rampa, bool inverter)
+    {
+        try
+        {
+            string c0 = ClassificationEngine.ObterCorAmostra(rampa, inverter ? 1.0f : 0.0f);
+            string c25 = ClassificationEngine.ObterCorAmostra(rampa, inverter ? 0.75f : 0.25f);
+            string c50 = ClassificationEngine.ObterCorAmostra(rampa, 0.5f);
+            string c75 = ClassificationEngine.ObterCorAmostra(rampa, inverter ? 0.25f : 0.75f);
+            string c100 = ClassificationEngine.ObterCorAmostra(rampa, inverter ? 0.0f : 1.0f);
+            return $"linear-gradient(to right, {c0}, {c25}, {c50}, {c75}, {c100})";
+        }
+        catch
+        {
+            return "linear-gradient(to right, #38bdf8, #6366f1)";
+        }
+    }
+
+    public static string[] ObterAmostrasPaletaCategorizada(string nomePaleta)
+    {
+        return nomePaleta switch
+        {
+            "Pastel" => ["#fdba74", "#f472b6", "#c084fc", "#818cf8", "#38bdf8", "#4ade80"],
+            "Vivid" => ["#e11d48", "#ea580c", "#ca8a04", "#16a34a", "#0284c7", "#9333ea"],
+            "ColorBrewer1" => ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#ffff33"],
+            "Natureza" => ["#2d6a4f", "#52b788", "#74c69d", "#b7e4c7", "#d8f3dc", "#95d5b2"],
+            _ => ["#38bdf8", "#0ea5e9", "#0284c7", "#0369a1", "#075985", "#0c4a6e"] // ArcMap
+        };
+    }
+
+    private void SelecionarFormaMarcador(string forma)
+    {
+        formaMarcador = forma;
+        AtualizarSimbologiaAoVivo();
+    }
+
+    private void AplicarPresetPonto(PresetEstiloPonto preset)
+    {
+        formaMarcador = preset.Forma;
+        corPreenchimento = preset.CorFill;
+        corBorda = preset.CorBorda;
+        semCorPreenchimento = false;
+        semCorBorda = false;
+        tamanhoPonto = preset.Tamanho;
+        espessuraLinha = preset.EspessuraBorda;
+        espessuraBorda = preset.EspessuraBorda;
+        AtualizarSimbologiaAoVivo();
+    }
+
+    private void SelecionarPadraoPreenchimento(string padrao)
+    {
+        padraoPreenchimento = padrao;
+        AtualizarSimbologiaAoVivo();
+    }
+
+    private void SelecionarTipoLinha(string tipo)
+    {
+        tipoLinha = tipo;
+        AtualizarSimbologiaAoVivo();
+    }
+
+    private void AlternarInversaoRampa()
+    {
+        inverterRampa = !inverterRampa;
+        if (tipoSimbologia == "GRADUADA" && faixasGraduadasUI.Count > 0)
+        {
+            ExecutarClassificacaoGraduada();
+        }
+        else
+        {
+            AtualizarSimbologiaAoVivo();
+        }
     }
 
     private void ExecutarClassificacaoGraduada()
@@ -470,12 +614,26 @@ public partial class Home
         return forma switch
         {
             "Quadrado" => $"M {-r * 0.85f} {-r * 0.85f} L {r * 0.85f} {-r * 0.85f} L {r * 0.85f} {r * 0.85f} L {-r * 0.85f} {r * 0.85f} Z",
-            "Losango" => $"M 0 {-r * 1.15f} L {r * 1.15f} 0 L 0 {r * 1.15f} L {-r * 1.15f} 0 Z",
+            "Losango" or "Diamante" => $"M 0 {-r * 1.15f} L {r * 1.15f} 0 L 0 {r * 1.15f} L {-r * 1.15f} 0 Z",
             "Triangulo" => $"M 0 {-r * 1.15f} L {r * 1.05f} {r * 0.85f} L {-r * 1.05f} {r * 0.85f} Z",
+            "TrianguloInvertido" => $"M 0 {r * 1.15f} L {r * 1.05f} {-r * 0.85f} L {-r * 1.05f} {-r * 0.85f} Z",
             "Cruz" => $"M {-r * 0.35f} {-r * 1.1f} L {r * 0.35f} {-r * 1.1f} L {r * 0.35f} {-r * 0.35f} L {r * 1.1f} {-r * 0.35f} L {r * 1.1f} {r * 0.35f} L {r * 0.35f} {r * 0.35f} L {r * 0.35f} {r * 1.1f} L {-r * 0.35f} {r * 1.1f} L {-r * 0.35f} {r * 0.35f} L {-r * 1.1f} {r * 0.35f} L {-r * 1.1f} {-r * 0.35f} L {-r * 0.35f} {-r * 0.35f} Z",
             "X" => $"M 0 {-r * 0.5f} L {r * 0.5f} {-r} L {r} {-r * 0.5f} L {r * 0.5f} 0 L {r} {r * 0.5f} L {r * 0.5f} {r} L 0 {r * 0.5f} L {-r * 0.5f} {r} L {-r} {r * 0.5f} L {-r * 0.5f} 0 L {-r} {-r * 0.5f} L {-r * 0.5f} {-r} Z",
             "Estrela" => GerarEstrelaSvgPath(r * 1.15f, r * 0.48f),
             "Pentagono" => GerarPentagonoSvgPath(r * 1.1f),
+            "Hexagono" => GerarHexagonoSvgPath(r * 1.1f),
+            "MarcoINCRA" => $"M 0 {-r} A {r} {r} 0 1 1 0 {r} A {r} {r} 0 1 1 0 {-r} M {-r * 1.25f} 0 L {r * 1.25f} 0 M 0 {-r * 1.25f} L 0 {r * 1.25f}",
+            "MarcoGeodesicoQGIS" => $"M 0 {-r} A {r} {r} 0 1 1 0 {r} A {r} {r} 0 1 1 0 {-r} M 0 0 L {r} 0 A {r} {r} 0 0 1 0 {r} Z M 0 0 L {-r} 0 A {r} {r} 0 0 1 0 {-r} Z M {-r * 1.3f} 0 L {r * 1.3f} 0 M 0 {-r * 1.3f} L 0 {r * 1.3f}",
+            "EstacaoTopograficaQGIS" => $"M 0 {-r * 0.2f} L {-r * 0.8f} {r * 1.15f} M 0 {-r * 0.2f} L 0 {r * 1.15f} M 0 {-r * 0.2f} L {r * 0.8f} {r * 1.15f} M {-r * 0.35f} {-r * 0.65f} h {r * 0.7f} v {r * 0.45f} h {-r * 0.7f} Z M {-r * 0.75f} {-r * 0.85f} h {r * 1.5f}",
+            "VerticeTriangulacaoQGIS" => $"M 0 {-r * 1.15f} L {r * 1.05f} {r * 0.85f} L {-r * 1.05f} {r * 0.85f} Z M 0 {-r * 0.1f} m {-r * 0.3f} 0 a {r * 0.3f} {r * 0.3f} 0 1 0 {r * 0.6f} 0 a {r * 0.3f} {r * 0.3f} 0 1 0 {-r * 0.6f} 0",
+            "AlvoTarget" => $"M 0 {-r * 1.1f} A {r * 1.1f} {r * 1.1f} 0 1 1 0 {r * 1.1f} A {r * 1.1f} {r * 1.1f} 0 1 1 0 {-r * 1.1f} M 0 {-r * 0.45f} A {r * 0.45f} {r * 0.45f} 0 1 0 0 {r * 0.45f} A {r * 0.45f} {r * 0.45f} 0 1 0 0 {-r * 0.45f}",
+            "PontoCotado" => $"M 0 {-r * 0.35f} A {r * 0.35f} {r * 0.35f} 0 1 1 0 {r * 0.35f} A {r * 0.35f} {r * 0.35f} 0 1 1 0 {-r * 0.35f} M {-r * 1.25f} 0 L {r * 1.25f} 0 M 0 {-r * 1.25f} L 0 {r * 1.25f}",
+            "PinoLocalizacao" => $"M 0 {r * 1.15f} C {r * 0.7f} {r * 0.35f} {r * 0.85f} {-r * 0.2f} {r * 0.85f} {-r * 0.5f} A {r * 0.85f} {r * 0.85f} 0 0 0 {-r * 0.85f} {-r * 0.5f} C {-r * 0.85f} {-r * 0.2f} {-r * 0.7f} {r * 0.35f} 0 {r * 1.15f} Z",
+            "TorreEnergiaQGIS" => $"M {-r * 0.75f} {r * 1.15f} L {-r * 0.25f} {-r * 0.6f} L 0 {-r * 1.15f} L {r * 0.25f} {-r * 0.6f} L {r * 0.75f} {r * 1.15f} M {-r * 0.95f} {-r * 0.55f} h {r * 1.9f} M {-r * 0.75f} {-r * 0.15f} h {r * 1.5f} M {-r * 0.5f} {r * 0.5f} L {r * 0.5f} {r * 0.1f} M {r * 0.5f} {r * 0.5f} L {-r * 0.5f} {r * 0.1f}",
+            "PosteEnergiaQGIS" => $"M 0 {r * 1.15f} L 0 {-r * 1.05f} M {-r * 0.85f} {-r * 0.7f} L {r * 0.85f} {-r * 0.7f} M {-r * 0.85f} {-r * 0.7f} m {-r * 0.12f} 0 a {r * 0.12f} {r * 0.12f} 0 1 0 {r * 0.24f} 0 a {r * 0.12f} {r * 0.12f} 0 1 0 {-r * 0.24f} 0 M {r * 0.85f} {-r * 0.7f} m {-r * 0.12f} 0 a {r * 0.12f} {r * 0.12f} 0 1 0 {r * 0.24f} 0 a {r * 0.12f} {r * 0.12f} 0 1 0 {-r * 0.24f} 0",
+            "PocoAguaQGIS" => $"M 0 {-r * 1.1f} A {r * 1.1f} {r * 1.1f} 0 1 1 0 {r * 1.1f} A {r * 1.1f} {r * 1.1f} 0 1 1 0 {-r * 1.1f} M 0 {-r * 0.75f} A {r * 0.75f} {r * 0.75f} 0 1 1 0 {r * 0.75f} A {r * 0.75f} {r * 0.75f} 0 1 1 0 {-r * 0.75f} M 0 {-r * 0.55f} C {r * 0.35f} {-r * 0.15f} {r * 0.45f} {r * 0.2f} {r * 0.45f} {r * 0.35f} A {r * 0.45f} {r * 0.45f} 0 0 1 {-r * 0.45f} {r * 0.35f} C {-r * 0.45f} {r * 0.2f} {-r * 0.35f} {-r * 0.15f} 0 {-r * 0.55f} Z",
+            "ArvoreFlorestalQGIS" => $"M {-r * 0.15f} {r * 0.4f} h {r * 0.3f} v {r * 0.75f} h {-r * 0.3f} Z M 0 {-r * 0.4f} m {-r * 0.55f} 0 a {r * 0.55f} {r * 0.55f} 0 1 0 {r * 1.1f} 0 a {r * 0.55f} {r * 0.55f} 0 1 0 {-r * 1.1f} 0 M {-r * 0.45f} {r * 0.05f} m {-r * 0.45f} 0 a {r * 0.45f} {r * 0.45f} 0 1 0 {r * 0.9f} 0 a {r * 0.45f} {r * 0.45f} 0 1 0 {-r * 0.9f} 0 M {r * 0.45f} {r * 0.05f} m {-r * 0.45f} 0 a {r * 0.45f} {r * 0.45f} 0 1 0 {r * 0.9f} 0 a {r * 0.45f} {r * 0.45f} 0 1 0 {-r * 0.9f} 0",
+            "EdificacaoSedeQGIS" => $"M {-r * 0.85f} {r * 0.05f} L 0 {-r * 0.95f} L {r * 0.85f} {r * 0.05f} L {r * 0.7f} {r * 0.05f} L {r * 0.7f} {r * 1.1f} L {-r * 0.7f} {r * 1.1f} L {-r * 0.7f} {r * 0.05f} Z M {-r * 0.2f} {r * 0.55f} h {r * 0.4f} v {r * 0.55f} h {-r * 0.4f} Z",
             _ => $"M 0 {-r} A {r} {r} 0 1 1 0 {r} A {r} {r} 0 1 1 0 {-r}"
         };
     }
@@ -502,6 +660,21 @@ public partial class Home
         for (int i = 0; i < 5; i++)
         {
             double angle = -Math.PI / 2.0 + (i * 2.0 * Math.PI / 5.0);
+            float x = (float)(r * Math.Cos(angle));
+            float y = (float)(r * Math.Sin(angle));
+            if (i == 0) sb.Append(CultureInfo.InvariantCulture, $"M {x:F1} {y:F1}");
+            else sb.Append(CultureInfo.InvariantCulture, $" L {x:F1} {y:F1}");
+        }
+        sb.Append(" Z");
+        return sb.ToString();
+    }
+
+    private static string GerarHexagonoSvgPath(float r)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < 6; i++)
+        {
+            double angle = -Math.PI / 2.0 + (i * 2.0 * Math.PI / 6.0);
             float x = (float)(r * Math.Cos(angle));
             float y = (float)(r * Math.Sin(angle));
             if (i == 0) sb.Append(CultureInfo.InvariantCulture, $"M {x:F1} {y:F1}");

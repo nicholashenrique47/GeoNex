@@ -11,6 +11,151 @@ using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
 using NetTopologySuite.Operation.Buffer;
 using Point = NetTopologySuite.Geometries.Point;
+using GeoprocessingCore;
+
+GdalConfiguration.ConfigureGdal();
+GdalConfiguration.ConfigureOgr();
+
+
+if (args.Contains("--bench"))
+{
+    Console.WriteLine("==================================================================================");
+    Console.WriteLine("       BENCHMARK DE PERFORMANCE E ESTRESSE: MOTOR DE GEOPROCESSAMENTO GEONEX       ");
+    Console.WriteLine("==================================================================================\n");
+
+    var gfBench = GeometryFactory.Default;
+    var rndBench = new Random(2026);
+
+    // 1. Benchmark de Indexação R-Tree (STRtree)
+    Console.WriteLine(">>> [1/6] Benchmark de Indexação Espacial STRtree R-Tree...");
+    int totalPolys = 20000;
+    var tree = new NetTopologySuite.Index.Strtree.STRtree<int>(32);
+    var envelopes = new List<Envelope>(totalPolys);
+    for (int i = 0; i < totalPolys; i++)
+    {
+        double x = rndBench.NextDouble() * 10000.0;
+        double y = rndBench.NextDouble() * 10000.0;
+        var env = new Envelope(x, x + 50.0, y, y + 50.0);
+        envelopes.Add(env);
+    }
+
+    var swBuild = Stopwatch.StartNew();
+    for (int i = 0; i < totalPolys; i++) tree.Insert(envelopes[i], i);
+    tree.Build();
+    swBuild.Stop();
+    Console.WriteLine($"    Construção do índice (N={totalPolys:N0} polígonos): {swBuild.ElapsedMilliseconds:F2} ms ({totalPolys * 1000.0 / Math.Max(1, swBuild.ElapsedMilliseconds):N0} polígonos/s)");
+
+    int totalQueries = 5000;
+    var swQuery = Stopwatch.StartNew();
+    long matchesTotal = 0;
+    for (int i = 0; i < totalQueries; i++)
+    {
+        double qx = rndBench.NextDouble() * 10000.0;
+        double qy = rndBench.NextDouble() * 10000.0;
+        var qEnv = new Envelope(qx, qx + 500.0, qy, qy + 500.0);
+        var matches = tree.Query(qEnv);
+        matchesTotal += matches.Count;
+    }
+    swQuery.Stop();
+    double usPerQuery = swQuery.Elapsed.TotalMicroseconds / totalQueries;
+    Console.WriteLine($"    Consultas de Viewport (N={totalQueries:N0}): {swQuery.ElapsedMilliseconds:F2} ms total | {usPerQuery:F2} us/query ({totalQueries * 1000.0 / Math.Max(1, swQuery.ElapsedMilliseconds):N0} queries/s)");
+    Console.WriteLine($"    Total de candidatos espaciais filtrados: {matchesTotal:N0}\n");
+
+    // 2. Benchmark de Buffer em Lote
+    Console.WriteLine(">>> [2/6] Benchmark de Buffer Paramétrico em Lote (N=5.000 feições)...");
+    int totalBuffer = 5000;
+    var pontosBuffer = new List<IFeature>(totalBuffer);
+    for (int i = 0; i < totalBuffer; i++)
+    {
+        var pt = gfBench.CreatePoint(new Coordinate(rndBench.NextDouble() * 5000, rndBench.NextDouble() * 5000));
+        pontosBuffer.Add(new Feature(pt, new AttributesTable { { "ID", i } }));
+    }
+    var swBuf = Stopwatch.StartNew();
+    var resBuf = VectorGeometryAlgorithms.ExecutarBuffer(pontosBuffer, 25.0, segmentosQuadrante: 8);
+    swBuf.Stop();
+    Console.WriteLine($"    Buffer de {totalBuffer:N0} pontos (raio 25m, 8 seg/quad): {swBuf.ElapsedMilliseconds} ms ({totalBuffer * 1000.0 / Math.Max(1, swBuf.ElapsedMilliseconds):N0} feições/s)\n");
+
+    // 3. Benchmark de Generalização Douglas-Peucker em Massa
+    Console.WriteLine(">>> [3/6] Benchmark de Generalização Cartográfica Douglas-Peucker (100.000 vértices)...");
+    int totalVerts = 100000;
+    var coords = new Coordinate[totalVerts];
+    double curX = 0, curY = 0;
+    for (int i = 0; i < totalVerts; i++)
+    {
+        curX += 1.0;
+        curY += (rndBench.NextDouble() - 0.5) * 2.0;
+        coords[i] = new Coordinate(curX, curY);
+    }
+    var superLinha = gfBench.CreateLineString(coords);
+    var featSuperLinha = new Feature(superLinha, new AttributesTable { { "NOME", "SuperLinha" } });
+
+    var swDp = Stopwatch.StartNew();
+    var resDp = CartographicGeneralizationAlgorithms.ExecutarSimplificacaoDouglasPeucker(new[] { featSuperLinha }, toleranciaMetros: 5.0);
+    swDp.Stop();
+    int vertsApos = resDp[0].Geometry.NumPoints;
+    double reducao = 100.0 * (1.0 - (double)vertsApos / totalVerts);
+    Console.WriteLine($"    Redução de {totalVerts:N0} para {vertsApos:N0} vértices ({reducao:F1}% de compressão): {swDp.ElapsedMilliseconds} ms");
+    Console.WriteLine($"    Vazão de simplificação: {totalVerts * 1000.0 / Math.Max(1, swDp.ElapsedMilliseconds):N0} vértices/s\n");
+
+    // 4. Benchmark de Tesselação Voronoi e Delaunay
+    Console.WriteLine(">>> [4/6] Benchmark de Tesselação Voronoi & Triangulação Delaunay (3.000 pontos)...");
+    int totalPtsTess = 3000;
+    var ptsTessBench = new List<IFeature>(totalPtsTess);
+    for (int i = 0; i < totalPtsTess; i++)
+    {
+        var p = gfBench.CreatePoint(new Coordinate(rndBench.NextDouble() * 5000, rndBench.NextDouble() * 5000));
+        ptsTessBench.Add(new Feature(p, new AttributesTable { { "P_ID", i } }));
+    }
+    var swDelaunay = Stopwatch.StartNew();
+    var resDelaunay = ProximityTessellationAlgorithms.ExecutarTriangulacaoDelaunay(ptsTessBench);
+    swDelaunay.Stop();
+    Console.WriteLine($"    Triangulação Delaunay ({totalPtsTess:N0} pontos -> {resDelaunay.Count:N0} triângulos TIN): {swDelaunay.ElapsedMilliseconds} ms");
+
+    var swVoronoi = Stopwatch.StartNew();
+    var resVoronoi = ProximityTessellationAlgorithms.ExecutarVoronoi(ptsTessBench, null, margemPercentual: 0.1);
+    swVoronoi.Stop();
+    Console.WriteLine($"    Polígonos de Voronoi Thiessen ({totalPtsTess:N0} geradores -> {resVoronoi.Count:N0} células): {swVoronoi.ElapsedMilliseconds} ms\n");
+
+    // 5. Benchmark de Spatial Join com R-Tree
+    Console.WriteLine(">>> [5/6] Benchmark de Spatial Join Zonal (5.000 pontos x 400 polígonos)...");
+    int zonasCount = 400;
+    var zonas = new List<IFeature>(zonasCount);
+    for (int i = 0; i < 20; i++)
+    {
+        for (int j = 0; j < 20; j++)
+        {
+            double zx = i * 250.0;
+            double zy = j * 250.0;
+            var zPoly = gfBench.CreatePolygon(new[]
+            {
+                new Coordinate(zx, zy),
+                new Coordinate(zx + 240, zy),
+                new Coordinate(zx + 240, zy + 240),
+                new Coordinate(zx, zy + 240),
+                new Coordinate(zx, zy)
+            });
+            zonas.Add(new Feature(zPoly, new AttributesTable { { "ZONA_ID", i * 20 + j } }));
+        }
+    }
+    var swJoin = Stopwatch.StartNew();
+    var resJoin = ZonalStatisticsAlgorithms.ExecutarSpatialJoinAvancado(zonas, pontosBuffer, predicadoTopologico: "Intersects");
+    swJoin.Stop();
+    Console.WriteLine($"    Spatial Join de 5.000 pontos em 400 zonas via R-Tree: {swJoin.ElapsedMilliseconds} ms");
+    Console.WriteLine($"    Vazão: {5000.0 * 1000.0 / Math.Max(1, swJoin.ElapsedMilliseconds):N0} pontos/s avaliados\n");
+
+    // 6. Benchmark de Grade Hexagonal Tesselada
+    Console.WriteLine(">>> [6/6] Benchmark de Geração de Grade Hexagonal (Honeycomb Grid)...");
+    var envHex = new Envelope(0, 10000, 0, 10000); // 100 km²
+    var swHex = Stopwatch.StartNew();
+    var resHex = SpatialGridSamplingAlgorithms.ExecutarGradeHexagonal(envHex, raioMetros: 100.0);
+    swHex.Stop();
+    Console.WriteLine($"    Grade Hexagonal ({resHex.Count:N0} hexágonos de 100m gerados com centróides): {swHex.ElapsedMilliseconds} ms");
+    Console.WriteLine($"    Vazão de síntese de malha: {resHex.Count * 1000.0 / Math.Max(1, swHex.ElapsedMilliseconds):N0} hexágonos/s\n");
+
+    Console.WriteLine("==================================================================================");
+    Console.WriteLine(">>> BENCHMARK CONCLUÍDO COM SUCESSO! MOTOR COM EXCELENTE TAXA DE PROCESSAMENTO <<<\n");
+    return;
+}
 
 int assertions = 0;
 void Assert(bool condition, string message)
@@ -569,6 +714,226 @@ Assert(!batchResultados[0].Sucesso, "Job com arquivo inexistente deve reportar f
 Assert(batchResultados[0].MensagemErro!.Contains("não existe"), "Mensagem de erro descritiva deve ser retornada");
 
 Console.WriteLine($"\n==================================================================================");
-Console.WriteLine($">>> SUCESSO TOTAL! TODOS OS 17 MÓDULOS DE GEOPROCESSAMENTO FORAM VALIDADOS! <<<");
+// =========================================================================
+// MÓDULO 18: TESTES PONTA A PONTA (E2E) COM SHAPEFILES REAIS VIA GEOPROCESSINGENGINE
+// =========================================================================
+Console.WriteLine("[18/18] Testando Execução Assíncrona Ponta a Ponta com Shapefiles Reais (GeoprocessingEngine.ExecutarAsync)...");
+
+string tempDir = Path.Combine(Path.GetTempPath(), "GeoNex_E2E_Test_" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(tempDir);
+
+try
+{
+    // Prepara Shapefiles no disco
+    string shpEntrada = Path.Combine(tempDir, "talhoes_entrada.shp");
+    var feicoesIn = new List<IFeature>
+    {
+        new Feature(polyEntrada, new AttributesTable { { "ID", 1 }, { "NOME", "Talhao1" }, { "ZONA", "Norte" } }),
+        new Feature(q2, new AttributesTable { { "ID", 2 }, { "NOME", "Talhao2" }, { "ZONA", "Sul" } })
+    };
+    GeoprocessingEngine.SalvarShapefile(shpEntrada, feicoesIn);
+    Assert(File.Exists(shpEntrada), "Shapefile de entrada deve existir no disco");
+
+    string shpSobreposicao = Path.Combine(tempDir, "mascara_sobreposicao.shp");
+    var feicoesMasc = new List<IFeature>
+    {
+        new Feature(polyMascara, new AttributesTable { { "ID_MASC", 99 }, { "CLASSE", "APA" } })
+    };
+    GeoprocessingEngine.SalvarShapefile(shpSobreposicao, feicoesMasc);
+    Assert(File.Exists(shpSobreposicao), "Shapefile de sobreposição deve existir no disco");
+
+    string shpLinhas = Path.Combine(tempDir, "estradas_entrada.shp");
+    var feicoesLin = new List<IFeature>
+    {
+        new Feature(linhaCurva, new AttributesTable { { "RODOVIA", "BR-101" }, { "KM", 45.2 } })
+    };
+    GeoprocessingEngine.SalvarShapefile(shpLinhas, feicoesLin);
+
+    string shpPontos = Path.Combine(tempDir, "pontos_entrada.shp");
+    var feicoesPts = new List<IFeature>
+    {
+        new Feature(gf.CreatePoint(new Coordinate(10, 10)), new AttributesTable { { "PT_ID", 1 }, { "VAL", 100 } }),
+        new Feature(gf.CreatePoint(new Coordinate(20, 20)), new AttributesTable { { "PT_ID", 2 }, { "VAL", 200 } }),
+        new Feature(gf.CreatePoint(new Coordinate(80, 80)), new AttributesTable { { "PT_ID", 3 }, { "VAL", 300 } })
+    };
+    GeoprocessingEngine.SalvarShapefile(shpPontos, feicoesPts);
+
+    // 1. Buffer
+    string shpBuffer = Path.Combine(tempDir, "out_buffer.shp");
+    var paramBuffer = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.Buffer,
+        NomeCamadaEntrada: "talhoes",
+        DistanciaBufferMetros: 15.0,
+        CaminhoArquivoSaida: shpBuffer
+    );
+    var resBuffer = GeoprocessingEngine.ExecutarAsync(paramBuffer, shpEntrada).GetAwaiter().GetResult();
+    Assert(resBuffer.Sucesso, $"Buffer deve executar com sucesso: {resBuffer.MensagemErro}");
+    Assert(File.Exists(shpBuffer), "Arquivo Shapefile do Buffer deve ser gerado no disco");
+    Assert(resBuffer.TotalFeicoesCriadas >= 1, "Buffer deve gerar ao menos 1 feição");
+
+    // 2. Envoltória Convexa
+    string shpHull = Path.Combine(tempDir, "out_hull.shp");
+    var paramHull = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.EnvoltoriaConvexa,
+        NomeCamadaEntrada: "pontos",
+        ModoEnvoltoriaGlobal: true,
+        CaminhoArquivoSaida: shpHull
+    );
+    var resHull = GeoprocessingEngine.ExecutarAsync(paramHull, shpPontos).GetAwaiter().GetResult();
+    Assert(resHull.Sucesso, $"Envoltória deve executar com sucesso: {resHull.MensagemErro}");
+    Assert(File.Exists(shpHull), "Shapefile de Envoltória Convexa deve existir");
+
+    // 3. Centroides
+    string shpCentroides = Path.Combine(tempDir, "out_centroides.shp");
+    var paramCentroides = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.Centroides,
+        NomeCamadaEntrada: "talhoes",
+        UsarPolylabelEmCentroides: true,
+        CaminhoArquivoSaida: shpCentroides
+    );
+    var resCentroides = GeoprocessingEngine.ExecutarAsync(paramCentroides, shpEntrada).GetAwaiter().GetResult();
+    Assert(resCentroides.Sucesso, $"Centroides deve executar com sucesso: {resCentroides.MensagemErro}");
+    Assert(resCentroides.TotalFeicoesCriadas == 2, "Centroides deve gerar exatamente 2 pontos");
+
+    // 4. Dissolver
+    string shpDissolve = Path.Combine(tempDir, "out_dissolve.shp");
+    var paramDissolve = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.Dissolver,
+        NomeCamadaEntrada: "talhoes",
+        CaminhoArquivoSaida: shpDissolve
+    );
+    var resDissolve = GeoprocessingEngine.ExecutarAsync(paramDissolve, shpEntrada).GetAwaiter().GetResult();
+    Assert(resDissolve.Sucesso, $"Dissolve deve executar com sucesso: {resDissolve.MensagemErro}");
+    Assert(resDissolve.TotalFeicoesCriadas == 1, "Dissolve global deve unificar em 1 feição");
+
+    // 5. Recortar (Clip)
+    string shpClip = Path.Combine(tempDir, "out_clip.shp");
+    var paramClip = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.Recortar,
+        NomeCamadaEntrada: "talhoes",
+        NomeCamadaSobreposicao: "mascara",
+        CaminhoArquivoSaida: shpClip
+    );
+    var resClip = GeoprocessingEngine.ExecutarAsync(paramClip, shpEntrada, shpSobreposicao).GetAwaiter().GetResult();
+    Assert(resClip.Sucesso, $"Recorte deve executar com sucesso: {resClip.MensagemErro}");
+    Assert(File.Exists(shpClip), "Shapefile de Recorte deve existir no disco");
+
+    // 6. Intersecção
+    string shpInter = Path.Combine(tempDir, "out_inter.shp");
+    var paramInter = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.Interseccao,
+        NomeCamadaEntrada: "talhoes",
+        NomeCamadaSobreposicao: "mascara",
+        CaminhoArquivoSaida: shpInter
+    );
+    var resInter = GeoprocessingEngine.ExecutarAsync(paramInter, shpEntrada, shpSobreposicao).GetAwaiter().GetResult();
+    Assert(resInter.Sucesso, $"Intersecção deve executar com sucesso: {resInter.MensagemErro}");
+
+    // 7. Diferença Simétrica (XOR)
+    string shpXor = Path.Combine(tempDir, "out_xor.shp");
+    var paramXor = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.DiferencaSimetrica,
+        NomeCamadaEntrada: "talhoes",
+        NomeCamadaSobreposicao: "mascara",
+        CaminhoArquivoSaida: shpXor
+    );
+    var resXor = GeoprocessingEngine.ExecutarAsync(paramXor, shpEntrada, shpSobreposicao).GetAwaiter().GetResult();
+    Assert(resXor.Sucesso, $"Diferença Simétrica deve executar com sucesso: {resXor.MensagemErro}");
+
+    // 8. Simplificação Douglas-Peucker
+    string shpDp = Path.Combine(tempDir, "out_dp.shp");
+    var paramDp = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.SimplificacaoDouglasPeucker,
+        NomeCamadaEntrada: "estradas",
+        ToleranciaSimplificacaoMetros: 5.0,
+        CaminhoArquivoSaida: shpDp
+    );
+    var resDp = GeoprocessingEngine.ExecutarAsync(paramDp, shpLinhas).GetAwaiter().GetResult();
+    Assert(resDp.Sucesso, $"Douglas-Peucker deve executar com sucesso: {resDp.MensagemErro}");
+
+    // 9. Suavização Chaikin
+    string shpChaikin = Path.Combine(tempDir, "out_chaikin.shp");
+    var paramChaikin = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.SuavizacaoChaikin,
+        NomeCamadaEntrada: "estradas",
+        IteracoesSuavizacao: 2,
+        CaminhoArquivoSaida: shpChaikin
+    );
+    var resChaikin = GeoprocessingEngine.ExecutarAsync(paramChaikin, shpLinhas).GetAwaiter().GetResult();
+    Assert(resChaikin.Sucesso, $"Chaikin deve executar com sucesso: {resChaikin.MensagemErro}");
+
+    // 10. Grade Hexagonal
+    string shpHex = Path.Combine(tempDir, "out_hex.shp");
+    var paramHex = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.GradeHexagonal,
+        NomeCamadaEntrada: "talhoes",
+        RaioHexagonoMetros: 30.0,
+        CaminhoArquivoSaida: shpHex
+    );
+    var resHex = GeoprocessingEngine.ExecutarAsync(paramHex, shpEntrada).GetAwaiter().GetResult();
+    Assert(resHex.Sucesso, $"Grade Hexagonal deve executar com sucesso: {resHex.MensagemErro}");
+    Assert(resHex.TotalFeicoesCriadas > 0, "Grade Hexagonal deve gerar células");
+
+    // 11. Grade Cartesiana
+    string shpCart = Path.Combine(tempDir, "out_cart.shp");
+    var paramCart = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.GradeCartesiana,
+        NomeCamadaEntrada: "talhoes",
+        LarguraGradeMetros: 50.0,
+        AlturaGradeMetros: 50.0,
+        CaminhoArquivoSaida: shpCart
+    );
+    var resCart = GeoprocessingEngine.ExecutarAsync(paramCart, shpEntrada).GetAwaiter().GetResult();
+    Assert(resCart.Sucesso, $"Grade Cartesiana deve executar com sucesso: {resCart.MensagemErro}");
+
+    // 12. Polígonos para Linhas
+    string shpPolyLines = Path.Combine(tempDir, "out_polylines.shp");
+    var paramPolyLines = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.PoligonosParaLinhas,
+        NomeCamadaEntrada: "talhoes",
+        CaminhoArquivoSaida: shpPolyLines
+    );
+    var resPolyLines = GeoprocessingEngine.ExecutarAsync(paramPolyLines, shpEntrada).GetAwaiter().GetResult();
+    Assert(resPolyLines.Sucesso, $"Polígonos para Linhas deve executar com sucesso: {resPolyLines.MensagemErro}");
+
+    // 13. Extrair Vértices
+    string shpVert = Path.Combine(tempDir, "out_vert.shp");
+    var paramVert = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.ExtrairVertices,
+        NomeCamadaEntrada: "talhoes",
+        CaminhoArquivoSaida: shpVert
+    );
+    var resVert = GeoprocessingEngine.ExecutarAsync(paramVert, shpEntrada).GetAwaiter().GetResult();
+    Assert(resVert.Sucesso, $"Extrair Vértices deve executar com sucesso: {resVert.MensagemErro}");
+
+    // 14. Estaqueamento de Linhas
+    string shpEstaca = Path.Combine(tempDir, "out_estacas.shp");
+    var paramEstaca = new GeoprocessingParameters(
+        Operacao: TipoOperacaoGeoprocessamento.EstaqueamentoLinhas,
+        NomeCamadaEntrada: "estradas",
+        DistanciaEstacaMetros: 20.0,
+        CaminhoArquivoSaida: shpEstaca
+    );
+    var resEstaca = GeoprocessingEngine.ExecutarAsync(paramEstaca, shpLinhas).GetAwaiter().GetResult();
+    Assert(resEstaca.Sucesso, $"Estaqueamento deve executar com sucesso: {resEstaca.MensagemErro}");
+
+    // 15. Leitura de volta e integridade de arquivo Shapefile (.shp, .shx, .dbf)
+    var (lidas, _) = GeoprocessingEngine.CarregarFeicoesDeShapefile(shpBuffer);
+    Assert(lidas.Count == resBuffer.TotalFeicoesCriadas, "Feições recarregadas do Shapefile gerado devem ser idênticas ao total reportado");
+    Assert(File.Exists(Path.ChangeExtension(shpBuffer, ".dbf")), "Arquivo .dbf de atributos deve existir");
+    Assert(File.Exists(Path.ChangeExtension(shpBuffer, ".shx")), "Arquivo .shx de índice geométrico deve existir");
+}
+finally
+{
+    try
+    {
+        if (Directory.Exists(tempDir))
+            Directory.Delete(tempDir, true);
+    }
+    catch { /* Ignore cleanup issues in test temp */ }
+}
+
+Console.WriteLine($"\n==================================================================================");
+Console.WriteLine($">>> SUCESSO TOTAL! TODOS OS 18 MÓDULOS DE GEOPROCESSAMENTO FORAM VALIDADOS! <<<");
 Console.WriteLine($">>> Total de asserções executadas com 100% de precisão: {assertions} <<<");
 Console.WriteLine($"==================================================================================\n");
