@@ -14,7 +14,6 @@ public static class ShapefileIndexReader
         byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferBytes);
         try
         {
-            long previousEnd = 100;
             for (int start = 0; start < offsets.Length;)
             {
                 int count = Math.Min(BufferBytes / 8, offsets.Length - start);
@@ -23,11 +22,16 @@ public static class ShapefileIndexReader
                 {
                     long offset = BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(i * 8, 4)) * 2L;
                     long length = BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(i * 8 + 4, 4)) * 2L;
-                    // Never silently publish only the valid prefix of a damaged index.
-                    if (offset < previousEnd || length < 4 || offset + 8 + length > shapeFileLength)
+                    // GDAL/OGR writes updated records that grew in size at the end of the .shp file,
+                    // so SHX record offsets are not required to be monotonically increasing.
+                    if (offset == 0 && length == 0)
+                    {
+                        offsets[start + i] = -1;
+                        continue;
+                    }
+                    if (offset < 100 || length < 4 || offset + 8 + length > shapeFileLength)
                         throw new InvalidDataException($"Índice SHX inválido no registro {start + i + 1}.");
                     offsets[start + i] = offset;
-                    previousEnd = offset + 8 + length;
                 }
                 start += count;
             }

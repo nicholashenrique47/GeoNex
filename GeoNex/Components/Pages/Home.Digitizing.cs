@@ -444,8 +444,12 @@ public partial class Home
                     {
                         if (string.IsNullOrWhiteSpace(camada.CaminhoArquivo))
                             throw new IOException("A camada não possui arquivo de destino nem conexão PostGIS.");
-                        operacoesCamada = VectorEditPersistenceService.SaveToOgr(
-                            camada.CaminhoArquivo, pendentes, MapService.ProjetoSRS);
+                        using (IDisposable? pausaGravacao = _server is null ? null : await _server.PauseRenderingAsync())
+                        {
+                            MapService.RemoveVectorResources(camada.Nome);
+                            operacoesCamada = VectorEditPersistenceService.SaveToOgr(
+                                camada.CaminhoArquivo, pendentes, MapService.ProjetoSRS);
+                        }
                     }
                     totalGravados += operacoesCamada;
 
@@ -460,9 +464,9 @@ public partial class Home
                     // remaining features pending for a safe retry.
                     int operacoesPersistidas = pendentes.Count(VectorEditPersistenceService.IsPersisted);
                     totalGravados += Math.Max(0, operacoesPersistidas - operacoesCamada);
-                    bool fonteVetorialAlterada = camada.FontePostgis is null && pendentes.Any(VectorEditPersistenceService.IsPersisted);
+                    bool fonteVetorialLocal = camada.FontePostgis is null && !string.IsNullOrWhiteSpace(camada.CaminhoArquivo);
                     string detalhe = MensagemPostgisSegura(ex);
-                    if (fonteVetorialAlterada)
+                    if (fonteVetorialLocal)
                     {
                         IFeature[] exclusoesRestantes = pendentes
                             .Where(feicao => !VectorEditPersistenceService.IsPersisted(feicao))
@@ -487,6 +491,7 @@ public partial class Home
                 .Where(camada => camada.Tipo == "Vetor" && MapService.FeicoesOriginais.ContainsKey(camada.Nome))
                 .SelectMany(camada => MapService.FeicoesOriginais[camada.Nome])
                 .Any(feicao => !VectorEditPersistenceService.IsPersisted(feicao));
+            SolicitarNovoFrame(interacaoRapida: false);
 
             if (falhas.Count > 0)
             {

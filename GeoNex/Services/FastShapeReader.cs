@@ -246,6 +246,20 @@ namespace GeoNex.Services
                         for (int i = start; i < end; ++i)
                         {
                             long recOffset = offsets[i];
+                            if (recOffset < 100 || recOffset + 12 > fileLength)
+                            {
+                                dstSpan[i] = new CompiledFeature
+                                {
+                                    FID = i,
+                                    SourceFeatureId = sourceFidPtr == null && sourceFidMappingPath is null && sourceFidsAreNative ? i : -1,
+                                    EnvelopeWorld = FeatureEnvelope.Empty,
+                                    Kind = GeometryKind.Unknown,
+                                    GeometryShapeType = 0,
+                                    DataOffset = -1,
+                                    LayerName = layerName
+                                };
+                                continue;
+                            }
                             byte* recPtr = ptr + recOffset;
                             byte* dataPtr = recPtr + 8;
                             int shapeType = *(int*)dataPtr;

@@ -2002,22 +2002,25 @@ namespace GeoNex.Services
                                                             cancellationToken.ThrowIfCancellationRequested();
                                                             // Only the exact transformed path is independent of scale.
                                                             // Native LOD and previews retain their exact-zoom cache identity.
-                                                            if (!precisionOrigin)
-                                                                shp.StoreRenderPath(batchPath, renderViewport, zoomReal,
-                                                                    isInteracting,
-                                                                    compactPolygons,
-                                                                    scaleIndependent: transform != null &&
-                                                                    !isInteracting);
-                                                            else if (projectedBuilder != null)
-                                                                shp.StoreProjectedRenderPath(
-                                                                    batchPath, preciseViewport, preciseCurrentCenter,
-                                                                    zoomReal, projectedBuilder.Build());
-                                                            else
-                                                                shp.StorePreciseRenderPath(batchPath, preciseViewport,
-                                                                    preciseCurrentCenter, zoomReal,
-                                                                    isInteracting, compactPolygons,
-                                                                    scaleIndependent: transform != null &&
-                                                                    !isInteracting);
+                                                            if (!arvores.HasInMemoryFeatures)
+                                                            {
+                                                                if (!precisionOrigin)
+                                                                    shp.StoreRenderPath(batchPath, renderViewport, zoomReal,
+                                                                        isInteracting,
+                                                                        compactPolygons,
+                                                                        scaleIndependent: transform != null &&
+                                                                        !isInteracting);
+                                                                else if (projectedBuilder != null)
+                                                                    shp.StoreProjectedRenderPath(
+                                                                        batchPath, preciseViewport, preciseCurrentCenter,
+                                                                        zoomReal, projectedBuilder.Build());
+                                                                else
+                                                                    shp.StorePreciseRenderPath(batchPath, preciseViewport,
+                                                                        preciseCurrentCenter, zoomReal,
+                                                                        isInteracting, compactPolygons,
+                                                                        scaleIndependent: transform != null &&
+                                                                        !isInteracting);
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -2047,7 +2050,8 @@ namespace GeoNex.Services
                                                                 ? null
                                                                 : pincelDinamicoBorda,
                                                             physicalWidth, physicalHeight, polygonImageBudget,
-                                                            shp != null && !isPrint && !isInteracting &&
+                                                            shp != null && !arvores.HasInMemoryFeatures &&
+                                                            !isPrint && !isInteracting &&
                                                             rotation == 0 &&
                                                             estiloCamada.TipoLinha == "Solid",
                                                             cancellationToken);

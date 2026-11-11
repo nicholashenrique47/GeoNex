@@ -184,7 +184,7 @@ public partial class Home
             LimparSelecaoVerticeEdicao();
             _vectorEditMessage = "Nenhuma feição encontrada nesse ponto. Clique sobre um vetor para selecionar.";
             MapService.DestacarFeicao(null);
-            MapService.LimparOverlayEdicao();
+            LimparOverlayEdicaoVetorial();
             return;
         }
 
@@ -207,7 +207,7 @@ public partial class Home
             LimparVerticesSelecionados();
             if (!additiveSelection) _vectorFeatureEditSelection.Clear();
             MapService.DestacarFeicao(null);
-            MapService.LimparOverlayEdicao();
+            LimparOverlayEdicaoVetorial();
             return;
         }
         if (string.IsNullOrWhiteSpace(layer.CaminhoArquivo) || !File.Exists(layer.CaminhoArquivo))
@@ -254,7 +254,7 @@ public partial class Home
                         _selectedVectorFeatureForEdit = null;
                         LimparVerticesSelecionados();
                         MapService.DestacarFeicao(null);
-                        MapService.LimparOverlayEdicao();
+                        LimparOverlayEdicaoVetorial();
                         _vectorEditMessage = "Seleção de feições limpa.";
                     }
                     else if (_selectedVectorFeatureForEdit == key)
@@ -297,7 +297,7 @@ public partial class Home
             LimparVerticesSelecionados();
             _vectorEditMessage = $"A feição não pôde ser preparada para edição: {MensagemPostgisSegura(ex)}";
             MapService.DestacarFeicao(null);
-            MapService.LimparOverlayEdicao();
+            LimparOverlayEdicaoVetorial();
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -306,8 +306,7 @@ public partial class Home
     {
         if (_selectedVectorFeatureForEdit is not { } key)
         {
-            JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirPreviaEdicaoVetorial", new object?[] { null });
-            MapService.LimparOverlayEdicao();
+            LimparOverlayEdicaoVetorial();
             return;
         }
 
@@ -361,14 +360,14 @@ public partial class Home
     {
         if (_selectedVectorFeatureForEdit is not { } selectedKey)
         {
-            MapService.LimparOverlayEdicao();
+            LimparOverlayEdicaoVetorial();
             return;
         }
 
         var primary = previews.FirstOrDefault(preview => preview.Key == selectedKey);
         if (primary.Geometry is null)
         {
-            MapService.LimparOverlayEdicao();
+            LimparOverlayEdicaoVetorial();
             return;
         }
 
@@ -785,6 +784,7 @@ public partial class Home
 
                     if (actions.Count > 1)
                     {
+                        LimparEstadoArrasteVertice();
                         await AplicarAcoesGeometriaAsync(actions, forward: true);
                         RegistrarAcoesEdicao(actions);
                         geometryPublished = true;
@@ -794,6 +794,7 @@ public partial class Home
                 }
             }
 
+            LimparEstadoArrasteVertice();
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(key, before, after);
             geometryPublished = true;
@@ -807,7 +808,7 @@ public partial class Home
         {
             _vectorEditOperationInProgress = false;
             LimparEstadoArrasteVertice();
-            if (!geometryPublished && _selectedVectorFeatureForEdit == key && _vectorFeatureEditStates.TryGetValue(key, out var selected))
+            if (_selectedVectorFeatureForEdit == key && _vectorFeatureEditStates.TryGetValue(key, out var selected) && !selected.IsDeleted)
                 AtualizarOverlayEdicaoVetorial(selected.Current, -1);
             if (geometryPublished)
                 SolicitarNovoFrame(interacaoRapida: true);
@@ -879,6 +880,7 @@ public partial class Home
             {
             }
 
+            LimparEstadoArrasteVertice();
             await PublicarGeometriaEdicaoAsync(state, after);
             RegistrarAcaoGeometria(state.Key, before, after);
             geometryPublished = true;
@@ -906,8 +908,8 @@ public partial class Home
         {
             _vectorEditOperationInProgress = false;
             LimparEstadoArrasteVertice();
-            if (!geometryPublished && _selectedVectorFeatureForEdit == state.Key)
-                AtualizarOverlayEdicaoVetorial(state.Current, -1);
+            if (_selectedVectorFeatureForEdit == state.Key && !state.IsDeleted)
+                AtualizarOverlayEdicaoVetorial(state.Current, _hoveredVectorVertexDisplayIndex);
             if (geometryPublished)
                 SolicitarNovoFrame(interacaoRapida: true);
             await InvokeAsync(StateHasChanged);
@@ -943,7 +945,7 @@ public partial class Home
                     recursoRemovidoNestaOperacao = true;
                 }
                 MapService.DestacarFeicao(null);
-                MapService.LimparOverlayEdicao();
+                LimparOverlayEdicaoVetorial();
             }
             else if (state.DetachedFeature is { } detached)
             {
@@ -955,9 +957,17 @@ public partial class Home
             }
             else if (state.IsNewFeature)
             {
-                CompiledFeature compiled = PostgisGeometryCompiler.Compile(
-                    geometry, state.Key.FeatureId, state.Key.LayerName, MapService.OffsetMundoX, MapService.OffsetMundoY);
-                MapService.AdicionarFeicaoVetorial(state.Key.LayerName, compiled);
+                if (MapService.FeaturesPorCamada.TryGetValue(state.Key.LayerName, out List<CompiledFeature>? layerFeatures) &&
+                    layerFeatures.Any(feature => feature.FID == state.Key.FeatureId))
+                {
+                    MapService.AtualizarGeometriaVetorial(state.Key.LayerName, state.Key.FeatureId, geometry);
+                }
+                else
+                {
+                    CompiledFeature compiled = PostgisGeometryCompiler.Compile(
+                        geometry, state.Key.FeatureId, state.Key.LayerName, MapService.OffsetMundoX, MapService.OffsetMundoY);
+                    MapService.AdicionarFeicaoVetorial(state.Key.LayerName, compiled);
+                }
             }
             else
             {
@@ -2834,6 +2844,12 @@ public partial class Home
         await InvokeAsync(StateHasChanged);
     }
 
+    private void LimparOverlayEdicaoVetorial()
+    {
+        JSRuntime.InvokeVoidAsyncSafe("GeoNexGraphics.definirPreviaEdicaoVetorial", new object?[] { null });
+        MapService.LimparOverlayEdicao();
+    }
+
     private void LimparSelecaoEdicaoVetorial()
     {
         if (_vectorEditPointerPressed) CancelarArrasteVerticeEdicao();
@@ -2845,7 +2861,7 @@ public partial class Home
             ? "Seleção limpa · clique seleciona; Ctrl/Shift alterna feições. Arraste para selecionar por área."
             : "Clique em uma feição vetorial local para selecionar seus vértices.";
         MapService.DestacarFeicao(null);
-        MapService.LimparOverlayEdicao();
+        LimparOverlayEdicaoVetorial();
     }
 
     private void LimparEstadoEdicaoDaCamada(string layerName)
@@ -2858,7 +2874,8 @@ public partial class Home
             _selectedVectorFeatureForEdit = null;
             LimparVerticesSelecionados();
             LimparSelecaoVerticeEdicao();
-            MapService.LimparOverlayEdicao();
+            MapService.DestacarFeicao(null);
+            LimparOverlayEdicaoVetorial();
         }
         _vectorFeatureEditSelection.RemoveAll(removedKeys.Contains);
         foreach (VectorFeatureKey key in removedKeys)
@@ -2900,11 +2917,15 @@ public partial class Home
                     _selectedVectorFeatureForEdit = null;
                     LimparVerticesSelecionados();
                     LimparSelecaoVerticeEdicao();
+                    MapService.DestacarFeicao(null);
+                    LimparOverlayEdicaoVetorial();
                 }
             }
             else
             {
                 state.Baseline = state.Current;
+                if (_selectedVectorFeatureForEdit == key)
+                    AtualizarOverlayEdicaoVetorial(state.Current, -1);
             }
         }
 
