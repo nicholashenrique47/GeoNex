@@ -2897,98 +2897,98 @@ window.GeoNexGraphics = {
             ? { x: targetLocal.x - drag.start.x, y: targetLocal.y - drag.start.y }
             : { x: 0, y: 0 };
         ctx.setTransform(scaleX * a, scaleY * b, scaleX * c, scaleY * d,
-            scaleX * (e - a * originX - c * originY),
-            scaleY * (f - b * originX - d * originY));
+            scaleX * e,
+            scaleY * f);
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
 
-        for (let featureIndex = 0; featureIndex < preview.features.length; featureIndex++) {
-            const feature = preview.features[featureIndex];
-            if (!feature.path2D) continue;
-            ctx.save();
-            if (drag?.mode === 'feature' && featureIndex === drag.featureIndex)
-                ctx.translate(delta.x, delta.y);
-            if (feature.polygon) {
-                ctx.fillStyle = 'rgba(34,211,184,.16)';
-                ctx.fill(feature.path2D, 'evenodd');
-            }
-            ctx.strokeStyle = 'rgba(34,211,184,.88)';
-            ctx.lineWidth = 2.2 / mapScale;
-            ctx.stroke(feature.path2D);
-            ctx.restore();
-        }
-
         const primary = preview.features[preview.primaryFeatureIndex];
-        if (!primary) return;
         const moving = new Set(preview.selectedVertexIndices || []);
         const activeIndex = Number.isInteger(preview.activeVertexIndex) ? preview.activeVertexIndex : -1;
-        if (drag?.mode === 'vertex') {
-            const movingIndices = drag.movingVertices?.[preview.primaryFeatureIndex] || moving;
-            if (movingIndices.size === 0 && activeIndex >= 0) movingIndices.add(activeIndex);
-            ctx.beginPath();
-            for (const index of movingIndices) {
-                const vertex = this._obterVerticePreviaEdicao(primary, index);
-                const neighbourOffset = index * 2;
-                const previousIndex = primary.vertexNeighbours[neighbourOffset];
-                const nextIndex = primary.vertexNeighbours[neighbourOffset + 1];
-                if (!vertex) continue;
-                const targetX = vertex.x + delta.x;
-                const targetY = vertex.y + delta.y;
-                if (previousIndex >= 0) {
-                    const previous = this._obterVerticePreviaEdicao(primary, previousIndex);
-                    ctx.moveTo(previous.x, previous.y);
-                    ctx.lineTo(targetX, targetY);
-                }
-                if (nextIndex >= 0) {
-                    const next = this._obterVerticePreviaEdicao(primary, nextIndex);
-                    ctx.moveTo(targetX, targetY);
-                    ctx.lineTo(next.x, next.y);
-                }
-            }
-            ctx.strokeStyle = 'rgba(255,191,71,.95)';
-            ctx.lineWidth = 3.2 / mapScale;
-            ctx.stroke();
-        } else if (drag?.mode === 'edge-insert' && targetLocal) {
-            const vA = this._obterVerticePreviaEdicao(primary, drag.vA);
-            const vB = this._obterVerticePreviaEdicao(primary, drag.vB);
-            if (vA && vB) {
-                ctx.beginPath();
-                ctx.moveTo(vA.x, vA.y);
-                ctx.lineTo(targetLocal.x, targetLocal.y);
-                ctx.lineTo(vB.x, vB.y);
-                ctx.strokeStyle = 'rgba(255,191,71,.95)';
-                ctx.lineWidth = 3.2 / mapScale;
-                ctx.stroke();
 
-                const r = 4.6 / mapScale;
-                ctx.beginPath();
-                ctx.arc(targetLocal.x, targetLocal.y, r + 1.2 / mapScale, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(13,26,36,.55)';
-                ctx.fill();
-                ctx.beginPath();
-                ctx.arc(targetLocal.x, targetLocal.y, r, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(255,191,71,.92)';
-                ctx.fill();
-                ctx.lineWidth = 1.5 / mapScale;
-                ctx.strokeStyle = '#ffffff';
-                ctx.stroke();
+        for (let featureIndex = 0; featureIndex < preview.features.length; featureIndex++) {
+            const feature = preview.features[featureIndex];
+            if (!feature) continue;
+            const isDraggingFeature = drag?.mode === 'feature' && featureIndex === drag.featureIndex;
+            const isDraggingVertex = drag?.mode === 'vertex' && featureIndex === preview.primaryFeatureIndex;
+            const isInsertingEdge = drag?.mode === 'edge-insert' && targetLocal && featureIndex === preview.primaryFeatureIndex;
+            const movingSet = isDraggingVertex
+                ? (drag.movingVertices?.[featureIndex] || moving)
+                : null;
+            if (isDraggingVertex && movingSet && movingSet.size === 0 && activeIndex >= 0) {
+                movingSet.add(activeIndex);
             }
+
+            const path2D = new Path2D();
+            const rings = feature.paths || [];
+            for (const path of rings) {
+                const points = path.points || [];
+                if (points.length === 0) continue;
+                let started = false;
+                for (let i = 0; i < points.length; i++) {
+                    const pt = points[i];
+                    const vIdx = pt.vertexIndex;
+                    const movePt = isDraggingFeature || (isDraggingVertex && movingSet && movingSet.has(vIdx));
+                    const px = (pt.x + (movePt ? delta.x : 0)) - originX;
+                    const py = (pt.y + (movePt ? delta.y : 0)) - originY;
+                    if (!started) {
+                        path2D.moveTo(px, py);
+                        started = true;
+                    } else {
+                        path2D.lineTo(px, py);
+                    }
+                    if (isInsertingEdge && i + 1 < points.length &&
+                        pt.vertexIndex === drag.vA && points[i + 1].vertexIndex === drag.vB) {
+                        path2D.lineTo(targetLocal.x - originX, targetLocal.y - originY);
+                    }
+                }
+                if (path.closed && started) path2D.closePath();
+            }
+
+            const highlightActive = isDraggingFeature || isDraggingVertex || isInsertingEdge;
+            if (feature.polygon) {
+                ctx.fillStyle = highlightActive ? 'rgba(255,191,71,.18)' : 'rgba(34,211,184,.16)';
+                ctx.fill(path2D, 'evenodd');
+            }
+            ctx.strokeStyle = highlightActive ? 'rgba(255,191,71,.95)' : 'rgba(34,211,184,.88)';
+            ctx.lineWidth = (highlightActive ? 2.6 : 2.2) / mapScale;
+            ctx.stroke(path2D);
+        }
+
+        if (!primary) return;
+        if (drag?.mode === 'edge-insert' && targetLocal) {
+            const tx = targetLocal.x - originX;
+            const ty = targetLocal.y - originY;
+            const r = 4.6 / mapScale;
+            ctx.beginPath();
+            ctx.arc(tx, ty, r + 1.2 / mapScale, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(13,26,36,.55)';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(tx, ty, r, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,191,71,.92)';
+            ctx.fill();
+            ctx.lineWidth = 1.5 / mapScale;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
         } else if (!drag && this._hoveredEdgeCandidate) {
             const cand = this._hoveredEdgeCandidate;
             const vA = this._obterVerticePreviaEdicao(primary, cand.vA);
             const vB = this._obterVerticePreviaEdicao(primary, cand.vB);
             if (vA && vB) {
                 ctx.beginPath();
-                ctx.moveTo(vA.x, vA.y);
-                ctx.lineTo(vB.x, vB.y);
+                ctx.moveTo(vA.x - originX, vA.y - originY);
+                ctx.lineTo(vB.x - originX, vB.y - originY);
                 ctx.strokeStyle = 'rgba(255,191,71,.88)';
                 ctx.lineWidth = 3.0 / mapScale;
                 ctx.stroke();
             }
+            const cx = cand.localX - originX;
+            const cy = cand.localY - originY;
             const crossRadius = 6.2 / mapScale;
             const arm = 3.8 / mapScale;
             ctx.beginPath();
-            ctx.arc(cand.localX, cand.localY, crossRadius, 0, Math.PI * 2);
+            ctx.arc(cx, cy, crossRadius, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(15,23,42,.82)';
             ctx.fill();
             ctx.lineWidth = 1.6 / mapScale;
@@ -2996,10 +2996,10 @@ window.GeoNexGraphics = {
             ctx.stroke();
 
             ctx.beginPath();
-            ctx.moveTo(cand.localX - arm, cand.localY);
-            ctx.lineTo(cand.localX + arm, cand.localY);
-            ctx.moveTo(cand.localX, cand.localY - arm);
-            ctx.lineTo(cand.localX, cand.localY + arm);
+            ctx.moveTo(cx - arm, cy);
+            ctx.lineTo(cx + arm, cy);
+            ctx.moveTo(cx, cy - arm);
+            ctx.lineTo(cx, cy + arm);
             ctx.lineWidth = 2.0 / mapScale;
             ctx.strokeStyle = '#ffffff';
             ctx.stroke();
@@ -3016,15 +3016,17 @@ window.GeoNexGraphics = {
             const y = vertex.y + (moved ? delta.y : 0);
             const image = this._pontoLocalParaImagemEdicao({ x, y });
             if (image.x < -10 || image.y < -10 || image.x > canvas.clientWidth + 10 || image.y > canvas.clientHeight + 10) return;
+            const rx = x - originX;
+            const ry = y - originY;
             const active = i === activeIndex;
             const selected = moving.has(i);
             const radius = (active || selected ? 4.3 : 3.2) / mapScale;
             ctx.beginPath();
-            ctx.arc(x, y, radius + 1 / mapScale, 0, Math.PI * 2);
+            ctx.arc(rx, ry, radius + 1 / mapScale, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(13,26,36,.42)';
             ctx.fill();
             ctx.beginPath();
-            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.arc(rx, ry, radius, 0, Math.PI * 2);
             ctx.fillStyle = active ? 'rgba(255,191,71,.72)' : selected ? 'rgba(34,211,238,.58)' : 'rgba(103,232,196,.48)';
             ctx.fill();
             ctx.lineWidth = 1.4 / mapScale;
@@ -3946,9 +3948,6 @@ window.GeoNexGraphics = {
                 }
                 feature.vertexCount = vertexCount;
                 feature.vertices = packedVertices;
-                // The native path replaces the large JS point-object tree after
-                // creation, reducing retained memory for dense features.
-                delete feature.paths;
             }
         }
         this._edicaoPreviewDrag = null;

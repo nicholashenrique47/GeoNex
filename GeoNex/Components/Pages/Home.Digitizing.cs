@@ -449,9 +449,7 @@ public partial class Home
                     }
                     totalGravados += operacoesCamada;
 
-                    bool fonteVetorialAlterada = camada.FontePostgis is null && pendentes.Any(feicao =>
-                        (VectorEditPersistenceService.IsNewFeature(feicao) || VectorEditPersistenceService.IsDeletionPending(feicao)) &&
-                        VectorEditPersistenceService.IsPersisted(feicao));
+                    bool fonteVetorialAlterada = camada.FontePostgis is null && pendentes.Any(VectorEditPersistenceService.IsPersisted);
                     if (fonteVetorialAlterada)
                         await RecarregarCamadaVetorialAposExclusaoAsync(camada);
                 }
@@ -462,9 +460,7 @@ public partial class Home
                     // remaining features pending for a safe retry.
                     int operacoesPersistidas = pendentes.Count(VectorEditPersistenceService.IsPersisted);
                     totalGravados += Math.Max(0, operacoesPersistidas - operacoesCamada);
-                    bool fonteVetorialAlterada = camada.FontePostgis is null && pendentes.Any(feicao =>
-                        (VectorEditPersistenceService.IsNewFeature(feicao) || VectorEditPersistenceService.IsDeletionPending(feicao)) &&
-                        VectorEditPersistenceService.IsPersisted(feicao));
+                    bool fonteVetorialAlterada = camada.FontePostgis is null && pendentes.Any(VectorEditPersistenceService.IsPersisted);
                     string detalhe = MensagemPostgisSegura(ex);
                     if (fonteVetorialAlterada)
                     {

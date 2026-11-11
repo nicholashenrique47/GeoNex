@@ -597,7 +597,7 @@ namespace GeoNex.Services
                         midX = _ultimoMidX;
                         midY = _ultimoMidY;
                     }
-                    else if (limitesTotais.IsEmpty || limitesTotais.Width < 0.001f || limitesTotais.Height < 0.001f)
+                    else if (limitesTotais.IsEmpty || limitesTotais.Width < 1e-7f || limitesTotais.Height < 1e-7f)
                     {
                         escalaAutoFit = _ultimaEscalaAutoFit > 0 ? _ultimaEscalaAutoFit : 1f;
                         midX = _ultimoMidX;
@@ -1543,8 +1543,10 @@ namespace GeoNex.Services
                                                           layerFeaturesForRender.Count, envelopeView, lodLayerBounds);
                                 bool compactPolygons = isInteracting && !isPrint && estiloCamada.TipoLinha == "Solid" &&
                                                        shp?.TransformLocal == null &&
-                                                       spatialIndexLease?.Resource.UniformRenderIndex != null;
-                                compactPolygons = compactPolygons || useOverviewLod;
+                                                       spatialIndexLease?.Resource.UniformRenderIndex != null &&
+                                                       spatialIndexLease?.Resource.HasInMemoryFeatures != true;
+                                compactPolygons = (compactPolygons || useOverviewLod) &&
+                                                  spatialIndexLease?.Resource.HasInMemoryFeatures != true;
 
                                 // O cache de geometria deve ser consultado antes do índice.
                                 // Consultar o índice só para descobrir que o path já
@@ -1648,7 +1650,9 @@ namespace GeoNex.Services
                                         if (arvores.HasInMemoryFeatures)
                                         {
                                             // Owned editing paths have no SHP offset; never send them to the file parser.
-                                            canvas.SetMatrix(matriz);
+                                            canvas.SetMatrix(precisionOrigin
+                                                ? centeredFrame.LocalToPhysicalMatrix
+                                                : matriz);
                                             foreach (var edited in feicoesVisiveis)
                                             {
                                                 cancellationToken.ThrowIfCancellationRequested();
@@ -1656,20 +1660,40 @@ namespace GeoNex.Services
                                                 if (edited.Path is not { } ownedPath) continue;
                                                 if (edited.Kind == GeometryKind.Polygon)
                                                 {
-                                                    if (!estiloCamada.PreenchimentoTransparente)
-                                                        canvas.DrawPath(ownedPath, pincelDinamicoFill);
-                                                    if (!estiloCamada.BordaTransparente)
-                                                        canvas.DrawPath(ownedPath, pincelDinamicoBorda);
+                                                    if (precisionOrigin)
+                                                    {
+                                                        using var shiftedPath = new SKPath(ownedPath);
+                                                        shiftedPath.Offset(-(float)preciseCurrentCenter.X, -(float)preciseCurrentCenter.Y);
+                                                        if (!estiloCamada.PreenchimentoTransparente)
+                                                            canvas.DrawPath(shiftedPath, pincelDinamicoFill);
+                                                        if (!estiloCamada.BordaTransparente)
+                                                            canvas.DrawPath(shiftedPath, pincelDinamicoBorda);
+                                                    }
+                                                    else
+                                                    {
+                                                        if (!estiloCamada.PreenchimentoTransparente)
+                                                            canvas.DrawPath(ownedPath, pincelDinamicoFill);
+                                                        if (!estiloCamada.BordaTransparente)
+                                                            canvas.DrawPath(ownedPath, pincelDinamicoBorda);
+                                                    }
                                                 }
                                                 else if (edited.Kind == GeometryKind.Line)
-                                                    canvas.DrawPath(ownedPath, pincelDinamicoBorda);
+                                                {
+                                                    if (precisionOrigin)
+                                                    {
+                                                        using var shiftedPath = new SKPath(ownedPath);
+                                                        shiftedPath.Offset(-(float)preciseCurrentCenter.X, -(float)preciseCurrentCenter.Y);
+                                                        canvas.DrawPath(shiftedPath, pincelDinamicoBorda);
+                                                    }
+                                                    else
+                                                    {
+                                                        canvas.DrawPath(ownedPath, pincelDinamicoBorda);
+                                                    }
+                                                }
                                                 else
                                                 {
                                                     using var dot = new SKPaint
                                                         { Color = pincelDinamicoFill.Color, IsAntialias = true };
-                                                    canvas.SetMatrix(precisionOrigin
-                                                        ? centeredFrame.LocalToPhysicalMatrix
-                                                        : matriz);
                                                     SKPoint point = precisionOrigin
                                                         ? new SKPoint(
                                                             (float)(edited.CentroidLocalPrecise.X -
@@ -1896,12 +1920,14 @@ namespace GeoNex.Services
                                             SkiaSharp.SKPath? batchPath = null;
                                             try
                                             {
-                                                bool cacheHit = shp != null && (precisionOrigin
-                                                    ? shp.TryGetPreciseRenderPath(preciseViewport, preciseCurrentCenter,
-                                                        zoomReal,
-                                                        isInteracting, out batchPath, compactPolygons)
-                                                    : shp.TryGetRenderPath(viewportMundo, zoomReal, isInteracting,
-                                                        out batchPath, compactPolygons));
+                                                bool cacheHit = shp != null &&
+                                                    !arvores.HasInMemoryFeatures &&
+                                                    (precisionOrigin
+                                                        ? shp.TryGetPreciseRenderPath(preciseViewport, preciseCurrentCenter,
+                                                            zoomReal,
+                                                            isInteracting, out batchPath, compactPolygons)
+                                                        : shp.TryGetRenderPath(viewportMundo, zoomReal, isInteracting,
+                                                            out batchPath, compactPolygons));
 
                                                 using (trace?.Measure("geometry", camadaAtual))
                                                 {

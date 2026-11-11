@@ -1317,7 +1317,9 @@ namespace GeoNex.Services
         public void ConstruirIndiceEspacial() {}
         public void ConstruirIndiceEspacial(string nomeCamada, List<CompiledFeature> feicoes)
         {
+            var limitesCenaAntes = GetSceneBounds();
             using ResourceLease<MemoryMappedShapefile>? shapefileLease = AcquireShapefile(nomeCamada);
+            shapefileLease?.Resource?.InvalidateRenderPath();
             var arvore = new NativeShapeSpatialIndex(shapefileLease?.Resource, feicoes);
             try
             {
@@ -1356,6 +1358,43 @@ namespace GeoNex.Services
                     else LimitesGlobaisVetor.Union(rect);
                 }
             }
+            PreservarCameraAoAtualizarCena(limitesCenaAntes, GetSceneBounds());
+        }
+
+        private void PreservarCameraAoAtualizarCena(SKRect antes, SKRect depois)
+        {
+            if (!OffsetMundoDefinido)
+                return;
+
+            if (antes.IsEmpty || depois.IsEmpty)
+                return;
+
+            if (antes.Width < 1e-7f || antes.Height < 1e-7f || depois.Width < 1e-7f || depois.Height < 1e-7f)
+                return;
+
+            if (Math.Abs(antes.Left - depois.Left) < 1e-6f &&
+                Math.Abs(antes.Top - depois.Top) < 1e-6f &&
+                Math.Abs(antes.Right - depois.Right) < 1e-6f &&
+                Math.Abs(antes.Bottom - depois.Bottom) < 1e-6f)
+            {
+                return;
+            }
+
+            float w = ViewportWidth > 0 ? ViewportWidth : 1200f;
+            float h = ViewportHeight > 0 ? ViewportHeight : 800f;
+
+            double escalaAntes = Math.Min(w / Math.Max(antes.Width, 1e-7f), h / Math.Max(antes.Height, 1e-7f)) * 0.80;
+            double escalaDepois = Math.Min(w / Math.Max(depois.Width, 1e-7f), h / Math.Max(depois.Height, 1e-7f)) * 0.80;
+            if (escalaAntes <= 1e-12 || escalaDepois <= 1e-12)
+                return;
+
+            double zoomReal = escalaAntes * CameraZoom;
+            double centerLocalX = antes.MidX - (CameraPanX / zoomReal);
+            double centerLocalY = antes.MidY - (CameraPanY / zoomReal);
+
+            CameraZoom = Math.Max(1e-6, zoomReal / escalaDepois);
+            CameraPanX = (depois.MidX - centerLocalX) * zoomReal;
+            CameraPanY = (depois.MidY - centerLocalY) * zoomReal;
         }
 
         public void AdicionarFeicaoVetorial(string nomeCamada, CompiledFeature feature)
@@ -1553,6 +1592,7 @@ namespace GeoNex.Services
                     LimitesVetoresWorld[nomeCamada] = new Envelope(minX, maxX, minY, maxY);
             }
 
+            var limitesCenaAntes = GetSceneBounds();
             LimitesGlobaisVetor = SKRect.Empty;
             foreach (Envelope envelope in LimitesVetoresWorld.Values)
             {
@@ -1566,6 +1606,7 @@ namespace GeoNex.Services
                 if (LimitesGlobaisVetor.IsEmpty) LimitesGlobaisVetor = rect;
                 else LimitesGlobaisVetor.Union(rect);
             }
+            PreservarCameraAoAtualizarCena(limitesCenaAntes, GetSceneBounds());
         }
 
         public CompiledFeature? DispararRaycast(double lat, double lng, double toleranciaMetros, out string camadaAtingida, string? camadaAlvo = null)
