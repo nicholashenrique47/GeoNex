@@ -2298,9 +2298,9 @@ public partial class Home
         _vectorEditMessage = $"Vértice {_selectedVectorVertexDisplayIndex + 1} preso ao cursor · clique para aplicar; Esc cancela.";
     }
 
-    private async Task InserirVerticeSelecionadoAsync(double x, double y, double pixelScale)
+    private async Task<bool> InserirVerticeSelecionadoAsync(double x, double y, double pixelScale, bool armarReposicionamento = true)
     {
-        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { } state) return;
+        if (_vectorEditOperationInProgress || SelectedVectorFeatureState is not { } state) return false;
         Geometry before = state.Current;
         _vectorEditOperationInProgress = true;
         try
@@ -2321,15 +2321,36 @@ public partial class Home
                     break;
                 }
             }
+            if (displayIndex >= 0)
+            {
+                _selectedVectorVertexDisplayIndex = displayIndex;
+                _selectedVectorVertexAddresses.Clear();
+                _selectedVectorVertexAddresses.Add(insertion.Address);
+                SelecionarVerticeEdicao(displayIndex, [insertion.Address]);
+                AtualizarIndicesVerticesEdicaoSelecionados();
+                if (armarReposicionamento)
+                {
+                    ArmarReposicionamentoVerticeSelecionado();
+                }
+            }
             _hoveredVectorVertexDisplayIndex = displayIndex;
             MapService.DefinirIndiceVerticeEdicao(displayIndex);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
         }
         catch (Exception ex)
         {
             _vectorEditMessage = ex.Message;
+            return false;
         }
-        finally { _vectorEditOperationInProgress = false; }
-        await InvokeAsync(StateHasChanged);
+        finally
+        {
+            _vectorEditOperationInProgress = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task RemoverVerticeSelecionadoAsync()

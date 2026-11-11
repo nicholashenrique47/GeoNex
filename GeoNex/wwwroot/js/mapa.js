@@ -3957,7 +3957,7 @@ document.addEventListener('keydown', function (event) {
     const measuring = engine.ferramentaAtual === 'Medicao';
     const editingVector = engine.ferramentaAtual === 'EdicaoVertice';
     const global = ['escape', 'm', 'i', 'd', 'p'].includes(command);
-    const edit = ['ctrl+z', 'ctrl+y', 'ctrl+shift+z', 'z', 'backspace'].includes(command);
+    const edit = ['ctrl+z', 'ctrl+y', 'ctrl+shift+z', 'z', 'backspace', 'delete'].includes(command);
     const construction = (drawing && ['enter', 'c'].includes(command)) ||
         (measuring && command === 'enter');
     if (!global && !(edit && (drawing || measuring || editingVector)) && !construction) return;

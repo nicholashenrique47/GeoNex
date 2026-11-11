@@ -802,7 +802,6 @@
                 {
                 <section class="command-ribbon-setting-group" aria-label="Coordenadas do vértice">
                     <span>VÉRTICE · COORDENADAS DO SRC</span>
-                    <button type="button" class="command-ribbon-mini" disabled="@(SelectedVectorFeatureState is null)" @onclick="SelecionarVerticeSobCursor">Selecionar sob o cursor</button>
                     <label>X<input type="number" step="any" @bind="_vectorVertexCoordinateX" @bind:event="oninput" /></label>
                     <label>Y<input type="number" step="any" @bind="_vectorVertexCoordinateY" @bind:event="oninput" /></label>
                     <button type="button" class="command-ribbon-mini primary" disabled="@(!CanApplyVectorVertexCoordinates)" @onclick="AplicarCoordenadasVerticeAsync">Aplicar XY</button>
@@ -932,9 +931,6 @@
                     <section class="vector-ribbon-group" aria-label="Edição da geometria">
                         <span class="vector-ribbon-group-label">GEOMETRIA</span>
                         <div class="vector-ribbon-group-actions">
-                            <button type="button" class="ribbon-tool-button @(_insertVectorVertexMode ? "selected" : "")" aria-pressed="@_insertVectorVertexMode" disabled="@(SelectedVectorFeatureState is null || _vectorMoveFeatureMode)" @onclick="AlternarModoInserirVertice"><span aria-hidden="true">＋</span> Vértice</button>
-                            <button type="button" class="ribbon-tool-button" disabled="@(!CanRemoveSelectedVectorVertices)" @onclick="RemoverVerticesSelecionadosAsync" title="Remove os nós selecionados em uma única edição"><span aria-hidden="true">−</span> Nós (@SelectedVectorVertexSelectionCount)</button>
-                            <button type="button" class="ribbon-tool-button" disabled="@(!CanRemoveHoveredVectorVertex)" @onclick="RemoverVerticeSelecionadoAsync" title="Passe o cursor sobre o vértice a remover"><span aria-hidden="true">⌫</span> Vértice</button>
                             <button type="button" class="ribbon-tool-button" disabled="@(!CanCutSelectedVectorGeometry)" @onclick="PrepararCorteGeometria"><span aria-hidden="true">╱</span> Dividir</button>
                             <button type="button" class="ribbon-tool-button" disabled="@(!CanEditSelectedPolygonRings)" @onclick="PrepararAdicaoAnel"><span aria-hidden="true">◉</span> Anel interno</button>
                             @if (SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.Polygon or NetTopologySuite.Geometries.MultiPolygon)
@@ -956,8 +952,7 @@
                                 <summary>Coordenadas XY</summary>
                                 <div class="vector-ribbon-popover coordinate-popover">
                                     <strong>Editar coordenadas do vértice</strong>
-                                    <small>@(_selectedVectorVertexDisplayIndex >= 0 ? $"Nó {_selectedVectorVertexDisplayIndex + 1} · {SelectedVectorVertexSelectionCount} selecionado(s)" : "Passe o cursor sobre um nó no mapa")</small>
-                                    <button type="button" class="ribbon-tool-button" @onclick="SelecionarVerticeSobCursor">Selecionar nó sob o cursor</button>
+                                    <small>@(_selectedVectorVertexDisplayIndex >= 0 ? $"Nó {_selectedVectorVertexDisplayIndex + 1} · {SelectedVectorVertexSelectionCount} selecionado(s)" : "Clique sobre um nó no mapa para selecioná-lo")</small>
                                     @if (CanApplyVectorVertexCoordinates)
                                     {
                                         <div class="ribbon-coordinate-inputs">
@@ -7442,9 +7437,9 @@
                 new("Início", "Edição", "Mover feição", "⤧", "mover feicao translacao corpo", "Move o corpo da feição selecionada no mapa mantendo sua forma.", SelectedVectorFeatureState is not null && !_vectorFeatureSelectionMode, CreateRibbonCommand(AlternarModoMoverFeicao)),
 
                 // Início - Encaixes e Snaps
-                new("Início", "Encaixes e Snaps", "Atrair vértices", "⌖", "snap magnetico vertice encaixe", "Ativa ou desativa a captura magnética em vértices.", true, CreateRibbonCommand(AlternarSnapVertices)),
-                new("Início", "Encaixes e Snaps", "Atrair arestas", "∿", "snap magnetico aresta segmento encaixe", "Ativa ou desativa a atração magnética em arestas.", true, CreateRibbonCommand(AlternarSnapArestas)),
-                new("Início", "Encaixes e Snaps", "Modo ortogonal", "∟", "ortogonal angulo reto 90 f8", "Restringe os ângulos de desenho a múltiplos retos de 90 graus (F8).", true, CreateRibbonCommand(AlternarModoOrtogonal)),
+                new("Início", "Encaixes e Snaps", "Atrair vértices", "⌖", "snap magnetico vertice encaixe", "Ativa ou desativa a captura magnética em vértices.", true, CreateRibbonCommand(AlternarSnapVertices), _snapAquisicaoVertice),
+                new("Início", "Encaixes e Snaps", "Atrair arestas", "∿", "snap magnetico aresta segmento encaixe", "Ativa ou desativa a atração magnética em arestas.", true, CreateRibbonCommand(AlternarSnapArestas), _snapAquisicaoAresta),
+                new("Início", "Encaixes e Snaps", "Modo ortogonal", "∟", "ortogonal angulo reto 90 f8", "Restringe os ângulos de desenho a múltiplos retos de 90 graus (F8).", true, CreateRibbonCommand(AlternarModoOrtogonal), _modoOrtogonalAquisicao),
 
                 // Início - Camada e Projeto
                 new("Início", "Camada e Projeto", "Painel de camadas", "▱", "painel layers camadas", "Mostra ou recolhe o painel de camadas.", true, CreateRibbonCommand(() => _painelCamadasAberto = !_painelCamadasAberto)),
@@ -7505,10 +7500,10 @@
                 new("Vetorização", "Edição", "Editar feição selecionada", "⌖", "vertices editar geometria", "Ativa a edição da feição previamente selecionada.", SelectedVectorFeatureState is { IsDeleted: false } && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada, CreateRibbonCommand(AbrirEdicaoVetorialAvancada)),
                 new("Vetorização", "Seleção", "Selecionar feições", "⌖", "seleção simples multipla qgis mesclar unir retângulo poligono mão livre raio", "Ativa seleção persistente na camada ativa por clique, retângulo, polígono, mão livre ou raio.", CamadaAtivaVetorialDisponivel && MapService.PontosAquisicao.Count == 0 && !_coordenadaAbsolutaTravada, CreateRibbonCommand(PrepararMesclagemPoligonos)),
                 new("Vetorização", "Seleção", "Limpar seleção", "×", "limpar seleção feicoes", "Limpa a seleção vetorial atual.", _vectorFeatureEditSelection.Count > 0, CreateRibbonCommand(LimparSelecaoEdicaoVetorial)),
-                new("Vetorização", "Geometria", "Adicionar vértice", "＋", "inserir no ponto vertice", "Ativa a inserção de vértices na feição selecionada.", SelectedVectorFeatureState is { IsDeleted: false } && _ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode, CreateRibbonCommand(AlternarModoInserirVertice)),
-                new("Vetorização", "Geometria", "Selecionar vértice sob o cursor", "⌖", "selecionar nó vertice coordenada", "Seleciona o vértice da feição indicado pelo cursor para edição precisa.", SelectedVectorFeatureState is { IsDeleted: false } && _ferramentaAtiva == ModoFerramenta.EdicaoVertice && !_vectorFeatureSelectionMode, CreateRibbonCommand(SelecionarVerticeSobCursor)),
-                new("Vetorização", "Geometria", "Remover vértices selecionados", "−", "apagar nos vertices", "Remove os vértices selecionados.", CanRemoveSelectedVectorVertices, CreateRibbonCommand(RemoverVerticesSelecionadosAsync)),
-                new("Vetorização", "Geometria", "Remover vértice sob o cursor", "⌫", "apagar no vertice cursor", "Remove o vértice indicado pelo cursor.", CanRemoveHoveredVectorVertex, CreateRibbonCommand(RemoverVerticeSelecionadoAsync)),
+                // Vetorização - Encaixes e Snaps
+                new("Vetorização", "Encaixes e Snaps", "Atrair vértices", "⌖", "snap magnetico vertice encaixe", "Ativa ou desativa a captura magnética em vértices.", true, CreateRibbonCommand(AlternarSnapVertices), _snapAquisicaoVertice),
+                new("Vetorização", "Encaixes e Snaps", "Atrair arestas", "∿", "snap magnetico aresta segmento encaixe", "Ativa ou desativa a atração magnética em arestas.", true, CreateRibbonCommand(AlternarSnapArestas), _snapAquisicaoAresta),
+                new("Vetorização", "Encaixes e Snaps", "Modo ortogonal", "∟", "ortogonal angulo reto 90 f8", "Restringe os ângulos de desenho a múltiplos retos de 90 graus (F8).", true, CreateRibbonCommand(AlternarModoOrtogonal), _modoOrtogonalAquisicao),
                 new("Vetorização", "Operações", "Dividir feição", "╱", "cortar dividir geometria linha", "Inicia o corte da feição selecionada.", CanCutSelectedVectorGeometry, CreateRibbonCommand(PrepararCorteGeometria)),
                 new("Vetorização", "Operações", "Adicionar anel interno", "◎", "furo poligono anel", "Desenha um anel interno no polígono selecionado.", CanEditSelectedPolygonRings, CreateRibbonCommand(PrepararAdicaoAnel)),
                 new("Vetorização", "Operações", "Remodelar borda", "⌁", "reshape redesenhar borda poligono", "Redesenha parte da borda da feição selecionada.", SelectedVectorFeatureState?.Current is NetTopologySuite.Geometries.Polygon or NetTopologySuite.Geometries.MultiPolygon, CreateRibbonCommand(PrepararRemodelagemGeometria)),
@@ -12256,19 +12251,21 @@
                         await InvokeAsync(StateHasChanged);
                         break;
                     }
-                    if (!_insertVectorVertexMode && !additiveSelection && SelectedVectorFeatureState is { } vertexFeature &&
-                        SelecionarVerticeNoPonto(ptMundo, matriz, add: false))
+                    if (!additiveSelection && SelectedVectorFeatureState is { } vertexFeature)
                     {
-                        ArmarReposicionamentoVerticeSelecionado();
-                        await InvokeAsync(StateHasChanged);
-                        break;
-                    }
-                    if (_insertVectorVertexMode && !additiveSelection && SelectedVectorFeatureState is { } selectedState &&
-                        (featureEdit is null || (featureEdit.FID == selectedState.Key.FeatureId &&
-                         string.Equals(layerEdit, selectedState.Key.LayerName, StringComparison.Ordinal))))
-                    {
-                        await InserirVerticeSelecionadoAsync(xMundo, yMundo, escalaEdicao);
-                        break;
+                        if (SelecionarVerticeNoPonto(ptMundo, matriz, add: false))
+                        {
+                            ArmarReposicionamentoVerticeSelecionado();
+                            await InvokeAsync(StateHasChanged);
+                            break;
+                        }
+
+                        // QGIS Style: ao clicar sobre a aresta da feição ativa, insere o vértice imediatamente e arma o reposicionamento
+                        if (await InserirVerticeSelecionadoAsync(xMundo, yMundo, escalaEdicao, armarReposicionamento: true))
+                        {
+                            await InvokeAsync(StateHasChanged);
+                            break;
+                        }
                     }
                     if (featureEdit is not null &&
                         (featureEdit.FID != activeEditFeature.Key.FeatureId ||
@@ -12630,7 +12627,20 @@
 
             if (_ferramentaAtiva == ModoFerramenta.EdicaoVertice)
             {
-                if (tecla is "ctrl+z" or "z" or "backspace") { await DesfazerEdicaoVetorialAsync(); return; }
+                if (tecla is "delete" or "backspace")
+                {
+                    if (CanRemoveSelectedVectorVertices)
+                    {
+                        await RemoverVerticesSelecionadosAsync();
+                        return;
+                    }
+                    if (CanRemoveHoveredVectorVertex)
+                    {
+                        await RemoverVerticeSelecionadoAsync();
+                        return;
+                    }
+                }
+                if (tecla is "ctrl+z" or "z") { await DesfazerEdicaoVetorialAsync(); return; }
                 if (tecla is "ctrl+y" or "ctrl+shift+z") { await RefazerEdicaoVetorialAsync(); return; }
                 if (tecla == "escape")
                 {
