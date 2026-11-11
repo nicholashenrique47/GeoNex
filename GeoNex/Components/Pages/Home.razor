@@ -4425,170 +4425,178 @@
                                         </div>
                                     }
 
-                                    <!-- PARÂMETROS ESPECÍFICOS DE BUFFER -->
-                                    @if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Buffer)
+                                                                        @switch (_geoOperacaoAtiva)
                                     {
-                                        <div class="form-row" style="display: flex; gap: 12px;">
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Distância Fixa (Metros)</label>
-                                                <input type="number" step="0.5" class="glass-input" @bind="_geoDistanciaBuffer" disabled="@_geoprocessamentoExecutando" />
+                                        case TipoOperacaoGeoprocessamento.Buffer:
+                                        {
+                                            <div class="form-row" style="display: flex; gap: 12px;">
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Distância Fixa (Metros)</label>
+                                                    <input type="number" step="0.5" class="glass-input" @bind="_geoDistanciaBuffer" disabled="@_geoprocessamentoExecutando" />
+                                                </div>
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Segmentos de Quadrante (Suavidade)</label>
+                                                    <input type="number" min="4" max="64" class="glass-input" @bind="_geoSegmentosQuadrante" disabled="@_geoprocessamentoExecutando" />
+                                                </div>
                                             </div>
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Segmentos de Quadrante (Suavidade)</label>
-                                                <input type="number" min="4" max="64" class="glass-input" @bind="_geoSegmentosQuadrante" disabled="@_geoprocessamentoExecutando" />
+                                            <div class="form-row" style="display: flex; gap: 12px;">
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Terminação das Pontas (EndCap)</label>
+                                                    <select class="gis-select" @bind="_geoEndCap" disabled="@_geoprocessamentoExecutando">
+                                                        <option value="@BufferEndCapStyle.Round">Arredondada (Round)</option>
+                                                        <option value="@BufferEndCapStyle.Flat">Reta (Flat / Perpendicular)</option>
+                                                        <option value="@BufferEndCapStyle.Square">Quadrada (Square)</option>
+                                                    </select>
+                                                </div>
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Junção de Cantos (Join)</label>
+                                                    <select class="gis-select" @bind="_geoJoinStyle" disabled="@_geoprocessamentoExecutando">
+                                                        <option value="@BufferJoinStyle.Round">Arredondada (Round)</option>
+                                                        <option value="@BufferJoinStyle.Mitre">Canto Vivo (Mitre)</option>
+                                                        <option value="@BufferJoinStyle.Bevel">Chanfrada (Bevel)</option>
+                                                    </select>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div class="form-row" style="display: flex; gap: 12px;">
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Terminação das Pontas (EndCap)</label>
-                                                <select class="gis-select" @bind="_geoEndCap" disabled="@_geoprocessamentoExecutando">
-                                                    <option value="@BufferEndCapStyle.Round">Arredondada (Round)</option>
-                                                    <option value="@BufferEndCapStyle.Flat">Reta (Flat / Perpendicular)</option>
-                                                    <option value="@BufferEndCapStyle.Square">Quadrada (Square)</option>
-                                                </select>
-                                            </div>
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Junção de Cantos (Join)</label>
-                                                <select class="gis-select" @bind="_geoJoinStyle" disabled="@_geoprocessamentoExecutando">
-                                                    <option value="@BufferJoinStyle.Round">Arredondada (Round)</option>
-                                                    <option value="@BufferJoinStyle.Mitre">Canto Vivo (Mitre)</option>
-                                                    <option value="@BufferJoinStyle.Bevel">Chanfrada (Bevel)</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; cursor: pointer;">
-                                            <input type="checkbox" @bind="_geoDissolverBuffers" disabled="@_geoprocessamentoExecutando" />
-                                            Dissolver sobreposições dos buffers resultantes em polígono contínuo
-                                        </label>
-                                    }
-
-                                    <!-- PARÂMETROS ESPECÍFICOS DE DISSOLVER -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Dissolver)
-                                    {
-                                        <div class="form-row" style="display: flex; gap: 12px;">
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Campo de Dissolução (Opcional)</label>
-                                                <select class="gis-select" @bind="_geoCampoDissolucao" disabled="@_geoprocessamentoExecutando">
-                                                    <option value="">[ Dissolver Tudo em Massa Única ]</option>
-                                                    @foreach (var col in ObterColunasCamada(_geoCamadaEntrada))
-                                                    {
-                                                        <option value="@col">@col</option>
-                                                    }
-                                                </select>
-                                            </div>
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Agregação de Atributos</label>
-                                                <select class="gis-select" @bind="_geoModoAgregacao" disabled="@_geoprocessamentoExecutando">
-                                                    <option value="@ModoAgregacaoDissolve.PrimeiroValor">Primeiro Valor Encontrado</option>
-                                                    <option value="@ModoAgregacaoDissolve.Soma">Soma de Valores Numéricos</option>
-                                                    <option value="@ModoAgregacaoDissolve.Media">Média Aritmética</option>
-                                                    <option value="@ModoAgregacaoDissolve.Contagem">Contagem de Elementos</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    }
-
-                                    <!-- PARÂMETROS DE SIMPLIFICAÇÃO DOUGLAS-PEUCKER -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.SimplificacaoDouglasPeucker)
-                                    {
-                                        <div class="form-group-vertical">
-                                            <label class="gis-label" style="display: flex; justify-content: space-between;">
-                                                <span>Tolerância de Desvio Linear</span>
-                                                <span style="color: #38bdf8; font-weight: 600;">@_geoToleranciaSimplificacao m</span>
+                                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; cursor: pointer;">
+                                                <input type="checkbox" @bind="_geoDissolverBuffers" disabled="@_geoprocessamentoExecutando" />
+                                                Dissolver sobreposições dos buffers resultantes em polígono contínuo
                                             </label>
-                                            <input type="range" min="0.1" max="50.0" step="0.5" @bind="_geoToleranciaSimplificacao" class="slider" disabled="@_geoprocessamentoExecutando" />
-                                        </div>
-                                    }
+                                            break;
+                                        }
 
-                                    <!-- PARÂMETROS DE SIMPLIFICAÇÃO VISVALINGAM -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.SimplificacaoVisvalingam)
-                                    {
-                                        <div class="form-group-vertical">
-                                            <label class="gis-label">Área Efetiva Mínima do Triângulo (m²)</label>
-                                            <input type="number" step="1.0" min="1.0" class="glass-input" @bind="_geoAreaMinimaTriangulo" disabled="@_geoprocessamentoExecutando" />
-                                        </div>
-                                    }
+                                        case TipoOperacaoGeoprocessamento.Dissolver:
+                                        {
+                                            <div class="form-row" style="display: flex; gap: 12px;">
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Campo de Dissolução (Opcional)</label>
+                                                    <select class="gis-select" @bind="_geoCampoDissolucao" disabled="@_geoprocessamentoExecutando">
+                                                        <option value="">[ Dissolver Tudo em Massa Única ]</option>
+                                                        @foreach (var col in ObterColunasCamada(_geoCamadaEntrada))
+                                                        {
+                                                            <option value="@col">@col</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Agregação de Atributos</label>
+                                                    <select class="gis-select" @bind="_geoModoAgregacao" disabled="@_geoprocessamentoExecutando">
+                                                        <option value="@ModoAgregacaoDissolve.PrimeiroValor">Primeiro Valor Encontrado</option>
+                                                        <option value="@ModoAgregacaoDissolve.Soma">Soma de Valores Numéricos</option>
+                                                        <option value="@ModoAgregacaoDissolve.Media">Média Aritmética</option>
+                                                        <option value="@ModoAgregacaoDissolve.Contagem">Contagem de Elementos</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            break;
+                                        }
 
-                                    <!-- PARÂMETROS DE SUAVIZAÇÃO CHAIKIN -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.SuavizacaoChaikin)
-                                    {
-                                        <div class="form-group-vertical">
-                                            <label class="gis-label" style="display: flex; justify-content: space-between;">
-                                                <span>Iterações de Suavização</span>
-                                                <span style="color: #38bdf8; font-weight: 600;">@_geoIteracoesSuavizacao ciclos</span>
+                                        case TipoOperacaoGeoprocessamento.SimplificacaoDouglasPeucker:
+                                        {
+                                            <div class="form-group-vertical">
+                                                <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                    <span>Tolerância de Desvio Linear</span>
+                                                    <span style="color: #38bdf8; font-weight: 600;">@_geoToleranciaSimplificacao m</span>
+                                                </label>
+                                                <input type="range" min="0.1" max="50.0" step="0.5" @bind="_geoToleranciaSimplificacao" class="slider" disabled="@_geoprocessamentoExecutando" />
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.SimplificacaoVisvalingam:
+                                        {
+                                            <div class="form-group-vertical">
+                                                <label class="gis-label">Área Efetiva Mínima do Triângulo (m²)</label>
+                                                <input type="number" step="1.0" min="1.0" class="glass-input" @bind="_geoAreaMinimaTriangulo" disabled="@_geoprocessamentoExecutando" />
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.SuavizacaoChaikin:
+                                        {
+                                            <div class="form-group-vertical">
+                                                <label class="gis-label" style="display: flex; justify-content: space-between;">
+                                                    <span>Iterações de Suavização</span>
+                                                    <span style="color: #38bdf8; font-weight: 600;">@_geoIteracoesSuavizacao ciclos</span>
+                                                </label>
+                                                <input type="range" min="1" max="5" step="1" @bind="_geoIteracoesSuavizacao" class="slider" disabled="@_geoprocessamentoExecutando" />
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.EstaqueamentoLinhas:
+                                        {
+                                            <div class="form-group-vertical">
+                                                <label class="gis-label">Distância Entre Estacas / Pontos (Metros)</label>
+                                                <input type="number" step="5.0" min="1.0" class="glass-input" @bind="_geoDistanciaEstaca" disabled="@_geoprocessamentoExecutando" />
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.GradeCartesiana:
+                                        {
+                                            <div class="form-row" style="display: flex; gap: 12px;">
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Largura da Célula (m)</label>
+                                                    <input type="number" step="10.0" min="10.0" class="glass-input" @bind="_geoLarguraGrade" disabled="@_geoprocessamentoExecutando" />
+                                                </div>
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Altura da Célula (m)</label>
+                                                    <input type="number" step="10.0" min="10.0" class="glass-input" @bind="_geoAlturaGrade" disabled="@_geoprocessamentoExecutando" />
+                                                </div>
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.GradeHexagonal:
+                                        {
+                                            <div class="form-group-vertical">
+                                                <label class="gis-label">Raio do Hexágono (Metros)</label>
+                                                <input type="number" step="10.0" min="10.0" class="glass-input" @bind="_geoRaioHexagono" disabled="@_geoprocessamentoExecutando" />
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.AmostragemPoissonDisk:
+                                        {
+                                            <div class="form-row" style="display: flex; gap: 12px;">
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Distância Mínima de Separação (m)</label>
+                                                    <input type="number" step="5.0" min="1.0" class="glass-input" @bind="_geoDistanciaMinimaAmostragem" disabled="@_geoprocessamentoExecutando" />
+                                                </div>
+                                                <div class="form-group-vertical" style="flex: 1;">
+                                                    <label class="gis-label">Máximo de Amostras</label>
+                                                    <input type="number" step="50" min="10" class="glass-input" @bind="_geoMaxAmostrasPoisson" disabled="@_geoprocessamentoExecutando" />
+                                                </div>
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.SpatialJoinAvancado:
+                                        {
+                                            <div class="form-group-vertical">
+                                                <label class="gis-label">Predicado Topológico de Junção</label>
+                                                <select class="gis-select" @bind="_geoPredicadoTopologico" disabled="@_geoprocessamentoExecutando">
+                                                    <option value="Intersects">Intersects (Cruza ou Sobrepõe)</option>
+                                                    <option value="Contains">Contains (Contém Totalmente)</option>
+                                                    <option value="Within">Within (Está Contido Dentro)</option>
+                                                    <option value="Touches">Touches (Toca Apenas na Borda)</option>
+                                                    <option value="Nearest">Nearest (Mais Próximo Métrico)</option>
+                                                </select>
+                                            </div>
+                                            break;
+                                        }
+
+                                        case TipoOperacaoGeoprocessamento.Centroides:
+                                        {
+                                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; cursor: pointer;">
+                                                <input type="checkbox" @bind="_geoUsarPolylabel" disabled="@_geoprocessamentoExecutando" />
+                                                Usar Polo de Inacessibilidade (Polylabel) para garantir ponto dentro de polígonos côncavos
                                             </label>
-                                            <input type="range" min="1" max="5" step="1" @bind="_geoIteracoesSuavizacao" class="slider" disabled="@_geoprocessamentoExecutando" />
-                                        </div>
-                                    }
+                                            break;
+                                        }
 
-                                    <!-- PARÂMETROS DE ESTAQUEAMENTO DE LINHAS -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.EstaqueamentoLinhas)
-                                    {
-                                        <div class="form-group-vertical">
-                                            <label class="gis-label">Distância Entre Estacas / Pontos (Metros)</label>
-                                            <input type="number" step="5.0" min="1.0" class="glass-input" @bind="_geoDistanciaEstaca" disabled="@_geoprocessamentoExecutando" />
-                                        </div>
-                                    }
-
-                                    <!-- PARÂMETROS DE GRADES CARTESIANAS E HEXAGONAIS -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.GradeCartesiana)
-                                    {
-                                        <div class="form-row" style="display: flex; gap: 12px;">
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Largura da Célula (m)</label>
-                                                <input type="number" step="10.0" min="10.0" class="glass-input" @bind="_geoLarguraGrade" disabled="@_geoprocessamentoExecutando" />
-                                            </div>
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Altura da Célula (m)</label>
-                                                <input type="number" step="10.0" min="10.0" class="glass-input" @bind="_geoAlturaGrade" disabled="@_geoprocessamentoExecutando" />
-                                            </div>
-                                        </div>
-                                    }
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.GradeHexagonal)
-                                    {
-                                        <div class="form-group-vertical">
-                                            <label class="gis-label">Raio do Hexágono (Metros)</label>
-                                            <input type="number" step="10.0" min="10.0" class="glass-input" @bind="_geoRaioHexagono" disabled="@_geoprocessamentoExecutando" />
-                                        </div>
-                                    }
-
-                                    <!-- PARÂMETROS DE AMOSTRAGEM POISSON DISK -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.AmostragemPoissonDisk)
-                                    {
-                                        <div class="form-row" style="display: flex; gap: 12px;">
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Distância Mínima de Separação (m)</label>
-                                                <input type="number" step="5.0" min="1.0" class="glass-input" @bind="_geoDistanciaMinimaAmostragem" disabled="@_geoprocessamentoExecutando" />
-                                            </div>
-                                            <div class="form-group-vertical" style="flex: 1;">
-                                                <label class="gis-label">Máximo de Amostras</label>
-                                                <input type="number" step="50" min="10" class="glass-input" @bind="_geoMaxAmostrasPoisson" disabled="@_geoprocessamentoExecutando" />
-                                            </div>
-                                        </div>
-                                    }
-
-                                    <!-- PARÂMETROS DE SPATIAL JOIN -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.SpatialJoinAvancado)
-                                    {
-                                        <div class="form-group-vertical">
-                                            <label class="gis-label">Predicado Topológico de Junção</label>
-                                            <select class="gis-select" @bind="_geoPredicadoTopologico" disabled="@_geoprocessamentoExecutando">
-                                                <option value="Intersects">Intersects (Cruza ou Sobrepõe)</option>
-                                                <option value="Contains">Contains (Contém Totalmente)</option>
-                                                <option value="Within">Within (Está Contido Dentro)</option>
-                                                <option value="Touches">Touches (Toca Apenas na Borda)</option>
-                                                <option value="Nearest">Nearest (Mais Próximo Métrico)</option>
-                                            </select>
-                                        </div>
-                                    }
-
-                                    <!-- PARÂMETROS DE CENTROIDES -->
-                                    else if (_geoOperacaoAtiva == TipoOperacaoGeoprocessamento.Centroides)
-                                    {
-                                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; cursor: pointer;">
-                                            <input type="checkbox" @bind="_geoUsarPolylabel" disabled="@_geoprocessamentoExecutando" />
-                                            Usar Polo de Inacessibilidade (Polylabel) para garantir ponto dentro de polígonos côncavos
-                                        </label>
+                                        default:
+                                            break;
                                     }
 
                                     <!-- ARQUIVO DE DESTINO -->
