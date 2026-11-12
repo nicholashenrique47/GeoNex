@@ -427,6 +427,28 @@ namespace GeoNex.Services
                 return;
             }
 
+            if (forma.StartsWith("svg:", StringComparison.OrdinalIgnoreCase) ||
+                forma.StartsWith("geonex://", StringComparison.OrdinalIgnoreCase) ||
+                forma.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
+            {
+                string svgPath = forma.StartsWith("svg:", StringComparison.OrdinalIgnoreCase) ? forma.Substring(4) : forma;
+                var pic = SvgCompilationService.GetOrCompilePicture(svgPath, null, fillPaint.Color, fillPaint.Color, strokePaint?.Color ?? SKColors.Transparent, strokePaint?.StrokeWidth ?? 1f);
+                if (pic != null)
+                {
+                    int save = canvas.Save();
+                    canvas.Translate(centro.X, centro.Y);
+                    if (rotacaoGraus != 0f) canvas.RotateDegrees(rotacaoGraus);
+                    float targetSize = raio * 2f;
+                    float srcW = pic.CullRect.Width > 0 ? pic.CullRect.Width : 32f;
+                    float srcH = pic.CullRect.Height > 0 ? pic.CullRect.Height : 32f;
+                    canvas.Scale(targetSize / srcW, targetSize / srcH);
+                    canvas.Translate(-srcW * 0.5f, -srcH * 0.5f);
+                    canvas.DrawPicture(pic);
+                    canvas.RestoreToCount(save);
+                    return;
+                }
+            }
+
             SKPath? pathBase = forma switch
             {
                 "Quadrado" => _pathQuadrado,

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using GeoNex.Core.Symbology;
 using SkiaSharp;
 
 namespace GeoNex.Services
@@ -24,6 +25,25 @@ namespace GeoNex.Services
         public string PadraoPreenchimento { get; set; } = "Solido"; // Solido, DiagonalDireita, DiagonalEsquerda, Cruzada, LinhasVerticais, LinhasHorizontais, Pontilhado
         public string CorHachura { get; set; } = "#0ea5e9";
         public int EspacamentoHachura { get; set; } = 12; // 6 a 48 pixels
+
+        // === SIMBOLOGIA COMPOSTA MULTI-CAMADAS & SVG (QGIS STYLE ENGINE) ===
+        public CompositePointSymbol? SimboloComposto { get; set; }
+        public string? SvgMarcadorCaminho { get; set; }
+
+        public CompositePointSymbol ObterSimboloComposto()
+        {
+            if (SimboloComposto != null && SimboloComposto.Layers.Count > 0)
+                return SimboloComposto;
+
+            if (!string.IsNullOrEmpty(SvgMarcadorCaminho))
+            {
+                SimboloComposto = CompositePointSymbol.CreateDefaultSvg(SvgMarcadorCaminho, CorPreenchimento, CorBorda, Tamanho);
+                return SimboloComposto;
+            }
+
+            SimboloComposto = CompositePointSymbol.CreateDefaultSimple(FormaMarcador, CorPreenchimento, CorBorda, Tamanho, EspessuraBorda);
+            return SimboloComposto;
+        }
 
         // === SÍMBOLOS PROPORCIONAIS (BUBBLE MAPS & FLOW LINES) ===
         public bool SimbologiaProporcional { get; set; } = false;

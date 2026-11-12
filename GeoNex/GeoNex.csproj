@@ -138,6 +138,9 @@
       <MauiXaml Update="MainPage.xaml">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </MauiXaml>
+      <None Update="Assets\Markers\**\*.svg">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
 
 </Project>

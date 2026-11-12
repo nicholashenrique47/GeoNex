@@ -8,10 +8,15 @@
   <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="3.119.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <Compile Include="../../GeoNex/Core/Symbology/*.cs" Link="%(Filename)%(Extension)" />
     <Compile Include="../../GeoNex/Services/ClassificationEngine.cs" Link="ClassificationEngine.cs" />
     <Compile Include="../../GeoNex/Services/CartographicPatternFactory.cs" Link="CartographicPatternFactory.cs" />
     <Compile Include="../../GeoNex/Services/EstiloCamada.cs" Link="EstiloCamada.cs" />
     <Compile Include="../../GeoNex/Services/StyleSerializationService.cs" Link="StyleSerializationService.cs" />
+    <Compile Include="../../GeoNex/Services/SvgCompilationService.cs" Link="SvgCompilationService.cs" />
+    <Compile Include="../../GeoNex/Services/QmlStyleInteropService.cs" Link="QmlStyleInteropService.cs" />
+    <Compile Include="../../GeoNex/Services/SkiaMarkerEngine.cs" Link="SkiaMarkerEngine.cs" />
+    <Compile Include="../../GeoNex/Services/MarkerGpuAtlas.cs" Link="MarkerGpuAtlas.cs" />
     <Compile Include="../../GeoNex/Services/LabelPlacementEngine.cs" Link="LabelPlacementEngine.cs" />
     <Compile Include="../../GeoNex/Services/LabelConflictGrid.cs" Link="LabelConflictGrid.cs" />
   </ItemGroup>

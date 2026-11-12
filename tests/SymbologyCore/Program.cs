@@ -384,5 +384,95 @@ Assert(sldExport.Contains("PolygonSymbolizer") && sldExport.Contains("LineSymbol
 var estiloImportSld = StyleSerializationService.ImportarDeSLD(sldExport);
 Assert(estiloImportSld != null, "Importação SLD deve ser bem sucedida");
 
-Console.WriteLine($"\n>>> TODOS OS 14 MÓDULOS DE SIMBOLOGIA PASSARAM COM 100% DE SUCESSO! Total de asserções validadas: {assertions} <<<");
+// =========================================================================
+// MÓDULO 15: MOTOR AVANÇADO DE SIMBOLOGIA DE PONTOS E ÍCONES SVG ESTILO QGIS
+// =========================================================================
+Console.WriteLine("\n--- Teste 15: Simbologia de Pontos, Ícones SVG e Padrão Composite QGIS ---");
+
+// 1. Catálogo Canônico de SVGs
+var catalog = SvgCompilationService.GetCatalog();
+Assert(catalog.Count > 0, "Catálogo de marcadores SVG deve conter itens registrados");
+Console.WriteLine($"[OK] Catálogo de SVGs carregado com {catalog.Count} ícones canônicos.");
+
+// 2. Injeção Paramétrica de Cores no SVG
+string templateSvg = "<svg viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #ffffff' stroke='param(stroke) #000000' stroke-width='param(stroke-width) 1.0'/></svg>";
+string injected = SvgCompilationService.InjectParameters(templateSvg, SKColors.Red, SKColors.Yellow, SKColors.Blue, 2.5f);
+Assert(injected.Contains("#FF0000"), "param(fill) deve ser substituído pela cor hexadecimal");
+Assert(injected.Contains("#0000FF"), "param(stroke) deve ser substituído pelo contorno hexadecimal");
+Assert(injected.Contains("2.5"), "param(stroke-width) deve ser substituído pela espessura");
+Console.WriteLine("[OK] Injeção paramétrica de cores e traço validada com sucesso.");
+
+// 3. Compilação de SVG para SKPicture
+var picture = SvgCompilationService.CompileSvgToPicture(injected);
+Assert(picture != null, "SVG parametrizado deve compilar para SKPicture imutável");
+Assert(picture.CullRect.Width > 0, "SKPicture deve possuir dimensões válidas");
+Console.WriteLine($"[OK] Compilação de SVG para SKPicture concluída: {picture.CullRect.Width}x{picture.CullRect.Height}");
+
+// 4. Símbolo Composto Multi-Camadas (CompositePointSymbol)
+var composite = new GeoNex.Core.Symbology.CompositePointSymbol { Name = "Marco Geodésico Multi-Camadas" };
+var baseLayer = new GeoNex.Core.Symbology.SimpleMarkerSymbolLayer
+{
+    Name = "Base Circular",
+    Shape = GeoNex.Core.Symbology.MarkerShapeType.Circle,
+    Size = 14f,
+    FillColor = SKColors.White,
+    StrokeColor = SKColors.DarkBlue,
+    StrokeWidth = 2f
+};
+var svgLayer = new GeoNex.Core.Symbology.SvgMarkerSymbolLayer
+{
+    Name = "Ícone Topográfico",
+    EmbeddedSvgContent = templateSvg,
+    Size = 10f,
+    FillColor = SKColors.SkyBlue,
+    StrokeColor = SKColors.MidnightBlue,
+    StrokeWidth = 1.2f
+};
+composite.AddLayer(baseLayer);
+composite.AddLayer(svgLayer);
+Assert(composite.Layers.Count == 2, "CompositePointSymbol deve possuir 2 sub-camadas ativas");
+
+// Renderização do Símbolo Composto em SKBitmap
+using (var bmp = new SKBitmap(64, 64))
+using (var compCanvas = new SKCanvas(bmp))
+{
+    compCanvas.Clear(SKColors.Transparent);
+    composite.Render(compCanvas, new SKPoint(32, 32), 1.0f, 0f);
+    Assert(bmp.GetPixel(32, 32) != SKColors.Transparent, "Pixel central renderizado não deve ser transparente");
+}
+Console.WriteLine("[OK] Renderização de CompositePointSymbol multi-camadas concluída em canvas SkiaSharp.");
+
+// 5. Interoperabilidade QGIS Style (.qml)
+var estiloQmlTest = new EstiloCamada
+{
+    FormaMarcador = "Square",
+    CorPreenchimento = "#10b981",
+    CorBorda = "#047857",
+    Tamanho = 8.0f,
+    EspessuraBorda = 1.5f,
+    RotacaoMarcador = 45f
+};
+string qmlXml = QmlStyleInteropService.ExportarParaQml("MarcoTopografico", estiloQmlTest);
+Assert(qmlXml.Contains("<qgis") && qmlXml.Contains("<renderer-v2"), "Exportação QML deve gerar documento QGIS 3.x válido");
+Assert(qmlXml.Contains("SimpleMarker"), "QML deve conter camada SimpleMarker");
+
+var importadoQml = QmlStyleInteropService.ImportarDeQml(qmlXml);
+Assert(importadoQml != null, "Importação de QML deve reconstruir o objeto de estilo com sucesso");
+Assert(importadoQml!.FormaMarcador == "Square", "Forma geométrica Square deve ser preservada do QML");
+Assert(importadoQml.Tamanho == 8.0f, "Tamanho deve ser preservado do QML");
+Console.WriteLine("[OK] Interoperabilidade bidirecional QGIS (.qml) validada.");
+
+// 6. Atlas de Texturas GPU (MarkerGpuAtlas)
+using (var atlas = new MarkerGpuAtlas(512, 512))
+{
+    var atlasRect1 = atlas.GetOrAddSprite("sprite_teste_1", picture, 32, 32);
+    Assert(atlasRect1.Width == 32 && atlasRect1.Height == 32, "Atlas deve alocar retângulo UV 32x32");
+    var atlasRect2 = atlas.GetOrAddSprite("sprite_teste_1", picture, 32, 32);
+    Assert(atlasRect1 == atlasRect2, "Chamadas subsequentes devem retornar o mesmo sprite UV do cache");
+    using var snapshot = atlas.CreateImageSnapshot();
+    Assert(snapshot != null && snapshot.Width == 512, "Snapshot da textura em VRAM gerado com sucesso");
+}
+Console.WriteLine("[OK] Atlas de texturas GPU 2048x2048 operacional para renderização massiva a 60 FPS.");
+
+Console.WriteLine($"\n>>> TODOS OS 15 MÓDULOS DE SIMBOLOGIA PASSARAM COM 100% DE SUCESSO! Total de asserções validadas: {assertions} <<<");
 

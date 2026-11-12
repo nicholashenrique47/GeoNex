@@ -1781,9 +1781,12 @@ namespace GeoNex.Services
                                                 float baseRadiusPx = (estiloCamada.Tamanho > 0 ? estiloCamada.Tamanho : 4f) * viewport.PixelScale;
                                                 float strokeWidthPx = (estiloCamada.EspessuraBorda > 0 ? estiloCamada.EspessuraBorda : 1f) * viewport.PixelScale;
                                                 SKColor? borderSpriteColor = hasBorder ? pincelDinamicoBorda.Color : null;
+                                                string effectiveMarkerShape = !string.IsNullOrEmpty(estiloCamada.SvgMarcadorCaminho)
+                                                    ? ("svg:" + estiloCamada.SvgMarcadorCaminho)
+                                                    : estiloCamada.FormaMarcador;
                                                 (SKImage? fixedSprite, float fixedHalf) = !usarTamanhoProp
                                                     ? CartographicPatternFactory.ObterSpriteMarcadorFisico(
-                                                        estiloCamada.FormaMarcador,
+                                                        effectiveMarkerShape,
                                                         baseRadiusPx,
                                                         estiloCamada.RotacaoMarcador,
                                                         pincelDinamicoFill.Color,
@@ -1893,7 +1896,7 @@ namespace GeoNex.Services
                                                                         localPoint.X, localPoint.Y, coordinates.Count);
                                                                 CartographicPatternFactory.DesenharMarcador(
                                                                     canvas, localPoint, featureRadius,
-                                                                    estiloCamada.FormaMarcador,
+                                                                    effectiveMarkerShape,
                                                                     estiloCamada.RotacaoMarcador,
                                                                     ptPaint, hasBorder ? ptBorder : null);
                                                             }
@@ -1904,7 +1907,7 @@ namespace GeoNex.Services
                                                                 canvas,
                                                                 point,
                                                                 featureRadius,
-                                                                estiloCamada.FormaMarcador,
+                                                                effectiveMarkerShape,
                                                                 estiloCamada.RotacaoMarcador,
                                                                 ptPaint,
                                                                 hasBorder ? ptBorder : null);

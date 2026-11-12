@@ -9,41 +9,56 @@ using GeoNex.Models;
 using GeoNex.Services;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.JSInterop;
+using SkiaSharp;
 
 namespace GeoNex.Components.Pages;
 
 public partial class Home
 {
-    // === CATÁLOGOS CARTOGRÁFICOS DISPONÍVEIS ===
-    public static readonly string[] FormasMarcadorDisponiveis =
+    // === CATÁLOGOS CARTOGRÁFICOS DISPONÍVEIS (QGIS SVG & GEOMETRIAS) ===
+    private static readonly string[] _formasGeometricasBase =
     [
         "Circulo", "Quadrado", "Losango", "Triangulo", "TrianguloInvertido",
-        "Cruz", "X", "Estrela", "Pentagono", "Hexagono",
-        "MarcoINCRA", "MarcoGeodesicoQGIS", "EstacaoTopograficaQGIS",
-        "VerticeTriangulacaoQGIS", "AlvoTarget", "PontoCotado", "PinoLocalizacao",
-        "TorreEnergiaQGIS", "PosteEnergiaQGIS", "PocoAguaQGIS", "ArvoreFlorestalQGIS", "EdificacaoSedeQGIS"
+        "Cruz", "X", "Estrela", "Pentagono", "Hexagono"
     ];
+
+    public static readonly string[] FormasMarcadorDisponiveis =
+        _formasGeometricasBase.Concat(SvgCompilationService.GetCatalog().Select(c => "svg:" + c.RelativePath)).ToArray();
 
     private string categoriaMarcadorAtiva = "Todos";
 
     public static readonly string[] CategoriasMarcadorDisponiveis =
     [
-        "Todos", "Topografia", "Infraestrutura", "Meio Ambiente", "Geometria"
+        "Todos", "Topografia", "Infraestrutura", "Ambiental", "Servicos", "Transportes", "Agronegocio", "Geologia", "DefesaCivil", "Geometria"
     ];
 
     public static string ObterCategoriaForma(string forma)
     {
+        if (forma.StartsWith("svg:"))
+        {
+            string rel = forma.Substring(4);
+            var item = SvgCompilationService.GetCatalog().FirstOrDefault(c => c.RelativePath == rel);
+            return item?.Category ?? "Topografia";
+        }
+
         return forma switch
         {
             "MarcoINCRA" or "MarcoGeodesicoQGIS" or "EstacaoTopograficaQGIS" or "VerticeTriangulacaoQGIS" or "AlvoTarget" or "PontoCotado" or "TrianguloInvertido" => "Topografia",
             "TorreEnergiaQGIS" or "PosteEnergiaQGIS" or "EdificacaoSedeQGIS" => "Infraestrutura",
-            "ArvoreFlorestalQGIS" or "PocoAguaQGIS" or "PinoLocalizacao" => "Meio Ambiente",
+            "ArvoreFlorestalQGIS" or "PocoAguaQGIS" or "PinoLocalizacao" => "Ambiental",
             _ => "Geometria"
         };
     }
 
     public static string ObterNomeLegivelForma(string forma)
     {
+        if (forma.StartsWith("svg:"))
+        {
+            string rel = forma.Substring(4);
+            var item = SvgCompilationService.GetCatalog().FirstOrDefault(c => c.RelativePath == rel);
+            return item?.Label ?? Path.GetFileNameWithoutExtension(rel);
+        }
+
         return forma switch
         {
             "MarcoINCRA" => "Marco INCRA",
@@ -61,6 +76,33 @@ public partial class Home
             "TrianguloInvertido" => "Piquete",
             _ => forma
         };
+    }
+
+    public static string ObterSvgIconDataUri(string forma, string fillHex = "#38bdf8", string strokeHex = "#0284c7")
+    {
+        if (!forma.StartsWith("svg:")) return string.Empty;
+        string relPath = forma.Substring(4);
+        string diskPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Markers", relPath);
+        string svgXml = "";
+        if (File.Exists(diskPath))
+        {
+            svgXml = File.ReadAllText(diskPath);
+        }
+        else
+        {
+            string rootPath = Path.Combine(Directory.GetCurrentDirectory(), "GeoNex", "Assets", "Markers", relPath);
+            if (File.Exists(rootPath)) svgXml = File.ReadAllText(rootPath);
+        }
+
+        if (string.IsNullOrEmpty(svgXml)) return string.Empty;
+        var injected = SvgCompilationService.InjectParameters(svgXml,
+            EstiloCamada.ParseColorFast(fillHex, SKColors.SkyBlue),
+            EstiloCamada.ParseColorFast(strokeHex, SKColors.DeepSkyBlue),
+            EstiloCamada.ParseColorFast(strokeHex, SKColors.DeepSkyBlue),
+            1.5f);
+
+        string b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(injected));
+        return $"data:image/svg+xml;base64,{b64}";
     }
 
     public record PresetEstiloPonto(string Nome, string Forma, string CorFill, string CorBorda, float Tamanho, float EspessuraBorda);
@@ -557,6 +599,18 @@ public partial class Home
         statusEstiloSucesso = true;
     }
 
+    private async Task ExportarEstiloQmlAsync()
+    {
+        if (string.IsNullOrEmpty(camadaEmEdicao)) return;
+        var estilo = MapService.EstilosPorCamada.GetOrAdd(camadaEmEdicao, _ => new EstiloCamada());
+        SalvarCamposUIParaEstilo(estilo);
+        string qml = QmlStyleInteropService.ExportarParaQml(camadaEmEdicao, estilo);
+        string nomeArquivo = $"{camadaEmEdicao}_estilo.qml";
+        await JSRuntime.InvokeVoidAsync("geonexDownloadText", qml, nomeArquivo);
+        statusFeedbackEstilo = $"QGIS QML exportado: {nomeArquivo}";
+        statusEstiloSucesso = true;
+    }
+
     private async Task CarregarEstiloArquivoAsync(InputFileChangeEventArgs e)
     {
         if (string.IsNullOrEmpty(camadaEmEdicao) || e.File == null) return;
@@ -567,7 +621,11 @@ public partial class Home
             string conteudo = await reader.ReadToEndAsync();
 
             EstiloCamada? estiloImportado = null;
-            if (conteudo.TrimStart().StartsWith("<"))
+            if (conteudo.Contains("<qgis", StringComparison.OrdinalIgnoreCase))
+            {
+                estiloImportado = QmlStyleInteropService.ImportarDeQml(conteudo);
+            }
+            else if (conteudo.TrimStart().StartsWith("<"))
             {
                 estiloImportado = StyleSerializationService.ImportarDeSLD(conteudo);
             }
