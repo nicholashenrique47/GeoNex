@@ -72,6 +72,16 @@ public partial class Home
         _focoMenuDadosPendente = null;
     }
 
+    private void AoPassarMouseMenuSuperior(string menu)
+    {
+        if (!string.IsNullOrEmpty(_menuSuperiorAberto) && _menuSuperiorAberto != menu)
+        {
+            _menuSuperiorAberto = menu;
+            _submenuDadosAberto = null;
+            _focoMenuDadosPendente = null;
+        }
+    }
+
     private void AbrirSubmenuDados(string pagina)
     {
         if (pagina is not ("adicionar" or "criar")) return;
@@ -1378,6 +1388,7 @@ public partial class Home
 
     private async Task AbrirImportacaoTabelaPontos()
     {
+        FecharMenusSuperiores();
         AbrirModalImportacao();
         TrocarAbaModal("Texto");
         _tabelaPontosMensagem = string.Empty;

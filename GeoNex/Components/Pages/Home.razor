@@ -615,8 +615,12 @@
             <button type="button" class="command-quick-save" disabled="@((!temEdicoesPendentes && MapService.PontosAquisicao.Count == 0) || _salvandoEdicoes)" title="@(temEdicoesPendentes || MapService.PontosAquisicao.Count > 0 ? "Salvar as edições pendentes" : "Nenhuma edição pendente")" @onclick="ConfirmarTodasEdicoes">@(_salvandoEdicoes ? "Salvando…" : "Salvar edições")</button>
         </div>
         <nav id="geonex-main-menu" class="main-menu preserved-file-data-menus" aria-label="Comandos do aplicativo" @onkeydown="TecladoMenuSuperior" style="display: flex; height: 100%; align-items: stretch; margin-right: 5px;">
+            @if (!string.IsNullOrEmpty(_menuSuperiorAberto))
+            {
+                <div class="menu-superior-backdrop" @onclick="FecharMenusSuperiores" aria-hidden="true"></div>
+            }
             <div class="dropdown @(_menuSuperiorAberto == "arquivo" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "arquivo")" @onclick='() => AlternarMenuSuperior("arquivo")' @onclick:stopPropagation="true">Arquivo ▾</button>
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "arquivo")" @onclick='() => AlternarMenuSuperior("arquivo")' @onmouseenter='() => AoPassarMouseMenuSuperior("arquivo")' @onclick:stopPropagation="true">Arquivo ▾</button>
                 <div class="dropdown-content file-menu-popover">
                     <span class="file-menu-section-label">Projeto</span>
                     <button type="button" @onclick="CriarNovoProjeto">Novo Projeto…</button>
@@ -654,7 +658,7 @@
                 </div>
             </div>
             <div class="dropdown @(_menuSuperiorAberto == "dados" ? "is-open" : "")" style="display:flex;align-items:center;height:100%">
-                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "dados")" @onclick='() => AlternarMenuSuperior("dados")' @onclick:stopPropagation="true">Dados ▾</button>
+                <button class="menu-btn" aria-haspopup="true" aria-expanded="@(_menuSuperiorAberto == "dados")" @onclick='() => AlternarMenuSuperior("dados")' @onmouseenter='() => AoPassarMouseMenuSuperior("dados")' @onclick:stopPropagation="true">Dados ▾</button>
                 <div class="dropdown-content data-menu-popover">
                     @if (_submenuDadosAberto is null)
                     {
@@ -681,17 +685,17 @@
                             </div>
                             <section class="data-menu-section" aria-label="Adicionar dados locais">
                                 <span class="data-menu-section-label">Arquivo local</span>
-                                <button type="button" class="data-menu-action" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Raster"); }'>
+                                <button type="button" class="data-menu-action" @onclick='() => { FecharMenusSuperiores(); AbrirModalImportacao(); TrocarAbaModal("Raster"); }'>
                                     <span class="data-menu-icon raster" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg></span>
                                     <span class="data-menu-copy"><strong>Imagem raster</strong><small>ECW · GeoTIFF</small></span>
                                     <span class="data-menu-arrow" aria-hidden="true">›</span>
                                 </button>
-                                <button type="button" class="data-menu-action" @onclick='() => { AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>
+                                <button type="button" class="data-menu-action" @onclick='() => { FecharMenusSuperiores(); AbrirModalImportacao(); TrocarAbaModal("Vetor"); }'>
                                     <span class="data-menu-icon vector" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 5 14 2-3 12-11-4V5Z"/><circle cx="5" cy="5" r="1.5"/><circle cx="19" cy="7" r="1.5"/><circle cx="16" cy="19" r="1.5"/></svg></span>
                                     <span class="data-menu-copy"><strong>Dados vetoriais</strong><small>SHP · GPKG · KML · GeoJSON</small></span>
                                     <span class="data-menu-arrow" aria-hidden="true">›</span>
                                 </button>
-                                <button type="button" class="data-menu-action" @onclick="AbrirImportacaoTabelaPontos">
+                                <button type="button" class="data-menu-action" @onclick="() => { FecharMenusSuperiores(); AbrirImportacaoTabelaPontos(); }">
                                     <span class="data-menu-icon points" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.2 7-12a7 7 0 1 0-14 0c0 6.8 7 12 7 12Z"/><circle cx="12" cy="9" r="2.2"/></svg></span>
                                     <span class="data-menu-copy"><strong>Tabela de pontos</strong><small>CSV · texto delimitado</small></span>
                                     <span class="data-menu-arrow" aria-hidden="true">›</span>
@@ -699,22 +703,22 @@
                             </section>
                             <section class="data-menu-section" aria-label="Mapas base online">
                                 <span class="data-menu-section-label">Mapa base online</span>
-                                <button type="button" class="data-menu-action compact" @onclick='() => CarregarMapaBaseOnline("OSM")'>
+                                <button type="button" class="data-menu-action compact" @onclick='async () => { FecharMenusSuperiores(); await CarregarMapaBaseOnline("OSM"); }'>
                                     <span class="data-menu-icon basemap" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>
                                     <span class="data-menu-copy"><strong>OpenStreetMap</strong><small>Mapa de ruas e lugares</small></span>
                                 </button>
-                                <button type="button" class="data-menu-action compact" @onclick='() => CarregarMapaBaseOnline("ESRI")'>
+                                <button type="button" class="data-menu-action compact" @onclick='async () => { FecharMenusSuperiores(); await CarregarMapaBaseOnline("ESRI"); }'>
                                     <span class="data-menu-icon basemap" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15m6-12v15"/></svg></span>
                                     <span class="data-menu-copy"><strong>Esri Satellite</strong><small>Imagem de satélite</small></span>
                                 </button>
-                                <button type="button" class="data-menu-action compact" @onclick='() => CarregarMapaBaseOnline("Google")'>
+                                <button type="button" class="data-menu-action compact" @onclick='async () => { FecharMenusSuperiores(); await CarregarMapaBaseOnline("Google"); }'>
                                     <span class="data-menu-icon basemap" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4"/><circle cx="12" cy="12" r="8.5"/></svg></span>
                                     <span class="data-menu-copy"><strong>Google Satellite</strong><small>Imagem de satélite</small></span>
                                 </button>
                             </section>
                             <section class="data-menu-section connections" aria-label="Conexões de dados">
                                 <span class="data-menu-section-label">Conexão</span>
-                                <button type="button" class="data-menu-action compact" @onclick="AbrirConexaoPostgis" @onclick:stopPropagation="true">
+                                <button type="button" class="data-menu-action compact" @onclick="() => { FecharMenusSuperiores(); AbrirConexaoPostgis(); }" @onclick:stopPropagation="true">
                                     <span class="data-menu-icon connection" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M12 7h4M12 17h4"/></svg></span>
                                     <span class="data-menu-copy"><strong>PostGIS</strong><small>Conectar e adicionar camada espacial</small></span>
                                     <span class="data-menu-arrow" aria-hidden="true">›</span>
@@ -5788,13 +5792,25 @@
         z-index: 4000;
     }
 
-    /* Revelar o menu ao passar o rato */
-    .dropdown:hover .dropdown-content {
-        display: block;
+    .dropdown:not(.is-open) > .dropdown-content {
+        display: none !important;
     }
 
-    .dropdown:focus-within > .dropdown-content {
-        display: block;
+    .dropdown.is-open > .dropdown-content {
+        display: block !important;
+    }
+
+    .menu-superior-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 4350;
+        background: transparent;
+        cursor: default;
     }
 
     .dropdown-submenu:focus-within > .submenu-content {
@@ -6499,37 +6515,6 @@
         position: relative;
         display: inline-block;
         height: 100%;
-    }
-
-    .dropdown-content {
-        display: none;
-        position: absolute;
-        top: 100%;
-        left: 0;
-        background: rgba(30, 33, 42, 0.95);
-        min-width: 220px;
-        border-radius: 6px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        z-index: 9999;
-        padding: 5px 0;
-        margin-top: 0;
-    }
-
-        /* O ESCUDO INVISÍVEL - Cobre o espaço entre o botão e o menu, e as laterais */
-        .dropdown-content::before {
-            content: '';
-            position: absolute;
-            top: -30px; /* Sobe bastante para invadir o botão */
-            left: -20px; /* Estica para a esquerda para não perder o rato em diagonais */
-            right: -20px; /* Estica para a direita */
-            height: 40px; /* Altura suficiente para cobrir qualquer buraco */
-            background: transparent;
-            z-index: -1;
-        }
-
-    .dropdown:hover .dropdown-content {
-        display: block;
     }
 
     .vertical-divider {
@@ -9893,7 +9878,11 @@
     // =========================================================================
     // 9. DIÁLOGOS DE ENQUADRAMENTO E INFRAESTRUTURA PROJETO (.GNX BASE)
     // =========================================================================
-    private void AbrirModalImportacao() { exibirModalImportacao = true; }
+    private void AbrirModalImportacao()
+    {
+        FecharMenusSuperiores();
+        exibirModalImportacao = true;
+    }
     private void FecharModalImportacao() { exibirModalImportacao = false; }
     private void TrocarAbaModal(string nomeAba) { AbaModalAtiva = nomeAba; }
 
@@ -10132,6 +10121,7 @@
 
     private async Task CriarNovoProjeto()
     {
+        FecharMenusSuperiores();
         try
         {
             if (!await PodeTrocarProjetoAsync()) return;
@@ -10219,7 +10209,11 @@
         catch (Exception ex) { ExibirNotificacaoSalvamento("Não foi possível criar o projeto", ex.Message, erro: true); }
     }
 
-    private Task AbrirProjeto() => AbrirProjetoAsync(null);
+    private Task AbrirProjeto()
+    {
+        FecharMenusSuperiores();
+        return AbrirProjetoAsync(null);
+    }
 
     private Task AbrirProjetoPorCaminhoAsync(string caminho) => AbrirProjetoAsync(caminho);
 
@@ -10415,6 +10409,7 @@
 
     private async Task SalvarProjeto()
     {
+        FecharMenusSuperiores();
         if (ProjetoService.ProjetoAtual is null)
         {
             ExibirNotificacaoSalvamento("Nenhum projeto aberto", "Crie ou abra um projeto antes de salvar.", erro: true);

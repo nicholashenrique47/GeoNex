@@ -214,7 +214,7 @@
     .geonex-ui .main-menu { display: none !important; }
     .geonex-ui.show-app-menu .main-menu { display: flex !important; position: absolute; top: 60px; left: 0; right: 0; height: auto !important; flex-wrap: wrap; padding: 10px; background: #141e29; border: 1px solid #42576c; border-radius: 8px; }
     .geonex-ui .main-menu > .dropdown { height: 38px !important; }
-    .geonex-ui .dropdown:focus-within > .dropdown-content { display: block; }
+    /* dropdown aberto estritamente via classe .is-open */
     .workbench-heading { flex-wrap: wrap; }
     .sketch-actions { flex: 1 1 100%; justify-content: flex-end; }
     .destination-field { max-width: none; }
@@ -491,6 +491,26 @@
     border: 0;
     background: transparent;
     cursor: default;
+}
+.geonex-ui .menu-superior-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 4350;
+    background: transparent;
+    cursor: default;
+}
+.geonex-ui .main-menu {
+    position: relative;
+    z-index: 4400;
+}
+.geonex-ui .main-menu > .dropdown.is-open {
+    position: relative;
+    z-index: 4401;
 }
 .geonex-ui .main-menu > .dropdown:not(.is-open) > .dropdown-content { display: none !important; }
 .geonex-ui .main-menu > .dropdown.is-open > .dropdown-content { display: block !important; }
