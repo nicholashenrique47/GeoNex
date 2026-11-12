@@ -52,6 +52,7 @@ public static class GnxProjectSourceValidator
         Camada[] fontes = camadas.ToArray();
         lock (gdalRasterLock)
         {
+            Gdal.SetConfigOption("SHAPE_RESTORE_SHX", "YES");
             Gdal.AllRegister();
             Ogr.RegisterAll();
         }

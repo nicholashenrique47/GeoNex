@@ -10291,7 +10291,7 @@
                 !System.IO.File.Exists(camada.CaminhoFonteOriginal)).ToArray();
             _statusAberturaProjeto = "Validando arquivos das camadas…";
             await InvokeAsync(StateHasChanged);
-            await ValidarFontesDoProjetoAsync(camadasLocais.Except(fontesAusentes));
+            List<string> avisosValidacao = await ValidarFontesDoProjetoAsync(camadasLocais.Except(fontesAusentes));
 
             if (promovendoAutosave)
             {
@@ -10317,6 +10317,8 @@
                 await InvokeAsync(StateHasChanged);
                 mapaLimpo = true;
                 await LimparCamadasDoProjetoAtualAsync();
+                if (avisosValidacao.Count > 0)
+                    avisosProjeto.AddRange(avisosValidacao);
                 avisosProjeto.AddRange(await CarregarCamadasDoProjetoAsync(projeto, projeto.Camadas));
                 ProjetoService.AtivarProjeto(projeto);
                 AtualizarIndicadorAutosave(projeto);
@@ -10395,16 +10397,11 @@
         return true;
     }
 
-    private async Task ValidarFontesDoProjetoAsync(IEnumerable<GeoNex.Models.Camada> camadas)
+    private async Task<List<string>> ValidarFontesDoProjetoAsync(IEnumerable<GeoNex.Models.Camada> camadas)
     {
         IReadOnlyList<string> problemas = await GeoNex.Services.GnxProjectSourceValidator
             .ValidarTodasAsync(camadas, MapService.GdalRasterLock);
-        if (problemas.Count > 0)
-        {
-            string lista = string.Join("\n• ", problemas.Distinct());
-            throw new InvalidDataException(
-                $"O projeto foi mantido fechado porque {problemas.Count} fonte(s) não puderam ser validadas. Corrija ou reconecte essas fontes e tente abrir novamente:\n• {lista}");
-        }
+        return problemas.ToList();
     }
 
     private async Task SalvarProjeto()
@@ -10728,26 +10725,41 @@
                 continue;
             }
 
-            if (string.Equals(persistida.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                caminhoArquivoRaster = caminho;
-                await AdicionarCamadaAoMapa(persistida.Nome, propagarErros: true);
+                if (string.Equals(persistida.Tipo, "Raster", StringComparison.OrdinalIgnoreCase))
+                {
+                    caminhoArquivoRaster = caminho;
+                    await AdicionarCamadaAoMapa(persistida.Nome, propagarErros: true);
+                }
+                else
+                {
+                    caminhoArquivoVetor = caminho;
+                    await AdicionarVetorAoMapa(persistida.Nome, propagarErros: true);
+                }
+
+                Camada? carregada = CamadasAtivas.FirstOrDefault(camada =>
+                    string.Equals(camada.Nome, persistida.Nome, StringComparison.OrdinalIgnoreCase));
+                if (carregada is not null)
+                {
+                    carregada.Visivel = persistida.Visivel;
+                    carregada.FonteJson = persistida.FonteJson;
+                    _camadaBaseProjeto ??= carregada.Nome;
+                }
             }
-            else
+            catch (Exception ex)
             {
-                caminhoArquivoVetor = caminho;
-                await AdicionarVetorAoMapa(persistida.Nome, propagarErros: true);
+                RegistrarNovaCamada(new Camada
+                {
+                    Nome = persistida.Nome,
+                    Tipo = persistida.Tipo,
+                    Visivel = persistida.Visivel,
+                    CaminhoArquivo = caminho,
+                    FonteJson = persistida.FonteJson,
+                    PendenteReconexao = true
+                });
+                avisos.Add($"A camada '{persistida.Nome}' não pôde ser carregada e ficou offline ({ex.Message}).");
             }
-
-            Camada? carregada = CamadasAtivas.FirstOrDefault(camada =>
-                string.Equals(camada.Nome, persistida.Nome, StringComparison.OrdinalIgnoreCase));
-            if (carregada is null)
-                throw new InvalidDataException($"A camada '{persistida.Nome}' não pôde ser carregada.");
-
-            carregada.Visivel = persistida.Visivel;
-            carregada.FonteJson = persistida.FonteJson;
-
-            _camadaBaseProjeto ??= carregada.Nome;
         }
 
         foreach (GeoNex.Models.Camada persistida in camadasProjeto.OrderBy(camada => camada.Ordem))

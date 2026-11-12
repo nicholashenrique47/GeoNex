@@ -45,6 +45,7 @@ public static class GdalRuntimeConfiguration
             // known siblings such as .ovr/.msk/.aux.xml. EMPTY_DIR hides them.
             Gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "TRUE");
             Gdal.SetConfigOption("GDAL_NUM_THREADS", Current.GdalThreads.ToString());
+            Gdal.SetConfigOption("SHAPE_RESTORE_SHX", "YES");
             string? ecwCacheSetting = Environment.GetEnvironmentVariable("ECW_CACHE_MAXMEM");
             if (!long.TryParse(ecwCacheSetting, out long ecwCacheBytes) || ecwCacheBytes <= 0)
             {
