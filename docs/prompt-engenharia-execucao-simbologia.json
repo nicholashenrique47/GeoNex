@@ -1,0 +1,1502 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "prompt_metadata": {
+    "document_id": "GEONEX-ENG-EXEC-SYM-001",
+    "prompt_type": "MACHINE_ACTIONABLE_ENGINEERING_EXECUTION_SPECIFICATION",
+    "title": "PLANO EXECUTIVO DE ENGENHARIA DE SOFTWARE: IMPLANTAÇÃO DA SIMBOLOGIA AVANÇADA DE PONTOS E ÍCONES SVG ESTILO QGIS NO GEONEX",
+    "project": "GeoNex Pro - Desktop GIS",
+    "subsystem": "Cartographic Symbology, Dynamic SVG Marker Injection & GPU Rendering Engine",
+    "architecture_blueprint_reference": "docs/plano-mestre-simbologia-pontos-qgis.md",
+    "version": "3.0.0-PRO",
+    "status": "APPROVED_FOR_IMMEDIATE_EXECUTION",
+    "priority": "CRITICAL",
+    "created_at": "2026-11-12T09:30:00-03:00",
+    "target_runtime": {
+      "framework": "net10.0-windows10.0.19041.0",
+      "architecture": "win-x64",
+      "language_version": "C# 13",
+      "ui_subsystem": "Microsoft.AspNetCore.Components.Web (Blazor Hybrid / WebView2)",
+      "rendering_core": "SkiaSharp 2.88.8 Direct3D / Vulkan Hardware Accelerated Canvas",
+      "spatial_data_engine": "OSGeo.GDAL 3.10+ / OSGeo.OGR / NetTopologySuite 2.5+",
+      "persistence_engine": "Microsoft.Data.Sqlite 9.0+ / System.Text.Json"
+    }
+  },
+  "execution_directives": {
+    "strict_mode": true,
+    "zero_memory_leak": true,
+    "zero_draw_loop_heap_allocation": true,
+    "target_fps": 60,
+    "max_frame_render_time_ms": 16.6,
+    "concurrency_model": "Multi-Threaded Tile Rendering com SKPicture Thread-Safe Playback",
+    "backward_compatibility": {
+      "support_legacy_gnx_projects": true,
+      "legacy_point_style_adapter": "Automatic up-conversion from EstiloCamada simple point to CompositePointSymbol on project load",
+      "non_destructive_save": true
+    },
+    "interoperability_targets": [
+      "QGIS 3.x Style Format (.qml) - Bi-directional import and export parity",
+      "OGC Styled Layer Descriptor (SLD 1.1.0 PointSymbolizer standard)",
+      "GeoJSON extended style properties specification"
+    ]
+  },
+  "system_instructions_for_ai_and_lead_engineers": {
+    "role": "Lead Senior Graphics & GIS Software Engineer",
+    "mission": "Executar de forma metódica a modernização integral da renderização de pontos no GeoNex, substituindo o renderizador monolítico arcaico por um motor modular baseado em Composite Pattern idêntico ao QGIS.",
+    "operational_rules": [
+      "REGRA 1: Jamais quebrar compilação existente no projeto GeoNex.csproj.",
+      "REGRA 2: Nunca instanciar SKPaint, SKPath ou SKPicture dentro do método OnPaintSurface ou no loop de features.",
+      "REGRA 3: Todo arquivo SVG canônico deve suportar injeção de param(fill), param(stroke) e param(stroke-width).",
+      "REGRA 4: A interface com o usuário deve ser fluida, reativa e intuitiva, usando Blazor com busca debounced.",
+      "REGRA 5: Criar testes automatizados para validar que nenhum arquivo SVG está corrompido ou mal formado."
+    ]
+  },
+  "architecture_contracts": {
+    "design_patterns": [
+      {
+        "name": "Composite Pattern",
+        "application": "CompositePointSymbol contendo coleção de IMarkerSymbolLayer (SimpleMarker, SvgMarker, FontMarker)"
+      },
+      {
+        "name": "Flyweight / Cache Pattern",
+        "application": "SvgCompilationService mantendo SKPicture imutáveis compiladas na RAM indexadas por hash"
+      },
+      {
+        "name": "GPU Texture Atlas",
+        "application": "MarkerGpuAtlas consolidando centenas de ícones rasterizados em 2048x2048 VRAM para SKCanvas.DrawAtlas"
+      },
+      {
+        "name": "Adapter Pattern",
+        "application": "QmlStyleInteropService adaptando nós XML do QGIS para instâncias de CompositePointSymbol"
+      }
+    ],
+    "namespace_conventions": {
+      "core_symbology": "GeoNex.Core.Symbology",
+      "services": "GeoNex.Services",
+      "blazor_components": "GeoNex.Components.Controls",
+      "asset_markers": "GeoNex.Assets.Markers"
+    }
+  },
+  "phase_1_domain_models_and_contracts": {
+    "description": "Criação do Modelo de Domínio e Contratos de Simbologia Composta Multi-Camadas",
+    "directory": "GeoNex/Core/Symbology/",
+    "components": [
+      {
+        "id": "MOD_001",
+        "class_name": "IMarkerSymbolLayer",
+        "file_path": "GeoNex/Core/Symbology/IMarkerSymbolLayer.cs",
+        "action": "CREATE",
+        "kind": "interface",
+        "summary": "Contrato fundamental de uma sub-camada individual de marcador cartográfico.",
+        "properties": [
+          {
+            "name": "Id",
+            "type": "Guid",
+            "summary": "Identificador único da sub-camada para manipulação na UI e persistência"
+          },
+          {
+            "name": "Name",
+            "type": "string",
+            "summary": "Nome descritivo da sub-camada para visualização na árvore de símbolos"
+          },
+          {
+            "name": "LayerType",
+            "type": "MarkerLayerType",
+            "summary": "Enum definindo SimpleMarker, SvgMarker, FontMarker"
+          },
+          {
+            "name": "Enabled",
+            "type": "bool",
+            "summary": "Flag de visibilidade da sub-camada no renderizador"
+          },
+          {
+            "name": "Locked",
+            "type": "bool",
+            "summary": "Impede edições acidentais nas propriedades da sub-camada"
+          },
+          {
+            "name": "Size",
+            "type": "float",
+            "summary": "Tamanho base em milímetros, pontos tipográficos ou pixels de tela"
+          },
+          {
+            "name": "SizeUnit",
+            "type": "RenderUnit",
+            "summary": "Unidade de medida: Millimeters, Points, Pixels, MapUnits"
+          },
+          {
+            "name": "RotationAngle",
+            "type": "float",
+            "summary": "Rotação estática da sub-camada em graus horários (0-360)"
+          },
+          {
+            "name": "Offset",
+            "type": "SKPoint",
+            "summary": "Deslocamento cartesiano (dx, dy) em relação à coordenada real do ponto"
+          },
+          {
+            "name": "OffsetUnit",
+            "type": "RenderUnit",
+            "summary": "Unidade de medida aplicada ao deslocamento"
+          },
+          {
+            "name": "AnchorPoint",
+            "type": "MarkerAnchorPoint",
+            "summary": "Ponto de ancoragem: Center, TopLeft, BottomCenter, etc."
+          },
+          {
+            "name": "Opacity",
+            "type": "float",
+            "summary": "Fator de opacidade alpha da sub-camada (0.0f a 1.0f)"
+          },
+          {
+            "name": "DataDefinedProperties",
+            "type": "DataDefinedPropertyCollection",
+            "summary": "Mapeamento dinâmico de atributos a propriedades visuais"
+          }
+        ],
+        "methods": [
+          {
+            "signature": "void Render(SKCanvas canvas, SKPoint screenPos, float scaleFactor, float dynamicRotation)",
+            "summary": "Executa o desenho vetorial da sub-camada na coordenada de tela"
+          },
+          {
+            "signature": "SKRect CalculateBounds(SKPoint screenPos, float scaleFactor)",
+            "summary": "Calcula a caixa delimitadora (bounding box) para culling e seleção espacial"
+          },
+          {
+            "signature": "IMarkerSymbolLayer Clone()",
+            "summary": "Gera cópia profunda (deep clone) para permitir edição não destrutiva"
+          }
+        ]
+      },
+      {
+        "id": "MOD_002",
+        "class_name": "SimpleMarkerSymbolLayer",
+        "file_path": "GeoNex/Core/Symbology/SimpleMarkerSymbolLayer.cs",
+        "action": "CREATE",
+        "kind": "class",
+        "implements": [
+          "IMarkerSymbolLayer"
+        ],
+        "summary": "Marcador geométrico vetorial de altíssimo desempenho para formatos primitivos.",
+        "supported_shapes": [
+          "Circle",
+          "Square",
+          "Diamond",
+          "Triangle",
+          "TriangleInverted",
+          "Cross",
+          "CrossRotatedX",
+          "Star",
+          "Pentagon",
+          "Hexagon",
+          "Octagon",
+          "SemiCircle",
+          "ThirdArc",
+          "QuarterArc",
+          "LineHorizontal",
+          "LineVertical",
+          "ArrowUp",
+          "ArrowDown"
+        ],
+        "styling_properties": [
+          {
+            "name": "Shape",
+            "type": "MarkerShapeType",
+            "default": "Circle"
+          },
+          {
+            "name": "FillColor",
+            "type": "SKColor",
+            "default": "#0284c7"
+          },
+          {
+            "name": "StrokeColor",
+            "type": "SKColor",
+            "default": "#0369a1"
+          },
+          {
+            "name": "StrokeWidth",
+            "type": "float",
+            "default": "1.0f"
+          },
+          {
+            "name": "StrokeStyle",
+            "type": "SKStrokeCap",
+            "default": "Round"
+          },
+          {
+            "name": "JoinStyle",
+            "type": "SKStrokeJoin",
+            "default": "Round"
+          }
+        ]
+      },
+      {
+        "id": "MOD_003",
+        "class_name": "SvgMarkerSymbolLayer",
+        "file_path": "GeoNex/Core/Symbology/SvgMarkerSymbolLayer.cs",
+        "action": "CREATE",
+        "kind": "class",
+        "implements": [
+          "IMarkerSymbolLayer"
+        ],
+        "summary": "Marcador baseado em arquivo vetorial SVG dinamicamente parametrizado.",
+        "attributes": [
+          {
+            "name": "SvgSourcePath",
+            "type": "string",
+            "summary": "URI canônica geonex://markers/... ou caminho absoluto do arquivo SVG"
+          },
+          {
+            "name": "EmbeddedSvgContent",
+            "type": "string?",
+            "summary": "Payload XML SVG embutido no projeto para portabilidade completa"
+          },
+          {
+            "name": "FillColor",
+            "type": "SKColor",
+            "summary": "Cor primária injetada dinamicamente no parâmetro param(fill)"
+          },
+          {
+            "name": "FillSecondaryColor",
+            "type": "SKColor",
+            "summary": "Cor secundária injetada no parâmetro param(fill-secondary)"
+          },
+          {
+            "name": "StrokeColor",
+            "type": "SKColor",
+            "summary": "Cor de contorno injetada dinamicamente no parâmetro param(stroke)"
+          },
+          {
+            "name": "StrokeWidth",
+            "type": "float",
+            "summary": "Espessura de contorno injetada no param(stroke-width)"
+          },
+          {
+            "name": "PreserveAspectRatio",
+            "type": "bool",
+            "summary": "Garante proporções 1:1 sem distorção nas escalas"
+          },
+          {
+            "name": "FixedAspectScale",
+            "type": "SKPoint",
+            "summary": "Escala não proporcional personalizada (sx, sy)"
+          }
+        ]
+      },
+      {
+        "id": "MOD_004",
+        "class_name": "FontMarkerSymbolLayer",
+        "file_path": "GeoNex/Core/Symbology/FontMarkerSymbolLayer.cs",
+        "action": "CREATE",
+        "kind": "class",
+        "implements": [
+          "IMarkerSymbolLayer"
+        ],
+        "summary": "Marcador baseado em glifos tipográficos TrueType / OpenType vetoriais.",
+        "attributes": [
+          {
+            "name": "FontFamily",
+            "type": "string",
+            "summary": "Nome da família de fontes instalada no SO (ex: FontAwesome, Segoe UI Symbol)"
+          },
+          {
+            "name": "CharacterCode",
+            "type": "string",
+            "summary": "Código unicode UTF-16 ou UTF-32 do glifo"
+          },
+          {
+            "name": "TextColor",
+            "type": "SKColor",
+            "summary": "Cor de preenchimento do glifo tipográfico"
+          },
+          {
+            "name": "StrokeColor",
+            "type": "SKColor",
+            "summary": "Cor de contorno ou halo tipográfico"
+          },
+          {
+            "name": "StrokeWidth",
+            "type": "float",
+            "summary": "Espessura do contorno tipográfico"
+          }
+        ]
+      },
+      {
+        "id": "MOD_005",
+        "class_name": "CompositePointSymbol",
+        "file_path": "GeoNex/Core/Symbology/CompositePointSymbol.cs",
+        "action": "CREATE",
+        "kind": "class",
+        "summary": "Container agregador multi-camadas de um ponto geográfico completo estilo QGIS.",
+        "design_pattern": "Composite Pattern",
+        "properties": [
+          {
+            "name": "Id",
+            "type": "Guid",
+            "summary": "Identificador do símbolo composto"
+          },
+          {
+            "name": "Name",
+            "type": "string",
+            "summary": "Nome amigável do símbolo"
+          },
+          {
+            "name": "Layers",
+            "type": "ObservableCollection<IMarkerSymbolLayer>",
+            "summary": "Lista ordenada de sub-camadas (renderizadas da primeira à última)"
+          },
+          {
+            "name": "Opacity",
+            "type": "float",
+            "summary": "Opacidade global multiplicativa aplicada a todo o conjunto"
+          },
+          {
+            "name": "EnableClustering",
+            "type": "bool",
+            "summary": "Ativa agrupamento dinâmico em baixas escalas cartográficas"
+          }
+        ],
+        "methods": [
+          {
+            "signature": "void AddLayer(IMarkerSymbolLayer layer)",
+            "summary": "Empilha uma nova sub-camada no topo da hierarquia visual"
+          },
+          {
+            "signature": "bool RemoveLayer(Guid layerId)",
+            "summary": "Remove a sub-camada especificada pelo Guid"
+          },
+          {
+            "signature": "void MoveLayerUp(Guid layerId)",
+            "summary": "Eleva a ordem z da camada para sobrepor camadas inferiores"
+          },
+          {
+            "signature": "void MoveLayerDown(Guid layerId)",
+            "summary": "Reduz a ordem z da camada"
+          },
+          {
+            "signature": "void DuplicateLayer(Guid layerId)",
+            "summary": "Duplica a sub-camada selecionada mantendo parâmetros idênticos"
+          },
+          {
+            "signature": "void Render(SKCanvas canvas, SKPoint screenPos, float scaleFactor, float dynamicRotation, IReadOnlyDictionary<string, object?>? featureAttributes)",
+            "summary": "Desenha todas as sub-camadas ativas com resolução de propriedades baseadas em dados"
+          }
+        ]
+      },
+      {
+        "id": "MOD_006",
+        "class_name": "DataDefinedPropertyCollection",
+        "file_path": "GeoNex/Core/Symbology/DataDefinedPropertyCollection.cs",
+        "action": "CREATE",
+        "kind": "class",
+        "summary": "Motor de vinculação dinâmica entre campos da tabela de atributos e estilos cartográficos.",
+        "supported_targets": [
+          "Size",
+          "Rotation",
+          "FillColor",
+          "StrokeColor",
+          "StrokeWidth",
+          "Opacity",
+          "SvgSource",
+          "OffsetXY"
+        ],
+        "evaluation_engine": "Mapeamento direto por nome de coluna ou avaliação de expressões matemáticas/lógicas simples."
+      }
+    ]
+  },
+  "phase_2_svg_compilation_and_gpu_atlas": {
+    "description": "Motor Gráfico SkiaSharp, Compilação de SVG e Cache em Atlas de Texturas GPU",
+    "directory": "GeoNex/Services/",
+    "components": [
+      {
+        "id": "ENG_001",
+        "class_name": "SvgCompilationService",
+        "file_path": "GeoNex/Services/SvgCompilationService.cs",
+        "action": "CREATE",
+        "summary": "Serviço Singleton de compilação, parametrização e cache em memória de arquivos vetoriais SVG.",
+        "performance_targets": {
+          "xml_parse_max_ms": 1.5,
+          "skpicture_playback_ns": 80,
+          "cache_hit_ratio_target": 0.99
+        },
+        "features": [
+          "Substituição textual ultrarrápida com spans de memória de param(fill), param(stroke), param(stroke-width)",
+          "Conversão de string XML para SkiaSharp.Extended.Svg.SKSvg sem escrita em disco",
+          "Gravação do resultado em SKPicture imutável permitindo renderização multi-thread sem locks",
+          "Gerenciamento de cache via ConcurrentDictionary com LRU eviction quando a memória ultrapassar limite seguro",
+          "Fallback automático para glifo geométrico genérico caso o SVG esteja corrompido"
+        ]
+      },
+      {
+        "id": "ENG_002",
+        "class_name": "MarkerGpuAtlas",
+        "file_path": "GeoNex/Services/MarkerGpuAtlas.cs",
+        "action": "CREATE",
+        "summary": "Atlas dinâmico de texturas em VRAM de 2048x2048 para renderização massiva via SKCanvas.DrawAtlas.",
+        "technical_specs": {
+          "texture_dimension": "2048x2048",
+          "pixel_format": "SKColorType.Rgba8888",
+          "alpha_format": "SKAlphaType.Premul",
+          "packing_strategy": "Skyline Bin Packing com margem de segurança de 2 pixels contra texture bleeding",
+          "capacity": "Aproximadamente 400 a 1000 variantes de marcadores rasterizados em alta resolução (32px a 96px)"
+        },
+        "methods": [
+          {
+            "name": "GetOrAddSprite",
+            "parameters": [
+              "string cacheKey",
+              "SKPicture picture",
+              "int width",
+              "int height"
+            ],
+            "returns": "SKRect (coordenadas UV no atlas)"
+          },
+          {
+            "name": "DrawBatch",
+            "parameters": [
+              "SKCanvas canvas",
+              "SKRect[] spriteSourceRects",
+              "SKRotationScaleMatrix[] transforms",
+              "SKColor[] colors",
+              "SKPaint paint"
+            ],
+            "returns": "void"
+          },
+          {
+            "name": "FlushAndReset",
+            "parameters": [],
+            "returns": "void"
+          }
+        ]
+      },
+      {
+        "id": "ENG_003",
+        "class_name": "SkiaMarkerEngine",
+        "file_path": "GeoNex/Services/SkiaMarkerEngine.cs",
+        "action": "CREATE",
+        "summary": "Fachada unificada e ponto de entrada de alta performance para renderização de qualquer marcador no SkiaSharp.",
+        "render_pathways": [
+          "Caminho Vetorial Puro (SKPicture.Draw): ideal para impressão em altíssima resolução e exportação PDF/SVG",
+          "Caminho GPU Atlas (SKCanvas.DrawAtlas): ativado automaticamente quando a camada contém mais de 1.000 pontos visíveis na tela"
+        ],
+        "optimization_techniques": [
+          "Zero alocação no loop interno através de reaproveitamento de buffers estáticos thread-local",
+          "Rejeição rápida de pontos fora da área de visualização (Screen Bounding Box Culling)",
+          "Aplicação de LOD (Level of Detail) simplificando bordas complexas quando o símbolo estiver menor que 4 pixels"
+        ]
+      },
+      {
+        "id": "ENG_004",
+        "class_name": "LocalMapServer",
+        "file_path": "GeoNex/Services/LocalMapServer.cs",
+        "action": "UPDATE",
+        "summary": "Substituição da rotina monolítica de desenho de pontos pelo pipeline acelerado SkiaMarkerEngine.",
+        "target_code_block": "Lines 1780-1930",
+        "refactoring_instructions": [
+          "Identificar o loop de iteração sobre feições pontuais da camada vetorial.",
+          "Substituir o switch case arcaico por chamada direta ao SkiaMarkerEngine.RenderFeatureMarker().",
+          "Repassar o dicionário de atributos da feição para permitir avaliação de simbologia baseada em dados (rotação por azimute, cor por status)."
+        ]
+      }
+    ]
+  },
+  "phase_3_canonical_svg_marker_library": {
+    "description": "Biblioteca Vetorial Completa de Ícones SVG Parametrizados por Categorias Temáticas",
+    "base_directory": "GeoNex/Assets/Markers/",
+    "total_icon_count": 150,
+    "svg_standard_header": "<?xml version='1.0' encoding='UTF-8'?><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>",
+    "categories": [
+      {
+        "category_id": "CAT_TOPOGRAFIA",
+        "category_name": "Topografia, Geodésia & SIGEF / INCRA",
+        "subfolder": "Topografia/",
+        "icon_count": 5,
+        "icons": [
+          {
+            "id": "marco_incra_m",
+            "file": "marco_incra_m.svg",
+            "label": "Marco Tipo M (Concreto)",
+            "tags": [
+              "incra",
+              "sigef",
+              "marco",
+              "concreto",
+              "vertice",
+              "limite",
+              "georreferenciamento"
+            ],
+            "default_fill": "#ffffff",
+            "default_stroke": "#0284c7",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #ffffff' stroke='param(stroke) #0284c7' stroke-width='param(stroke-width) 2.0'/><polygon points='16,5 27,24 5,24' fill='param(fill-secondary) #0ea5e9' stroke='param(stroke) #0284c7' stroke-width='param(stroke-width) 1.2'/><circle cx='16' cy='17.5' r='3' fill='param(stroke) #0284c7'/></svg>"
+          },
+          {
+            "id": "marco_incra_p",
+            "file": "marco_incra_p.svg",
+            "label": "Ponto Tipo P (Piquete / Ferro)",
+            "tags": [
+              "incra",
+              "sigef",
+              "piquete",
+              "estaca",
+              "ferro",
+              "ponto",
+              "campo"
+            ],
+            "default_fill": "#ffffff",
+            "default_stroke": "#d97706",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='4' width='24' height='24' rx='2' fill='param(fill) #ffffff' stroke='param(stroke) #d97706' stroke-width='param(stroke-width) 2.0'/><polygon points='16,26 6,10 26,10' fill='param(fill-secondary) #f59e0b' stroke='param(stroke) #d97706' stroke-width='param(stroke-width) 1.0'/><circle cx='16' cy='15' r='2.5' fill='param(stroke) #d97706'/></svg>"
+          },
+          {
+            "id": "marco_incra_v",
+            "file": "marco_incra_v.svg",
+            "label": "Vértice Tipo V (Virtual)",
+            "tags": [
+              "incra",
+              "sigef",
+              "virtual",
+              "calculado",
+              "amarracao"
+            ],
+            "default_fill": "#94a3b8",
+            "default_stroke": "#64748b",
+            "default_stroke_width": 1.8,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='param(stroke) #64748b' stroke-dasharray='3,3' stroke-width='param(stroke-width) 1.8'/><line x1='16' y1='3' x2='16' y2='29' stroke='param(stroke) #64748b' stroke-width='param(stroke-width) 1.5'/><line x1='3' y1='16' x2='29' y2='16' stroke='param(stroke) #64748b' stroke-width='param(stroke-width) 1.5'/><circle cx='16' cy='16' r='3.5' fill='param(fill) #94a3b8'/></svg>"
+          },
+          {
+            "id": "marco_geodesico_ibge",
+            "file": "marco_geodesico_ibge.svg",
+            "label": "Marco Geodésico Fundamental (IBGE)",
+            "tags": [
+              "ibge",
+              "geodesia",
+              "satelite",
+              "datum",
+              "sirgas"
+            ],
+            "default_fill": "#0f172a",
+            "default_stroke": "#38bdf8",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #0f172a' stroke='param(stroke) #38bdf8' stroke-width='param(stroke-width) 2'/><circle cx='16' cy='16' r='9' fill='none' stroke='param(stroke) #38bdf8' stroke-width='1.2'/><polygon points='16,4 26,22 6,22' fill='none' stroke='param(stroke) #38bdf8' stroke-width='1.5'/><circle cx='16' cy='16' r='2.5' fill='param(stroke) #38bdf8'/></svg>"
+          },
+          {
+            "id": "estacao_total",
+            "file": "estacao_total.svg",
+            "label": "Estação Total / Teodolito",
+            "tags": [
+              "estacao",
+              "teodolito",
+              "aparelho",
+              "tripe",
+              "medicao",
+              "campo"
+            ],
+            "default_fill": "#f59e0b",
+            "default_stroke": "#d97706",
+            "default_stroke_width": 1.5,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><line x1='16' y1='16' x2='8' y2='30' stroke='param(stroke) #334155' stroke-width='2'/><line x1='16' y1='16' x2='24' y2='30' stroke='param(stroke) #334155' stroke-width='2'/><line x1='16' y1='16' x2='16' y2='30' stroke='param(stroke) #334155' stroke-width='1.5'/><rect x='11' y='6' width='10' height='10' rx='2' fill='param(fill) #f59e0b' stroke='param(stroke) #d97706' stroke-width='1.5'/><circle cx='16' cy='11' r='3' fill='#ffffff' stroke='param(stroke) #d97706' stroke-width='1'/></svg>"
+          }
+        ]
+      },
+      {
+        "category_id": "CAT_INFRA",
+        "category_name": "Infraestrutura Urbana, Energia, Água & Telecom",
+        "subfolder": "Infraestrutura/",
+        "icon_count": 5,
+        "icons": [
+          {
+            "id": "poste_concreto_simples",
+            "file": "poste_concreto_simples.svg",
+            "label": "Poste de Energia / Concreto",
+            "tags": [
+              "poste",
+              "eletrica",
+              "energia",
+              "concreto",
+              "distribuicao"
+            ],
+            "default_fill": "#cbd5e1",
+            "default_stroke": "#475569",
+            "default_stroke_width": 2.2,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='param(fill) #cbd5e1' stroke='param(stroke) #475569' stroke-width='2.2'/><circle cx='16' cy='16' r='4' fill='param(stroke) #475569'/></svg>"
+          },
+          {
+            "id": "poste_transformador",
+            "file": "poste_transformador.svg",
+            "label": "Poste com Transformador (Trafo)",
+            "tags": [
+              "poste",
+              "transformador",
+              "trafo",
+              "media tensao",
+              "energia"
+            ],
+            "default_fill": "#cbd5e1",
+            "default_stroke": "#475569",
+            "default_stroke_width": 2.2,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='param(fill) #cbd5e1' stroke='param(stroke) #475569' stroke-width='2.2'/><rect x='11' y='11' width='10' height='10' fill='param(stroke) #f59e0b' stroke='#000000' stroke-width='1'/><circle cx='16' cy='16' r='2' fill='#ffffff'/></svg>"
+          },
+          {
+            "id": "poste_iluminacao_publica",
+            "file": "poste_iluminacao_publica.svg",
+            "label": "Poste de Iluminação Pública (IP)",
+            "tags": [
+              "iluminacao",
+              "publica",
+              "lampada",
+              "led",
+              "poste"
+            ],
+            "default_fill": "#fef08a",
+            "default_stroke": "#ca8a04",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='8' fill='param(fill) #fef08a' stroke='param(stroke) #ca8a04' stroke-width='2'/><line x1='16' y1='4' x2='16' y2='8' stroke='param(stroke) #ca8a04' stroke-width='2'/><line x1='16' y1='24' x2='16' y2='28' stroke='param(stroke) #ca8a04' stroke-width='2'/><line x1='4' y1='16' x2='8' y2='16' stroke='param(stroke) #ca8a04' stroke-width='2'/><line x1='24' y1='16' x2='28' y2='16' stroke='param(stroke) #ca8a04' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "torre_alta_tensao",
+            "file": "torre_alta_tensao.svg",
+            "label": "Torre de Linha de Transmissão (LT)",
+            "tags": [
+              "torre",
+              "transmissao",
+              "alta tensao",
+              "trelica",
+              "subestacao"
+            ],
+            "default_fill": "#dc2626",
+            "default_stroke": "#334155",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><line x1='8' y1='29' x2='16' y2='4' stroke='param(stroke) #334155' stroke-width='2'/><line x1='24' y1='29' x2='16' y2='4' stroke='param(stroke) #334155' stroke-width='2'/><line x1='5' y1='12' x2='27' y2='12' stroke='param(stroke) #334155' stroke-width='2'/><line x1='8' y1='18' x2='24' y2='18' stroke='param(stroke) #334155' stroke-width='2'/><line x1='10' y1='24' x2='22' y2='24' stroke='param(stroke) #334155' stroke-width='2'/><circle cx='16' cy='4' r='2.5' fill='param(fill) #dc2626'/></svg>"
+          },
+          {
+            "id": "aerogerador_eolico",
+            "file": "aerogerador_eolico.svg",
+            "label": "Aerogerador / Energia Eólica",
+            "tags": [
+              "eolica",
+              "vento",
+              "turbina",
+              "aerogerador",
+              "renovavel"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#475569",
+            "default_stroke_width": 2.5,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><line x1='16' y1='16' x2='16' y2='30' stroke='param(stroke) #475569' stroke-width='2.5'/><line x1='16' y1='16' x2='16' y2='2' stroke='param(fill) #0284c7' stroke-width='2'/><line x1='16' y1='16' x2='4' y2='23' stroke='param(fill) #0284c7' stroke-width='2'/><line x1='16' y1='16' x2='28' y2='23' stroke='param(fill) #0284c7' stroke-width='2'/><circle cx='16' cy='16' r='3.5' fill='param(stroke) #475569'/></svg>"
+          }
+        ]
+      },
+      {
+        "category_id": "CAT_AMBIENTAL",
+        "category_name": "Meio Ambiente, Recursos Hídricos & Agroflorestal",
+        "subfolder": "Ambiental/",
+        "icon_count": 4,
+        "icons": [
+          {
+            "id": "nascente_olho_dagua",
+            "file": "nascente_olho_dagua.svg",
+            "label": "Nascente / Olho d'Água (APP)",
+            "tags": [
+              "nascente",
+              "app",
+              "agua",
+              "rio",
+              "preservacao",
+              "car"
+            ],
+            "default_fill": "#e0f2fe",
+            "default_stroke": "#0284c7",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='param(fill) #e0f2fe' stroke='param(stroke) #0284c7' stroke-width='2'/><path d='M16 6 C12 14 9 17 9 20 A7 7 0 0 0 23 20 C23 17 20 14 16 6 Z' fill='param(fill-secondary) #0ea5e9' stroke='param(stroke) #0284c7' stroke-width='1.2'/><circle cx='14' cy='18' r='2' fill='#ffffff' opacity='0.8'/></svg>"
+          },
+          {
+            "id": "poco_artesiano",
+            "file": "poco_artesiano.svg",
+            "label": "Poço Tubular Profundo (Artesiano)",
+            "tags": [
+              "poco",
+              "artesiano",
+              "outorga",
+              "agua",
+              "subterranea"
+            ],
+            "default_fill": "#94a3b8",
+            "default_stroke": "#334155",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='7' y='14' width='18' height='14' rx='2' fill='param(fill) #94a3b8' stroke='param(stroke) #334155' stroke-width='2'/><path d='M12 14 L12 6 C12 4 20 4 20 6 L20 14' fill='none' stroke='param(stroke) #0284c7' stroke-width='2.5'/><circle cx='16' cy='21' r='3.5' fill='param(stroke) #0284c7'/></svg>"
+          },
+          {
+            "id": "arvore_nativa_notavel",
+            "file": "arvore_nativa_notavel.svg",
+            "label": "Espécime Arbóreo Nativo",
+            "tags": [
+              "arvore",
+              "nativa",
+              "compensacao",
+              "vegetacao",
+              "florestal"
+            ],
+            "default_fill": "#22c55e",
+            "default_stroke": "#15803d",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='14' y='18' width='4' height='12' fill='param(stroke) #78350f'/><circle cx='16' cy='12' r='10' fill='param(fill) #22c55e' stroke='param(stroke) #15803d' stroke-width='2'/><circle cx='12' cy='11' r='5' fill='#86efac' opacity='0.5'/></svg>"
+          },
+          {
+            "id": "estacao_fluviometrica",
+            "file": "estacao_fluviometrica.svg",
+            "label": "Estação Fluviométrica (ANA / CPRM)",
+            "tags": [
+              "fluviometria",
+              "vazao",
+              "rio",
+              "ana",
+              "cprm",
+              "hidrologia"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#0369a1",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #0284c7' stroke='param(stroke) #0369a1' stroke-width='2'/><path d='M6 14 Q11 10 16 14 T26 14' fill='none' stroke='#ffffff' stroke-width='2'/><path d='M6 20 Q11 16 16 20 T26 20' fill='none' stroke='#ffffff' stroke-width='2'/><polygon points='16,5 13,10 19,10' fill='#ffffff'/></svg>"
+          }
+        ]
+      },
+      {
+        "category_id": "CAT_SERVICOS",
+        "category_name": "Serviços Públicos, Saúde, Educação & POI",
+        "subfolder": "Servicos/",
+        "icon_count": 4,
+        "icons": [
+          {
+            "id": "hospital_urgencia",
+            "file": "hospital_urgencia.svg",
+            "label": "Hospital / Pronto Atendimento",
+            "tags": [
+              "hospital",
+              "saude",
+              "medico",
+              "cruz vermelha",
+              "sus"
+            ],
+            "default_fill": "#ffffff",
+            "default_stroke": "#dc2626",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='4' width='24' height='24' rx='4' fill='param(fill) #ffffff' stroke='param(stroke) #dc2626' stroke-width='2'/><polygon points='13,8 19,8 19,13 24,13 24,19 19,19 19,24 13,24 13,19 8,19 8,13 13,13' fill='param(stroke) #dc2626'/></svg>"
+          },
+          {
+            "id": "escola_educacao",
+            "file": "escola_educacao.svg",
+            "label": "Escola / Unidade Escolar",
+            "tags": [
+              "escola",
+              "colegio",
+              "educacao",
+              "aluno",
+              "ensino"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#0369a1",
+            "default_stroke_width": 1.8,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,5 29,12 16,19 3,12' fill='param(fill) #0284c7' stroke='param(stroke) #0369a1' stroke-width='1.8'/><path d='M8 15 L8 23 C8 26 24 26 24 23 L24 15' fill='none' stroke='param(stroke) #0369a1' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "seguranca_policia",
+            "file": "seguranca_policia.svg",
+            "label": "Segurança Pública / Polícia",
+            "tags": [
+              "policia",
+              "delegacia",
+              "seguranca",
+              "militar",
+              "civil"
+            ],
+            "default_fill": "#1e293b",
+            "default_stroke": "#0ea5e9",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 4 L28 8 L28 17 C28 23 16 29 16 29 C16 29 4 23 4 17 L4 8 Z' fill='param(fill) #1e293b' stroke='param(stroke) #0ea5e9' stroke-width='2'/><polygon points='16,9 18,14 23,14 19,17 21,22 16,19 11,22 13,17 9,14 14,14' fill='#f59e0b'/></svg>"
+          },
+          {
+            "id": "posto_combustivel",
+            "file": "posto_combustivel.svg",
+            "label": "Posto de Combustíveis",
+            "tags": [
+              "posto",
+              "combustivel",
+              "gasolina",
+              "etanol",
+              "diesel"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#0369a1",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='6' width='14' height='22' rx='2' fill='param(fill) #0284c7' stroke='param(stroke) #0369a1' stroke-width='2'/><rect x='9' y='9' width='8' height='6' fill='#ffffff'/><path d='M20 11 L24 11 C26 11 26 17 24 17 L20 17' fill='none' stroke='param(stroke) #0369a1' stroke-width='2'/><rect x='23' y='16' width='3' height='7' fill='param(stroke) #0369a1'/></svg>"
+          }
+        ]
+      },
+      {
+        "category_id": "CAT_TRANSPORTES",
+        "category_name": "Transporte, Rodovias, Ferrovias & Tráfego",
+        "subfolder": "Transportes/",
+        "icon_count": 4,
+        "icons": [
+          {
+            "id": "ponto_onibus_parada",
+            "file": "ponto_onibus_parada.svg",
+            "label": "Ponto de Ônibus / Parada",
+            "tags": [
+              "onibus",
+              "transporte",
+              "parada",
+              "urbano",
+              "passageiro"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#0369a1",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='7' y='6' width='18' height='20' rx='3' fill='param(fill) #0284c7' stroke='param(stroke) #0369a1' stroke-width='2'/><circle cx='11' cy='22' r='2' fill='#ffffff'/><circle cx='21' cy='22' r='2' fill='#ffffff'/><rect x='10' y='9' width='12' height='6' fill='#ffffff'/></svg>"
+          },
+          {
+            "id": "estacao_ferroviaria_trem",
+            "file": "estacao_ferroviaria_trem.svg",
+            "label": "Estação Ferroviária / Trem",
+            "tags": [
+              "trem",
+              "trilho",
+              "ferrovia",
+              "estacao",
+              "metro"
+            ],
+            "default_fill": "#f97316",
+            "default_stroke": "#ea580c",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #f97316' stroke='param(stroke) #ea580c' stroke-width='2'/><line x1='10' y1='8' x2='10' y2='24' stroke='#ffffff' stroke-width='2'/><line x1='22' y1='8' x2='22' y2='24' stroke='#ffffff' stroke-width='2'/><line x1='8' y1='12' x2='24' y2='12' stroke='#ffffff' stroke-width='2'/><line x1='8' y1='16' x2='24' y2='16' stroke='#ffffff' stroke-width='2'/><line x1='8' y1='20' x2='24' y2='20' stroke='#ffffff' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "aeroporto_pista",
+            "file": "aeroporto_pista.svg",
+            "label": "Aeroporto / Aeródromo / Pouso",
+            "tags": [
+              "aeroporto",
+              "aviao",
+              "pouso",
+              "pista",
+              "hangar"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#0369a1",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #0284c7' stroke='param(stroke) #0369a1' stroke-width='2'/><path d='M16 6 L18 13 L27 16 L18 19 L19 25 L16 23 L13 25 L14 19 L5 16 L14 13 Z' fill='#ffffff'/></svg>"
+          },
+          {
+            "id": "porto_ancoradouro",
+            "file": "porto_ancoradouro.svg",
+            "label": "Porto Marítimo / Fluvial",
+            "tags": [
+              "porto",
+              "ancora",
+              "navio",
+              "atracadouro",
+              "balsa"
+            ],
+            "default_fill": "#0369a1",
+            "default_stroke": "#075985",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #0369a1' stroke='param(stroke) #075985' stroke-width='2'/><circle cx='16' cy='10' r='2' fill='#ffffff'/><line x1='16' y1='12' x2='16' y2='24' stroke='#ffffff' stroke-width='2'/><path d='M9 19 Q16 26 23 19' fill='none' stroke='#ffffff' stroke-width='2'/></svg>"
+          }
+        ]
+      },
+      {
+        "category_id": "CAT_AGRO",
+        "category_name": "Agronegócio, Silvicultura & Pecuária",
+        "subfolder": "Agronegocio/",
+        "icon_count": 4,
+        "icons": [
+          {
+            "id": "silo_armazenamento_graos",
+            "file": "silo_armazenamento_graos.svg",
+            "label": "Silo de Grãos / Armazém",
+            "tags": [
+              "silo",
+              "graos",
+              "soja",
+              "milho",
+              "armazem",
+              "agro"
+            ],
+            "default_fill": "#94a3b8",
+            "default_stroke": "#475569",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,4 26,10 6,10' fill='param(fill) #94a3b8' stroke='param(stroke) #475569' stroke-width='2'/><rect x='6' y='10' width='20' height='18' fill='param(fill) #94a3b8' stroke='param(stroke) #475569' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "pivo_central_irrigacao",
+            "file": "pivo_central_irrigacao.svg",
+            "label": "Pivô Central de Irrigação",
+            "tags": [
+              "pivo",
+              "irrigacao",
+              "lavoura",
+              "circulo",
+              "aspersao"
+            ],
+            "default_fill": "#22c55e",
+            "default_stroke": "#15803d",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #22c55e' stroke='param(stroke) #15803d' stroke-width='2'/><line x1='16' y1='16' x2='28' y2='16' stroke='#ffffff' stroke-width='2.5'/><circle cx='16' cy='16' r='3' fill='#ffffff'/></svg>"
+          },
+          {
+            "id": "curral_pecuaria",
+            "file": "curral_pecuaria.svg",
+            "label": "Curral / Mangueiro de Gado",
+            "tags": [
+              "curral",
+              "gado",
+              "boi",
+              "pecuaria",
+              "retiro"
+            ],
+            "default_fill": "#78350f",
+            "default_stroke": "#451a03",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='param(stroke) #451a03' stroke-width='3'/><line x1='3' y1='16' x2='29' y2='16' stroke='param(stroke) #451a03' stroke-width='2'/><line x1='16' y1='3' x2='16' y2='29' stroke='param(stroke) #451a03' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "sede_fazenda",
+            "file": "sede_fazenda.svg",
+            "label": "Sede de Propriedade Rural",
+            "tags": [
+              "sede",
+              "fazenda",
+              "sitio",
+              "casa",
+              "rural",
+              "car"
+            ],
+            "default_fill": "#ea580c",
+            "default_stroke": "#9a3412",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,4 28,14 4,14' fill='param(fill) #ea580c' stroke='param(stroke) #9a3412' stroke-width='2'/><rect x='6' y='14' width='20' height='14' fill='#ffffff' stroke='param(stroke) #9a3412' stroke-width='2'/></svg>"
+          }
+        ]
+      },
+      {
+        "category_id": "CAT_GEOLOGIA",
+        "category_name": "Geologia, Mineração & Recursos Minerais",
+        "subfolder": "Geologia/",
+        "icon_count": 4,
+        "icons": [
+          {
+            "id": "mina_ouro_mineracao",
+            "file": "mina_ouro_mineracao.svg",
+            "label": "Mina / Lavra Mineral (ANM)",
+            "tags": [
+              "mina",
+              "lavra",
+              "anm",
+              "minerio",
+              "pedreira",
+              "ouro"
+            ],
+            "default_fill": "#f59e0b",
+            "default_stroke": "#b45309",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #f59e0b' stroke='param(stroke) #b45309' stroke-width='2'/><path d='M9 10 L13 6 L23 16 L19 20 Z' fill='#ffffff'/><line x1='11' y1='18' x2='21' y2='8' stroke='#ffffff' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "afloramento_rochoso",
+            "file": "afloramento_rochoso.svg",
+            "label": "Afloramento Rochoso",
+            "tags": [
+              "rocha",
+              "afloramento",
+              "geologia",
+              "litologia",
+              "granito"
+            ],
+            "default_fill": "#78716c",
+            "default_stroke": "#44403c",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='4,26 10,12 18,16 26,8 29,26' fill='param(fill) #78716c' stroke='param(stroke) #44403c' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "poco_petroleo_gas",
+            "file": "poco_petroleo_gas.svg",
+            "label": "Poço de Petróleo / Gás (ANP)",
+            "tags": [
+              "petroleo",
+              "anp",
+              "bomba",
+              "cavalo",
+              "combustivel"
+            ],
+            "default_fill": "#18181b",
+            "default_stroke": "#09090b",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><line x1='16' y1='14' x2='10' y2='28' stroke='param(stroke) #09090b' stroke-width='2'/><line x1='16' y1='14' x2='22' y2='28' stroke='param(stroke) #09090b' stroke-width='2'/><polygon points='16,6 10,14 22,14' fill='param(fill) #18181b'/></svg>"
+          },
+          {
+            "id": "sondagem_geotecnica_spt",
+            "file": "sondagem_geotecnica_spt.svg",
+            "label": "Furo de Sondagem / SPT",
+            "tags": [
+              "sondagem",
+              "spt",
+              "solo",
+              "geotecnia",
+              "furo"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#0369a1",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #0284c7' stroke='param(stroke) #0369a1' stroke-width='2'/><line x1='16' y1='6' x2='16' y2='26' stroke='#ffffff' stroke-width='2.5'/><line x1='11' y1='22' x2='21' y2='22' stroke='#ffffff' stroke-width='2'/></svg>"
+          }
+        ]
+      },
+      {
+        "category_id": "CAT_DEFESA_CIVIL",
+        "category_name": "Defesa Civil, Riscos & Emergências",
+        "subfolder": "DefesaCivil/",
+        "icon_count": 4,
+        "icons": [
+          {
+            "id": "area_risco_deslizamento",
+            "file": "area_risco_deslizamento.svg",
+            "label": "Área de Risco de Deslizamento (R1 a R4)",
+            "tags": [
+              "risco",
+              "deslizamento",
+              "encosta",
+              "defesa civil",
+              "alerta"
+            ],
+            "default_fill": "#ef4444",
+            "default_stroke": "#b91c1c",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,4 30,28 2,28' fill='param(fill) #ef4444' stroke='param(stroke) #b91c1c' stroke-width='2'/><text x='16' y='24' font-size='14' font-weight='bold' text-anchor='middle' fill='#ffffff'>!</text></svg>"
+          },
+          {
+            "id": "cota_inundacao_enchente",
+            "file": "cota_inundacao_enchente.svg",
+            "label": "Cota de Inundação / Alagamento",
+            "tags": [
+              "enchente",
+              "inundacao",
+              "alagamento",
+              "chuva",
+              "rio transbordado"
+            ],
+            "default_fill": "#0284c7",
+            "default_stroke": "#0369a1",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='param(fill) #0284c7' stroke='param(stroke) #0369a1' stroke-width='2'/><path d='M6 18 Q11 14 16 18 T26 18' fill='none' stroke='#ffffff' stroke-width='3'/></svg>"
+          },
+          {
+            "id": "sirene_alerta_evacuacao",
+            "file": "sirene_alerta_evacuacao.svg",
+            "label": "Sirene do Sistema de Alerta Precoce",
+            "tags": [
+              "sirene",
+              "alerta",
+              "evacuacao",
+              "sonoro",
+              "emergencia"
+            ],
+            "default_fill": "#f59e0b",
+            "default_stroke": "#b45309",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='12,10 20,4 20,28 12,22 6,22 6,10' fill='param(fill) #f59e0b' stroke='param(stroke) #b45309' stroke-width='2'/><path d='M24 10 A6 6 0 0 1 24 22' fill='none' stroke='param(stroke) #b45309' stroke-width='2'/></svg>"
+          },
+          {
+            "id": "ponto_encontro_evacuacao",
+            "file": "ponto_encontro_evacuacao.svg",
+            "label": "Ponto de Encontro de Emergência",
+            "tags": [
+              "encontro",
+              "seguro",
+              "evacuacao",
+              "defesa civil",
+              "abrigo"
+            ],
+            "default_fill": "#16a34a",
+            "default_stroke": "#15803d",
+            "default_stroke_width": 2.0,
+            "svg_template": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='4' width='24' height='24' rx='4' fill='param(fill) #16a34a' stroke='param(stroke) #15803d' stroke-width='2'/><circle cx='16' cy='16' r='4' fill='#ffffff'/></svg>"
+          }
+        ]
+      }
+    ]
+  },
+  "phase_4_blazor_ui_and_catalog_manager": {
+    "description": "Implementação dos Componentes Blazor e Novo Modal de Simbologia de Camada",
+    "directory": "GeoNex/Components/",
+    "components": [
+      {
+        "name": "SvgMarkerSelector.razor",
+        "file_path": "GeoNex/Components/Controls/SvgMarkerSelector.razor",
+        "action": "CREATE",
+        "kind": "Blazor Component",
+        "summary": "Seletor visual de marcadores vetoriais com catálogo categorizado, busca em tempo real e visualização prévia.",
+        "ui_features": [
+          "Abas laterais ou superiores navegáveis com as categorias de marcadores e badge com contagem de ícones",
+          "Barra de pesquisa instantânea com debounce de 150ms filtrando por nome de ícone, tags e sinônimos",
+          "Grid virtualizado de alta performance renderizando SVGs inline ou como imagens de cache rápido",
+          "Painel de pré-visualização interativo mostrando o ícone com a cor de preenchimento e contorno selecionados",
+          "Seletor de cor hexadecimal integrado com paleta de cores padrão QGIS e conta-gotas de tela",
+          "Botão de importação direta de arquivos SVG externos (.svg) arrastados ou selecionados do computador do usuário"
+        ],
+        "parameters": [
+          {
+            "name": "CurrentSvgPath",
+            "type": "string",
+            "direction": "[Parameter]"
+          },
+          {
+            "name": "FillColor",
+            "type": "string",
+            "direction": "[Parameter]"
+          },
+          {
+            "name": "StrokeColor",
+            "type": "string",
+            "direction": "[Parameter]"
+          },
+          {
+            "name": "StrokeWidth",
+            "type": "float",
+            "direction": "[Parameter]"
+          },
+          {
+            "name": "OnMarkerSelected",
+            "type": "EventCallback<string>",
+            "direction": "[Parameter]"
+          }
+        ]
+      },
+      {
+        "name": "CompositeSymbolLayerEditor.razor",
+        "file_path": "GeoNex/Components/Controls/CompositeSymbolLayerEditor.razor",
+        "action": "CREATE",
+        "kind": "Blazor Component",
+        "summary": "Editor multi-camadas que permite empilhar múltiplos marcadores (ex: base circular + ícone SVG no topo).",
+        "ui_features": [
+          "Lista vertical reordenável com botões de Subir / Descer ordem de sobreposição",
+          "Botões de Adicionar Sub-Camada (Marcador Simples, Marcador SVG, Marcador de Fonte Tipográfica)",
+          "Botão de Duplicar Sub-Camada e Excluir Sub-Camada",
+          "Checkbox de Ativar/Desativar camada individual para testes rápidos de composição",
+          "Controles numéricos de precisão para Tamanho (mm/pts), Rotação (°), Deslocamento X/Y (mm) e Opacidade (%)"
+        ],
+        "parameters": [
+          {
+            "name": "Symbol",
+            "type": "CompositePointSymbol",
+            "direction": "[Parameter]"
+          },
+          {
+            "name": "OnSymbolChanged",
+            "type": "EventCallback<CompositePointSymbol>",
+            "direction": "[Parameter]"
+          }
+        ]
+      },
+      {
+        "name": "LayerPropertiesModal.razor",
+        "file_path": "GeoNex/Components/Pages/LayerPropertiesModal.razor",
+        "action": "UPDATE",
+        "summary": "Integração da nova aba 'Simbologia de Marcadores' nas propriedades da camada.",
+        "target_tabs": [
+          "Informações Gerais",
+          "Campos e Atributos",
+          "Simbologia (Atualizada)",
+          "Rótulos",
+          "Filtro de Feições"
+        ],
+        "integration_steps": [
+          "Identificar quando a camada ativa for do tipo Ponto ou MultiPonto (GeometryType.Point / MultiPoint).",
+          "Carregar o CompositePointSymbol correspondente da camada.",
+          "Embutir o componente CompositeSymbolLayerEditor.razor como painel principal da aba de simbologia.",
+          "Vincular botão 'Aplicar' e 'OK' para persistir as alterações na instância de CamadaVetorial e disparar RefreshMap()."
+        ]
+      }
+    ]
+  },
+  "phase_5_interoperability_and_persistence": {
+    "description": "Serialização Nativa .GNX, Exportação e Importação de Estilos QGIS (.QML) e OGC SLD",
+    "directory": "GeoNex/Services/",
+    "components": [
+      {
+        "name": "QmlStyleInteropService",
+        "file_path": "GeoNex/Services/QmlStyleInteropService.cs",
+        "action": "CREATE",
+        "summary": "Motor bidirecional de interoperabilidade com arquivos de estilo QGIS (.qml).",
+        "features": [
+          "Parser XML compatível com a árvore <qgis><renderer-v2><symbols><symbol><layer class='...'>",
+          "Tradução de camadas <layer class='SvgMarker'> para SvgMarkerSymbolLayer com extração de caminhos relativos e cores",
+          "Tradução de camadas <layer class='SimpleMarker'> para SimpleMarkerSymbolLayer com mapeamento de formas geométricas",
+          "Exportação fiel gerando arquivos .qml que abrem perfeitamente no QGIS 3.28, 3.34 e 3.40 LTR sem avisos de erro",
+          "Mapeamento bidirecional de propriedades baseadas em dados (<data_defined_properties>)"
+        ]
+      },
+      {
+        "name": "SldStyleInteropService",
+        "file_path": "GeoNex/Services/SldStyleInteropService.cs",
+        "action": "CREATE",
+        "summary": "Exportador no padrão internacional OGC Styled Layer Descriptor (SLD 1.1.0).",
+        "features": [
+          "Geração de nós <PointSymbolizer> com <Graphic><ExternalGraphic> para marcadores SVG",
+          "Suporte a <Mark><WellKnownName> para símbolos simples (circle, square, triangle, cross, star)",
+          "Exportação de regras temáticas para GeoServer e MapServer"
+        ]
+      },
+      {
+        "name": "GnxProjectStore",
+        "file_path": "GeoNex/Services/GnxProjectStore.cs",
+        "action": "UPDATE",
+        "summary": "Garantia de persistência não destrutiva no banco SQLite do projeto .gnx.",
+        "features": [
+          "Serialização JSON polimórfica com System.Text.Json usando TypeDiscriminator para cada IMarkerSymbolLayer",
+          "Rotina de auto-upgrade: projetos legados contendo apenas cor/tamanho simples são convertidos de forma transparente",
+          "Recurso de 'Empacotar Projeto Portátil': ao exportar o .gnx, todos os SVGs personalizados são embutidos no arquivo"
+        ]
+      }
+    ]
+  },
+  "phase_6_automated_testing_and_benchmarks": {
+    "description": "Bateria de Testes Automatizados, Integridade Visual e Benchmarks de Stress",
+    "directory": "tests/TopografiaSigefTests/",
+    "test_suites": [
+      {
+        "suite_name": "SvgMarkerCatalogTests.cs",
+        "file_path": "tests/TopografiaSigefTests/SvgMarkerCatalogTests.cs",
+        "test_cases": [
+          {
+            "name": "DeveValidarQueTodosOs150IconesPossuemXmlValidoESintaxeSvgCorreta",
+            "expected": "Pass em 100% dos arquivos"
+          },
+          {
+            "name": "DeveValidarQueTodosOsIconesContemTagsParametrizadasDeFillEStroke",
+            "expected": "Nenhum ícone com cor estática fixa bloqueada"
+          },
+          {
+            "name": "DeveCompilarTodosOsIconesParaSKPictureSemLancarExcecao",
+            "expected": "Compilação SkiaSharp sem falhas de parse"
+          }
+        ]
+      },
+      {
+        "suite_name": "CompositeSymbolRenderTests.cs",
+        "file_path": "tests/TopografiaSigefTests/CompositeSymbolRenderTests.cs",
+        "test_cases": [
+          {
+            "name": "DeveRenderizarSimboloCompostoMultiCamadasCorretamenteEmBitmap",
+            "expected": "Bitmap gerado com as cores e camadas combinadas"
+          },
+          {
+            "name": "DeveAplicarRotacaoCorretaOrientadaPorCampoDeAzimute",
+            "expected": "Vetor desenhado no ângulo especificado pelo atributo"
+          },
+          {
+            "name": "DeveMapearTamanhoProporcionalLinearSemDistorcao",
+            "expected": "Escala gráfica consistente"
+          }
+        ]
+      },
+      {
+        "suite_name": "QmlInteropTests.cs",
+        "file_path": "tests/TopografiaSigefTests/QmlInteropTests.cs",
+        "test_cases": [
+          {
+            "name": "DeveImportarArquivoQmlComSvgMarkerEConverterParaModeloGeoNex",
+            "expected": "Objeto CompositePointSymbol idêntico ao original do QGIS"
+          },
+          {
+            "name": "DeveExportarModeloGeoNexParaQmlIdenticoAoPadraoQgis",
+            "expected": "Arquivo .qml legível pelo QGIS Desktop sem perda de atributos"
+          }
+        ]
+      },
+      {
+        "suite_name": "MarkerStressBenchmark.cs",
+        "file_path": "tests/TopografiaSigefTests/MarkerStressBenchmark.cs",
+        "benchmark_target": {
+          "feature_count": 100000,
+          "viewport_size": "1920x1080",
+          "max_frame_render_time_ms": 16.6,
+          "min_fps": 60.0,
+          "max_vram_allocation_mb": 128.0
+        }
+      }
+    ]
+  },
+  "detailed_execution_checklist_by_engineer": [
+    {
+      "step": 1,
+      "action": "Criar diretório GeoNex/Core/Symbology/ para acomodar os novos modelos de domínio.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 2,
+      "action": "Implementar a interface IMarkerSymbolLayer.cs com propriedades universais de estilo.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 3,
+      "action": "Implementar SimpleMarkerSymbolLayer.cs com suporte a 18 formas geométricas vetoriais.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 4,
+      "action": "Implementar SvgMarkerSymbolLayer.cs com suporte a caminhos e XML embutido.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 5,
+      "action": "Implementar FontMarkerSymbolLayer.cs para suporte a fontes tipográficas de mapas.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 6,
+      "action": "Implementar CompositePointSymbol.cs com métodos de reordenação e composição visual.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 7,
+      "action": "Implementar DataDefinedPropertyCollection.cs para permitir vínculo com colunas de dados.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 8,
+      "action": "Criar árvore de diretórios GeoNex/Assets/Markers/ e as 10 subpastas temáticas.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 9,
+      "action": "Criar os 150 arquivos .svg vetorizados limpos contendo injeção param(fill) e param(stroke).",
+      "status": "APPROVED"
+    },
+    {
+      "step": 10,
+      "action": "Configurar GeoNex.csproj para embutir os SVGs como EmbeddedResource ou CopyToOutputDirectory.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 11,
+      "action": "Implementar SvgCompilationService.cs com substituição em memória e cache SKPicture.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 12,
+      "action": "Implementar MarkerGpuAtlas.cs para aceleração gráfica em lote via SKCanvas.DrawAtlas.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 13,
+      "action": "Implementar SkiaMarkerEngine.cs centralizando todo o despacho de renderização.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 14,
+      "action": "Atualizar LocalMapServer.cs substituindo o renderizador arcaico de pontos pelo novo motor.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 15,
+      "action": "Implementar componente Blazor SvgMarkerSelector.razor com catálogo, busca e filtros.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 16,
+      "action": "Implementar componente CompositeSymbolLayerEditor.razor para montagem multi-nível.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 17,
+      "action": "Atualizar LayerPropertiesModal.razor integrando a nova aba de marcadores à camada ativa.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 18,
+      "action": "Implementar QmlStyleInteropService.cs para importação e exportação de estilos do QGIS.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 19,
+      "action": "Implementar SldStyleInteropService.cs para suporte a OGC SLD 1.1.0.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 20,
+      "action": "Atualizar GnxProjectStore.cs para salvar e carregar símbolos compostos no arquivo de projeto .gnx.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 21,
+      "action": "Criar e rodar a suíte de testes unitários SvgMarkerCatalogTests.cs.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 22,
+      "action": "Criar e rodar os testes de renderização CompositeSymbolRenderTests.cs.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 23,
+      "action": "Executar benchmark de stress de 100.000 pontos verificando 60 FPS e zero alocação de heap.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 24,
+      "action": "Testar interoperabilidade abrindo estilos .qml exportados pelo GeoNex dentro do QGIS Desktop.",
+      "status": "APPROVED"
+    },
+    {
+      "step": 25,
+      "action": "Realizar build limpo em modo Release, validar 0 warnings e atualizar binários em Publish/.",
+      "status": "APPROVED"
+    }
+  ],
+  "verification_acceptance_criteria": {
+    "functional_acceptance": [
+      "O usuário abre qualquer camada vetorial de pontos e tem acesso imediato à galeria completa de mais de 150 ícones estilo QGIS.",
+      "O usuário altera cor de preenchimento, contorno e espessura e visualiza o resultado em tempo real no mapa sem atrasos.",
+      "O usuário adiciona múltiplas camadas ao mesmo símbolo (ex: base circular branca + marco INCRA azul no centro).",
+      "O usuário vincula o campo AZIMUTE à rotação e vê os ícones girarem automaticamente conforme os dados geográficos.",
+      "O projeto é salvo e reaberto mantendo com 100% de fidelidade os símbolos, camadas e cores escolhidas.",
+      "Arquivos .qml do QGIS são importados e exportados mantendo equivalência visual idêntica."
+    ],
+    "performance_acceptance": [
+      "Taxa de quadros estável em 60 FPS durante Pan e Zoom dinâmico com até 100.000 pontos visíveis na tela.",
+      "Frame time médio inferior a 16.6ms em monitor de resolução Full HD (1920x1080) e 4K.",
+      "Zero alocações de memória heap (0 B) dentro do loop crítico de renderização de feições.",
+      "Consumo de VRAM estabilizado em menos de 128 MB para o atlas de texturas GPU."
+    ]
+  },
+  "troubleshooting_and_edge_cases_matrix": [
+    {
+      "case_id": "TC_001",
+      "problem": "Arquivo SVG externo fornecido pelo usuário contém tags ou entidades XML inválidas",
+      "resolution": "SvgCompilationService intercepta XmlException, registra log de warning e renderiza marcador de fallback (círculo com cruz de advertência) sem travar a aplicação."
+    },
+    {
+      "case_id": "TC_002",
+      "problem": "Projeto legado .gnx criado na versão anterior do GeoNex não possui campos de simbologia composta",
+      "resolution": "GnxProjectStore aciona rotina de up-conversion transparente que empacota a cor e tamanho antigos em um CompositePointSymbol com uma única sub-camada SimpleMarker."
+    },
+    {
+      "case_id": "TC_003",
+      "problem": "Camada com mais de 500.000 pontos em zoom afastado sobrecarrega a GPU",
+      "resolution": "SkiaMarkerEngine ativa automaticamente agrupamento espacial (clustering) em grade e desenha pontos agregados com contador numérico."
+    },
+    {
+      "case_id": "TC_004",
+      "problem": "Fonte tipográfica utilizada em FontMarkerSymbolLayer não está instalada na máquina do usuário",
+      "resolution": "O motor SkiaSharp detecta ausência da fonte através do SKTypeface.FromFile/FromFamilyName e utiliza SKTypeface.Default com contorno de advertência."
+    },
+    {
+      "case_id": "TC_005",
+      "problem": "Atlas de textura GPU esgota seu espaço útil de 2048x2048 com milhares de variantes de marcadores diferentes",
+      "resolution": "MarkerGpuAtlas aciona FlushAndReset com política LRU, mantendo no atlas apenas os marcadores visíveis no viewport corrente."
+    }
+  ]
+}
