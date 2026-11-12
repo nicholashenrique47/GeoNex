@@ -92,7 +92,7 @@ public partial class Home
         novaCamadaNome = string.Empty;
         novaCamadaFormato = formato;
         novaCamadaGeometria = "POLIGONO";
-        novaCamadaCrs = "EPSG:31982";
+        novaCamadaCrs = !string.IsNullOrWhiteSpace(MapService.ProjetoSRS) ? MapService.ProjetoSRS : "EPSG:3857";
         pastaDestinoSelecionada = string.Empty;
         exibirModalNovaCamada = true;
         FecharMenusSuperiores();

@@ -104,8 +104,38 @@ public partial class Home
         if (string.IsNullOrWhiteSpace(nomeCamada)) return;
 
         nomeCamadaAtiva = nomeCamada;
-        var camada = CamadasAtivas.FirstOrDefault(c => string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase));
+        var camada = CamadasAtivas.FirstOrDefault(c =>
+            string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Path.GetFileNameWithoutExtension(c.Nome), Path.GetFileNameWithoutExtension(nomeCamada), StringComparison.OrdinalIgnoreCase));
         string? caminho = camada?.CaminhoArquivo;
+
+        if (string.IsNullOrWhiteSpace(caminho) || !File.Exists(caminho))
+        {
+            caminho = AttributeSession.ObterCaminhoCamada(nomeCamada);
+        }
+
+        if (string.IsNullOrWhiteSpace(caminho) || !File.Exists(caminho))
+        {
+            using var shpLease = MapService.AcquireShapefile(nomeCamada);
+            if (shpLease?.Resource?.DbfPath != null && File.Exists(shpLease.Resource.DbfPath))
+            {
+                string shpCandidate = Path.ChangeExtension(shpLease.Resource.DbfPath, ".shp");
+                caminho = File.Exists(shpCandidate) ? shpCandidate : shpLease.Resource.DbfPath;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(caminho) || !File.Exists(caminho))
+        {
+            var camadaProj = ProjetoService.ProjetoAtual?.Camadas.FirstOrDefault(c =>
+                string.Equals(c.Nome, nomeCamada, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Path.GetFileNameWithoutExtension(c.Nome), Path.GetFileNameWithoutExtension(nomeCamada), StringComparison.OrdinalIgnoreCase));
+            caminho = camadaProj?.CaminhoFonteOriginal;
+        }
+
+        if (!string.IsNullOrWhiteSpace(caminho) && File.Exists(caminho))
+        {
+            AttributeSession.RegistrarCaminhoCamada(nomeCamada, caminho);
+        }
 
         AttributeSession.DefinirCamadaAtiva(nomeCamada, caminho);
 

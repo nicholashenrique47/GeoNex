@@ -5258,8 +5258,16 @@
                         <div class="form-group-vertical">
                             <label class="gis-label">SISTEMA DE REFERÊNCIA (CRS)</label>
                             <select class="gis-select" @bind="novaCamadaCrs">
+                                @if (!string.IsNullOrWhiteSpace(MapService.ProjetoSRS))
+                                {
+                                    <option value="@MapService.ProjetoSRS">@MapService.ProjetoSRS (SRC Atual do Projeto)</option>
+                                }
                                 <option value="EPSG:31982">EPSG:31982 - SIRGAS 2000 / UTM 22S</option>
-                                <option value="EPSG:4326">EPSG:4326 - WGS 84</option>
+                                <option value="EPSG:31983">EPSG:31983 - SIRGAS 2000 / UTM 23S</option>
+                                <option value="EPSG:31984">EPSG:31984 - SIRGAS 2000 / UTM 24S</option>
+                                <option value="EPSG:4674">EPSG:4674 - SIRGAS 2000 (Geográfico)</option>
+                                <option value="EPSG:4326">EPSG:4326 - WGS 84 (Geográfico)</option>
+                                <option value="EPSG:3857">EPSG:3857 - WGS 84 / Pseudo-Mercator</option>
                             </select>
                         </div>
                     </div>
@@ -8233,7 +8241,7 @@
     private string novaCamadaNome = "";
     private string novaCamadaFormato = "SHP";
     private string novaCamadaGeometria = "POLIGONO";
-    private string novaCamadaCrs = "EPSG:31982";
+    private string novaCamadaCrs = "EPSG:3857";
     private string pastaDestinoSelecionada = "";
 
     // Propriedade Reativa: Monta o caminho automaticamente
@@ -8348,8 +8356,11 @@
             }
 
             // 3. Configura a Matriz Espacial (O ficheiro .prj)
-            string crsInput = !string.IsNullOrWhiteSpace(novaCamadaCrs) ? novaCamadaCrs : MapService.ProjetoSRS;
+            string crsInput = !string.IsNullOrWhiteSpace(novaCamadaCrs)
+                ? novaCamadaCrs
+                : (!string.IsNullOrWhiteSpace(MapService.ProjetoSRS) ? MapService.ProjetoSRS : "EPSG:3857");
             using OSGeo.OSR.SpatialReference srs = SrsFactory.FromUserInput(crsInput);
+            srs.SetAxisMappingStrategy(OSGeo.OSR.AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
             // 4. Mapeia a Arquitetura da Geometria do OGR
             OSGeo.OGR.wkbGeometryType wkbTipo = novaCamadaGeometria switch
             {
@@ -8385,6 +8396,20 @@
             // 6. Fecha o bloqueio do Windows (Liberta os ficheiros criados)
             layer.Dispose();
             ds.Dispose();
+
+            // Grava explicitamente o .prj no disco para compatibilidade máxima com QGIS e leitores nativos
+            try
+            {
+                string caminhoPrj = System.IO.Path.ChangeExtension(caminhoFinal, ".prj");
+                using var cloneSrs = srs.Clone();
+                cloneSrs.MorphToESRI();
+                cloneSrs.ExportToWkt(out string prjWkt, null);
+                if (!string.IsNullOrWhiteSpace(prjWkt))
+                    System.IO.File.WriteAllText(caminhoPrj, prjWkt);
+            }
+            catch { }
+
+            AttributeSession.RegistrarCaminhoCamada(nomeFicheiroLimpo, caminhoFinal);
 
             // =====================================================================
             // >>> 3. ALOCAÇÃO NA MEMÓRIA DA INTERFACE DO GEONEX
@@ -9773,6 +9798,9 @@
                 inserirNoInicio: true,
                 reservaDoChamador: true))
                 throw new InvalidOperationException($"A camada '{nomeArquivo}' já existe no mapa.");
+
+            AttributeSession.RegistrarCaminhoCamada(nomeArquivo, caminhoCompilado);
+            AttributeSession.RegistrarCaminhoCamada(nomeArquivo, caminhoFonte);
             if (_camadaBaseProjeto is null)
                 _camadaBaseProjeto = nomeArquivo;
 

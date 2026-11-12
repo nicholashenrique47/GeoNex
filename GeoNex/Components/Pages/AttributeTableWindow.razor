@@ -686,6 +686,11 @@
         {
             if (!lista.Contains(kv.Key)) lista.Add(kv.Key);
         }
+        foreach (var name in MapService.OrdemCamadas)
+        {
+            if (!lista.Contains(name) && !name.StartsWith("osm_", StringComparison.OrdinalIgnoreCase) && !name.StartsWith("google_", StringComparison.OrdinalIgnoreCase))
+                lista.Add(name);
+        }
         return lista;
     }
 
@@ -694,6 +699,8 @@
         string? nova = e.Value?.ToString();
         if (!string.IsNullOrEmpty(nova))
         {
+            string? cam = AttributeSession.ObterCaminhoCamada(nova);
+            AttributeSession.DefinirCamadaAtiva(nova, cam);
             await CarregarCamadaAsync(nova);
         }
     }
@@ -711,7 +718,18 @@
 
         try
         {
-            string? caminho = AttributeSession.CamadaAtivaCaminho;
+            string? caminho = null;
+            if (string.Equals(AttributeSession.CamadaAtivaNome, nomeCamada, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(AttributeSession.CamadaAtivaCaminho) && File.Exists(AttributeSession.CamadaAtivaCaminho))
+            {
+                caminho = AttributeSession.CamadaAtivaCaminho;
+            }
+
+            if (string.IsNullOrEmpty(caminho) || !File.Exists(caminho))
+            {
+                caminho = AttributeSession.ObterCaminhoCamada(nomeCamada);
+            }
+
             if (string.IsNullOrEmpty(caminho) || !File.Exists(caminho))
             {
                 var camada = ProjetoService.ProjetoAtual?.Camadas.FirstOrDefault(c =>
@@ -720,8 +738,19 @@
                 caminho = camada?.CaminhoFonteOriginal;
             }
 
+            if (string.IsNullOrEmpty(caminho) || !File.Exists(caminho))
+            {
+                using var shpLease = MapService.AcquireShapefile(nomeCamada);
+                if (shpLease?.Resource?.DbfPath != null && File.Exists(shpLease.Resource.DbfPath))
+                {
+                    string candidateShp = Path.ChangeExtension(shpLease.Resource.DbfPath, ".shp");
+                    caminho = File.Exists(candidateShp) ? candidateShp : shpLease.Resource.DbfPath;
+                }
+            }
+
             if (!string.IsNullOrEmpty(caminho) && File.Exists(caminho))
             {
+                AttributeSession.RegistrarCaminhoCamada(nomeCamada, caminho);
                 _attributeProvider?.Dispose();
                 var ogrProv = new OgrAttributeDataProvider(caminho, nomeCamada);
                 ogrProv.BeforeSchemaChangeAsync = async () =>
@@ -733,15 +762,13 @@
                 {
                     try
                     {
-                        var (features, shpData) = FastShapeReader.ReadAllFeatures(
-                            caminho, nomeCamada, MapService.OffsetMundoX, MapService.OffsetMundoY);
-                        shpData.LayerSRS = MapService.ProjetoSRS;
-                        MapService.FeaturesPorCamada[nomeCamada] = features;
-                        MapService.PublishShapefile(nomeCamada, shpData);
+                        ProjetoService.CarregarShapefileParaMotorMapas(caminho, nomeCamada, MapService);
+                        MapService.InvalidateGlobalCache();
                         MapService.RequestRedraw();
                     }
-                    catch
+                    catch (Exception reloadEx)
                     {
+                        Console.Error.WriteLine($"[AttributeTable] Falha ao recarregar {nomeCamada}: {reloadEx.Message}");
                     }
                     await Task.CompletedTask;
                 };
@@ -865,6 +892,8 @@
             _txManager.Clear();
             _statusMessage = "Alterações salvas com sucesso.";
             await CarregarPaginaAsync();
+            MapService.InvalidateGlobalCache();
+            MapService.RequestRedraw();
         }
         catch (Exception ex)
         {

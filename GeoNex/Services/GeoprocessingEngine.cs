@@ -83,12 +83,20 @@ namespace GeoNex.Services
                         return new GeoprocessingResult(false, 0, null, "A camada de entrada não possui feições válidas para processamento.");
                     }
 
+                    if (srsEntrada == null && !string.IsNullOrWhiteSpace(srsProjeto))
+                    {
+                        srsEntrada = SrsFactory.FromUserInput(srsProjeto);
+                    }
+                    srsEntrada?.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+
                     // Se a camada de entrada estiver em CRS geográfico (graus, ex: EPSG:4326 ou EPSG:4674),
                     // reprojetamos temporariamente para UTM métrico local para que distâncias/áreas em metros
                     // funcionem sem distorção ou offset.
                     using SpatialReference? srsProcessamento = (srsEntrada != null && srsEntrada.IsGeographic() == 1)
                         ? CriarSrsUtmLocal(feicoesEntrada)
                         : null;
+                    srsProcessamento?.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+
                     SpatialReference? srsAlvoOperacao = srsProcessamento ?? srsEntrada;
                     using CoordinateTransformation? toMetric = (srsEntrada != null && srsProcessamento != null)
                         ? new CoordinateTransformation(srsEntrada, srsProcessamento)
@@ -574,6 +582,12 @@ namespace GeoNex.Services
                 }
             }
 
+            if (srs == null && !string.IsNullOrWhiteSpace(srsProjeto))
+            {
+                srs = SrsFactory.FromUserInput(srsProjeto);
+            }
+            srs?.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+
             CoordinateTransformation? transform = null;
             if (srs != null && targetSrs != null && srs.IsSame(targetSrs, null) != 1)
             {
@@ -785,6 +799,7 @@ namespace GeoNex.Services
                 _ => wkbGeometryType.wkbPolygon
             };
 
+            srs?.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
             using var layer = ds.CreateLayer(baseName, srs, geomTypeOgr, []);
             if (layer == null)
                 throw new IOException($"Falha ao criar camada Shapefile '{baseName}'.");
@@ -827,9 +842,33 @@ namespace GeoNex.Services
                 var geomParaSalvar = f.Geometry is LinearRing lr 
                     ? (f.Geometry.Factory?.CreateLineString(lr.CoordinateSequence) ?? new LineString(lr.Coordinates)) 
                     : f.Geometry;
+
+                if (geomTypeOgr == wkbGeometryType.wkbPolygon && geomParaSalvar.Dimension != NetTopologySuite.Geometries.Dimension.Surface)
+                {
+                    var polys = NetTopologySuite.Geometries.Utilities.PolygonExtracter.GetPolygons(geomParaSalvar).Cast<Polygon>().ToArray();
+                    if (polys.Length == 1) geomParaSalvar = polys[0];
+                    else if (polys.Length > 1) geomParaSalvar = geomParaSalvar.Factory.CreateMultiPolygon(polys);
+                    else continue;
+                }
+                else if (geomTypeOgr == wkbGeometryType.wkbLineString && geomParaSalvar.Dimension != NetTopologySuite.Geometries.Dimension.Curve)
+                {
+                    var lines = NetTopologySuite.Geometries.Utilities.LineStringExtracter.GetLines(geomParaSalvar).Cast<LineString>().ToArray();
+                    if (lines.Length == 1) geomParaSalvar = lines[0];
+                    else if (lines.Length > 1) geomParaSalvar = geomParaSalvar.Factory.CreateMultiLineString(lines);
+                    else continue;
+                }
+                else if (geomTypeOgr == wkbGeometryType.wkbPoint && geomParaSalvar.Dimension != NetTopologySuite.Geometries.Dimension.Point)
+                {
+                    var points = NetTopologySuite.Geometries.Utilities.PointExtracter.GetPoints(geomParaSalvar).Cast<Point>().ToArray();
+                    if (points.Length == 1) geomParaSalvar = points[0];
+                    else if (points.Length > 1) geomParaSalvar = geomParaSalvar.Factory.CreateMultiPoint(points);
+                    else continue;
+                }
+
                 string wkt = wktWriter.Write(geomParaSalvar);
                 using var ogrGeom = OgrGeometry.CreateFromWkt(wkt);
                 if (ogrGeom == null) continue;
+                ogrGeom.FlattenTo2D();
 
                 using var ogrFeat = new OSGeo.OGR.Feature(layerDefn);
                 ogrFeat.SetGeometry(ogrGeom);
@@ -860,6 +899,20 @@ namespace GeoNex.Services
             }
 
             layer.SyncToDisk();
+
+            if (srs != null)
+            {
+                try
+                {
+                    string prjPath = Path.Combine(dir, $"{baseName}.prj");
+                    using var cloneSrs = srs.Clone();
+                    cloneSrs.MorphToESRI();
+                    cloneSrs.ExportToWkt(out string prjWkt, null);
+                    if (!string.IsNullOrWhiteSpace(prjWkt))
+                        File.WriteAllText(prjPath, prjWkt);
+                }
+                catch { }
+            }
 
             // Gravar arquivo .cpg com codificação UTF-8
             try

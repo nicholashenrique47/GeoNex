@@ -11,6 +11,7 @@
     <Compile Include="../../GeoNex/Services/VectorOverlayAlgorithms.cs" Link="VectorOverlayAlgorithms.cs" />
     <Compile Include="../../GeoNex/Services/VectorAggregationAlgorithms.cs" Link="VectorAggregationAlgorithms.cs" />
     <Compile Include="../../GeoNex/Services/VectorGeometryAlgorithms.cs" Link="VectorGeometryAlgorithms.cs" />
+    <Compile Include="../../GeoNex/Services/VectorEditPersistenceService.cs" Link="VectorEditPersistenceService.cs" />
     <Compile Include="../../GeoNex/Services/GeoprocessingEngine.cs" Link="GeoprocessingEngine.cs" />
     <Compile Include="../../GeoNex/Services/LabelPlacementEngine.cs" Link="LabelPlacementEngine.cs" />
     <Compile Include="../../GeoNex/Services/SrsFactory.cs" Link="SrsFactory.cs" />
